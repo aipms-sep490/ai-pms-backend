@@ -1,12 +1,18 @@
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Domain.Entities;
 using AIPMS.Domain.Enums;
+using MediatR;
 
 namespace AIPMS.Application.Features.Projects.Queries.GetProjectLifecycle;
 
-public sealed class GetProjectLifecycleQuery
+public sealed record GetProjectLifecycleQuery : IRequest<ProjectLifecycleDto>;
+
+public sealed class GetProjectLifecycleQueryHandler
+    : IRequestHandler<GetProjectLifecycleQuery, ProjectLifecycleDto>
 {
-    public ProjectLifecycleDto Execute()
+    public Task<ProjectLifecycleDto> Handle(
+        GetProjectLifecycleQuery request,
+        CancellationToken cancellationToken)
     {
         var states = Enum.GetValues<ProjectStatus>()
             .Select(status => new ProjectStateDto(
@@ -16,6 +22,6 @@ public sealed class GetProjectLifecycleQuery
                     .ToArray()))
             .ToArray();
 
-        return new ProjectLifecycleDto(states);
+        return Task.FromResult(new ProjectLifecycleDto(states));
     }
 }

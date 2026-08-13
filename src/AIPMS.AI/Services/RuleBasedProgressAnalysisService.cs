@@ -6,8 +6,6 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
 {
     public ProgressAnalysisResult Analyze(ProgressAnalysisInput input)
     {
-        Validate(input);
-
         if (input.TotalTasks == 0)
         {
             return new ProgressAnalysisResult(
@@ -65,23 +63,4 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
             : "LOW";
     }
 
-    private static void Validate(ProgressAnalysisInput input)
-    {
-        if (input.TotalTasks < 0 || input.OverdueTasks < 0 || input.BlockedTasks < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(input), "Task counts cannot be negative.");
-        }
-
-        if (input.OverdueTasks > input.TotalTasks || input.BlockedTasks > input.TotalTasks)
-        {
-            throw new ArgumentException("Overdue and blocked task counts cannot exceed total tasks.");
-        }
-
-        if (input.MilestoneCompletionRate is < 0 or > 1)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(input),
-                "Milestone completion rate must be between 0 and 1.");
-        }
-    }
 }

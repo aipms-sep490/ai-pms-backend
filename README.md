@@ -28,7 +28,7 @@ Domain has no dependency on another AI-PMS project. Application groups code by b
 
 Requirements: .NET 8 SDK. SQL Server is only required for endpoints that access persistence.
 
-Copy `src/AIPMS.Api/appsettings.example.json` to `src/AIPMS.Api/appsettings.json`, then adjust the local connection string. Real `appsettings*.json` files are intentionally ignored by Git.
+Copy `src/AIPMS.Api/appsettings.example.json` to `src/AIPMS.Api/appsettings.json`, then adjust the local connection string. Environment-specific examples are provided for Development, Staging and Production. Real `appsettings*.json` files are intentionally ignored by Git.
 
 ```powershell
 dotnet restore AIPMS.sln
@@ -43,14 +43,38 @@ Swagger is available at `http://localhost:5080/swagger`. The initial endpoints a
 
 To start SQL Server and Redis, copy `.env.example` to `.env`, change the local password, then run `docker compose up -d`.
 
-## Database migrations
+## Database First workflow
+
+The SQL Server schema is the source of truth. EF Core reverse engineering writes only to `Infrastructure/Persistence/Generated`; do not use migrations to create or update the shared database.
+
+Generated models stay inside Infrastructure. Repositories use them for persistence and mappers convert them to Domain entities or Application projections. Never add business logic to a generated file.
+
+Set `ConnectionStrings:DefaultConnection` with User Secrets or the `ConnectionStrings__DefaultConnection` environment variable, then run:
 
 ```powershell
-dotnet ef migrations add InitialCreate --project src/AIPMS.Infrastructure --startup-project src/AIPMS.Api --output-dir Persistence/Migrations
-dotnet ef database update --project src/AIPMS.Infrastructure --startup-project src/AIPMS.Api
+dotnet tool restore
+./scripts/scaffold-database.ps1 -Force
 ```
 
-Override `ConnectionStrings__DefaultConnection` for environments that do not use Windows authentication.
+`-Force` replaces the bootstrap context and overwrites files generated for the current schema. If a table was removed or renamed, delete its stale generated model after reviewing the diff. The repository pins `dotnet-ef` to the same EF Core 8 patch used by Infrastructure so all team members generate consistent output.
+
+## Configuration and logging
+
+- CORS and observability settings are bound to strongly typed options and validated when the application starts.
+- Invalid or missing CORS origins stop startup instead of failing during a request.
+- Serilog writes human-readable console events and rolling compact-JSON files under `logs/` by default.
+- Override nested settings with environment variables such as `Cors__AllowedOrigins__0` and `Observability__MinimumLevel`.
+
+## Error responses
+
+The global exception middleware returns RFC-compatible `ProblemDetails` with a trace id. Application exceptions map consistently: validation to 400, forbidden to 403, not found to 404, conflict to 409, domain-rule violations to 422 and unexpected failures to 500.
+
+## Validation and dependency injection
+
+- Commands and queries run through MediatR; FluentValidation validators execute automatically before their handlers.
+- Each composition-aware layer exposes one registration method: `AddApplication()`, `AddInfrastructure()`, `AddAI()` and `AddApi()`.
+- MediatR handlers, validators and stateless AI services are transient. EF Core `DbContext` remains scoped. Options and CORS configuration use framework-managed singleton registrations.
+- Domain intentionally has no dependency-injection registration because it contains pure business code and references no framework.
 
 ## Rules for feature work
 

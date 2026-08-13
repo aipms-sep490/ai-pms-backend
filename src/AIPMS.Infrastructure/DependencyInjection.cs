@@ -1,4 +1,4 @@
-using AIPMS.Infrastructure.Persistence;
+using AIPMS.Infrastructure.Persistence.Generated;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
