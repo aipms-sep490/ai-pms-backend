@@ -1,0 +1,50 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Aa]rtifacts/
+[Pp]ublish/
+
+# Test and coverage output
+[Tt]est[Rr]esults/
+[Cc]overage/
+[Cc]overage[Rr]eports/
+*.coverage
+*.coveragexml
+*.trx
+
+# NuGet packages
+*.nupkg
+*.snupkg
+packages/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+appsettings.json
+appsettings.*.json
+!appsettings.example.json
+!appsettings.*.example.json
+
+# IDE and editor state
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+_ReSharper*/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+~$*
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini

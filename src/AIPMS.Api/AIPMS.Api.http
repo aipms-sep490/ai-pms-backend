@@ -1,0 +1,21 @@
+@AIPMS_Api_HostAddress = http://localhost:5080
+
+GET {{AIPMS_Api_HostAddress}}/api/system
+Accept: application/json
+
+###
+
+GET {{AIPMS_Api_HostAddress}}/api/projects/lifecycle
+Accept: application/json
+
+###
+
+POST {{AIPMS_Api_HostAddress}}/api/ai/insights/progress
+Content-Type: application/json
+
+{
+  "totalTasks": 10,
+  "overdueTasks": 3,
+  "blockedTasks": 2,
+  "milestoneCompletionRate": 0.45
+}
