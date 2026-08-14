@@ -6,6 +6,19 @@ namespace AIPMS.IntegrationTests;
 public sealed class ConfigurationValidationTests
 {
     [Fact]
+    public void Start_MissingDefaultConnection_FailsConfigurationValidation()
+    {
+        using var factory = new MissingDatabaseConnectionWebApplicationFactory();
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains(
+            "DefaultConnection is not configured.",
+            exception.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Start_InvalidCorsOrigin_FailsConfigurationValidation()
     {
         using var factory = new InvalidCorsWebApplicationFactory();
@@ -28,6 +41,22 @@ public sealed class ConfigurationValidationTests
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Cors:AllowedOrigins:0"] = "not-an-origin"
+                });
+            });
+        }
+    }
+
+    private sealed class MissingDatabaseConnectionWebApplicationFactory
+        : AipmsWebApplicationFactory
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.ConfigureAppConfiguration((_, configuration) =>
+            {
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["ConnectionStrings:DefaultConnection"] = string.Empty
                 });
             });
         }

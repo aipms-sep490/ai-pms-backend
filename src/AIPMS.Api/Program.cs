@@ -7,9 +7,7 @@ using AIPMS.Infrastructure;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure(
-    builder.Configuration.GetConnectionString("DefaultConnection")
-        ?? throw new InvalidOperationException("DefaultConnection is not configured."));
+builder.Services.AddInfrastructure();
 builder.Services.AddAI();
 builder.Services.AddApi();
 
