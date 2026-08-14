@@ -28,7 +28,9 @@ Domain has no dependency on another AI-PMS project. Application groups code by b
 
 Requirements: .NET 8 SDK. SQL Server is only required for endpoints that access persistence.
 
-Copy `src/AIPMS.Api/appsettings.example.json` to `src/AIPMS.Api/appsettings.json`, then adjust the local connection string. Environment-specific examples are provided for Development, Staging and Production. Real `appsettings*.json` files are intentionally ignored by Git.
+Team members should follow the Vietnamese onboarding guide in [`docs/LOCAL_SETUP.md`](docs/LOCAL_SETUP.md). It explains database secrets, local JWT setup, build, test and Docker/server configuration.
+
+Copy `src/AIPMS.Api/appsettings.example.json` to `src/AIPMS.Api/appsettings.json`, then store the local connection string and JWT signing key with User Secrets as described in the setup guide. Environment-specific examples are provided for Development, Staging and Production. Real `appsettings*.json` files are intentionally ignored by Git.
 
 ```powershell
 dotnet restore AIPMS.sln
@@ -37,9 +39,22 @@ dotnet run --project src/AIPMS.Api
 
 Swagger is available at `http://localhost:5080/swagger`. The initial endpoints are:
 
-- `GET /api/system`
-- `GET /api/projects/lifecycle`
-- `POST /api/ai/insights/progress`
+- `POST /api/v1/auth/login`
+- `GET /api/v1/auth/me`
+- `GET /api/v1/system`
+- `GET /api/v1/projects/lifecycle`
+- `POST /api/v1/ai/insights/progress`
+
+Store the JWT signing key outside Git. For local development, configure User Secrets:
+
+```powershell
+dotnet user-secrets set "Jwt:SigningKey" "use-a-random-secret-with-at-least-32-characters" --project src/AIPMS.Api
+dotnet user-secrets set "Jwt:Issuer" "AI-PMS" --project src/AIPMS.Api
+dotnet user-secrets set "Jwt:Audience" "AI-PMS.Client" --project src/AIPMS.Api
+dotnet user-secrets set "Jwt:AccessTokenMinutes" "60" --project src/AIPMS.Api
+```
+
+For Docker or deployment, use the `Jwt__SigningKey` environment variable instead.
 
 To start SQL Server and Redis, copy `.env.example` to `.env`, change the local password, then run `docker compose up -d`.
 
@@ -75,6 +90,14 @@ The global exception middleware returns RFC-compatible `ProblemDetails` with a t
 - Each composition-aware layer exposes one registration method: `AddApplication()`, `AddInfrastructure()`, `AddAI()` and `AddApi()`.
 - MediatR handlers, validators and stateless AI services are transient. EF Core `DbContext` remains scoped. Options and CORS configuration use framework-managed singleton registrations.
 - Domain intentionally has no dependency-injection registration because it contains pure business code and references no framework.
+
+## Authentication and authorization
+
+- Authentication uses bearer JWTs. Except for actions marked `[AllowAnonymous]`, the API requires an authenticated user by default.
+- Use the constants in `AppRoles` and `AuthorizationPolicies`; do not repeat role or policy strings in controllers.
+- Application handlers obtain the signed-in user through `ICurrentUser`; they must not read `HttpContext` or parse JWT claims.
+- Endpoints scoped to a project should expose a `{projectId:long}` route value and use `[RequireProjectAccess]` to enforce membership, supervision or academic-management access.
+- Password verification, token creation and persistence queries stay in Infrastructure behind Application abstractions.
 
 ## Rules for feature work
 

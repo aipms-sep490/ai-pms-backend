@@ -1,4 +1,9 @@
+using AIPMS.Api.Security;
+using AIPMS.Application.Abstractions.Security;
+using AIPMS.Application.Common.Security;
 using AIPMS.Api.Configuration;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
@@ -18,6 +23,42 @@ public static class DependencyInjection
                 static settings => settings.AllowedOrigins.All(IsAbsoluteHttpOrigin),
                 "Every CORS origin must be an absolute HTTP or HTTPS URL.")
             .ValidateOnStart();
+
+        services.AddHttpContextAccessor();
+        services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
+        services.AddScoped<IAuthorizationHandler, ProjectAccessAuthorizationHandler>();
+        services.AddSingleton<IConfigureOptions<JwtBearerOptions>, ConfigureJwtBearerOptions>();
+
+        services
+            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer();
+
+        services.AddAuthorization(options =>
+        {
+            options.FallbackPolicy = new AuthorizationPolicyBuilder()
+                .RequireAuthenticatedUser()
+                .Build();
+
+            options.AddPolicy(
+                AuthorizationPolicies.AdminOnly,
+                policy => policy.RequireRole(AppRoles.Admin));
+            options.AddPolicy(
+                AuthorizationPolicies.AcademicManagement,
+                policy => policy.RequireRole(AppRoles.Admin, AppRoles.DepartmentStaff));
+            options.AddPolicy(
+                AuthorizationPolicies.LecturerOnly,
+                policy => policy.RequireRole(AppRoles.Lecturer));
+            options.AddPolicy(
+                AuthorizationPolicies.StudentOnly,
+                policy => policy.RequireRole(AppRoles.Student));
+            options.AddPolicy(
+                AuthorizationPolicies.ProjectAccess,
+                policy =>
+                {
+                    policy.RequireAuthenticatedUser();
+                    policy.AddRequirements(new ProjectAccessRequirement());
+                });
+        });
 
         services.AddOptions<ObservabilitySettings>()
             .BindConfiguration(ObservabilitySettings.SectionName)
@@ -57,6 +98,27 @@ public static class DependencyInjection
                 Title = "AI-PMS API",
                 Version = "v1",
                 Description = "Academic project lifecycle management and AI decision support."
+            });
+
+            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+            {
+                Name = "Authorization",
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                In = ParameterLocation.Header,
+                Description = "Enter the JWT access token."
+            });
+            options.AddSecurityRequirement(new OpenApiSecurityRequirement
+            {
+                [new OpenApiSecurityScheme
+                {
+                    Reference = new OpenApiReference
+                    {
+                        Type = ReferenceType.SecurityScheme,
+                        Id = "Bearer"
+                    }
+                }] = Array.Empty<string>()
             });
         });
 
