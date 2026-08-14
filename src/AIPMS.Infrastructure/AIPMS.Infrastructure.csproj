@@ -13,4 +13,10 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.23" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Database First entities named File and Task conflict with these implicit usings. -->
+    <Using Remove="System.IO" />
+    <Using Remove="System.Threading.Tasks" />
+  </ItemGroup>
+
 </Project>
