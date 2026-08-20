@@ -1,12 +1,14 @@
 using AIPMS.Application.Abstractions.AI;
 using AIPMS.Application.Features.ProgressReports.Commands.AnalyzeProgress;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AIPMS.Api.Controllers;
 
 [ApiController]
-[Route("api/ai/insights")]
+[Authorize]
+[Route("api/v1/ai/insights")]
 public sealed class AiInsightsController(ISender sender) : ControllerBase
 {
     [HttpPost("progress")]

@@ -13,6 +13,7 @@ public static class WebApplicationExtensions
         app.UseSwagger();
         app.UseSwaggerUI();
         app.UseCors(CorsSettings.FrontendPolicyName);
+        app.UseAuthentication();
         app.UseAuthorization();
         app.MapControllers();
 

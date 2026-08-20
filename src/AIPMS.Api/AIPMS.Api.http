@@ -1,17 +1,36 @@
 @AIPMS_Api_HostAddress = http://localhost:5080
+@AccessToken = paste-jwt-access-token-here
 
-GET {{AIPMS_Api_HostAddress}}/api/system
+GET {{AIPMS_Api_HostAddress}}/api/v1/system
 Accept: application/json
 
 ###
 
-GET {{AIPMS_Api_HostAddress}}/api/projects/lifecycle
-Accept: application/json
-
-###
-
-POST {{AIPMS_Api_HostAddress}}/api/ai/insights/progress
+POST {{AIPMS_Api_HostAddress}}/api/v1/auth/login
 Content-Type: application/json
+
+{
+  "email": "student@fpt.edu.vn",
+  "password": "replace-with-local-password"
+}
+
+###
+
+GET {{AIPMS_Api_HostAddress}}/api/v1/auth/me
+Accept: application/json
+Authorization: Bearer {{AccessToken}}
+
+###
+
+GET {{AIPMS_Api_HostAddress}}/api/v1/projects/lifecycle
+Accept: application/json
+Authorization: Bearer {{AccessToken}}
+
+###
+
+POST {{AIPMS_Api_HostAddress}}/api/v1/ai/insights/progress
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
 
 {
   "totalTasks": 10,
