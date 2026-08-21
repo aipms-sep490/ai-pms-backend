@@ -90,6 +90,10 @@ public sealed class ExceptionHandlingMiddleware(
             StatusCodes.Status400BadRequest,
             "The request is invalid.",
             "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.1"),
+        UnauthorizedException => new(
+            StatusCodes.Status401Unauthorized,
+            "Authentication failed.",
+            "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.2"),
         ForbiddenException => new(
             StatusCodes.Status403Forbidden,
             "Access is forbidden.",
