@@ -1,6 +1,9 @@
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Features.Auth.Abstractions;
 using AIPMS.Application.Features.Supervisors.Abstractions;
+using AIPMS.Application.Features.Deliverables.Abstractions;
+using AIPMS.Application.Abstractions.Storage;
+using AIPMS.Infrastructure.Storage;
 using AIPMS.Infrastructure.Identity;
 using AIPMS.Infrastructure.Identity.Configuration;
 using AIPMS.Infrastructure.Persistence.Configuration;
@@ -72,6 +75,8 @@ public static class DependencyInjection
         services.AddScoped<ISupervisorRequestRepository, Persistence.Repositories.SupervisorRequestRepository>();
         services.AddScoped<ISupervisorAssignmentRepository, Persistence.Repositories.SupervisorAssignmentRepository>();
         services.AddScoped<IUnitOfWork, Persistence.Repositories.UnitOfWork>();
+        services.AddScoped<IDeliverableRepository, Persistence.Repositories.DeliverableRepository>();
+        services.AddSingleton<IFileStorage, PrivateLocalFileStorage>();
 
         return services;
     }

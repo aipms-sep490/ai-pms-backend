@@ -53,6 +53,13 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AipmsDbContext>();
 
+        // Clear BE-08 dependants before the core supervisor/project seed is reset.
+        db.NotificationRecipients.RemoveRange(db.NotificationRecipients);
+        db.Notifications.RemoveRange(db.Notifications);
+        db.Files.RemoveRange(db.Files);
+        db.SupervisorFeedbacks.RemoveRange(db.SupervisorFeedbacks);
+        db.DeliverableVersions.RemoveRange(db.DeliverableVersions);
+        db.Deliverables.RemoveRange(db.Deliverables);
         db.SupervisorAssignments.RemoveRange(db.SupervisorAssignments);
         db.SupervisorRequests.RemoveRange(db.SupervisorRequests);
         db.Projects.RemoveRange(db.Projects);
@@ -85,6 +92,31 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
         await db.AcademicSemesters.AddAsync(semester);
         await db.SaveChangesAsync();
 
+        var semester2 = new AcademicSemester
+        {
+            OrganizationId = org.Id,
+            Code = "SP26",
+            Name = "Spring 2026",
+            StartDate = new DateOnly(2026, 1, 1),
+            EndDate = new DateOnly(2026, 4, 30),
+            Status = "ACTIVE",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var semester3 = new AcademicSemester
+        {
+            OrganizationId = org.Id,
+            Code = "SU26",
+            Name = "Summer 2026",
+            StartDate = new DateOnly(2026, 5, 1),
+            EndDate = new DateOnly(2026, 8, 31),
+            Status = "ACTIVE",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await db.AcademicSemesters.AddRangeAsync(semester2, semester3);
+        await db.SaveChangesAsync();
+
         // 3. Seed Users
         var student = new User { Email = "student@aipms.com", PasswordHash = "hash", FullName = "Student One", Status = "ACTIVE", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
         var lecturerA = new User { Email = "lecturerA@aipms.com", PasswordHash = "hash", FullName = "Lecturer A", Status = "ACTIVE", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
@@ -107,13 +139,15 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
 
         // 5. Seed Teams
         var team1 = new Team { AcademicSemesterId = semester.Id, Code = "T01", Name = "Team 1", Status = "FORMING", CreatedBy = student.Id, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-        var team2 = new Team { AcademicSemesterId = semester.Id, Code = "T02", Name = "Team 2", Status = "FORMING", CreatedBy = student.Id, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-        var team3 = new Team { AcademicSemesterId = semester.Id, Code = "T03", Name = "Team 3", Status = "FORMING", CreatedBy = student.Id, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        var team2 = new Team { AcademicSemesterId = semester2.Id, Code = "T02", Name = "Team 2", Status = "FORMING", CreatedBy = student.Id, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        var team3 = new Team { AcademicSemesterId = semester3.Id, Code = "T03", Name = "Team 3", Status = "FORMING", CreatedBy = student.Id, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
         await db.Teams.AddRangeAsync(team1, team2, team3);
         await db.SaveChangesAsync();
 
-        await db.TeamMembers.AddAsync(
-            new TeamMember { TeamId = team1.Id, AcademicSemesterId = semester.Id, UserId = student.Id, IsLeader = true, JoinedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        await db.TeamMembers.AddRangeAsync(
+            new TeamMember { TeamId = team1.Id, AcademicSemesterId = semester.Id, UserId = student.Id, IsLeader = true, JoinedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new TeamMember { TeamId = team2.Id, AcademicSemesterId = semester2.Id, UserId = student.Id, IsLeader = true, JoinedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new TeamMember { TeamId = team3.Id, AcademicSemesterId = semester3.Id, UserId = student.Id, IsLeader = true, JoinedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
 
         // 6. Seed Projects
@@ -271,11 +305,7 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
         TestCurrentUser.SetUser(_studentUserId, "student@aipms.com", "STUDENT");
         var payload = new SendRequestPayload(_profileAId, "supervise project 3");
         var response = await _client.PostAsJsonAsync($"/api/v1/projects/{_project3Id}/supervisor-requests", payload);
-        var requestDto = await response.Content.ReadFromJsonAsync<SupervisorRequestDto>();
 
-        TestCurrentUser.SetUser(_lecturerAUserId, "lecturerA@aipms.com", "LECTURER");
-        var acceptResponse = await _client.PostAsync($"/api/supervisor-requests/{requestDto!.Id}/accept", null);
-
-        Assert.Equal(HttpStatusCode.Conflict, acceptResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 }
