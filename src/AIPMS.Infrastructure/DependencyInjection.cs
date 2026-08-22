@@ -1,5 +1,6 @@
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Features.Auth.Abstractions;
+using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Infrastructure.Identity;
 using AIPMS.Infrastructure.Identity.Configuration;
 using AIPMS.Infrastructure.Persistence.Configuration;
@@ -67,6 +68,10 @@ public static class DependencyInjection
         services.AddSingleton<IAccessTokenService, JwtAccessTokenService>();
         services.AddScoped<IAuthRepository, AuthRepository>();
         services.AddScoped<IProjectAccessService, ProjectAccessService>();
+        services.AddScoped<ISupervisorRepository, Persistence.Repositories.SupervisorRepository>();
+        services.AddScoped<ISupervisorRequestRepository, Persistence.Repositories.SupervisorRequestRepository>();
+        services.AddScoped<ISupervisorAssignmentRepository, Persistence.Repositories.SupervisorAssignmentRepository>();
+        services.AddScoped<IUnitOfWork, Persistence.Repositories.UnitOfWork>();
 
         return services;
     }

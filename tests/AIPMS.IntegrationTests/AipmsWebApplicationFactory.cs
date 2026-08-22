@@ -23,7 +23,9 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:DefaultConnection"] = "Server=(local);Database=AIPMS_Tests;",
+                ["ConnectionStrings:DefaultConnection"] =
+                    Environment.GetEnvironmentVariable("AIPMS_TEST_CONNECTION")
+                    ?? "Server=(local);Database=AIPMS_Tests;Encrypt=False;TrustServerCertificate=True;",
                 ["Cors:AllowedOrigins:0"] = "http://localhost:5173",
                 ["Jwt:Issuer"] = TestIssuer,
                 ["Jwt:Audience"] = TestAudience,
