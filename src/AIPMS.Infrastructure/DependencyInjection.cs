@@ -3,6 +3,7 @@ using AIPMS.Application.Features.Auth.Abstractions;
 using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Application.Features.Evaluations;
 using AIPMS.Application.Features.Evaluations.Abstractions;
+using AIPMS.Application.Features.ProgressMeetings.Abstractions;
 using AIPMS.Infrastructure.Identity;
 using AIPMS.Infrastructure.Identity.Configuration;
 using AIPMS.Infrastructure.Persistence.Configuration;
@@ -75,6 +76,7 @@ public static class DependencyInjection
         services.AddScoped<ISupervisorAssignmentRepository, Persistence.Repositories.SupervisorAssignmentRepository>();
         services.AddScoped<IEvaluationRepository, Persistence.Repositories.EvaluationRepository>();
         services.AddSingleton<IEvaluationScoreCalculator, EvaluationScoreCalculator>();
+        services.AddScoped<IProgressMeetingRepository, Persistence.Repositories.ProgressMeetingRepository>();
         services.AddScoped<IUnitOfWork, Persistence.Repositories.UnitOfWork>();
 
         return services;
