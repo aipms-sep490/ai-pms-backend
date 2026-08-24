@@ -9,8 +9,6 @@ public partial class TeamMember
 
     public long TeamId { get; set; }
 
-    public long AcademicSemesterId { get; set; }
-
     public long UserId { get; set; }
 
     public bool IsLeader { get; set; }

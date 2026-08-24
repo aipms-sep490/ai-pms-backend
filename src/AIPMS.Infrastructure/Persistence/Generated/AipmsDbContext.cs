@@ -271,8 +271,6 @@ public partial class AipmsDbContext : DbContext
 
             entity.HasIndex(e => new { e.ProjectId, e.EvaluationType, e.Status }, "ix_evaluations_project_type_status");
 
-            entity.HasIndex(e => e.RubricId, "ix_evaluations_rubric_id");
-
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.Comments).HasColumnName("comments");
             entity.Property(e => e.CreatedAt)
@@ -287,7 +285,6 @@ public partial class AipmsDbContext : DbContext
                 .HasColumnName("evaluation_type");
             entity.Property(e => e.EvaluatorId).HasColumnName("evaluator_id");
             entity.Property(e => e.ProjectId).HasColumnName("project_id");
-            entity.Property(e => e.RubricId).HasColumnName("rubric_id");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValue("DRAFT")
@@ -310,10 +307,6 @@ public partial class AipmsDbContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_evaluations_project");
 
-            entity.HasOne(d => d.Rubric).WithMany(p => p.Evaluations)
-                .HasForeignKey(d => d.RubricId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("fk_evaluations_rubric");
         });
 
         modelBuilder.Entity<EvaluationCriterion>(entity =>
@@ -338,6 +331,12 @@ public partial class AipmsDbContext : DbContext
             entity.Property(e => e.IsActive)
                 .HasDefaultValue(true)
                 .HasColumnName("is_active");
+            entity.Property(e => e.WeightPercent)
+                .HasColumnType("decimal(5, 2)")
+                .HasColumnName("weight_percent");
+            entity.Property(e => e.MaxScore)
+                .HasColumnType("decimal(8, 2)")
+                .HasColumnName("max_score");
             entity.Property(e => e.Name)
                 .HasMaxLength(255)
                 .HasColumnName("name");
@@ -353,9 +352,9 @@ public partial class AipmsDbContext : DbContext
 
             entity.ToTable("evaluation_details");
 
-            entity.HasIndex(e => e.RubricCriterionId, "ix_evaluation_details_rubric_criterion_id");
+            entity.HasIndex(e => e.CriterionId, "ix_evaluation_details_criterion_id");
 
-            entity.HasIndex(e => new { e.EvaluationId, e.RubricCriterionId }, "uq_evaluation_details_eval_rubric_criterion").IsUnique();
+            entity.HasIndex(e => new { e.EvaluationId, e.CriterionId }, "uq_evaluation_details_eval_criterion").IsUnique();
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.Comments)
@@ -366,7 +365,7 @@ public partial class AipmsDbContext : DbContext
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("created_at");
             entity.Property(e => e.EvaluationId).HasColumnName("evaluation_id");
-            entity.Property(e => e.RubricCriterionId).HasColumnName("rubric_criterion_id");
+            entity.Property(e => e.CriterionId).HasColumnName("criterion_id");
             entity.Property(e => e.Score)
                 .HasColumnType("decimal(8, 2)")
                 .HasColumnName("score");
@@ -379,10 +378,10 @@ public partial class AipmsDbContext : DbContext
                 .HasForeignKey(d => d.EvaluationId)
                 .HasConstraintName("fk_evaluation_details_evaluation");
 
-            entity.HasOne(d => d.RubricCriterion).WithMany(p => p.EvaluationDetails)
-                .HasForeignKey(d => d.RubricCriterionId)
+            entity.HasOne(d => d.Criterion).WithMany(p => p.EvaluationDetails)
+                .HasForeignKey(d => d.CriterionId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("fk_evaluation_details_rubric_criterion");
+                .HasConstraintName("fk_evaluation_details_criterion");
         });
 
         modelBuilder.Entity<File>(entity =>
@@ -1567,22 +1566,15 @@ public partial class AipmsDbContext : DbContext
 
             entity.ToTable("team_members");
 
-            entity.HasIndex(e => new { e.AcademicSemesterId, e.UserId }, "ix_team_members_semester_user");
-
             entity.HasIndex(e => e.UserId, "ix_team_members_user_id");
 
             entity.HasIndex(e => new { e.TeamId, e.UserId }, "uq_team_members_team_user").IsUnique();
-
-            entity.HasIndex(e => new { e.AcademicSemesterId, e.UserId }, "ux_team_members_one_active_team_per_semester")
-                .IsUnique()
-                .HasFilter("([left_at] IS NULL)");
 
             entity.HasIndex(e => e.TeamId, "ux_team_members_one_leader_per_team")
                 .IsUnique()
                 .HasFilter("([is_leader]=(1) AND [left_at] IS NULL)");
 
             entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.AcademicSemesterId).HasColumnName("academic_semester_id");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
@@ -1608,8 +1600,7 @@ public partial class AipmsDbContext : DbContext
                 .HasConstraintName("fk_team_members_user");
 
             entity.HasOne(d => d.Team).WithMany(p => p.TeamMembers)
-                .HasPrincipalKey(p => new { p.Id, p.AcademicSemesterId })
-                .HasForeignKey(d => new { d.TeamId, d.AcademicSemesterId })
+                .HasForeignKey(d => d.TeamId)
                 .HasConstraintName("fk_team_members_team");
         });
 

@@ -25,7 +25,5 @@ public partial class RubricCriterion
 
     public virtual EvaluationCriterion Criterion { get; set; } = null!;
 
-    public virtual ICollection<EvaluationDetail> EvaluationDetails { get; set; } = new List<EvaluationDetail>();
-
     public virtual Rubric Rubric { get; set; } = null!;
 }

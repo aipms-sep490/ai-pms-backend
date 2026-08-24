@@ -9,7 +9,7 @@ public partial class EvaluationDetail
 
     public long EvaluationId { get; set; }
 
-    public long RubricCriterionId { get; set; }
+    public long CriterionId { get; set; }
 
     public decimal Score { get; set; }
 
@@ -21,5 +21,6 @@ public partial class EvaluationDetail
 
     public virtual Evaluation Evaluation { get; set; } = null!;
 
-    public virtual RubricCriterion RubricCriterion { get; set; } = null!;
+    public virtual EvaluationCriterion Criterion { get; set; } = null!;
+
 }

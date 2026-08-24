@@ -31,7 +31,6 @@ public partial class Rubric
 
     public virtual Department? Department { get; set; }
 
-    public virtual ICollection<Evaluation> Evaluations { get; set; } = new List<Evaluation>();
-
     public virtual ICollection<RubricCriterion> RubricCriteria { get; set; } = new List<RubricCriterion>();
+
 }

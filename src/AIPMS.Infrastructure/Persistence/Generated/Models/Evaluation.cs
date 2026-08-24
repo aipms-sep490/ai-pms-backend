@@ -11,8 +11,6 @@ public partial class Evaluation
 
     public long EvaluatorId { get; set; }
 
-    public long RubricId { get; set; }
-
     public string EvaluationType { get; set; } = null!;
 
     public string Status { get; set; } = null!;
@@ -33,5 +31,4 @@ public partial class Evaluation
 
     public virtual Project Project { get; set; } = null!;
 
-    public virtual Rubric Rubric { get; set; } = null!;
 }

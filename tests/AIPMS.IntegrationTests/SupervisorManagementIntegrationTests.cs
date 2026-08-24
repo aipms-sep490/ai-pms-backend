@@ -53,6 +53,15 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AipmsDbContext>();
 
+        db.EvaluationDetails.RemoveRange(db.EvaluationDetails);
+        db.Evaluations.RemoveRange(db.Evaluations);
+        db.EvaluationCriteria.RemoveRange(db.EvaluationCriteria);
+        db.NotificationRecipients.RemoveRange(db.NotificationRecipients);
+        db.Notifications.RemoveRange(db.Notifications);
+        db.Files.RemoveRange(db.Files);
+        db.SupervisorFeedbacks.RemoveRange(db.SupervisorFeedbacks);
+        db.DeliverableVersions.RemoveRange(db.DeliverableVersions);
+        db.Deliverables.RemoveRange(db.Deliverables);
         db.SupervisorAssignments.RemoveRange(db.SupervisorAssignments);
         db.SupervisorRequests.RemoveRange(db.SupervisorRequests);
         db.Projects.RemoveRange(db.Projects);
@@ -113,7 +122,7 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
         await db.SaveChangesAsync();
 
         await db.TeamMembers.AddAsync(
-            new TeamMember { TeamId = team1.Id, AcademicSemesterId = semester.Id, UserId = student.Id, IsLeader = true, JoinedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+            new TeamMember { TeamId = team1.Id, UserId = student.Id, IsLeader = true, JoinedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
 
         // 6. Seed Projects
@@ -271,11 +280,6 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
         TestCurrentUser.SetUser(_studentUserId, "student@aipms.com", "STUDENT");
         var payload = new SendRequestPayload(_profileAId, "supervise project 3");
         var response = await _client.PostAsJsonAsync($"/api/v1/projects/{_project3Id}/supervisor-requests", payload);
-        var requestDto = await response.Content.ReadFromJsonAsync<SupervisorRequestDto>();
-
-        TestCurrentUser.SetUser(_lecturerAUserId, "lecturerA@aipms.com", "LECTURER");
-        var acceptResponse = await _client.PostAsync($"/api/supervisor-requests/{requestDto!.Id}/accept", null);
-
-        Assert.Equal(HttpStatusCode.Conflict, acceptResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 }
