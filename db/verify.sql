@@ -20,6 +20,9 @@
 
 USE [AI_PMS];
 GO
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
 
 SET NOCOUNT ON;
 
@@ -404,7 +407,7 @@ INSERT INTO @required_unique_indexes(table_name, index_name) VALUES
     (N'teams', N'uq_teams_id_semester'),
     (N'team_members', N'uq_team_members_team_user'),
     (N'projects', N'uq_projects_code'),
-    (N'projects', N'uq_projects_team'),
+    (N'projects', N'uq_projects_active_team'),
     (N'project_majors', N'uq_project_majors_project_major'),
     (N'supervisor_profiles', N'uq_supervisor_profiles_user'),
     (N'supervisor_expertise', N'uq_supervisor_expertise_name'),
@@ -841,12 +844,12 @@ END;
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
     WHERE object_id = OBJECT_ID(N'dbo.projects')
-      AND name = N'uq_projects_team'
+      AND name = N'uq_projects_active_team'
       AND is_unique = 1
       AND is_disabled = 0
 )
 BEGIN
-    THROW 51020, 'Verification failed: current design requires one project per team.', 1;
+    THROW 51020, 'Verification failed: current design requires one active project per team.', 1;
 END;
 
 IF NOT EXISTS (
@@ -942,12 +945,34 @@ END;
 
 -- B. Verify domain and technology are NOT columns in projects table (since they are now normalized tags)
 IF EXISTS (
-    SELECT 1 FROM sys.columns 
-    WHERE object_id = OBJECT_ID(N'dbo.projects') 
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.projects')
       AND name IN (N'domain', N'technology')
 )
 BEGIN
     THROW 51031, 'Verification failed: projects table should not contain domain or technology columns as they should be normalized tags.', 1;
+END;
+
+-- B2. Verify uq_projects_team constraint is dropped
+IF EXISTS (
+    SELECT 1 FROM sys.key_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.projects') AND name = N'uq_projects_team'
+)
+BEGIN
+    THROW 51037, 'Verification failed: constraint uq_projects_team was not dropped from dbo.projects.', 1;
+END;
+
+-- B3. Verify unique filtered index uq_projects_active_team
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.projects')
+      AND name = N'uq_projects_active_team'
+      AND is_unique = 1
+      AND has_filter = 1
+      AND filter_definition LIKE N'%status%'
+)
+BEGIN
+    THROW 51038, 'Verification failed: unique filtered index uq_projects_active_team is missing or misconfigured.', 1;
 END;
 
 -- C. Verify tags table columns and constraints
@@ -964,6 +989,27 @@ IF NOT EXISTS (
 )
 BEGIN
     THROW 51032, 'Verification failed: columns in dbo.tags table are missing or have incorrect type/length.', 1;
+END;
+
+-- C2. Verify check constraint ck_tags_type
+IF NOT EXISTS (
+    SELECT 1 FROM sys.check_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.tags')
+      AND name = N'ck_tags_type'
+      AND definition LIKE N'%DOMAIN%'
+)
+BEGIN
+    THROW 51039, 'Verification failed: check constraint ck_tags_type on dbo.tags is missing or misconfigured.', 1;
+END;
+
+-- C3. Verify default constraint for created_at on dbo.tags
+IF NOT EXISTS (
+    SELECT 1 FROM sys.default_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.tags')
+      AND name = N'df_tags_created_at'
+)
+BEGIN
+    THROW 51040, 'Verification failed: default constraint df_tags_created_at on dbo.tags is missing.', 1;
 END;
 
 -- D. Verify unique constraint uq_tags_normalized_name_type
@@ -987,6 +1033,25 @@ BEGIN
     THROW 51034, 'Verification failed: composite primary key pk_project_tags is missing on dbo.project_tags.', 1;
 END;
 
+-- E2. Verify composite primary key columns on dbo.project_tags
+IF NOT EXISTS (
+    SELECT 1 FROM sys.index_columns ic
+    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE ic.object_id = OBJECT_ID(N'dbo.project_tags')
+      AND ic.index_id = 1 -- Clustered PK index
+      AND c.name = N'project_id'
+)
+OR NOT EXISTS (
+    SELECT 1 FROM sys.index_columns ic
+    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE ic.object_id = OBJECT_ID(N'dbo.project_tags')
+      AND ic.index_id = 1
+      AND c.name = N'tag_id'
+)
+BEGIN
+    THROW 51041, 'Verification failed: composite primary key on dbo.project_tags must contain project_id and tag_id.', 1;
+END;
+
 -- F. Verify foreign keys fk_project_tags_project and fk_project_tags_tag
 IF NOT EXISTS (
     SELECT 1 FROM sys.foreign_keys
@@ -1002,6 +1067,31 @@ BEGIN
     THROW 51035, 'Verification failed: foreign keys on dbo.project_tags are missing.', 1;
 END;
 
+-- F2. Verify FK delete actions on dbo.project_tags
+IF NOT EXISTS (
+    SELECT 1 FROM sys.foreign_keys
+    WHERE object_id = OBJECT_ID(N'dbo.fk_project_tags_project')
+      AND delete_referential_action = 1 -- CASCADE
+)
+OR NOT EXISTS (
+    SELECT 1 FROM sys.foreign_keys
+    WHERE object_id = OBJECT_ID(N'dbo.fk_project_tags_tag')
+      AND delete_referential_action = 0 -- NO ACTION
+)
+BEGIN
+    THROW 51042, 'Verification failed: foreign key delete referential actions on dbo.project_tags are incorrect.', 1;
+END;
+
+-- F3. Verify default constraint for created_at on dbo.project_tags
+IF NOT EXISTS (
+    SELECT 1 FROM sys.default_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.project_tags')
+      AND name = N'df_project_tags_created_at'
+)
+BEGIN
+    THROW 51043, 'Verification failed: default constraint df_project_tags_created_at on dbo.project_tags is missing.', 1;
+END;
+
 -- G. Verify composite search index ix_project_tags_tag_project
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
@@ -1011,6 +1101,27 @@ IF NOT EXISTS (
 )
 BEGIN
     THROW 51036, 'Verification failed: composite index ix_project_tags_tag_project is missing on dbo.project_tags.', 1;
+END;
+
+-- G2. Verify index columns for ix_project_tags_tag_project
+IF NOT EXISTS (
+    SELECT 1 FROM sys.index_columns ic
+    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE ic.object_id = OBJECT_ID(N'dbo.project_tags')
+      AND ic.index_id = INDEXPROPERTY(OBJECT_ID(N'dbo.project_tags'), N'ix_project_tags_tag_project', 'IndexId')
+      AND ic.key_ordinal = 1
+      AND c.name = N'tag_id'
+)
+OR NOT EXISTS (
+    SELECT 1 FROM sys.index_columns ic
+    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+    WHERE ic.object_id = OBJECT_ID(N'dbo.project_tags')
+      AND ic.index_id = INDEXPROPERTY(OBJECT_ID(N'dbo.project_tags'), N'ix_project_tags_tag_project', 'IndexId')
+      AND ic.key_ordinal = 2
+      AND c.name = N'project_id'
+)
+BEGIN
+    THROW 51044, 'Verification failed: index ix_project_tags_tag_project must have tag_id as first key column and project_id as second.', 1;
 END;
 
 PRINT N'AI-PMS verification checks passed.';

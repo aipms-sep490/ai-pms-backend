@@ -23,6 +23,9 @@
 
 USE [AI_PMS];
 GO
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
 
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
@@ -211,33 +214,50 @@ BEGIN TRY
         (@project_id, @major_mkt);
 
     -- Insert tags for Domain, Technology, Keywords
-    DECLARE @tag_domain BIGINT, @tag_tech BIGINT;
+    DECLARE @tag_dom1 BIGINT, @tag_dom2 BIGINT;
+    DECLARE @tag_tech1 BIGINT, @tag_tech2 BIGINT, @tag_tech3 BIGINT, @tag_tech4 BIGINT, @tag_tech5 BIGINT, @tag_tech6 BIGINT;
     DECLARE @tag_kw1 BIGINT, @tag_kw2 BIGINT, @tag_kw3 BIGINT, @tag_kw4 BIGINT;
 
-    INSERT INTO dbo.tags (name, normalized_name, tag_type)
-    VALUES (N'Education Technology & Artificial Intelligence', N'EDUCATION_TECHNOLOGY_ARTIFICIAL_INTELLIGENCE', N'DOMAIN');
-    SET @tag_domain = SCOPE_IDENTITY();
+    -- Domains
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'Education Technology', N'EDUCATION_TECHNOLOGY', N'DOMAIN');
+    SET @tag_dom1 = SCOPE_IDENTITY();
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'Artificial Intelligence', N'ARTIFICIAL_INTELLIGENCE', N'DOMAIN');
+    SET @tag_dom2 = SCOPE_IDENTITY();
 
-    INSERT INTO dbo.tags (name, normalized_name, tag_type)
-    VALUES (N'.NET 8, React, SQL Server, Redis, Python, Docker', N'NET_8_REACT_SQL_SERVER_REDIS_PYTHON_DOCKER', N'TECHNOLOGY');
-    SET @tag_tech = SCOPE_IDENTITY();
+    -- Technologies
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'.NET 8', N'NET_8', N'TECHNOLOGY');
+    SET @tag_tech1 = SCOPE_IDENTITY();
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'React', N'REACT', N'TECHNOLOGY');
+    SET @tag_tech2 = SCOPE_IDENTITY();
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'SQL Server', N'SQL_SERVER', N'TECHNOLOGY');
+    SET @tag_tech3 = SCOPE_IDENTITY();
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'Redis', N'REDIS', N'TECHNOLOGY');
+    SET @tag_tech4 = SCOPE_IDENTITY();
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'Python', N'PYTHON', N'TECHNOLOGY');
+    SET @tag_tech5 = SCOPE_IDENTITY();
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'Docker', N'DOCKER', N'TECHNOLOGY');
+    SET @tag_tech6 = SCOPE_IDENTITY();
 
+    -- Keywords
     INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'AI_PMS', N'AI_PMS', N'KEYWORD');
     SET @tag_kw1 = SCOPE_IDENTITY();
-
     INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'EdTech', N'EDTECH', N'KEYWORD');
     SET @tag_kw2 = SCOPE_IDENTITY();
-
     INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'MultiMajor', N'MULTIMAJOR', N'KEYWORD');
     SET @tag_kw3 = SCOPE_IDENTITY();
-
     INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'AcademicManagement', N'ACADEMICMANAGEMENT', N'KEYWORD');
     SET @tag_kw4 = SCOPE_IDENTITY();
 
     INSERT INTO dbo.project_tags (project_id, tag_id)
     VALUES
-        (@project_id, @tag_domain),
-        (@project_id, @tag_tech),
+        (@project_id, @tag_dom1),
+        (@project_id, @tag_dom2),
+        (@project_id, @tag_tech1),
+        (@project_id, @tag_tech2),
+        (@project_id, @tag_tech3),
+        (@project_id, @tag_tech4),
+        (@project_id, @tag_tech5),
+        (@project_id, @tag_tech6),
         (@project_id, @tag_kw1),
         (@project_id, @tag_kw2),
         (@project_id, @tag_kw3),

@@ -1,6 +1,6 @@
 -- AI-PMS Migration Script
 -- Date: 2026-08-25
--- Description: Add project metadata fields, rowversion concurrency, and normalized tags/project_tags tables.
+-- Description: Add project metadata fields, rowversion concurrency, remove global team unique constraint, add unique filtered active team index, and normalized tags/project_tags tables.
 
 USE [AI_PMS]; -- Default database
 GO
@@ -11,27 +11,15 @@ GO
 BEGIN TRY
     BEGIN TRANSACTION;
 
-    PRINT '1. Dropping legacy keywords table if exists...';
-    IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.project_keywords') AND type in (N'U'))
+    PRINT '1. Dropping legacy constraint uq_projects_team if exists...';
+    IF EXISTS (SELECT * FROM sys.key_constraints WHERE parent_object_id = OBJECT_ID(N'dbo.projects') AND name = N'uq_projects_team')
     BEGIN
-        DROP TABLE dbo.project_keywords;
-        PRINT 'Dropped legacy table [dbo].[project_keywords].';
+        ALTER TABLE dbo.projects DROP CONSTRAINT uq_projects_team;
+        PRINT 'Dropped constraint uq_projects_team.';
     END
 
-    PRINT '2. Dropping redundant text columns domain and technology from projects table if they exist...';
-    IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.projects') AND name = N'domain')
-    BEGIN
-        ALTER TABLE dbo.projects DROP COLUMN domain;
-        PRINT 'Dropped column [domain] from [dbo].[projects].';
-    END
-    IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.projects') AND name = N'technology')
-    BEGIN
-        ALTER TABLE dbo.projects DROP COLUMN technology;
-        PRINT 'Dropped column [technology] from [dbo].[projects].';
-    END
+    PRINT '2. Adding/modifying columns on dbo.projects...';
 
-    PRINT '3. Adding/modifying columns on dbo.projects...';
-    
     -- problem_statement
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.projects') AND name = N'problem_statement')
     BEGIN
@@ -56,6 +44,18 @@ BEGIN TRY
     BEGIN
         ALTER TABLE dbo.projects ADD row_version ROWVERSION NOT NULL;
         PRINT 'Added column [row_version] to [dbo].[projects].';
+    END
+
+    PRINT '3. Creating unique filtered index uq_projects_active_team on dbo.projects...';
+    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.projects') AND name = N'uq_projects_active_team')
+    BEGIN
+        CREATE UNIQUE NONCLUSTERED INDEX uq_projects_active_team
+        ON dbo.projects (team_id)
+        WHERE status IN (
+            N'DRAFT', N'SUBMITTED', N'UNDER_REVIEW', N'REVISION_REQUIRED',
+            N'APPROVED', N'SUPERVISOR_PENDING', N'ACTIVE', N'FINAL_SUBMISSION'
+        );
+        PRINT 'Created index uq_projects_active_team.';
     END
 
     PRINT '4. Creating dbo.tags table...';

@@ -28,6 +28,9 @@
 
 USE [AI_PMS];
 GO
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
 
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
@@ -394,18 +397,42 @@ BEGIN TRY
 
 
     DECLARE @tag_domain_id BIGINT, @tag_tech_id BIGINT, @tag_keyword_id BIGINT;
-    
-    INSERT INTO dbo.tags (name, normalized_name, tag_type)
-    VALUES (N'Software Engineering', N'SOFTWARE_ENGINEERING', N'DOMAIN');
-    SET @tag_domain_id = SCOPE_IDENTITY();
-    
-    INSERT INTO dbo.tags (name, normalized_name, tag_type)
-    VALUES (N'React Native', N'REACT_NATIVE', N'TECHNOLOGY');
-    SET @tag_tech_id = SCOPE_IDENTITY();
-    
-    INSERT INTO dbo.tags (name, normalized_name, tag_type)
-    VALUES (N'AI_PMS', N'AI_PMS', N'KEYWORD');
-    SET @tag_keyword_id = SCOPE_IDENTITY();
+
+    -- Get or insert tag Domain
+    IF EXISTS (SELECT 1 FROM dbo.tags WHERE normalized_name = N'SOFTWARE_ENGINEERING' AND tag_type = N'DOMAIN')
+    BEGIN
+        SELECT @tag_domain_id = id FROM dbo.tags WHERE normalized_name = N'SOFTWARE_ENGINEERING' AND tag_type = N'DOMAIN';
+    END
+    ELSE
+    BEGIN
+        INSERT INTO dbo.tags (name, normalized_name, tag_type)
+        VALUES (N'Software Engineering', N'SOFTWARE_ENGINEERING', N'DOMAIN');
+        SET @tag_domain_id = SCOPE_IDENTITY();
+    END
+
+    -- Get or insert tag Technology
+    IF EXISTS (SELECT 1 FROM dbo.tags WHERE normalized_name = N'REACT_NATIVE' AND tag_type = N'TECHNOLOGY')
+    BEGIN
+        SELECT @tag_tech_id = id FROM dbo.tags WHERE normalized_name = N'REACT_NATIVE' AND tag_type = N'TECHNOLOGY';
+    END
+    ELSE
+    BEGIN
+        INSERT INTO dbo.tags (name, normalized_name, tag_type)
+        VALUES (N'React Native', N'REACT_NATIVE', N'TECHNOLOGY');
+        SET @tag_tech_id = SCOPE_IDENTITY();
+    END
+
+    -- Get or insert tag Keyword
+    IF EXISTS (SELECT 1 FROM dbo.tags WHERE normalized_name = N'AI_PMS' AND tag_type = N'KEYWORD')
+    BEGIN
+        SELECT @tag_keyword_id = id FROM dbo.tags WHERE normalized_name = N'AI_PMS' AND tag_type = N'KEYWORD';
+    END
+    ELSE
+    BEGIN
+        INSERT INTO dbo.tags (name, normalized_name, tag_type)
+        VALUES (N'AI_PMS', N'AI_PMS', N'KEYWORD');
+        SET @tag_keyword_id = SCOPE_IDENTITY();
+    END
 
     INSERT INTO dbo.project_tags (project_id, tag_id)
     VALUES
@@ -418,36 +445,6 @@ BEGIN TRY
     BEGIN
         THROW 51090, 'Smoke test failed: project tags count is not 3.', 1;
     END
-
-    -- Assert duplicate tag association is rejected (composite PK/Unique)
-    BEGIN TRY
-        INSERT INTO dbo.project_tags (project_id, tag_id)
-        VALUES (@project_id, @tag_domain_id);
-        
-        THROW 51091, 'Smoke test failed: duplicate tag association was not rejected.', 1;
-    END TRY
-    BEGIN CATCH
-        IF ERROR_NUMBER() NOT IN (2627, 2601)
-        BEGIN
-            THROW;
-        END
-        PRINT 'Duplicate tag association correctly rejected.';
-    END CATCH
-
-    -- Assert duplicate master tag is rejected (unique constraint uq_tags_normalized_name_type)
-    BEGIN TRY
-        INSERT INTO dbo.tags (name, normalized_name, tag_type)
-        VALUES (N'Software Engineering Duplicate', N'SOFTWARE_ENGINEERING', N'DOMAIN');
-        
-        THROW 51092, 'Smoke test failed: duplicate master tag was not rejected.', 1;
-    END TRY
-    BEGIN CATCH
-        IF ERROR_NUMBER() NOT IN (2627, 2601)
-        BEGIN
-            THROW;
-        END
-        PRINT 'Duplicate master tag correctly rejected.';
-    END CATCH
 
 
     INSERT INTO dbo.project_status_history(
@@ -1311,6 +1308,126 @@ BEGIN CATCH
     PRINT N'AI-PMS smoke test failed.';
     PRINT ERROR_MESSAGE();
 
+    THROW;
+END CATCH;
+GO
+
+/* =========================================================================
+   17. NEGATIVE TESTS & CONSTRAINT VERIFICATIONS
+   ========================================================================= */
+
+-- Ensure XACT_ABORT is OFF for negative testing so we can catch exceptions without batch abort
+SET XACT_ABORT OFF;
+GO
+
+-- A. Test Duplicate Tag & Unique Constraint on Tags
+BEGIN TRANSACTION;
+BEGIN TRY
+    -- 1. Setup minimal data
+    DECLARE @org_id BIGINT, @dept_id BIGINT, @major_id BIGINT, @semester_id BIGINT, @period_id BIGINT, @user_id BIGINT, @team_id BIGINT, @project_id BIGINT;
+
+    INSERT INTO dbo.organizations (code, name, is_active) VALUES (N'ORG-N1', N'Org Neg 1', 1);
+    SET @org_id = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.departments (organization_id, code, name, is_active) VALUES (@org_id, N'IT-N1', N'IT Neg 1', 1);
+    SET @dept_id = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.majors (department_id, code, name, is_active) VALUES (@dept_id, N'SE-N1', N'SE Neg 1', 1);
+    SET @major_id = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.academic_semesters (organization_id, code, name, start_date, end_date, status)
+    VALUES (@org_id, N'FA26-N1', N'Fall 2026 Neg 1', '2026-09-01', '2026-12-31', N'ACTIVE');
+    SET @semester_id = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.project_periods (academic_semester_id, code, name, period_type, start_at, end_at, status)
+    VALUES (@semester_id, N'REG-N1', N'Reg Neg 1', N'REGISTRATION', '2026-08-15', '2026-08-31', N'ACTIVE');
+    SET @period_id = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.users (department_id, email, password_hash, full_name, status)
+    VALUES (@dept_id, N'student.neg1@aipms.test', N'HASH', N'Student Neg 1', N'ACTIVE');
+    SET @user_id = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.teams (academic_semester_id, code, name, status, created_by)
+    VALUES (@semester_id, N'TEAM-N1', N'Team Neg 1', N'FORMING', @user_id);
+    SET @team_id = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.projects (team_id, code, title, status, created_by)
+    VALUES (@team_id, N'PROJ-N1', N'Proj Neg 1', N'DRAFT', @user_id);
+    SET @project_id = SCOPE_IDENTITY();
+
+    -- 2. Test duplicate master tag (uq_tags_normalized_name_type constraint)
+    DECLARE @tag_id1 BIGINT;
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'Unique Tag 1', N'UNIQUE_TAG_1', N'KEYWORD');
+    SET @tag_id1 = SCOPE_IDENTITY();
+
+    BEGIN TRY
+        INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'Unique Tag 1 Dup', N'UNIQUE_TAG_1', N'KEYWORD');
+        THROW 51092, 'Negative test failed: duplicate master tag was not rejected.', 1;
+    END TRY
+    BEGIN CATCH
+        IF ERROR_NUMBER() NOT IN (2627, 2601)
+        BEGIN
+            DECLARE @Err NVARCHAR(MAX) = N'Unexpected error during duplicate tag test: ' + ERROR_MESSAGE();
+            THROW 51093, @Err, 1;
+        END
+        PRINT 'Duplicate master tag constraint correctly rejected.';
+    END CATCH
+
+    -- 3. Test duplicate tag association (pk_project_tags constraint)
+    INSERT INTO dbo.project_tags (project_id, tag_id) VALUES (@project_id, @tag_id1);
+
+    BEGIN TRY
+        INSERT INTO dbo.project_tags (project_id, tag_id) VALUES (@project_id, @tag_id1);
+        THROW 51094, 'Negative test failed: duplicate tag association was not rejected.', 1;
+    END TRY
+    BEGIN CATCH
+        IF ERROR_NUMBER() NOT IN (2627, 2601)
+        BEGIN
+            DECLARE @Err2 NVARCHAR(MAX) = N'Unexpected error during duplicate association test: ' + ERROR_MESSAGE();
+            THROW 51095, @Err2, 1;
+        END
+        PRINT 'Duplicate tag association correctly rejected.';
+    END CATCH
+
+    -- 4. Test duplicate active project for same team (uq_projects_active_team index)
+    BEGIN TRY
+        -- This second project is in DRAFT (active status) for the same team -> must fail
+        INSERT INTO dbo.projects (team_id, code, title, status, created_by)
+        VALUES (@team_id, N'PROJ-N2', N'Proj Neg 2', N'DRAFT', @user_id);
+
+        THROW 51096, 'Negative test failed: second active project for the same team was not rejected.', 1;
+    END TRY
+    BEGIN CATCH
+        -- Unique index violation is also error 2601 or 2627
+        IF ERROR_NUMBER() NOT IN (2627, 2601)
+        BEGIN
+            DECLARE @Err3 NVARCHAR(MAX) = N'Unexpected error during active project index test: ' + ERROR_MESSAGE();
+            THROW 51097, @Err3, 1;
+        END
+        PRINT 'Second active project for same team correctly rejected.';
+    END CATCH
+
+    -- 5. Test team can register a new project after first is REJECTED
+    -- Transition first project to REJECTED (finished status)
+    UPDATE dbo.projects SET status = N'REJECTED' WHERE id = @project_id;
+
+    -- Registering new project in DRAFT status should now succeed!
+    DECLARE @new_proj_id BIGINT;
+    INSERT INTO dbo.projects (team_id, code, title, status, created_by)
+    VALUES (@team_id, N'PROJ-N2', N'Proj Neg 2', N'DRAFT', @user_id);
+    SET @new_proj_id = SCOPE_IDENTITY();
+
+    IF @new_proj_id IS NULL
+    BEGIN
+        THROW 51098, 'Negative test failed: failed to insert new active project after first was rejected.', 1;
+    END
+    PRINT 'Registration of a new project after first is REJECTED succeeded.';
+
+    ROLLBACK TRANSACTION;
+    PRINT 'All negative tests passed successfully.';
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
     THROW;
 END CATCH;
 GO
