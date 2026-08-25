@@ -1,4 +1,4 @@
-﻿/*
+/*
  AI-PMS Initial Database Schema
  Target: Microsoft SQL Server
  Naming convention: snake_case for tables/columns/constraints/indexes
@@ -385,9 +385,11 @@ CREATE TABLE dbo.projects (
     created_by      BIGINT NOT NULL,
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_projects_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_projects_updated_at DEFAULT (SYSUTCDATETIME()),
+    problem_statement NVARCHAR(MAX) NULL,
+    expected_output NVARCHAR(MAX) NULL,
+    row_version     ROWVERSION NOT NULL,
     CONSTRAINT pk_projects PRIMARY KEY (id),
     CONSTRAINT uq_projects_code UNIQUE (code),
-    CONSTRAINT uq_projects_team UNIQUE (team_id),
     CONSTRAINT ck_projects_status CHECK (status IN (
         N'DRAFT', N'SUBMITTED', N'UNDER_REVIEW', N'REVISION_REQUIRED', N'REJECTED', N'APPROVED',
         N'SUPERVISOR_PENDING', N'ACTIVE', N'FINAL_SUBMISSION', N'COMPLETED', N'ARCHIVED'
@@ -396,6 +398,14 @@ CREATE TABLE dbo.projects (
         REFERENCES dbo.teams(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_projects_created_by FOREIGN KEY (created_by)
         REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+GO
+
+CREATE UNIQUE NONCLUSTERED INDEX uq_projects_active_team
+ON dbo.projects (team_id)
+WHERE status IN (
+    N'DRAFT', N'SUBMITTED', N'UNDER_REVIEW', N'REVISION_REQUIRED',
+    N'APPROVED', N'SUPERVISOR_PENDING', N'ACTIVE', N'FINAL_SUBMISSION'
 );
 GO
 
@@ -411,6 +421,33 @@ CREATE TABLE dbo.project_majors (
     CONSTRAINT fk_project_majors_major FOREIGN KEY (major_id)
         REFERENCES dbo.majors(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
+GO
+
+CREATE TABLE dbo.tags (
+    id              BIGINT IDENTITY(1,1) NOT NULL,
+    name            NVARCHAR(100) NOT NULL,
+    normalized_name NVARCHAR(100) NOT NULL,
+    tag_type        NVARCHAR(30) NOT NULL,
+    created_at      DATETIME2(0) NOT NULL CONSTRAINT df_tags_created_at DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT pk_tags PRIMARY KEY (id),
+    CONSTRAINT uq_tags_normalized_name_type UNIQUE (normalized_name, tag_type),
+    CONSTRAINT ck_tags_type CHECK (tag_type IN (N'DOMAIN', N'TECHNOLOGY', N'KEYWORD'))
+);
+GO
+
+CREATE TABLE dbo.project_tags (
+    project_id      BIGINT NOT NULL,
+    tag_id          BIGINT NOT NULL,
+    created_at      DATETIME2(0) NOT NULL CONSTRAINT df_project_tags_created_at DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT pk_project_tags PRIMARY KEY CLUSTERED (project_id, tag_id),
+    CONSTRAINT fk_project_tags_project FOREIGN KEY (project_id)
+        REFERENCES dbo.projects(id) ON DELETE CASCADE ON UPDATE NO ACTION,
+    CONSTRAINT fk_project_tags_tag FOREIGN KEY (tag_id)
+        REFERENCES dbo.tags(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+GO
+
+CREATE NONCLUSTERED INDEX ix_project_tags_tag_project ON dbo.project_tags (tag_id, project_id);
 GO
 
 CREATE TABLE dbo.project_status_history (
