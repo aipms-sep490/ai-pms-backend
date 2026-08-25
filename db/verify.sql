@@ -69,11 +69,12 @@ INSERT INTO @expected_tables(table_name) VALUES
     (N'evaluation_details'),
     (N'notifications'),
     (N'notification_recipients'),
-    (N'project_keywords');
+    (N'tags'),
+    (N'project_tags');
 
-IF (SELECT COUNT(*) FROM @expected_tables) <> 38
+IF (SELECT COUNT(*) FROM @expected_tables) <> 39
 BEGIN
-    THROW 51001, 'Verification script error: expected table list is not 38.', 1;
+    THROW 51001, 'Verification script error: expected table list is not 39.', 1;
 END;
 
 IF EXISTS (
@@ -923,23 +924,93 @@ SELECT
    11. PROJECT EXTENSIONS VALIDATION (BR-50 to BR-54)
    ========================================================= */
 
+-- A. Verify projects table columns (problem_statement, expected_output, row_version)
 IF NOT EXISTS (
-    SELECT 1 FROM sys.columns 
-    WHERE object_id = OBJECT_ID(N'dbo.projects') 
-      AND name IN (N'problem_statement', N'domain', N'technology', N'expected_output', N'row_version')
-    HAVING COUNT(*) = 5
+    SELECT 1 FROM sys.columns c
+    JOIN sys.types t ON c.system_type_id = t.system_type_id AND c.user_type_id = t.user_type_id
+    WHERE c.object_id = OBJECT_ID(N'dbo.projects')
+      AND (
+          (c.name = N'problem_statement' AND t.name = N'nvarchar' AND c.max_length = -1 AND c.is_nullable = 1)
+          OR (c.name = N'expected_output' AND t.name = N'nvarchar' AND c.max_length = -1 AND c.is_nullable = 1)
+          OR (c.name = N'row_version' AND t.name = N'timestamp' AND c.is_nullable = 0)
+      )
+    HAVING COUNT(*) = 3
 )
 BEGIN
-    THROW 51030, 'Verification failed: one or more required draft extension columns (problem_statement, domain, technology, expected_output, row_version) are missing in dbo.projects.', 1;
+    THROW 51030, 'Verification failed: required metadata columns (problem_statement, expected_output, row_version) are missing or misconfigured in dbo.projects.', 1;
 END;
 
-IF NOT EXISTS (
-    SELECT 1 FROM sys.indexes 
-    WHERE object_id = OBJECT_ID(N'dbo.project_keywords') 
-      AND name = N'ix_project_keywords_project'
+-- B. Verify domain and technology are NOT columns in projects table (since they are now normalized tags)
+IF EXISTS (
+    SELECT 1 FROM sys.columns 
+    WHERE object_id = OBJECT_ID(N'dbo.projects') 
+      AND name IN (N'domain', N'technology')
 )
 BEGIN
-    THROW 51031, 'Verification failed: non-clustered index on project_id is missing for dbo.project_keywords.', 1;
+    THROW 51031, 'Verification failed: projects table should not contain domain or technology columns as they should be normalized tags.', 1;
+END;
+
+-- C. Verify tags table columns and constraints
+IF NOT EXISTS (
+    SELECT 1 FROM sys.columns c
+    JOIN sys.types t ON c.system_type_id = t.system_type_id AND c.user_type_id = t.user_type_id
+    WHERE c.object_id = OBJECT_ID(N'dbo.tags')
+      AND (
+          (c.name = N'name' AND t.name = N'nvarchar' AND c.max_length = 200) -- max_length is in bytes, so NVARCHAR(100) is 200 bytes!
+          OR (c.name = N'normalized_name' AND t.name = N'nvarchar' AND c.max_length = 200)
+          OR (c.name = N'tag_type' AND t.name = N'nvarchar' AND c.max_length = 60)
+      )
+    HAVING COUNT(*) = 3
+)
+BEGIN
+    THROW 51032, 'Verification failed: columns in dbo.tags table are missing or have incorrect type/length.', 1;
+END;
+
+-- D. Verify unique constraint uq_tags_normalized_name_type
+IF NOT EXISTS (
+    SELECT 1 FROM sys.key_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.tags')
+      AND name = N'uq_tags_normalized_name_type'
+      AND type = 'UQ'
+)
+BEGIN
+    THROW 51033, 'Verification failed: unique constraint uq_tags_normalized_name_type is missing on dbo.tags.', 1;
+END;
+
+-- E. Verify project_tags composite primary key
+IF NOT EXISTS (
+    SELECT 1 FROM sys.key_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.project_tags')
+      AND type = 'PK'
+)
+BEGIN
+    THROW 51034, 'Verification failed: composite primary key pk_project_tags is missing on dbo.project_tags.', 1;
+END;
+
+-- F. Verify foreign keys fk_project_tags_project and fk_project_tags_tag
+IF NOT EXISTS (
+    SELECT 1 FROM sys.foreign_keys
+    WHERE parent_object_id = OBJECT_ID(N'dbo.project_tags')
+      AND name = N'fk_project_tags_project'
+)
+OR NOT EXISTS (
+    SELECT 1 FROM sys.foreign_keys
+    WHERE parent_object_id = OBJECT_ID(N'dbo.project_tags')
+      AND name = N'fk_project_tags_tag'
+)
+BEGIN
+    THROW 51035, 'Verification failed: foreign keys on dbo.project_tags are missing.', 1;
+END;
+
+-- G. Verify composite search index ix_project_tags_tag_project
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.project_tags')
+      AND name = N'ix_project_tags_tag_project'
+      AND is_unique = 0
+)
+BEGIN
+    THROW 51036, 'Verification failed: composite index ix_project_tags_tag_project is missing on dbo.project_tags.', 1;
 END;
 
 PRINT N'AI-PMS verification checks passed.';

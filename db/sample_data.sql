@@ -185,7 +185,7 @@ BEGIN TRY
     INSERT INTO dbo.projects
         (team_id, code, title, description, objectives, status,
          registered_at, submitted_at, approved_at, completed_at, created_by,
-         problem_statement, domain, technology, expected_output)
+         problem_statement, expected_output)
     VALUES
         (@team_id,
          N'SEP490-FA26-AIPMS',
@@ -199,8 +199,6 @@ BEGIN TRY
          NULL,
          @student1_id,
          N'Universities lack a unified platform to manage complex multi-disciplinary academic projects, leading to disjointed communication, tracking difficulties, and lack of historical data for AI evaluation.',
-         N'Education Technology & Artificial Intelligence',
-         N'.NET 8, React, SQL Server, Redis, Python, Docker',
          N'A fully operational web application with functional dashboard, timeline, meeting tracker, automatic notifications, and an AI advisory chatbot.');
 
     DECLARE @project_id BIGINT = SCOPE_IDENTITY();
@@ -212,12 +210,38 @@ BEGIN TRY
         (@project_id, @major_ads),
         (@project_id, @major_mkt);
 
-    INSERT INTO dbo.project_keywords (project_id, keyword)
+    -- Insert tags for Domain, Technology, Keywords
+    DECLARE @tag_domain BIGINT, @tag_tech BIGINT;
+    DECLARE @tag_kw1 BIGINT, @tag_kw2 BIGINT, @tag_kw3 BIGINT, @tag_kw4 BIGINT;
+
+    INSERT INTO dbo.tags (name, normalized_name, tag_type)
+    VALUES (N'Education Technology & Artificial Intelligence', N'EDUCATION_TECHNOLOGY_ARTIFICIAL_INTELLIGENCE', N'DOMAIN');
+    SET @tag_domain = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.tags (name, normalized_name, tag_type)
+    VALUES (N'.NET 8, React, SQL Server, Redis, Python, Docker', N'NET_8_REACT_SQL_SERVER_REDIS_PYTHON_DOCKER', N'TECHNOLOGY');
+    SET @tag_tech = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'AI_PMS', N'AI_PMS', N'KEYWORD');
+    SET @tag_kw1 = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'EdTech', N'EDTECH', N'KEYWORD');
+    SET @tag_kw2 = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'MultiMajor', N'MULTIMAJOR', N'KEYWORD');
+    SET @tag_kw3 = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.tags (name, normalized_name, tag_type) VALUES (N'AcademicManagement', N'ACADEMICMANAGEMENT', N'KEYWORD');
+    SET @tag_kw4 = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.project_tags (project_id, tag_id)
     VALUES
-        (@project_id, N'AI_PMS'),
-        (@project_id, N'EdTech'),
-        (@project_id, N'MultiMajor'),
-        (@project_id, N'AcademicManagement');
+        (@project_id, @tag_domain),
+        (@project_id, @tag_tech),
+        (@project_id, @tag_kw1),
+        (@project_id, @tag_kw2),
+        (@project_id, @tag_kw3),
+        (@project_id, @tag_kw4);
 
     INSERT INTO dbo.project_status_history
         (project_id, old_status, new_status, changed_by, reason, changed_at)

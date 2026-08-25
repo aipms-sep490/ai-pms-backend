@@ -1,47 +1,114 @@
 -- AI-PMS Migration Script
 -- Date: 2026-08-25
--- Description: Add structured project metadata fields, rowversion concurrency, and keywords table.
+-- Description: Add project metadata fields, rowversion concurrency, and normalized tags/project_tags tables.
 
 USE [AI_PMS]; -- Default database
 GO
 
-PRINT '1. Adding metadata and concurrency columns to dbo.projects...';
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.projects') AND name = N'problem_statement')
-BEGIN
-    ALTER TABLE dbo.projects ADD problem_statement NVARCHAR(MAX) NULL;
-    ALTER TABLE dbo.projects ADD domain NVARCHAR(250) NULL;
-    ALTER TABLE dbo.projects ADD technology NVARCHAR(250) NULL;
-    ALTER TABLE dbo.projects ADD expected_output NVARCHAR(1000) NULL;
-    ALTER TABLE dbo.projects ADD row_version ROWVERSION NOT NULL;
-    PRINT 'Successfully added columns to dbo.projects.';
-END
-ELSE
-BEGIN
-    PRINT 'Columns already exist on dbo.projects.';
-END
+SET XACT_ABORT ON;
 GO
 
-PRINT '2. Creating dbo.project_keywords table...';
-IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.project_keywords') AND type in (N'U'))
-BEGIN
-    CREATE TABLE dbo.project_keywords (
-        id              BIGINT IDENTITY(1,1) NOT NULL,
-        project_id      BIGINT NOT NULL,
-        keyword         NVARCHAR(100) NOT NULL,
-        CONSTRAINT pk_project_keywords PRIMARY KEY CLUSTERED (id ASC),
-        CONSTRAINT fk_project_keywords_project FOREIGN KEY (project_id)
-            REFERENCES dbo.projects (id) ON DELETE CASCADE
-    );
+BEGIN TRY
+    BEGIN TRANSACTION;
 
-    CREATE NONCLUSTERED INDEX ix_project_keywords_project ON dbo.project_keywords (project_id ASC);
-    CREATE NONCLUSTERED INDEX ix_project_keywords_keyword ON dbo.project_keywords (keyword ASC);
-    PRINT 'Successfully created dbo.project_keywords table and its indexes.';
-END
-ELSE
-BEGIN
-    PRINT 'Table dbo.project_keywords already exists.';
-END
-GO
+    PRINT '1. Dropping legacy keywords table if exists...';
+    IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.project_keywords') AND type in (N'U'))
+    BEGIN
+        DROP TABLE dbo.project_keywords;
+        PRINT 'Dropped legacy table [dbo].[project_keywords].';
+    END
 
-PRINT 'Migration complete.';
+    PRINT '2. Dropping redundant text columns domain and technology from projects table if they exist...';
+    IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.projects') AND name = N'domain')
+    BEGIN
+        ALTER TABLE dbo.projects DROP COLUMN domain;
+        PRINT 'Dropped column [domain] from [dbo].[projects].';
+    END
+    IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.projects') AND name = N'technology')
+    BEGIN
+        ALTER TABLE dbo.projects DROP COLUMN technology;
+        PRINT 'Dropped column [technology] from [dbo].[projects].';
+    END
+
+    PRINT '3. Adding/modifying columns on dbo.projects...';
+    
+    -- problem_statement
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.projects') AND name = N'problem_statement')
+    BEGIN
+        ALTER TABLE dbo.projects ADD problem_statement NVARCHAR(MAX) NULL;
+        PRINT 'Added column [problem_statement] to [dbo].[projects].';
+    END
+
+    -- expected_output (Ensure NVARCHAR(MAX))
+    IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.projects') AND name = N'expected_output')
+    BEGIN
+        ALTER TABLE dbo.projects ALTER COLUMN expected_output NVARCHAR(MAX) NULL;
+        PRINT 'Altered column [expected_output] to NVARCHAR(MAX) on [dbo].[projects].';
+    END
+    ELSE
+    BEGIN
+        ALTER TABLE dbo.projects ADD expected_output NVARCHAR(MAX) NULL;
+        PRINT 'Added column [expected_output] as NVARCHAR(MAX) to [dbo].[projects].';
+    END
+
+    -- row_version
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.projects') AND name = N'row_version')
+    BEGIN
+        ALTER TABLE dbo.projects ADD row_version ROWVERSION NOT NULL;
+        PRINT 'Added column [row_version] to [dbo].[projects].';
+    END
+
+    PRINT '4. Creating dbo.tags table...';
+    IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.tags') AND type in (N'U'))
+    BEGIN
+        CREATE TABLE dbo.tags (
+            id              BIGINT IDENTITY(1,1) NOT NULL,
+            name            NVARCHAR(100) NOT NULL,
+            normalized_name NVARCHAR(100) NOT NULL,
+            tag_type        NVARCHAR(30) NOT NULL,
+            created_at      DATETIME2(0) NOT NULL CONSTRAINT df_tags_created_at DEFAULT (SYSUTCDATETIME()),
+            CONSTRAINT pk_tags PRIMARY KEY (id),
+            CONSTRAINT uq_tags_normalized_name_type UNIQUE (normalized_name, tag_type),
+            CONSTRAINT ck_tags_type CHECK (tag_type IN (N'DOMAIN', N'TECHNOLOGY', N'KEYWORD'))
+        );
+        PRINT 'Created table [dbo].[tags].';
+    END
+
+    PRINT '5. Creating dbo.project_tags table...';
+    IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'dbo.project_tags') AND type in (N'U'))
+    BEGIN
+        CREATE TABLE dbo.project_tags (
+            project_id      BIGINT NOT NULL,
+            tag_id          BIGINT NOT NULL,
+            created_at      DATETIME2(0) NOT NULL CONSTRAINT df_project_tags_created_at DEFAULT (SYSUTCDATETIME()),
+            CONSTRAINT pk_project_tags PRIMARY KEY CLUSTERED (project_id, tag_id),
+            CONSTRAINT fk_project_tags_project FOREIGN KEY (project_id)
+                REFERENCES dbo.projects(id) ON DELETE CASCADE ON UPDATE NO ACTION,
+            CONSTRAINT fk_project_tags_tag FOREIGN KEY (tag_id)
+                REFERENCES dbo.tags(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+        );
+        PRINT 'Created table [dbo].[project_tags].';
+    END
+
+    PRINT '6. Creating indexes for tags and project_tags...';
+    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.project_tags') AND name = N'ix_project_tags_tag_project')
+    BEGIN
+        CREATE NONCLUSTERED INDEX ix_project_tags_tag_project ON dbo.project_tags (tag_id, project_id);
+        PRINT 'Created index [ix_project_tags_tag_project] on [dbo].[project_tags].';
+    END
+
+    COMMIT TRANSACTION;
+    PRINT 'Migration completed successfully.';
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0
+    BEGIN
+        ROLLBACK TRANSACTION;
+        PRINT 'Transaction rolled back due to error.';
+    END
+    DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+    DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+    DECLARE @ErrorState INT = ERROR_STATE();
+    RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+END CATCH
 GO

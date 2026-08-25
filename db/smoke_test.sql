@@ -393,13 +393,61 @@ BEGIN TRY
         (@project_id, @major_is_id);
 
 
-    INSERT INTO dbo.project_keywords(
-        project_id,
-        keyword
-    )
+    DECLARE @tag_domain_id BIGINT, @tag_tech_id BIGINT, @tag_keyword_id BIGINT;
+    
+    INSERT INTO dbo.tags (name, normalized_name, tag_type)
+    VALUES (N'Software Engineering', N'SOFTWARE_ENGINEERING', N'DOMAIN');
+    SET @tag_domain_id = SCOPE_IDENTITY();
+    
+    INSERT INTO dbo.tags (name, normalized_name, tag_type)
+    VALUES (N'React Native', N'REACT_NATIVE', N'TECHNOLOGY');
+    SET @tag_tech_id = SCOPE_IDENTITY();
+    
+    INSERT INTO dbo.tags (name, normalized_name, tag_type)
+    VALUES (N'AI_PMS', N'AI_PMS', N'KEYWORD');
+    SET @tag_keyword_id = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.project_tags (project_id, tag_id)
     VALUES
-        (@project_id, N'AI'),
-        (@project_id, N'Smoke');
+        (@project_id, @tag_domain_id),
+        (@project_id, @tag_tech_id),
+        (@project_id, @tag_keyword_id);
+
+    -- Assert metadata/tag đã lưu đúng
+    IF (SELECT COUNT(*) FROM dbo.project_tags WHERE project_id = @project_id) <> 3
+    BEGIN
+        THROW 51090, 'Smoke test failed: project tags count is not 3.', 1;
+    END
+
+    -- Assert duplicate tag association is rejected (composite PK/Unique)
+    BEGIN TRY
+        INSERT INTO dbo.project_tags (project_id, tag_id)
+        VALUES (@project_id, @tag_domain_id);
+        
+        THROW 51091, 'Smoke test failed: duplicate tag association was not rejected.', 1;
+    END TRY
+    BEGIN CATCH
+        IF ERROR_NUMBER() NOT IN (2627, 2601)
+        BEGIN
+            THROW;
+        END
+        PRINT 'Duplicate tag association correctly rejected.';
+    END CATCH
+
+    -- Assert duplicate master tag is rejected (unique constraint uq_tags_normalized_name_type)
+    BEGIN TRY
+        INSERT INTO dbo.tags (name, normalized_name, tag_type)
+        VALUES (N'Software Engineering Duplicate', N'SOFTWARE_ENGINEERING', N'DOMAIN');
+        
+        THROW 51092, 'Smoke test failed: duplicate master tag was not rejected.', 1;
+    END TRY
+    BEGIN CATCH
+        IF ERROR_NUMBER() NOT IN (2627, 2601)
+        BEGIN
+            THROW;
+        END
+        PRINT 'Duplicate master tag correctly rejected.';
+    END CATCH
 
 
     INSERT INTO dbo.project_status_history(
