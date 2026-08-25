@@ -28,6 +28,31 @@ Authorization: Bearer {{AccessToken}}
 
 ###
 
+GET {{AIPMS_Api_HostAddress}}/api/v1/academic/hierarchy?includeInactive=false
+Accept: application/json
+Authorization: Bearer {{AccessToken}}
+
+###
+
+GET {{AIPMS_Api_HostAddress}}/api/v1/academic/majors?organizationId=1&page=1&pageSize=20
+Accept: application/json
+Authorization: Bearer {{AccessToken}}
+
+###
+
+POST {{AIPMS_Api_HostAddress}}/api/v1/academic/majors
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "departmentId": 1,
+  "code": "SE_AI",
+  "name": "Software Engineering - AI",
+  "description": "Software Engineering program with an AI specialization."
+}
+
+###
+
 POST {{AIPMS_Api_HostAddress}}/api/v1/ai/insights/progress
 Content-Type: application/json
 Authorization: Bearer {{AccessToken}}
