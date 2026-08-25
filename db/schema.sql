@@ -18,7 +18,12 @@ USE [AI_PMS];
 GO
 
 SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
 SET QUOTED_IDENTIFIER ON;
+SET NUMERIC_ROUNDABORT OFF;
 GO
 
 /* =========================================================
@@ -130,6 +135,19 @@ CREATE TABLE dbo.roles (
 );
 GO
 
+CREATE TABLE dbo.permissions (
+    id                      BIGINT IDENTITY(1,1) NOT NULL,
+    code                    NVARCHAR(100) NOT NULL,
+    name                    NVARCHAR(150) NOT NULL,
+    description             NVARCHAR(500) NULL,
+    is_system_permission    BIT NOT NULL CONSTRAINT df_permissions_is_system_permission DEFAULT (0),
+    created_at              DATETIME2(0) NOT NULL CONSTRAINT df_permissions_created_at DEFAULT (SYSUTCDATETIME()),
+    updated_at              DATETIME2(0) NOT NULL CONSTRAINT df_permissions_updated_at DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT pk_permissions PRIMARY KEY (id),
+    CONSTRAINT uq_permissions_code UNIQUE (code)
+);
+GO
+
 CREATE TABLE dbo.users (
     id              BIGINT IDENTITY(1,1) NOT NULL,
     department_id   BIGINT NULL,  -- lecturer / department staff affiliation
@@ -142,12 +160,16 @@ CREATE TABLE dbo.users (
     employee_code   NVARCHAR(50) NULL,
     title           NVARCHAR(100) NULL,
     status          NVARCHAR(20) NOT NULL CONSTRAINT df_users_status DEFAULT (N'ACTIVE'),
+    access_failed_count INT NOT NULL CONSTRAINT df_users_access_failed_count DEFAULT (0),
+    lockout_end_at  DATETIME2(0) NULL,
+    password_changed_at DATETIME2(0) NULL,
     last_login_at   DATETIME2(0) NULL,
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_users_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_users_updated_at DEFAULT (SYSUTCDATETIME()),
     CONSTRAINT pk_users PRIMARY KEY (id),
     CONSTRAINT uq_users_email UNIQUE (email),
     CONSTRAINT ck_users_status CHECK (status IN (N'ACTIVE', N'INACTIVE', N'SUSPENDED')),
+    CONSTRAINT ck_users_access_failed_count CHECK (access_failed_count >= 0),
     CONSTRAINT fk_users_department FOREIGN KEY (department_id)
         REFERENCES dbo.departments(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_users_major FOREIGN KEY (major_id)
@@ -169,13 +191,93 @@ CREATE TABLE dbo.user_roles (
     id              BIGINT IDENTITY(1,1) NOT NULL,
     user_id         BIGINT NOT NULL,
     role_id         BIGINT NOT NULL,
+    assigned_by     BIGINT NULL,
     assigned_at     DATETIME2(0) NOT NULL CONSTRAINT df_user_roles_assigned_at DEFAULT (SYSUTCDATETIME()),
     CONSTRAINT pk_user_roles PRIMARY KEY (id),
     CONSTRAINT uq_user_roles_user_role UNIQUE (user_id, role_id),
     CONSTRAINT fk_user_roles_user FOREIGN KEY (user_id)
         REFERENCES dbo.users(id) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT fk_user_roles_role FOREIGN KEY (role_id)
-        REFERENCES dbo.roles(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+        REFERENCES dbo.roles(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_user_roles_assigned_by FOREIGN KEY (assigned_by)
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+GO
+
+CREATE TABLE dbo.role_permissions (
+    role_id         BIGINT NOT NULL,
+    permission_id   BIGINT NOT NULL,
+    assigned_by     BIGINT NULL,
+    assigned_at     DATETIME2(0) NOT NULL CONSTRAINT df_role_permissions_assigned_at DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT pk_role_permissions PRIMARY KEY (role_id, permission_id),
+    CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id)
+        REFERENCES dbo.roles(id) ON DELETE CASCADE ON UPDATE NO ACTION,
+    CONSTRAINT fk_role_permissions_permission FOREIGN KEY (permission_id)
+        REFERENCES dbo.permissions(id) ON DELETE CASCADE ON UPDATE NO ACTION,
+    CONSTRAINT fk_role_permissions_assigned_by FOREIGN KEY (assigned_by)
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+GO
+
+CREATE TABLE dbo.refresh_tokens (
+    id                  BIGINT IDENTITY(1,1) NOT NULL,
+    user_id             BIGINT NOT NULL,
+    token_hash          VARBINARY(64) NOT NULL,
+    family_id           UNIQUEIDENTIFIER NOT NULL,
+    expires_at          DATETIME2(0) NOT NULL,
+    created_at          DATETIME2(0) NOT NULL CONSTRAINT df_refresh_tokens_created_at DEFAULT (SYSUTCDATETIME()),
+    created_by_ip       NVARCHAR(45) NULL,
+    user_agent          NVARCHAR(500) NULL,
+    revoked_at          DATETIME2(0) NULL,
+    revoked_by_ip       NVARCHAR(45) NULL,
+    replaced_by_token_id BIGINT NULL,
+    reuse_detected_at   DATETIME2(0) NULL,
+    CONSTRAINT pk_refresh_tokens PRIMARY KEY (id),
+    CONSTRAINT uq_refresh_tokens_token_hash UNIQUE (token_hash),
+    CONSTRAINT ck_refresh_tokens_expires_at CHECK (expires_at > created_at),
+    CONSTRAINT ck_refresh_tokens_revoked_at CHECK (revoked_at IS NULL OR revoked_at >= created_at),
+    CONSTRAINT ck_refresh_tokens_reuse_detected_at CHECK (reuse_detected_at IS NULL OR reuse_detected_at >= created_at),
+    CONSTRAINT fk_refresh_tokens_user FOREIGN KEY (user_id)
+        REFERENCES dbo.users(id) ON DELETE CASCADE ON UPDATE NO ACTION,
+    CONSTRAINT fk_refresh_tokens_replaced_by FOREIGN KEY (replaced_by_token_id)
+        REFERENCES dbo.refresh_tokens(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+GO
+
+CREATE TABLE dbo.password_reset_tokens (
+    id              BIGINT IDENTITY(1,1) NOT NULL,
+    user_id         BIGINT NOT NULL,
+    token_hash      VARBINARY(64) NOT NULL,
+    expires_at      DATETIME2(0) NOT NULL,
+    created_at      DATETIME2(0) NOT NULL CONSTRAINT df_password_reset_tokens_created_at DEFAULT (SYSUTCDATETIME()),
+    requested_by_ip NVARCHAR(45) NULL,
+    used_at         DATETIME2(0) NULL,
+    CONSTRAINT pk_password_reset_tokens PRIMARY KEY (id),
+    CONSTRAINT uq_password_reset_tokens_token_hash UNIQUE (token_hash),
+    CONSTRAINT ck_password_reset_tokens_expires_at CHECK (expires_at > created_at),
+    CONSTRAINT ck_password_reset_tokens_used_at CHECK (used_at IS NULL OR used_at >= created_at),
+    CONSTRAINT fk_password_reset_tokens_user FOREIGN KEY (user_id)
+        REFERENCES dbo.users(id) ON DELETE CASCADE ON UPDATE NO ACTION
+);
+GO
+
+CREATE TABLE dbo.audit_logs (
+    id              BIGINT IDENTITY(1,1) NOT NULL,
+    actor_user_id   BIGINT NULL,
+    action          NVARCHAR(100) NOT NULL,
+    entity_type     NVARCHAR(100) NOT NULL,
+    entity_id       NVARCHAR(100) NULL,
+    outcome         NVARCHAR(20) NOT NULL CONSTRAINT df_audit_logs_outcome DEFAULT (N'SUCCESS'),
+    correlation_id  UNIQUEIDENTIFIER NULL,
+    ip_address      NVARCHAR(45) NULL,
+    user_agent      NVARCHAR(500) NULL,
+    details_json    NVARCHAR(MAX) NULL,
+    occurred_at     DATETIME2(0) NOT NULL CONSTRAINT df_audit_logs_occurred_at DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT pk_audit_logs PRIMARY KEY (id),
+    CONSTRAINT ck_audit_logs_outcome CHECK (outcome IN (N'SUCCESS', N'FAILURE', N'DENIED')),
+    CONSTRAINT ck_audit_logs_details_json CHECK (details_json IS NULL OR ISJSON(details_json) = 1),
+    CONSTRAINT fk_audit_logs_actor FOREIGN KEY (actor_user_id)
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
 GO
 
@@ -865,6 +967,16 @@ CREATE INDEX ix_project_periods_semester_status ON dbo.project_periods(academic_
 CREATE INDEX ix_users_department_id ON dbo.users(department_id) WHERE department_id IS NOT NULL;
 CREATE INDEX ix_users_major_id ON dbo.users(major_id) WHERE major_id IS NOT NULL;
 CREATE INDEX ix_user_roles_role_id ON dbo.user_roles(role_id);
+CREATE INDEX ix_user_roles_assigned_by ON dbo.user_roles(assigned_by) WHERE assigned_by IS NOT NULL;
+CREATE INDEX ix_role_permissions_permission_id ON dbo.role_permissions(permission_id);
+CREATE INDEX ix_role_permissions_assigned_by ON dbo.role_permissions(assigned_by) WHERE assigned_by IS NOT NULL;
+CREATE INDEX ix_refresh_tokens_user_active ON dbo.refresh_tokens(user_id, expires_at DESC) WHERE revoked_at IS NULL;
+CREATE INDEX ix_refresh_tokens_family_id ON dbo.refresh_tokens(family_id, created_at DESC);
+CREATE INDEX ix_password_reset_tokens_user_active ON dbo.password_reset_tokens(user_id, expires_at DESC) WHERE used_at IS NULL;
+CREATE INDEX ix_audit_logs_occurred_at ON dbo.audit_logs(occurred_at DESC);
+CREATE INDEX ix_audit_logs_actor_occurred_at ON dbo.audit_logs(actor_user_id, occurred_at DESC) WHERE actor_user_id IS NOT NULL;
+CREATE INDEX ix_audit_logs_entity ON dbo.audit_logs(entity_type, entity_id, occurred_at DESC);
+CREATE INDEX ix_audit_logs_correlation_id ON dbo.audit_logs(correlation_id) WHERE correlation_id IS NOT NULL;
 CREATE INDEX ix_teams_semester_status ON dbo.teams(academic_semester_id, status);
 CREATE INDEX ix_team_members_user_id ON dbo.team_members(user_id);
 CREATE INDEX ix_team_members_semester_user ON dbo.team_members(academic_semester_id, user_id);
