@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Security.Claims;
 using System.Text;
+using AIPMS.Application.Abstractions.Security;
 using AIPMS.Infrastructure.Identity.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
@@ -37,6 +39,33 @@ internal sealed class ConfigureJwtBearerOptions(IOptions<JwtSettings> settings)
             ClockSkew = TimeSpan.FromSeconds(30),
             NameClaimType = ClaimTypes.Name,
             RoleClaimType = ClaimTypes.Role
+        };
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var userIdValue = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                var passwordVersionValue = context.Principal?.FindFirstValue("pwd");
+                if (!long.TryParse(userIdValue, NumberStyles.None, CultureInfo.InvariantCulture, out var userId)
+                    || !long.TryParse(passwordVersionValue, NumberStyles.None, CultureInfo.InvariantCulture, out var passwordVersionTicks))
+                {
+                    context.Fail("The access token does not contain valid account claims.");
+                    return;
+                }
+
+                var validator = context.HttpContext.RequestServices
+                    .GetRequiredService<IAccessTokenAccountValidator>();
+                var isValid = await validator.IsValidAsync(
+                    userId,
+                    passwordVersionTicks == 0
+                        ? null
+                        : new DateTime(passwordVersionTicks, DateTimeKind.Utc),
+                    context.HttpContext.RequestAborted);
+                if (!isValid)
+                {
+                    context.Fail("The account is inactive or its credentials have changed.");
+                }
+            }
         };
     }
 }
