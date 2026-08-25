@@ -26,7 +26,11 @@ internal sealed class JwtAccessTokenService(
             new(ClaimTypes.NameIdentifier, descriptor.UserId.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             new(ClaimTypes.Email, descriptor.Email),
             new(ClaimTypes.Name, descriptor.FullName),
-            new("jti", Guid.NewGuid().ToString("N"))
+            new("jti", Guid.NewGuid().ToString("N")),
+            new(
+                "pwd",
+                (descriptor.PasswordChangedAtUtc?.Ticks ?? 0)
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture))
         };
 
         claims.AddRange(descriptor.Roles.Select(static role => new Claim(ClaimTypes.Role, role)));

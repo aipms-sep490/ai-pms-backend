@@ -37,10 +37,11 @@ dotnet restore AIPMS.sln
 dotnet run --project src/AIPMS.Api
 ```
 
-Swagger is available at `http://localhost:5080/swagger`. The initial endpoints are:
+Swagger is available at `http://localhost:5080/swagger`. The main endpoint groups are:
 
-- `POST /api/v1/auth/login`
-- `GET /api/v1/auth/me`
+- `/api/v1/auth`: login, refresh, logout, profile, change-password and password reset.
+- `/api/v1/users`: account lifecycle, import, status actions and role assignment.
+- `/api/v1/security`: role, permission, permission-matrix and audit-log management.
 - `GET /api/v1/system`
 - `GET /api/v1/projects/lifecycle`
 - `POST /api/v1/ai/insights/progress`
@@ -55,6 +56,14 @@ dotnet user-secrets set "Jwt:AccessTokenMinutes" "60" --project src/AIPMS.Api
 ```
 
 For Docker or deployment, use the `Jwt__SigningKey` environment variable instead.
+
+Account-security defaults are safe for local development and can be overridden with
+`AccountSecurity__FailedLoginThreshold`, `AccountSecurity__LockoutMinutes`,
+`AccountSecurity__RefreshTokenDays` and `AccountSecurity__PasswordResetMinutes`.
+Configure SMTP through `Email__Host`, `Email__SenderAddress`, `Email__Username` and
+`Email__Password`; keep SMTP credentials in User Secrets or environment variables.
+Forgot-password responses are always generic, and raw reset/refresh tokens are never
+stored in the database.
 
 To start SQL Server and Redis, copy `.env.example` to `.env`, change the local password, then run `docker compose up -d`.
 

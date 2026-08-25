@@ -8,8 +8,9 @@ public interface IAuditTrail
 }
 
 public sealed record AuditEntry(
-    long ActorUserId,
+    long? ActorUserId,
     string Action,
     string EntityType,
-    long EntityId,
-    IReadOnlyDictionary<string, object?> Context);
+    long? EntityId,
+    IReadOnlyDictionary<string, object?> Context,
+    string Outcome = "SUCCESS");

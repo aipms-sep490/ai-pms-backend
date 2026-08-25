@@ -1,5 +1,6 @@
 using AIPMS.Application.Common.Behaviors;
 using AIPMS.Application.Features.Academic.Services;
+using AIPMS.Application.Features.AccountSecurity.Services;
 using FluentValidation;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,7 @@ public static class DependencyInjection
 
         services.AddValidatorsFromAssembly(applicationAssembly, ServiceLifetime.Transient);
         services.AddScoped<AcademicAccessService>();
+        services.AddScoped<AccountSecurityAccessService>();
 
         return services;
     }
