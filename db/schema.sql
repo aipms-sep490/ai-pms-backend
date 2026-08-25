@@ -1,4 +1,4 @@
-﻿/*
+/*
  AI-PMS Initial Database Schema
  Target: Microsoft SQL Server
  Naming convention: snake_case for tables/columns/constraints/indexes
@@ -283,6 +283,11 @@ CREATE TABLE dbo.projects (
     created_by      BIGINT NOT NULL,
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_projects_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_projects_updated_at DEFAULT (SYSUTCDATETIME()),
+    problem_statement NVARCHAR(MAX) NULL,
+    domain          NVARCHAR(250) NULL,
+    technology      NVARCHAR(250) NULL,
+    expected_output NVARCHAR(1000) NULL,
+    row_version     ROWVERSION NOT NULL,
     CONSTRAINT pk_projects PRIMARY KEY (id),
     CONSTRAINT uq_projects_code UNIQUE (code),
     CONSTRAINT uq_projects_team UNIQUE (team_id),
@@ -309,6 +314,20 @@ CREATE TABLE dbo.project_majors (
     CONSTRAINT fk_project_majors_major FOREIGN KEY (major_id)
         REFERENCES dbo.majors(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
+GO
+
+CREATE TABLE dbo.project_keywords (
+    id              BIGINT IDENTITY(1,1) NOT NULL,
+    project_id      BIGINT NOT NULL,
+    keyword         NVARCHAR(100) NOT NULL,
+    CONSTRAINT pk_project_keywords PRIMARY KEY CLUSTERED (id ASC),
+    CONSTRAINT fk_project_keywords_project FOREIGN KEY (project_id)
+        REFERENCES dbo.projects(id) ON DELETE CASCADE
+);
+GO
+
+CREATE NONCLUSTERED INDEX ix_project_keywords_project ON dbo.project_keywords (project_id ASC);
+CREATE NONCLUSTERED INDEX ix_project_keywords_keyword ON dbo.project_keywords (keyword ASC);
 GO
 
 CREATE TABLE dbo.project_status_history (

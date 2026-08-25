@@ -1,4 +1,4 @@
-﻿/*
+/*
  AI-PMS transactional smoke test.
  Run AFTER schema.sql and seed.sql.
 
@@ -391,6 +391,15 @@ BEGIN TRY
     VALUES
         (@project_id, @major_se_id),
         (@project_id, @major_is_id);
+
+
+    INSERT INTO dbo.project_keywords(
+        project_id,
+        keyword
+    )
+    VALUES
+        (@project_id, N'AI'),
+        (@project_id, N'Smoke');
 
 
     INSERT INTO dbo.project_status_history(

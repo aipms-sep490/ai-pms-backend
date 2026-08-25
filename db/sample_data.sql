@@ -1,4 +1,4 @@
-﻿/*
+/*
  AI-PMS reference data for local development and integration testing
  Target: Microsoft SQL Server
 
@@ -184,7 +184,8 @@ BEGIN TRY
 
     INSERT INTO dbo.projects
         (team_id, code, title, description, objectives, status,
-         registered_at, submitted_at, approved_at, completed_at, created_by)
+         registered_at, submitted_at, approved_at, completed_at, created_by,
+         problem_statement, domain, technology, expected_output)
     VALUES
         (@team_id,
          N'SEP490-FA26-AIPMS',
@@ -196,7 +197,11 @@ BEGIN TRY
          '2026-08-28T14:00:00',
          '2026-09-10T15:30:00',
          NULL,
-         @student1_id);
+         @student1_id,
+         N'Universities lack a unified platform to manage complex multi-disciplinary academic projects, leading to disjointed communication, tracking difficulties, and lack of historical data for AI evaluation.',
+         N'Education Technology & Artificial Intelligence',
+         N'.NET 8, React, SQL Server, Redis, Python, Docker',
+         N'A fully operational web application with functional dashboard, timeline, meeting tracker, automatic notifications, and an AI advisory chatbot.');
 
     DECLARE @project_id BIGINT = SCOPE_IDENTITY();
 
@@ -206,6 +211,13 @@ BEGIN TRY
         (@project_id, @major_ai),
         (@project_id, @major_ads),
         (@project_id, @major_mkt);
+
+    INSERT INTO dbo.project_keywords (project_id, keyword)
+    VALUES
+        (@project_id, N'AI_PMS'),
+        (@project_id, N'EdTech'),
+        (@project_id, N'MultiMajor'),
+        (@project_id, N'AcademicManagement');
 
     INSERT INTO dbo.project_status_history
         (project_id, old_status, new_status, changed_by, reason, changed_at)

@@ -1,4 +1,4 @@
-﻿/*
+/*
  AI-PMS verification script.
  Run after schema.sql and seed.sql.
 
@@ -68,11 +68,12 @@ INSERT INTO @expected_tables(table_name) VALUES
     (N'evaluations'),
     (N'evaluation_details'),
     (N'notifications'),
-    (N'notification_recipients');
+    (N'notification_recipients'),
+    (N'project_keywords');
 
-IF (SELECT COUNT(*) FROM @expected_tables) <> 37
+IF (SELECT COUNT(*) FROM @expected_tables) <> 38
 BEGIN
-    THROW 51001, 'Verification script error: expected table list is not 37.', 1;
+    THROW 51001, 'Verification script error: expected table list is not 38.', 1;
 END;
 
 IF EXISTS (
@@ -917,6 +918,29 @@ SELECT
      )
        AND name IS NOT NULL
     ) AS indexes_found;
+
+/* =========================================================
+   11. PROJECT EXTENSIONS VALIDATION (BR-50 to BR-54)
+   ========================================================= */
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.columns 
+    WHERE object_id = OBJECT_ID(N'dbo.projects') 
+      AND name IN (N'problem_statement', N'domain', N'technology', N'expected_output', N'row_version')
+    HAVING COUNT(*) = 5
+)
+BEGIN
+    THROW 51030, 'Verification failed: one or more required draft extension columns (problem_statement, domain, technology, expected_output, row_version) are missing in dbo.projects.', 1;
+END;
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes 
+    WHERE object_id = OBJECT_ID(N'dbo.project_keywords') 
+      AND name = N'ix_project_keywords_project'
+)
+BEGIN
+    THROW 51031, 'Verification failed: non-clustered index on project_id is missing for dbo.project_keywords.', 1;
+END;
 
 PRINT N'AI-PMS verification checks passed.';
 GO
