@@ -33,6 +33,12 @@ public partial class Project
 
     public DateTime UpdatedAt { get; set; }
 
+    public string? ProblemStatement { get; set; }
+
+    public string? ExpectedOutput { get; set; }
+
+    public byte[] RowVersion { get; set; } = null!;
+
     public virtual User CreatedByNavigation { get; set; } = null!;
 
     public virtual ICollection<Deliverable> Deliverables { get; set; } = new List<Deliverable>();
@@ -48,6 +54,8 @@ public partial class Project
     public virtual ICollection<ProjectMajor> ProjectMajors { get; set; } = new List<ProjectMajor>();
 
     public virtual ICollection<ProjectStatusHistory> ProjectStatusHistories { get; set; } = new List<ProjectStatusHistory>();
+
+    public virtual ICollection<ProjectTag> ProjectTags { get; set; } = new List<ProjectTag>();
 
     public virtual SupervisorAssignment? SupervisorAssignment { get; set; }
 

@@ -3,21 +3,19 @@ using System.Collections.Generic;
 
 namespace AIPMS.Infrastructure.Persistence.Generated.Models;
 
-public partial class UserRole
+public partial class RolePermission
 {
-    public long Id { get; set; }
-
-    public long UserId { get; set; }
-
     public long RoleId { get; set; }
 
-    public DateTime AssignedAt { get; set; }
+    public long PermissionId { get; set; }
 
     public long? AssignedBy { get; set; }
 
+    public DateTime AssignedAt { get; set; }
+
     public virtual User? AssignedByNavigation { get; set; }
 
-    public virtual Role Role { get; set; } = null!;
+    public virtual Permission Permission { get; set; } = null!;
 
-    public virtual User User { get; set; } = null!;
+    public virtual Role Role { get; set; } = null!;
 }
