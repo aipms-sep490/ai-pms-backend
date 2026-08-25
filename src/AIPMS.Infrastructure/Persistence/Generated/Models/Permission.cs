@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace AIPMS.Infrastructure.Persistence.Generated.Models;
 
-public partial class Role
+public partial class Permission
 {
     public long Id { get; set; }
 
@@ -13,13 +13,11 @@ public partial class Role
 
     public string? Description { get; set; }
 
-    public bool IsSystemRole { get; set; }
+    public bool IsSystemPermission { get; set; }
 
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
 
     public virtual ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
-
-    public virtual ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
 }

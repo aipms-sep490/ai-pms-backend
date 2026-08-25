@@ -14,7 +14,7 @@ internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
     {
         var user = await context.Users
             .AsNoTracking()
-            .Include(static user => user.UserRoles)
+            .Include(static user => user.UserRoleUsers)
             .ThenInclude(static userRole => userRole.Role)
             .SingleOrDefaultAsync(user => user.Email == email, cancellationToken);
 
@@ -26,7 +26,7 @@ internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
                 user.PasswordHash,
                 user.FullName,
                 user.Status,
-                user.UserRoles
+                user.UserRoleUsers
                     .Select(static userRole => userRole.Role.Code)
                     .OrderBy(static role => role, StringComparer.Ordinal)
                     .ToArray());

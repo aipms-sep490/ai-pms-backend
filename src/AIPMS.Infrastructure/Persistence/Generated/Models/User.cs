@@ -33,6 +33,14 @@ public partial class User
 
     public DateTime UpdatedAt { get; set; }
 
+    public int AccessFailedCount { get; set; }
+
+    public DateTime? LockoutEndAt { get; set; }
+
+    public DateTime? PasswordChangedAt { get; set; }
+
+    public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
+
     public virtual ICollection<DeliverableVersion> DeliverableVersions { get; set; } = new List<DeliverableVersion>();
 
     public virtual ICollection<Deliverable> Deliverables { get; set; } = new List<Deliverable>();
@@ -55,11 +63,17 @@ public partial class User
 
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
+    public virtual ICollection<PasswordResetToken> PasswordResetTokens { get; set; } = new List<PasswordResetToken>();
+
     public virtual ICollection<ProgressReport> ProgressReports { get; set; } = new List<ProgressReport>();
 
     public virtual ICollection<ProjectStatusHistory> ProjectStatusHistories { get; set; } = new List<ProjectStatusHistory>();
 
     public virtual ICollection<Project> Projects { get; set; } = new List<Project>();
+
+    public virtual ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+
+    public virtual ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
 
     public virtual ICollection<Rubric> Rubrics { get; set; } = new List<Rubric>();
 
@@ -83,5 +97,7 @@ public partial class User
 
     public virtual ICollection<Team> Teams { get; set; } = new List<Team>();
 
-    public virtual ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+    public virtual ICollection<UserRole> UserRoleAssignedByNavigations { get; set; } = new List<UserRole>();
+
+    public virtual ICollection<UserRole> UserRoleUsers { get; set; } = new List<UserRole>();
 }
