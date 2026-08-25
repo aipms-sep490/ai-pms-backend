@@ -6,7 +6,9 @@
 
  Coverage:
  - Academic structure
- - Roles / users
+ - Roles / users / permissions
+ - Refresh-token rotation + password-reset lifecycle
+ - Persistent audit trail
  - Team invitation + membership
  - Multi-major team
  - Project + multi-major project
@@ -28,12 +30,16 @@
 
 USE [AI_PMS];
 GO
-SET ANSI_NULLS ON;
-SET QUOTED_IDENTIFIER ON;
-GO
 
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET QUOTED_IDENTIFIER ON;
+SET NUMERIC_ROUNDABORT OFF;
 GO
 
 BEGIN TRY
@@ -57,6 +63,13 @@ BEGIN TRY
 
         @student_role_id BIGINT,
         @lecturer_role_id BIGINT,
+
+        @permission_id BIGINT,
+        @refresh_token_id BIGINT,
+        @rotated_refresh_token_id BIGINT,
+        @password_reset_token_id BIGINT,
+        @audit_log_id BIGINT,
+        @token_family_id UNIQUEIDENTIFIER,
 
         @team_id BIGINT,
         @invitation_id BIGINT,
@@ -271,12 +284,132 @@ BEGIN TRY
 
     INSERT INTO dbo.user_roles(
         user_id,
-        role_id
+        role_id,
+        assigned_by
     )
     VALUES
-        (@student1_id, @student_role_id),
-        (@student2_id, @student_role_id),
-        (@lecturer_id, @lecturer_role_id);
+        (@student1_id, @student_role_id, @lecturer_id),
+        (@student2_id, @student_role_id, @lecturer_id),
+        (@lecturer_id, @lecturer_role_id, @lecturer_id);
+
+    /* =========================================================
+       4A. BE-10 ACCOUNT SECURITY
+       ========================================================= */
+
+    INSERT INTO dbo.permissions(
+        code,
+        name,
+        description
+    )
+    VALUES (
+        N'__SMOKE_PROJECT_READ__',
+        N'Smoke project read',
+        N'Transactional smoke-test permission.'
+    );
+
+    SET @permission_id = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.role_permissions(
+        role_id,
+        permission_id,
+        assigned_by
+    )
+    VALUES (
+        @lecturer_role_id,
+        @permission_id,
+        @lecturer_id
+    );
+
+    SET @token_family_id = NEWID();
+
+    INSERT INTO dbo.refresh_tokens(
+        user_id,
+        token_hash,
+        family_id,
+        expires_at,
+        created_by_ip,
+        user_agent
+    )
+    VALUES (
+        @lecturer_id,
+        HASHBYTES('SHA2_512', N'__SMOKE_REFRESH_TOKEN_1__'),
+        @token_family_id,
+        DATEADD(DAY, 30, SYSUTCDATETIME()),
+        N'127.0.0.1',
+        N'AI-PMS smoke test'
+    );
+
+    SET @refresh_token_id = SCOPE_IDENTITY();
+
+    INSERT INTO dbo.refresh_tokens(
+        user_id,
+        token_hash,
+        family_id,
+        expires_at,
+        created_by_ip,
+        user_agent
+    )
+    VALUES (
+        @lecturer_id,
+        HASHBYTES('SHA2_512', N'__SMOKE_REFRESH_TOKEN_2__'),
+        @token_family_id,
+        DATEADD(DAY, 30, SYSUTCDATETIME()),
+        N'127.0.0.1',
+        N'AI-PMS smoke test'
+    );
+
+    SET @rotated_refresh_token_id = SCOPE_IDENTITY();
+
+    UPDATE dbo.refresh_tokens
+    SET revoked_at = SYSUTCDATETIME(),
+        revoked_by_ip = N'127.0.0.1',
+        replaced_by_token_id = @rotated_refresh_token_id,
+        reuse_detected_at = SYSUTCDATETIME()
+    WHERE id = @refresh_token_id;
+
+    INSERT INTO dbo.password_reset_tokens(
+        user_id,
+        token_hash,
+        expires_at,
+        requested_by_ip
+    )
+    VALUES (
+        @student1_id,
+        HASHBYTES('SHA2_512', N'__SMOKE_PASSWORD_RESET_TOKEN__'),
+        DATEADD(MINUTE, 30, SYSUTCDATETIME()),
+        N'127.0.0.1'
+    );
+
+    SET @password_reset_token_id = SCOPE_IDENTITY();
+
+    UPDATE dbo.password_reset_tokens
+    SET used_at = SYSUTCDATETIME()
+    WHERE id = @password_reset_token_id;
+
+    INSERT INTO dbo.audit_logs(
+        actor_user_id,
+        action,
+        entity_type,
+        entity_id,
+        outcome,
+        correlation_id,
+        ip_address,
+        user_agent,
+        details_json
+    )
+    VALUES (
+        @lecturer_id,
+        N'ROLE.PERMISSION_ASSIGNED',
+        N'ROLE',
+        CONVERT(NVARCHAR(100), @lecturer_role_id),
+        N'SUCCESS',
+        NEWID(),
+        N'127.0.0.1',
+        N'AI-PMS smoke test',
+        N'{"permission":"__SMOKE_PROJECT_READ__"}'
+    );
+
+    SET @audit_log_id = SCOPE_IDENTITY();
 
     /* =========================================================
        5. TEAM + INVITATION + MEMBERS
@@ -980,6 +1113,78 @@ BEGIN TRY
     /* =========================================================
        15. ASSERTIONS
        ========================================================= */
+
+    /* Account lockout state starts from a safe default. */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.users
+        WHERE id = @student1_id
+          AND access_failed_count = 0
+          AND lockout_end_at IS NULL
+    )
+        THROW 51122,
+            'Smoke test failed: account lockout defaults are invalid.',
+            1;
+
+    /* Permission assignment records both relationship and actor. */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.role_permissions rp
+        JOIN dbo.permissions p ON p.id = rp.permission_id
+        WHERE rp.role_id = @lecturer_role_id
+          AND rp.permission_id = @permission_id
+          AND rp.assigned_by = @lecturer_id
+          AND p.is_system_permission = 0
+    )
+        THROW 51123,
+            'Smoke test failed: role permission relationship is invalid.',
+            1;
+
+    /* Refresh-token rotation preserves family and replacement history. */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.refresh_tokens old_token
+        JOIN dbo.refresh_tokens new_token
+          ON new_token.id = old_token.replaced_by_token_id
+        WHERE old_token.id = @refresh_token_id
+          AND new_token.id = @rotated_refresh_token_id
+          AND old_token.family_id = @token_family_id
+          AND new_token.family_id = @token_family_id
+          AND old_token.revoked_at IS NOT NULL
+          AND old_token.reuse_detected_at IS NOT NULL
+          AND DATALENGTH(old_token.token_hash) = 64
+          AND DATALENGTH(new_token.token_hash) = 64
+    )
+        THROW 51124,
+            'Smoke test failed: refresh-token rotation history is invalid.',
+            1;
+
+    /* Password-reset token is hashed and can be marked as consumed. */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.password_reset_tokens
+        WHERE id = @password_reset_token_id
+          AND user_id = @student1_id
+          AND used_at IS NOT NULL
+          AND DATALENGTH(token_hash) = 64
+    )
+        THROW 51125,
+            'Smoke test failed: password-reset token lifecycle is invalid.',
+            1;
+
+    /* Security audit stores actor, outcome and valid JSON context. */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.audit_logs
+        WHERE id = @audit_log_id
+          AND actor_user_id = @lecturer_id
+          AND action = N'ROLE.PERMISSION_ASSIGNED'
+          AND outcome = N'SUCCESS'
+          AND ISJSON(details_json) = 1
+    )
+        THROW 51126,
+            'Smoke test failed: persistent security audit is invalid.',
+            1;
 
     /* Team invitation was stored correctly. */
     IF NOT EXISTS (

@@ -3,7 +3,7 @@
  Run after schema.sql and seed.sql.
 
  Checks:
- - 37 required tables
+ - 44 required tables
  - Required system roles
  - SUPERVISOR is not seeded as a separate role
  - Foreign-key relationships
@@ -43,6 +43,11 @@ INSERT INTO @expected_tables(table_name) VALUES
     (N'roles'),
     (N'users'),
     (N'user_roles'),
+    (N'permissions'),
+    (N'role_permissions'),
+    (N'refresh_tokens'),
+    (N'password_reset_tokens'),
+    (N'audit_logs'),
     (N'teams'),
     (N'team_members'),
     (N'team_invitations'),
@@ -75,9 +80,9 @@ INSERT INTO @expected_tables(table_name) VALUES
     (N'tags'),
     (N'project_tags');
 
-IF (SELECT COUNT(*) FROM @expected_tables) <> 39
+IF (SELECT COUNT(*) FROM @expected_tables) <> 44
 BEGIN
-    THROW 51001, 'Verification script error: expected table list is not 39.', 1;
+    THROW 51001, 'Verification script error: expected table list is not 44.', 1;
 END;
 
 IF EXISTS (
@@ -158,6 +163,16 @@ INSERT INTO @required_fks(table_name, fk_name) VALUES
     (N'users', N'fk_users_major'),
     (N'user_roles', N'fk_user_roles_user'),
     (N'user_roles', N'fk_user_roles_role'),
+    (N'user_roles', N'fk_user_roles_assigned_by'),
+    (N'role_permissions', N'fk_role_permissions_role'),
+    (N'role_permissions', N'fk_role_permissions_permission'),
+    (N'role_permissions', N'fk_role_permissions_assigned_by'),
+    (N'refresh_tokens', N'fk_refresh_tokens_user'),
+    (N'refresh_tokens', N'fk_refresh_tokens_replaced_by'),
+    (N'password_reset_tokens', N'fk_password_reset_tokens_user'),
+    (N'audit_logs', N'fk_audit_logs_actor'),
+    (N'project_tags', N'fk_project_tags_project'),
+    (N'project_tags', N'fk_project_tags_tag'),
     (N'teams', N'fk_teams_semester'),
     (N'teams', N'fk_teams_created_by'),
     (N'team_members', N'fk_team_members_team'),
@@ -235,6 +250,7 @@ IF EXISTS (
         WHERE fk.parent_object_id = OBJECT_ID(N'dbo.' + rf.table_name)
           AND fk.name = rf.fk_name
           AND fk.is_disabled = 0
+          AND fk.is_not_trusted = 0
     )
 )
 BEGIN
@@ -246,6 +262,7 @@ BEGIN
         WHERE fk.parent_object_id = OBJECT_ID(N'dbo.' + rf.table_name)
           AND fk.name = rf.fk_name
           AND fk.is_disabled = 0
+          AND fk.is_not_trusted = 0
     );
 
     THROW 51005, 'Verification failed: required foreign key missing or disabled.', 1;
@@ -303,6 +320,15 @@ INSERT INTO @required_checks(table_name, check_name) VALUES
     (N'project_periods', N'ck_project_periods_type'),
     (N'project_periods', N'ck_project_periods_status'),
     (N'users', N'ck_users_status'),
+    (N'users', N'ck_users_access_failed_count'),
+    (N'refresh_tokens', N'ck_refresh_tokens_expires_at'),
+    (N'refresh_tokens', N'ck_refresh_tokens_revoked_at'),
+    (N'refresh_tokens', N'ck_refresh_tokens_reuse_detected_at'),
+    (N'password_reset_tokens', N'ck_password_reset_tokens_expires_at'),
+    (N'password_reset_tokens', N'ck_password_reset_tokens_used_at'),
+    (N'audit_logs', N'ck_audit_logs_outcome'),
+    (N'audit_logs', N'ck_audit_logs_details_json'),
+    (N'tags', N'ck_tags_type'),
     (N'teams', N'ck_teams_status'),
     (N'team_members', N'ck_team_members_left_at'),
     (N'team_invitations', N'ck_team_invitations_status'),
@@ -403,12 +429,18 @@ INSERT INTO @required_unique_indexes(table_name, index_name) VALUES
     (N'roles', N'uq_roles_code'),
     (N'users', N'uq_users_email'),
     (N'user_roles', N'uq_user_roles_user_role'),
+    (N'role_permissions', N'pk_role_permissions'),
+    (N'permissions', N'uq_permissions_code'),
+    (N'refresh_tokens', N'uq_refresh_tokens_token_hash'),
+    (N'password_reset_tokens', N'uq_password_reset_tokens_token_hash'),
     (N'teams', N'uq_teams_semester_code'),
     (N'teams', N'uq_teams_id_semester'),
     (N'team_members', N'uq_team_members_team_user'),
     (N'projects', N'uq_projects_code'),
     (N'projects', N'uq_projects_active_team'),
     (N'project_majors', N'uq_project_majors_project_major'),
+    (N'tags', N'uq_tags_normalized_name_type'),
+    (N'project_tags', N'pk_project_tags'),
     (N'supervisor_profiles', N'uq_supervisor_profiles_user'),
     (N'supervisor_expertise', N'uq_supervisor_expertise_name'),
     (N'supervisor_assignments', N'uq_supervisor_assignments_request'),
@@ -502,12 +534,23 @@ INSERT INTO @required_indexes(table_name, index_name) VALUES
     (N'users', N'ix_users_department_id'),
     (N'users', N'ix_users_major_id'),
     (N'user_roles', N'ix_user_roles_role_id'),
+    (N'user_roles', N'ix_user_roles_assigned_by'),
+    (N'role_permissions', N'ix_role_permissions_permission_id'),
+    (N'role_permissions', N'ix_role_permissions_assigned_by'),
+    (N'refresh_tokens', N'ix_refresh_tokens_user_active'),
+    (N'refresh_tokens', N'ix_refresh_tokens_family_id'),
+    (N'password_reset_tokens', N'ix_password_reset_tokens_user_active'),
+    (N'audit_logs', N'ix_audit_logs_occurred_at'),
+    (N'audit_logs', N'ix_audit_logs_actor_occurred_at'),
+    (N'audit_logs', N'ix_audit_logs_entity'),
+    (N'audit_logs', N'ix_audit_logs_correlation_id'),
     (N'teams', N'ix_teams_semester_status'),
     (N'team_members', N'ix_team_members_user_id'),
     (N'team_members', N'ix_team_members_semester_user'),
     (N'team_invitations', N'ix_team_invitations_invited_user_status'),
     (N'projects', N'ix_projects_status'),
     (N'project_majors', N'ix_project_majors_major_id'),
+    (N'project_tags', N'ix_project_tags_tag_project'),
     (N'project_status_history', N'ix_project_status_history_project_changed_at'),
     (N'supervisor_expertise', N'ix_supervisor_expertise_profile_id'),
     (N'supervisor_requests', N'ix_supervisor_requests_project_status'),
@@ -580,6 +623,30 @@ DECLARE @required_columns TABLE (
 
 INSERT INTO @required_columns(table_name, column_name, expected_nullable)
 VALUES
+    (N'users', N'access_failed_count', 0),
+    (N'users', N'lockout_end_at', 1),
+    (N'users', N'password_changed_at', 1),
+    (N'user_roles', N'assigned_by', 1),
+    (N'user_roles', N'assigned_at', 0),
+    (N'permissions', N'code', 0),
+    (N'role_permissions', N'role_id', 0),
+    (N'role_permissions', N'permission_id', 0),
+    (N'role_permissions', N'assigned_at', 0),
+    (N'refresh_tokens', N'token_hash', 0),
+    (N'refresh_tokens', N'family_id', 0),
+    (N'refresh_tokens', N'expires_at', 0),
+    (N'password_reset_tokens', N'token_hash', 0),
+    (N'password_reset_tokens', N'expires_at', 0),
+    (N'audit_logs', N'action', 0),
+    (N'audit_logs', N'entity_type', 0),
+    (N'audit_logs', N'outcome', 0),
+    (N'audit_logs', N'occurred_at', 0),
+    (N'tags', N'name', 0),
+    (N'tags', N'normalized_name', 0),
+    (N'tags', N'tag_type', 0),
+    (N'project_tags', N'project_id', 0),
+    (N'project_tags', N'tag_id', 0),
+    (N'project_tags', N'created_at', 0),
     (N'project_periods', N'period_type', 0),
     (N'team_members', N'team_id', 0),
     (N'team_members', N'academic_semester_id', 0),
@@ -648,6 +715,34 @@ BEGIN
     THROW 51016, 'Verification failed: files table must store metadata/path only.', 1;
 END;
 
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.columns c
+    JOIN sys.types t ON c.user_type_id = t.user_type_id
+    WHERE c.object_id = OBJECT_ID(N'dbo.refresh_tokens')
+      AND c.name = N'token_hash'
+      AND t.name = N'varbinary'
+      AND c.max_length = 64
+)
+    THROW 51024, 'Verification failed: refresh token hash must be VARBINARY(64).', 1;
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.columns c
+    JOIN sys.types t ON c.user_type_id = t.user_type_id
+    WHERE c.object_id = OBJECT_ID(N'dbo.password_reset_tokens')
+      AND c.name = N'token_hash'
+      AND t.name = N'varbinary'
+      AND c.max_length = 64
+)
+    THROW 51025, 'Verification failed: password-reset token hash must be VARBINARY(64).', 1;
+
+IF COL_LENGTH(N'dbo.refresh_tokens', N'token') IS NOT NULL
+   OR COL_LENGTH(N'dbo.password_reset_tokens', N'token') IS NOT NULL
+BEGIN
+    THROW 51026, 'Verification failed: raw security tokens must not be stored.', 1;
+END;
+
 /* =========================================================
    8. IMPORTANT DEFAULT CONSTRAINTS
    ========================================================= */
@@ -665,7 +760,12 @@ INSERT INTO @required_defaults(table_name, column_name) VALUES
     (N'academic_semesters', N'status'),
     (N'project_periods', N'status'),
     (N'roles', N'is_system_role'),
+    (N'permissions', N'is_system_permission'),
     (N'users', N'status'),
+    (N'users', N'access_failed_count'),
+    (N'audit_logs', N'outcome'),
+    (N'tags', N'created_at'),
+    (N'project_tags', N'created_at'),
     (N'teams', N'status'),
     (N'team_members', N'is_leader'),
     (N'team_invitations', N'status'),
@@ -725,7 +825,12 @@ INSERT INTO @created_at_tables(table_name) VALUES
     (N'academic_semesters'),
     (N'project_periods'),
     (N'roles'),
+    (N'permissions'),
     (N'users'),
+    (N'refresh_tokens'),
+    (N'password_reset_tokens'),
+    (N'tags'),
+    (N'project_tags'),
     (N'teams'),
     (N'team_members'),
     (N'team_invitations'),
@@ -786,6 +891,7 @@ INSERT INTO @updated_at_tables(table_name) VALUES
     (N'academic_semesters'),
     (N'project_periods'),
     (N'roles'),
+    (N'permissions'),
     (N'users'),
     (N'teams'),
     (N'team_members'),
@@ -883,6 +989,30 @@ IF NOT EXISTS (
 )
 BEGIN
     THROW 51023, 'Verification failed: rubric scope constraint is missing.', 1;
+END;
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.refresh_tokens')
+      AND name = N'ix_refresh_tokens_user_active'
+      AND has_filter = 1
+      AND is_disabled = 0
+)
+BEGIN
+    THROW 51027, 'Verification failed: active refresh-token index is invalid or missing.', 1;
+END;
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.password_reset_tokens')
+      AND name = N'ix_password_reset_tokens_user_active'
+      AND has_filter = 1
+      AND is_disabled = 0
+)
+BEGIN
+    THROW 51028, 'Verification failed: active password-reset-token index is invalid or missing.', 1;
 END;
 
 /* =========================================================

@@ -1,9 +1,13 @@
+using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
+using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.Auth.Abstractions;
 using AIPMS.Infrastructure.Identity;
 using AIPMS.Infrastructure.Identity.Configuration;
 using AIPMS.Infrastructure.Persistence.Configuration;
 using AIPMS.Infrastructure.Persistence.Generated;
+using AIPMS.Infrastructure.Persistence.Repositories;
+using AIPMS.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -67,6 +71,8 @@ public static class DependencyInjection
         services.AddSingleton<IAccessTokenService, JwtAccessTokenService>();
         services.AddScoped<IAuthRepository, AuthRepository>();
         services.AddScoped<IProjectAccessService, ProjectAccessService>();
+        services.AddScoped<IAcademicStructureRepository, AcademicStructureRepository>();
+        services.AddSingleton<IAuditTrail, LoggingAuditTrail>();
 
         return services;
     }
