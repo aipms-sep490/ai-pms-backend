@@ -38,10 +38,33 @@ public class DbFixture : IAsyncLifetime
                 await _msSqlContainer.StartAsync();
                 ConnectionString = _msSqlContainer.GetConnectionString();
             }
+
+            var builder = new SqlConnectionStringBuilder(ConnectionString);
+            var targetDatabase = builder.InitialCatalog;
+            builder.InitialCatalog = "master";
+            var masterConnectionString = builder.ConnectionString;
+
+            using (var masterConnection = new SqlConnection(masterConnectionString))
+            {
+                await masterConnection.OpenAsync();
+                using (var createDbCmd = new SqlCommand($"""
+                    IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'{targetDatabase}')
+                    BEGIN
+                        CREATE DATABASE [{targetDatabase}];
+                    END
+                    """, masterConnection))
+                {
+                    await createDbCmd.ExecuteNonQueryAsync();
+                }
+            }
         }
         catch (Exception)
         {
-            // Suppress error if Docker is not running on developer's local machine
+            var isCI = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection"));
+            if (isCI)
+            {
+                throw;
+            }
             ConnectionString = null!;
             return;
         }
