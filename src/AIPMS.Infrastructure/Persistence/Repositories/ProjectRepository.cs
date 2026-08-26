@@ -624,4 +624,107 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
         context.Tags.Add(newTag);
         return newTag;
     }
+
+    public async Task<ProjectProgressSummaryDto> GetProjectProgressSummaryAsync(
+        long projectId,
+        CancellationToken cancellationToken)
+    {
+        var milestonesData = await context.Milestones
+            .AsNoTracking()
+            .Where(m => m.ProjectId == projectId)
+            .Select(static m => new { m.Id, m.Status })
+            .ToListAsync(cancellationToken);
+
+        var totalMilestones = milestonesData.Count;
+        var completedMilestones = milestonesData.Count(static m => m.Status == "COMPLETED");
+
+        var tasksData = await context.Tasks
+            .AsNoTracking()
+            .Where(t => t.Milestone.ProjectId == projectId)
+            .Select(static t => new { t.Id, t.Status, t.DueAt })
+            .ToListAsync(cancellationToken);
+
+        var totalTasks = tasksData.Count;
+        var doneTasks = tasksData.Count(static t => t.Status == "DONE");
+        var blockedTasks = tasksData.Count(static t => t.Status == "BLOCKED");
+
+        var utcNow = DateTime.UtcNow;
+        var overdueTasks = tasksData.Count(t => t.DueAt < utcNow && t.Status != "DONE" && t.Status != "CANCELLED");
+
+        var progressPercentage = totalTasks == 0
+            ? 0.0
+            : Math.Round((doneTasks * 100.0) / totalTasks, 2);
+
+        return new ProjectProgressSummaryDto(
+            projectId,
+            totalTasks,
+            doneTasks,
+            blockedTasks,
+            overdueTasks,
+            totalMilestones,
+            completedMilestones,
+            progressPercentage);
+    }
+
+    public async Task<ProjectTimelineDataDto> GetTimelineDataAsync(
+        long projectId,
+        CancellationToken cancellationToken)
+    {
+        var milestones = await context.Milestones
+            .AsNoTracking()
+            .Where(m => m.ProjectId == projectId)
+            .OrderBy(static m => m.SortOrder)
+            .ThenBy(static m => m.Id)
+            .Include(static m => m.Tasks)
+                .ThenInclude(static t => t.TaskAssignees)
+                    .ThenInclude(static ta => ta.User)
+            .Include(static m => m.Tasks)
+                .ThenInclude(static t => t.TaskDependencyTasks)
+            .ToListAsync(cancellationToken);
+
+        var timelineMilestones = new List<TimelineMilestoneDto>();
+        foreach (var milestone in milestones)
+        {
+            var totalTasks = milestone.Tasks.Count;
+            var doneTasks = milestone.Tasks.Count(static t => t.Status == "DONE");
+            var progressPercentage = totalTasks == 0
+                ? 0.0
+                : Math.Round((doneTasks * 100.0) / totalTasks, 2);
+
+            var timelineTasks = milestone.Tasks
+                .OrderBy(static t => t.DueAt == null ? 1 : 0)
+                .ThenBy(static t => t.DueAt)
+                .ThenBy(static t => t.Id)
+                .Select(static t => new TimelineTaskDto(
+                    t.Id,
+                    t.ParentTaskId,
+                    t.Title,
+                    t.Description,
+                    t.Status,
+                    t.Priority,
+                    t.StartAt,
+                    t.DueAt,
+                    t.CompletedAt,
+                    t.TaskAssignees.Select(static ta => new TimelineTaskAssigneeDto(
+                        ta.UserId,
+                        ta.User.FullName)).ToArray(),
+                    t.TaskDependencyTasks.Select(static td => new TimelineTaskDependencyDto(
+                        td.DependsOnTaskId,
+                        td.DependencyType)).ToArray()
+                )).ToList();
+
+            timelineMilestones.Add(new TimelineMilestoneDto(
+                milestone.Id,
+                milestone.Title,
+                milestone.Description,
+                milestone.StartDate,
+                milestone.DueDate,
+                milestone.Status,
+                milestone.SortOrder,
+                progressPercentage,
+                timelineTasks));
+        }
+
+        return new ProjectTimelineDataDto(projectId, timelineMilestones);
+    }
 }

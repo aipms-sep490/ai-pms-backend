@@ -5,6 +5,8 @@ using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.AccountSecurity.Abstractions;
 using AIPMS.Application.Features.Auth.Abstractions;
 using AIPMS.Application.Features.Projects.Abstractions;
+using AIPMS.Application.Features.Milestones.Abstractions;
+using AIPMS.Application.Features.Tasks.Abstractions;
 using AIPMS.Infrastructure.Email;
 using AIPMS.Infrastructure.Identity;
 using AIPMS.Infrastructure.Identity.Configuration;
@@ -135,8 +137,11 @@ public static class DependencyInjection
         services.AddScoped<IRolePermissionRepository, AccountSecurityRepository>();
         services.AddScoped<IAuditLogRepository, AccountSecurityRepository>();
         services.AddScoped<IProjectAccessService, ProjectAccessService>();
+        services.AddScoped<IProjectExecutionGuard, ProjectExecutionGuard>();
         services.AddScoped<IAcademicStructureRepository, AcademicStructureRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IMilestoneRepository, MilestoneRepository>();
+        services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
         services.AddScoped<IPasswordResetNotifier, SmtpPasswordResetNotifier>();
 
