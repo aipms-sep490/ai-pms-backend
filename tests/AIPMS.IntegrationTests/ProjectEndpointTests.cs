@@ -26,9 +26,33 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
             base.ConfigureWebHost(builder);
             builder.ConfigureAppConfiguration((_, configuration) =>
             {
+                var currentConfig = configuration.Build();
+                var connString = currentConfig.GetConnectionString("DefaultConnection");
+                if (string.IsNullOrWhiteSpace(connString) || connString.Contains("(local)"))
+                {
+                    // Fallback default for local test run
+                    connString = "Server=(local);Database=AIPMS_Tests;Trusted_Connection=True;TrustServerCertificate=True;";
+                }
+
+                try
+                {
+                    var sqlBuilder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connString)
+                    {
+                        InitialCatalog = "AIPMS_Tests",
+                        TrustServerCertificate = true,
+                        Encrypt = false
+                    };
+                    connString = sqlBuilder.ConnectionString;
+                }
+                catch
+                {
+                    // Fallback in case of parsing error
+                    connString = "Server=(local);Database=AIPMS_Tests;Trusted_Connection=True;TrustServerCertificate=True;";
+                }
+
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:DefaultConnection"] = "Server=DESKTOP-1TUBGEU\\SQLEXPRESS;Database=AIPMS_Tests;Trusted_Connection=True;TrustServerCertificate=True;"
+                    ["ConnectionStrings:DefaultConnection"] = connString
                 });
             });
         }
