@@ -11,7 +11,6 @@ using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Domain.Entities;
 using AIPMS.Domain.Enums;
-using FluentValidation;
 using MediatR;
 
 namespace AIPMS.Application.Features.Projects.Commands;
@@ -21,15 +20,6 @@ public sealed record RequestProjectRevisionCommand(
     string ConcurrencyToken,
     string Reason) : IRequest<ProjectDto>;
 
-public sealed class RequestProjectRevisionCommandValidator : AbstractValidator<RequestProjectRevisionCommand>
-{
-    public RequestProjectRevisionCommandValidator()
-    {
-        RuleFor(x => x.Reason)
-            .NotEmpty().WithMessage("Revision reason is mandatory.")
-            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Revision reason cannot be whitespace.");
-    }
-}
 
 public sealed class RequestProjectRevisionCommandHandler(
     IProjectRepository repository,

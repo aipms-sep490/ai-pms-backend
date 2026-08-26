@@ -11,7 +11,6 @@ using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Domain.Entities;
 using AIPMS.Domain.Enums;
-using FluentValidation;
 using MediatR;
 
 namespace AIPMS.Application.Features.Projects.Commands;
@@ -21,15 +20,6 @@ public record RejectProjectCommand(
     string ConcurrencyToken,
     string Reason) : IRequest<ProjectDto>;
 
-public sealed class RejectProjectCommandValidator : AbstractValidator<RejectProjectCommand>
-{
-    public RejectProjectCommandValidator()
-    {
-        RuleFor(x => x.Reason)
-            .NotEmpty().WithMessage("Rejection reason is mandatory.")
-            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Rejection reason cannot be whitespace.");
-    }
-}
 
 public sealed class RejectProjectCommandHandler(
     IProjectRepository repository,

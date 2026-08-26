@@ -160,6 +160,7 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
         var periods = await context.ProjectPeriods
             .AsNoTracking()
             .Where(pp => pp.AcademicSemester.OrganizationId == orgId.Value
+                      && pp.AcademicSemester.Status == "ACTIVE"
                       && pp.PeriodType == "REGISTRATION"
                       && pp.Status == "ACTIVE"
                       && pp.StartAt <= currentUtc
@@ -551,7 +552,8 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
 
         var isSupervisor = await context.SupervisorAssignments.AnyAsync(sa => 
             sa.ProjectId == projectId 
-            && sa.SupervisorProfile.UserId == userId, 
+            && sa.SupervisorProfile.UserId == userId
+            && sa.EndedAt == null, 
             cancellationToken);
 
         return isSupervisor;
