@@ -43,7 +43,11 @@ public sealed class GetProjectStatusHistoryQueryHandler(
         if (isStaff && !isAdmin)
         {
             var scope = await academicRepository.GetUserScopeAsync(actorUserId, cancellationToken);
-            staffScopeDeptId = scope?.DepartmentId;
+            if (scope is null || scope.DepartmentId <= 0)
+            {
+                throw new ForbiddenException("You are not authorized to view this project's status history.");
+            }
+            staffScopeDeptId = scope.DepartmentId;
         }
 
         var canView = await repository.CanUserViewProjectAsync(

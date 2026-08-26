@@ -31,7 +31,7 @@ public interface IProjectRepository
 
     Task<bool> HasActiveProjectAsync(long teamId, CancellationToken cancellationToken);
 
-    Task<long?> GetActiveRegistrationSemesterIdAsync(DateTime currentUtc, CancellationToken cancellationToken);
+    Task<long?> GetActiveRegistrationSemesterIdAsync(long userId, DateTime currentUtc, CancellationToken cancellationToken);
 
     Task<long?> GetUserActiveTeamIdAsync(long userId, long semesterId, CancellationToken cancellationToken);
 

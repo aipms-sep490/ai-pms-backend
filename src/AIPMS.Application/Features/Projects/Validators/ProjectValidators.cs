@@ -6,37 +6,60 @@ using AIPMS.Application.Features.Projects.Queries;
 
 namespace AIPMS.Application.Features.Projects.Validators;
 
+internal static class ProjectValidationHelpers
+{
+    public static bool BeValidBase64(string representation)
+    {
+        if (string.IsNullOrWhiteSpace(representation)) return false;
+        var buffer = new byte[representation.Length];
+        if (Convert.TryFromBase64String(representation, buffer, out var bytesWritten))
+        {
+            return bytesWritten == 8;
+        }
+        return false;
+    }
+}
+
 public sealed class CreateProjectDraftCommandValidator : AbstractValidator<CreateProjectDraftCommand>
 {
     public CreateProjectDraftCommandValidator()
     {
         RuleFor(x => x.Title)
             .NotEmpty().WithMessage("Title is required.")
+            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Title must not be whitespace.")
             .MaximumLength(500).WithMessage("Title must not exceed 500 characters.");
 
         RuleFor(x => x.Domain)
             .NotEmpty().WithMessage("Domain is required.")
+            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Domain must not be whitespace.")
             .MaximumLength(100).WithMessage("Domain must not exceed 100 characters.");
 
         RuleFor(x => x.RequiredMajorIds)
             .NotNull().WithMessage("RequiredMajorIds cannot be null.")
-            .Must(x => x.Distinct().Count() == x.Count).WithMessage("RequiredMajorIds must not contain duplicate values.");
+            .Must(x => x == null || x.Distinct().Count() == x.Count).WithMessage("RequiredMajorIds must not contain duplicate values.");
+
+        RuleForEach(x => x.RequiredMajorIds)
+            .Must((cmd, id) => id > 0).WithMessage("Each Major ID must be greater than 0.");
+
+        RuleFor(x => x.Technologies)
+            .NotNull().WithMessage("Technologies list cannot be null.")
+            .Must(x => x == null || x.Select(t => t?.Trim().ToUpperInvariant().Replace(" ", "_") ?? "").Distinct().Count() == x.Count)
+            .WithMessage("Technologies must not contain duplicate tags after normalization.");
 
         RuleForEach(x => x.Technologies)
             .NotEmpty().WithMessage("Technology tag must not be empty.")
+            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Technology tag must not be whitespace.")
             .MaximumLength(100).WithMessage("Technology tag must not exceed 100 characters.");
 
-        RuleFor(x => x.Technologies)
-            .Must(x => x.Select(t => t.Trim().ToLowerInvariant()).Distinct().Count() == x.Count)
-            .WithMessage("Technologies must not contain duplicate tags.");
+        RuleFor(x => x.Keywords)
+            .NotNull().WithMessage("Keywords list cannot be null.")
+            .Must(x => x == null || x.Select(k => k?.Trim().ToUpperInvariant().Replace(" ", "_") ?? "").Distinct().Count() == x.Count)
+            .WithMessage("Keywords must not contain duplicate tags after normalization.");
 
         RuleForEach(x => x.Keywords)
             .NotEmpty().WithMessage("Keyword tag must not be empty.")
+            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Keyword tag must not be whitespace.")
             .MaximumLength(100).WithMessage("Keyword tag must not exceed 100 characters.");
-
-        RuleFor(x => x.Keywords)
-            .Must(x => x.Select(k => k.Trim().ToLowerInvariant()).Distinct().Count() == x.Count)
-            .WithMessage("Keywords must not contain duplicate tags.");
     }
 }
 
@@ -48,35 +71,45 @@ public sealed class UpdateProjectDraftCommandValidator : AbstractValidator<Updat
             .GreaterThan(0).WithMessage("ProjectId must be greater than 0.");
 
         RuleFor(x => x.ConcurrencyToken)
-            .NotEmpty().WithMessage("ConcurrencyToken is required.");
+            .NotEmpty().WithMessage("ConcurrencyToken is required.")
+            .Must(ProjectValidationHelpers.BeValidBase64).WithMessage("ConcurrencyToken must be a valid 8-byte Base64 string.");
 
         RuleFor(x => x.Title)
             .NotEmpty().WithMessage("Title is required.")
+            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Title must not be whitespace.")
             .MaximumLength(500).WithMessage("Title must not exceed 500 characters.");
 
         RuleFor(x => x.Domain)
             .NotEmpty().WithMessage("Domain is required.")
+            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Domain must not be whitespace.")
             .MaximumLength(100).WithMessage("Domain must not exceed 100 characters.");
 
         RuleFor(x => x.RequiredMajorIds)
             .NotNull().WithMessage("RequiredMajorIds cannot be null.")
-            .Must(x => x.Distinct().Count() == x.Count).WithMessage("RequiredMajorIds must not contain duplicate values.");
+            .Must(x => x == null || x.Distinct().Count() == x.Count).WithMessage("RequiredMajorIds must not contain duplicate values.");
+
+        RuleForEach(x => x.RequiredMajorIds)
+            .Must((cmd, id) => id > 0).WithMessage("Each Major ID must be greater than 0.");
+
+        RuleFor(x => x.Technologies)
+            .NotNull().WithMessage("Technologies list cannot be null.")
+            .Must(x => x == null || x.Select(t => t?.Trim().ToUpperInvariant().Replace(" ", "_") ?? "").Distinct().Count() == x.Count)
+            .WithMessage("Technologies must not contain duplicate tags after normalization.");
 
         RuleForEach(x => x.Technologies)
             .NotEmpty().WithMessage("Technology tag must not be empty.")
+            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Technology tag must not be whitespace.")
             .MaximumLength(100).WithMessage("Technology tag must not exceed 100 characters.");
 
-        RuleFor(x => x.Technologies)
-            .Must(x => x.Select(t => t.Trim().ToLowerInvariant()).Distinct().Count() == x.Count)
-            .WithMessage("Technologies must not contain duplicate tags.");
+        RuleFor(x => x.Keywords)
+            .NotNull().WithMessage("Keywords list cannot be null.")
+            .Must(x => x == null || x.Select(k => k?.Trim().ToUpperInvariant().Replace(" ", "_") ?? "").Distinct().Count() == x.Count)
+            .WithMessage("Keywords must not contain duplicate tags after normalization.");
 
         RuleForEach(x => x.Keywords)
             .NotEmpty().WithMessage("Keyword tag must not be empty.")
+            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Keyword tag must not be whitespace.")
             .MaximumLength(100).WithMessage("Keyword tag must not exceed 100 characters.");
-
-        RuleFor(x => x.Keywords)
-            .Must(x => x.Select(k => k.Trim().ToLowerInvariant()).Distinct().Count() == x.Count)
-            .WithMessage("Keywords must not contain duplicate tags.");
     }
 }
 
@@ -88,11 +121,15 @@ public sealed class SetProjectMajorsCommandValidator : AbstractValidator<SetProj
             .GreaterThan(0).WithMessage("ProjectId must be greater than 0.");
 
         RuleFor(x => x.ConcurrencyToken)
-            .NotEmpty().WithMessage("ConcurrencyToken is required.");
+            .NotEmpty().WithMessage("ConcurrencyToken is required.")
+            .Must(ProjectValidationHelpers.BeValidBase64).WithMessage("ConcurrencyToken must be a valid 8-byte Base64 string.");
 
         RuleFor(x => x.RequiredMajorIds)
             .NotEmpty().WithMessage("RequiredMajorIds must not be empty.")
-            .Must(x => x.Distinct().Count() == x.Count).WithMessage("RequiredMajorIds must not contain duplicate values.");
+            .Must(x => x == null || x.Distinct().Count() == x.Count).WithMessage("RequiredMajorIds must not contain duplicate values.");
+
+        RuleForEach(x => x.RequiredMajorIds)
+            .Must((cmd, id) => id > 0).WithMessage("Each Major ID must be greater than 0.");
     }
 }
 
@@ -104,7 +141,8 @@ public sealed class SubmitProjectCommandValidator : AbstractValidator<SubmitProj
             .GreaterThan(0).WithMessage("ProjectId must be greater than 0.");
 
         RuleFor(x => x.ConcurrencyToken)
-            .NotEmpty().WithMessage("ConcurrencyToken is required.");
+            .NotEmpty().WithMessage("ConcurrencyToken is required.")
+            .Must(ProjectValidationHelpers.BeValidBase64).WithMessage("ConcurrencyToken must be a valid 8-byte Base64 string.");
     }
 }
 
@@ -116,7 +154,8 @@ public sealed class ResubmitProjectCommandValidator : AbstractValidator<Resubmit
             .GreaterThan(0).WithMessage("ProjectId must be greater than 0.");
 
         RuleFor(x => x.ConcurrencyToken)
-            .NotEmpty().WithMessage("ConcurrencyToken is required.");
+            .NotEmpty().WithMessage("ConcurrencyToken is required.")
+            .Must(ProjectValidationHelpers.BeValidBase64).WithMessage("ConcurrencyToken must be a valid 8-byte Base64 string.");
     }
 }
 
@@ -128,7 +167,8 @@ public sealed class StartReviewProjectCommandValidator : AbstractValidator<Start
             .GreaterThan(0).WithMessage("ProjectId must be greater than 0.");
 
         RuleFor(x => x.ConcurrencyToken)
-            .NotEmpty().WithMessage("ConcurrencyToken is required.");
+            .NotEmpty().WithMessage("ConcurrencyToken is required.")
+            .Must(ProjectValidationHelpers.BeValidBase64).WithMessage("ConcurrencyToken must be a valid 8-byte Base64 string.");
     }
 }
 
@@ -140,7 +180,8 @@ public sealed class ApproveProjectCommandValidator : AbstractValidator<ApprovePr
             .GreaterThan(0).WithMessage("ProjectId must be greater than 0.");
 
         RuleFor(x => x.ConcurrencyToken)
-            .NotEmpty().WithMessage("ConcurrencyToken is required.");
+            .NotEmpty().WithMessage("ConcurrencyToken is required.")
+            .Must(ProjectValidationHelpers.BeValidBase64).WithMessage("ConcurrencyToken must be a valid 8-byte Base64 string.");
     }
 }
 
@@ -152,10 +193,12 @@ public sealed class RejectProjectCommandValidator : AbstractValidator<RejectProj
             .GreaterThan(0).WithMessage("ProjectId must be greater than 0.");
 
         RuleFor(x => x.ConcurrencyToken)
-            .NotEmpty().WithMessage("ConcurrencyToken is required.");
+            .NotEmpty().WithMessage("ConcurrencyToken is required.")
+            .Must(ProjectValidationHelpers.BeValidBase64).WithMessage("ConcurrencyToken must be a valid 8-byte Base64 string.");
 
         RuleFor(x => x.Reason)
             .NotEmpty().WithMessage("Reason is required.")
+            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Reason must not be whitespace.")
             .MaximumLength(1000).WithMessage("Reason must not exceed 1000 characters.");
     }
 }
@@ -168,10 +211,12 @@ public sealed class RequestProjectRevisionCommandValidator : AbstractValidator<R
             .GreaterThan(0).WithMessage("ProjectId must be greater than 0.");
 
         RuleFor(x => x.ConcurrencyToken)
-            .NotEmpty().WithMessage("ConcurrencyToken is required.");
+            .NotEmpty().WithMessage("ConcurrencyToken is required.")
+            .Must(ProjectValidationHelpers.BeValidBase64).WithMessage("ConcurrencyToken must be a valid 8-byte Base64 string.");
 
         RuleFor(x => x.Reason)
             .NotEmpty().WithMessage("Reason is required.")
+            .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Reason must not be whitespace.")
             .MaximumLength(1000).WithMessage("Reason must not exceed 1000 characters.");
     }
 }

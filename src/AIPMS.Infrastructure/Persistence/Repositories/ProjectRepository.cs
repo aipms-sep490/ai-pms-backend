@@ -143,23 +143,67 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
     public Task<bool> HasActiveProjectAsync(long teamId, CancellationToken cancellationToken) =>
         context.Projects.AnyAsync(p => p.TeamId == teamId && ActiveStatuses.Contains(p.Status), cancellationToken);
 
-    public Task<long?> GetActiveRegistrationSemesterIdAsync(DateTime currentUtc, CancellationToken cancellationToken) =>
-        context.ProjectPeriods
+    public async Task<long?> GetActiveRegistrationSemesterIdAsync(long userId, DateTime currentUtc, CancellationToken cancellationToken)
+    {
+        var user = await context.Users
             .AsNoTracking()
-            .Where(pp => pp.PeriodType == "REGISTRATION" && pp.Status == "ACTIVE" && pp.StartAt <= currentUtc && pp.EndAt >= currentUtc)
-            .Select(static pp => (long?)pp.AcademicSemesterId)
-            .FirstOrDefaultAsync(cancellationToken);
+            .Include(u => u.Department)
+            .Include(u => u.Major)
+                .ThenInclude(m => m!.Department!)
+            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
 
-    public Task<long?> GetUserActiveTeamIdAsync(long userId, long semesterId, CancellationToken cancellationToken) =>
-        context.TeamMembers
+        if (user is null) return null;
+
+        long? orgId = user.Department?.OrganizationId ?? user.Major?.Department?.OrganizationId;
+        if (orgId is null) return null;
+
+        var periods = await context.ProjectPeriods
+            .AsNoTracking()
+            .Where(pp => pp.AcademicSemester.OrganizationId == orgId.Value
+                      && pp.PeriodType == "REGISTRATION"
+                      && pp.Status == "ACTIVE"
+                      && pp.StartAt <= currentUtc
+                      && pp.EndAt >= currentUtc)
+            .ToListAsync(cancellationToken);
+
+        if (periods.Count == 0)
+        {
+            return null;
+        }
+
+        if (periods.Select(pp => pp.AcademicSemesterId).Distinct().Count() > 1)
+        {
+            throw new ConflictException("Ambiguous active registration periods detected across multiple semesters.");
+        }
+
+        return periods[0].AcademicSemesterId;
+    }
+
+    public async Task<long?> GetUserActiveTeamIdAsync(long userId, long semesterId, CancellationToken cancellationToken)
+    {
+        var teamIds = await context.TeamMembers
             .AsNoTracking()
             .Where(tm => tm.UserId == userId 
                       && tm.LeftAt == null 
                       && tm.IsLeader == true
                       && tm.Team.AcademicSemesterId == semesterId 
                       && tm.Team.Status == "ELIGIBLE")
-            .Select(static tm => (long?)tm.TeamId)
-            .SingleOrDefaultAsync(cancellationToken);
+            .Select(static tm => tm.TeamId)
+            .Take(2)
+            .ToListAsync(cancellationToken);
+
+        if (teamIds.Count == 0)
+        {
+            return null;
+        }
+
+        if (teamIds.Count > 1)
+        {
+            throw new ConflictException("Ambiguous active teams detected for the user in this semester.");
+        }
+
+        return teamIds[0];
+    }
 
     public Task<bool> IsTeamLeaderAsync(long teamId, long userId, CancellationToken cancellationToken) =>
         context.TeamMembers
@@ -201,27 +245,26 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
             };
 
             context.Projects.Add(project);
-            await context.SaveChangesAsync(cancellationToken);
 
             // Associate majors
             foreach (var majorId in majorIds)
             {
                 context.ProjectMajors.Add(new ProjectMajor
                 {
-                    ProjectId = project.Id,
+                    Project = project,
                     MajorId = majorId,
                     CreatedAt = utcNow
                 });
             }
 
             // Associate tags
-            var tagIds = await GetOrCreateTagsInternalAsync(domain, technologies, keywords, utcNow, cancellationToken);
-            foreach (var tagId in tagIds)
+            var tags = await GetOrCreateTagsInternalAsync(domain, technologies, keywords, utcNow, cancellationToken);
+            foreach (var tag in tags)
             {
                 context.ProjectTags.Add(new ProjectTag
                 {
-                    ProjectId = project.Id,
-                    TagId = tagId,
+                    Project = project,
+                    Tag = tag,
                     CreatedAt = utcNow
                 });
             }
@@ -289,7 +332,7 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
             {
                 context.ProjectMajors.Add(new ProjectMajor
                 {
-                    ProjectId = project.Id,
+                    Project = project,
                     MajorId = majorId,
                     CreatedAt = utcNow
                 });
@@ -297,13 +340,13 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
 
             // Update tags
             context.ProjectTags.RemoveRange(project.ProjectTags);
-            var tagIds = await GetOrCreateTagsInternalAsync(domain, technologies, keywords, utcNow, cancellationToken);
-            foreach (var tagId in tagIds)
+            var tags = await GetOrCreateTagsInternalAsync(domain, technologies, keywords, utcNow, cancellationToken);
+            foreach (var tag in tags)
             {
                 context.ProjectTags.Add(new ProjectTag
                 {
-                    ProjectId = project.Id,
-                    TagId = tagId,
+                    Project = project,
+                    Tag = tag,
                     CreatedAt = utcNow
                 });
             }
@@ -516,34 +559,36 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
 
     private static string Normalize(string name) => name.Trim().ToUpperInvariant().Replace(" ", "_");
 
-    private async Task<List<long>> GetOrCreateTagsInternalAsync(
+    private async Task<List<Tag>> GetOrCreateTagsInternalAsync(
         string domain,
         IEnumerable<string> technologies,
         IEnumerable<string> keywords,
         DateTime utcNow,
         CancellationToken cancellationToken)
     {
-        var tagIds = new List<long>();
+        var tags = new List<Tag>();
 
         if (!string.IsNullOrWhiteSpace(domain))
         {
-            tagIds.Add(await GetOrCreateTagIdAsync(domain, "DOMAIN", utcNow, cancellationToken));
+            tags.Add(await GetOrCreateTagAsync(domain, "DOMAIN", utcNow, cancellationToken));
         }
 
         foreach (var tech in technologies.Where(static t => !string.IsNullOrWhiteSpace(t)))
         {
-            tagIds.Add(await GetOrCreateTagIdAsync(tech, "TECHNOLOGY", utcNow, cancellationToken));
+            tags.Add(await GetOrCreateTagAsync(tech, "TECHNOLOGY", utcNow, cancellationToken));
         }
 
         foreach (var kw in keywords.Where(static k => !string.IsNullOrWhiteSpace(k)))
         {
-            tagIds.Add(await GetOrCreateTagIdAsync(kw, "KEYWORD", utcNow, cancellationToken));
+            tags.Add(await GetOrCreateTagAsync(kw, "KEYWORD", utcNow, cancellationToken));
         }
 
-        return tagIds.Distinct().ToList();
+        return tags.GroupBy(t => new { t.NormalizedName, t.TagType })
+                   .Select(g => g.First())
+                   .ToList();
     }
 
-    private async Task<long> GetOrCreateTagIdAsync(
+    private async Task<Tag> GetOrCreateTagAsync(
         string name,
         string type,
         DateTime utcNow,
@@ -555,7 +600,15 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
 
         if (existing is not null)
         {
-            return existing.Id;
+            return existing;
+        }
+
+        var tracked = context.Tags.Local
+            .FirstOrDefault(t => t.NormalizedName == normalized && t.TagType == type);
+
+        if (tracked is not null)
+        {
+            return tracked;
         }
 
         var newTag = new Tag
@@ -567,8 +620,6 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
         };
 
         context.Tags.Add(newTag);
-        await context.SaveChangesAsync(cancellationToken);
-
-        return newTag.Id;
+        return newTag;
     }
 }

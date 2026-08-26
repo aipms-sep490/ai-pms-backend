@@ -315,7 +315,7 @@ public sealed class TestProjectRepository : IProjectRepository
     public Task<bool> HasActiveProjectAsync(long teamId, CancellationToken cancellationToken) =>
         Task.FromResult(HasActiveProject);
 
-    public Task<long?> GetActiveRegistrationSemesterIdAsync(DateTime currentUtc, CancellationToken cancellationToken) =>
+    public Task<long?> GetActiveRegistrationSemesterIdAsync(long userId, DateTime currentUtc, CancellationToken cancellationToken) =>
         Task.FromResult(IsRegistrationOpen ? (long?)1 : null);
 
     public Task<long?> GetUserActiveTeamIdAsync(long userId, long semesterId, CancellationToken cancellationToken) =>
@@ -358,7 +358,7 @@ public sealed class TestProjectRepository : IProjectRepository
             DateTime.UtcNow,
             problemStatement,
             expectedOutput,
-            "token" + id,
+            Convert.ToBase64String(BitConverter.GetBytes((long)id)),
             majorIds.Select(m => new ProjectMajorDto(m, m, "M" + m, "Major " + m)).ToArray(),
             new List<ProjectTagDto> { new(1, domain, "DOMAIN") }
                 .Concat(technologies.Select(t => new ProjectTagDto(2, t, "TECHNOLOGY")))
@@ -395,7 +395,7 @@ public sealed class TestProjectRepository : IProjectRepository
             Objectives = objectives,
             ProblemStatement = problemStatement,
             ExpectedOutput = expectedOutput,
-            ConcurrencyToken = "token" + (projectId + 1),
+            ConcurrencyToken = Convert.ToBase64String(BitConverter.GetBytes((long)(projectId + 1))),
             Majors = majorIds.Select(m => new ProjectMajorDto(m, m, "M" + m, "Major " + m)).ToArray(),
             Tags = new List<ProjectTagDto> { new(1, domain, "DOMAIN") }
                 .Concat(technologies.Select(t => new ProjectTagDto(2, t, "TECHNOLOGY")))
@@ -426,7 +426,7 @@ public sealed class TestProjectRepository : IProjectRepository
             Status = newStatus,
             SubmittedAt = newStatus == "SUBMITTED" ? DateTime.UtcNow : existing.SubmittedAt,
             ApprovedAt = newStatus == "APPROVED" ? DateTime.UtcNow : existing.ApprovedAt,
-            ConcurrencyToken = "token_updated_" + projectId
+            ConcurrencyToken = Convert.ToBase64String(BitConverter.GetBytes((long)(projectId + 2)))
         };
         Projects[projectId] = updated;
 

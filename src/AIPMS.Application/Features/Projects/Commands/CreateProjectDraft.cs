@@ -39,8 +39,8 @@ public sealed class CreateProjectDraftCommandHandler(
 
         var actorUserId = currentUser.UserId.Value;
 
-        // Get the active registration semester
-        var semesterId = await repository.GetActiveRegistrationSemesterIdAsync(DateTime.UtcNow, cancellationToken);
+        // Get the active registration semester for the user's organization
+        var semesterId = await repository.GetActiveRegistrationSemesterIdAsync(actorUserId, DateTime.UtcNow, cancellationToken);
         if (semesterId is null)
         {
             throw new ConflictException("The project registration period is currently closed.");
