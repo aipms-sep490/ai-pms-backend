@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Security;
+using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
 using MediatR;
@@ -15,6 +16,7 @@ public sealed record GetProjectStatusHistoryQuery(long ProjectId) : IRequest<IRe
 
 public sealed class GetProjectStatusHistoryQueryHandler(
     IProjectRepository repository,
+    IAcademicStructureRepository academicRepository,
     ICurrentUser currentUser)
     : IRequestHandler<GetProjectStatusHistoryQuery, IReadOnlyList<ProjectStatusHistoryDto>>
 {
@@ -36,11 +38,19 @@ public sealed class GetProjectStatusHistoryQueryHandler(
         // Security check (anti-IDOR)
         var isAdmin = currentUser.Roles.Contains(AppRoles.Admin, StringComparer.Ordinal);
         var isStaff = currentUser.Roles.Contains(AppRoles.DepartmentStaff, StringComparer.Ordinal);
+        long? staffScopeDeptId = null;
+
+        if (isStaff && !isAdmin)
+        {
+            var scope = await academicRepository.GetUserScopeAsync(actorUserId, cancellationToken);
+            staffScopeDeptId = scope?.DepartmentId;
+        }
 
         var canView = await repository.CanUserViewProjectAsync(
             request.ProjectId,
             actorUserId,
-            isAdmin || isStaff,
+            isAdmin,
+            staffScopeDeptId,
             cancellationToken);
 
         if (!canView)

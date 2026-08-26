@@ -14,7 +14,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-internal sealed class ProjectRepository(AipmsDbContext context) : IProjectRepository
+public sealed class ProjectRepository(AipmsDbContext context) : IProjectRepository
 {
     private static readonly string[] ActiveStatuses = 
     [
@@ -143,12 +143,23 @@ internal sealed class ProjectRepository(AipmsDbContext context) : IProjectReposi
     public Task<bool> HasActiveProjectAsync(long teamId, CancellationToken cancellationToken) =>
         context.Projects.AnyAsync(p => p.TeamId == teamId && ActiveStatuses.Contains(p.Status), cancellationToken);
 
-    public Task<long?> GetUserActiveTeamIdAsync(long userId, CancellationToken cancellationToken) =>
+    public Task<long?> GetActiveRegistrationSemesterIdAsync(DateTime currentUtc, CancellationToken cancellationToken) =>
+        context.ProjectPeriods
+            .AsNoTracking()
+            .Where(pp => pp.PeriodType == "REGISTRATION" && pp.Status == "ACTIVE" && pp.StartAt <= currentUtc && pp.EndAt >= currentUtc)
+            .Select(static pp => (long?)pp.AcademicSemesterId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<long?> GetUserActiveTeamIdAsync(long userId, long semesterId, CancellationToken cancellationToken) =>
         context.TeamMembers
             .AsNoTracking()
-            .Where(tm => tm.UserId == userId && tm.LeftAt == null)
+            .Where(tm => tm.UserId == userId 
+                      && tm.LeftAt == null 
+                      && tm.IsLeader == true
+                      && tm.Team.AcademicSemesterId == semesterId 
+                      && tm.Team.Status == "ELIGIBLE")
             .Select(static tm => (long?)tm.TeamId)
-            .FirstOrDefaultAsync(cancellationToken);
+            .SingleOrDefaultAsync(cancellationToken);
 
     public Task<bool> IsTeamLeaderAsync(long teamId, long userId, CancellationToken cancellationToken) =>
         context.TeamMembers
@@ -169,52 +180,70 @@ internal sealed class ProjectRepository(AipmsDbContext context) : IProjectReposi
         IReadOnlyList<string> keywords,
         CancellationToken cancellationToken)
     {
-        var utcNow = DateTime.UtcNow;
-        var project = new Project
+        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            TeamId = teamId,
-            Code = "PRJ-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(),
-            Title = title.Trim(),
-            Description = description?.Trim(),
-            Objectives = objectives?.Trim(),
-            Status = "DRAFT",
-            RegisteredAt = utcNow,
-            CreatedBy = userId,
-            CreatedAt = utcNow,
-            UpdatedAt = utcNow,
-            ProblemStatement = problemStatement?.Trim(),
-            ExpectedOutput = expectedOutput?.Trim()
-        };
-
-        context.Projects.Add(project);
-        await context.SaveChangesAsync(cancellationToken);
-
-        // Associate majors
-        foreach (var majorId in majorIds)
-        {
-            context.ProjectMajors.Add(new ProjectMajor
+            var utcNow = DateTime.UtcNow;
+            var project = new Project
             {
-                ProjectId = project.Id,
-                MajorId = majorId,
-                CreatedAt = utcNow
-            });
-        }
+                TeamId = teamId,
+                Code = "PRJ-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(),
+                Title = title.Trim(),
+                Description = description?.Trim(),
+                Objectives = objectives?.Trim(),
+                Status = "DRAFT",
+                RegisteredAt = utcNow,
+                CreatedBy = userId,
+                CreatedAt = utcNow,
+                UpdatedAt = utcNow,
+                ProblemStatement = problemStatement?.Trim(),
+                ExpectedOutput = expectedOutput?.Trim()
+            };
 
-        // Associate tags
-        var tagIds = await GetOrCreateTagsInternalAsync(domain, technologies, keywords, utcNow, cancellationToken);
-        foreach (var tagId in tagIds)
-        {
-            context.ProjectTags.Add(new ProjectTag
+            context.Projects.Add(project);
+            await context.SaveChangesAsync(cancellationToken);
+
+            // Associate majors
+            foreach (var majorId in majorIds)
             {
-                ProjectId = project.Id,
-                TagId = tagId,
-                CreatedAt = utcNow
-            });
+                context.ProjectMajors.Add(new ProjectMajor
+                {
+                    ProjectId = project.Id,
+                    MajorId = majorId,
+                    CreatedAt = utcNow
+                });
+            }
+
+            // Associate tags
+            var tagIds = await GetOrCreateTagsInternalAsync(domain, technologies, keywords, utcNow, cancellationToken);
+            foreach (var tagId in tagIds)
+            {
+                context.ProjectTags.Add(new ProjectTag
+                {
+                    ProjectId = project.Id,
+                    TagId = tagId,
+                    CreatedAt = utcNow
+                });
+            }
+
+            await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return (await GetByIdAsync(project.Id, cancellationToken))!;
         }
-
-        await context.SaveChangesAsync(cancellationToken);
-
-        return (await GetByIdAsync(project.Id, cancellationToken))!;
+        catch (DbUpdateException exception)
+            when (exception.InnerException is Microsoft.Data.SqlClient.SqlException sqlException 
+                  && (sqlException.Number == 2601 || sqlException.Number == 2627)
+                  && sqlException.Message.Contains("uq_projects_active_team"))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new ConflictException("The team already has an active or unfinished project proposal.");
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     public async Task<ProjectDto> UpdateDraftAsync(
@@ -231,61 +260,77 @@ internal sealed class ProjectRepository(AipmsDbContext context) : IProjectReposi
         IReadOnlyList<string> keywords,
         CancellationToken cancellationToken)
     {
-        var project = await context.Projects
-            .Include(static p => p.ProjectMajors)
-            .Include(static p => p.ProjectTags)
-            .SingleOrDefaultAsync(p => p.Id == projectId, cancellationToken)
-            ?? throw new NotFoundException("Project", projectId);
-
-        var existingToken = Convert.ToBase64String(project.RowVersion);
-        if (existingToken != concurrencyToken)
-        {
-            throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
-        }
-
-        var utcNow = DateTime.UtcNow;
-        project.Title = title.Trim();
-        project.Description = description?.Trim();
-        project.Objectives = objectives?.Trim();
-        project.ProblemStatement = problemStatement?.Trim();
-        project.ExpectedOutput = expectedOutput?.Trim();
-        project.UpdatedAt = utcNow;
-
-        // Update majors
-        context.ProjectMajors.RemoveRange(project.ProjectMajors);
-        foreach (var majorId in majorIds)
-        {
-            context.ProjectMajors.Add(new ProjectMajor
-            {
-                ProjectId = project.Id,
-                MajorId = majorId,
-                CreatedAt = utcNow
-            });
-        }
-
-        // Update tags
-        context.ProjectTags.RemoveRange(project.ProjectTags);
-        var tagIds = await GetOrCreateTagsInternalAsync(domain, technologies, keywords, utcNow, cancellationToken);
-        foreach (var tagId in tagIds)
-        {
-            context.ProjectTags.Add(new ProjectTag
-            {
-                ProjectId = project.Id,
-                TagId = tagId,
-                CreatedAt = utcNow
-            });
-        }
-
+        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            var project = await context.Projects
+                .Include(static p => p.ProjectMajors)
+                .Include(static p => p.ProjectTags)
+                .SingleOrDefaultAsync(p => p.Id == projectId, cancellationToken)
+                ?? throw new NotFoundException("Project", projectId);
+
+            var existingToken = Convert.ToBase64String(project.RowVersion);
+            if (existingToken != concurrencyToken)
+            {
+                throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+            }
+
+            var utcNow = DateTime.UtcNow;
+            project.Title = title.Trim();
+            project.Description = description?.Trim();
+            project.Objectives = objectives?.Trim();
+            project.ProblemStatement = problemStatement?.Trim();
+            project.ExpectedOutput = expectedOutput?.Trim();
+            project.UpdatedAt = utcNow;
+
+            // Update majors
+            context.ProjectMajors.RemoveRange(project.ProjectMajors);
+            foreach (var majorId in majorIds)
+            {
+                context.ProjectMajors.Add(new ProjectMajor
+                {
+                    ProjectId = project.Id,
+                    MajorId = majorId,
+                    CreatedAt = utcNow
+                });
+            }
+
+            // Update tags
+            context.ProjectTags.RemoveRange(project.ProjectTags);
+            var tagIds = await GetOrCreateTagsInternalAsync(domain, technologies, keywords, utcNow, cancellationToken);
+            foreach (var tagId in tagIds)
+            {
+                context.ProjectTags.Add(new ProjectTag
+                {
+                    ProjectId = project.Id,
+                    TagId = tagId,
+                    CreatedAt = utcNow
+                });
+            }
+
             await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return (await GetByIdAsync(project.Id, cancellationToken))!;
         }
         catch (DbUpdateConcurrencyException)
         {
+            await transaction.RollbackAsync(cancellationToken);
             throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
         }
-
-        return (await GetByIdAsync(project.Id, cancellationToken))!;
+        catch (DbUpdateException exception)
+            when (exception.InnerException is Microsoft.Data.SqlClient.SqlException sqlException 
+                  && (sqlException.Number == 2601 || sqlException.Number == 2627)
+                  && sqlException.Message.Contains("uq_projects_active_team"))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new ConflictException("The team already has an active or unfinished project proposal.");
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     public async Task<ProjectDto> UpdateStatusAsync(
@@ -443,10 +488,16 @@ internal sealed class ProjectRepository(AipmsDbContext context) : IProjectReposi
     public async Task<bool> CanUserViewProjectAsync(
         long projectId,
         long userId,
-        bool isAdminOrStaff,
+        bool isAdmin,
+        long? staffScopeDepartmentId,
         CancellationToken cancellationToken)
     {
-        if (isAdminOrStaff) return true;
+        if (isAdmin) return true;
+        if (staffScopeDepartmentId.HasValue)
+        {
+            var projectDeptIds = await GetProjectMajorDepartmentIdsAsync(projectId, cancellationToken);
+            return projectDeptIds.Contains(staffScopeDepartmentId.Value);
+        }
 
         var belongsToTeam = await context.Projects.AnyAsync(p => 
             p.Id == projectId 

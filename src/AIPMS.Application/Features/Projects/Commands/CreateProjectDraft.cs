@@ -39,11 +39,18 @@ public sealed class CreateProjectDraftCommandHandler(
 
         var actorUserId = currentUser.UserId.Value;
 
-        // Get the active team of the current user
-        var teamId = await repository.GetUserActiveTeamIdAsync(actorUserId, cancellationToken);
+        // Get the active registration semester
+        var semesterId = await repository.GetActiveRegistrationSemesterIdAsync(DateTime.UtcNow, cancellationToken);
+        if (semesterId is null)
+        {
+            throw new ConflictException("The project registration period is currently closed.");
+        }
+
+        // Get the active team of the current user for this semester
+        var teamId = await repository.GetUserActiveTeamIdAsync(actorUserId, semesterId.Value, cancellationToken);
         if (teamId is null)
         {
-            throw new ForbiddenException("You must belong to an active team to create a project draft.");
+            throw new ForbiddenException("You must belong to an active, eligible team in the current semester to create a project draft.");
         }
 
         // Verify user is the Team Leader

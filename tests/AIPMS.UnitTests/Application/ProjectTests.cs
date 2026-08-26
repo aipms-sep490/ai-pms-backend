@@ -306,7 +306,10 @@ internal sealed class StubProjectRepository : IProjectRepository
     public Task<bool> HasActiveProjectAsync(long teamId, CancellationToken cancellationToken) =>
         Task.FromResult(HasActiveProject);
 
-    public Task<long?> GetUserActiveTeamIdAsync(long userId, CancellationToken cancellationToken) =>
+    public Task<long?> GetActiveRegistrationSemesterIdAsync(DateTime currentUtc, CancellationToken cancellationToken) =>
+        Task.FromResult(IsRegistrationOpen ? (long?)1 : null);
+
+    public Task<long?> GetUserActiveTeamIdAsync(long userId, long semesterId, CancellationToken cancellationToken) =>
         Task.FromResult(UserActiveTeamId);
 
     public Task<bool> IsTeamLeaderAsync(long teamId, long userId, CancellationToken cancellationToken) =>
@@ -479,7 +482,8 @@ internal sealed class StubProjectRepository : IProjectRepository
     public Task<bool> CanUserViewProjectAsync(
         long projectId,
         long userId,
-        bool isAdminOrStaff,
+        bool isAdmin,
+        long? staffScopeDepartmentId,
         CancellationToken cancellationToken) =>
         Task.FromResult(CanView);
 }
