@@ -17,11 +17,6 @@ jobs:
         env:
           ACCEPT_EULA: "Y"
           MSSQL_SA_PASSWORD: "${{ secrets.CI_MSSQL_SA_PASSWORD }}"
-        options: >-
-          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P '${{ secrets.CI_MSSQL_SA_PASSWORD }}' -Q 'SELECT 1' -C"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
 
     steps:
       - uses: actions/checkout@v4
