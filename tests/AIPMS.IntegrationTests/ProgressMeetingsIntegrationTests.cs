@@ -47,6 +47,7 @@ public sealed class ProgressMeetingsIntegrationTests(AipmsWebApplicationFactory 
         var project = new { projectSeed.Id, projectSeed.LeaderId, Members = memberIds };
         var client = factory.CreateAuthenticatedClient(project.LeaderId);
         long reportId = 0, blockedReportId = 0, meetingId = 0, periodId = 0, blockedPeriodId = 0;
+        long supervisorRequestId = 0, supervisorAssignmentId = 0;
         try
         {
             var marker = DateTime.UtcNow.Ticks % 1000000;
@@ -65,6 +66,8 @@ public sealed class ProgressMeetingsIntegrationTests(AipmsWebApplicationFactory 
             Assert.Equal("SUBMITTED", (await db.ProgressReports.AsNoTracking().SingleAsync(x => x.Id == reportId)).Status);
             Assert.True((await db.Set<ProgressReportMetadata>().AsNoTracking().SingleAsync(x => x.ReportId == reportId)).IsLate);
             Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync($"/api/v1/progress-reports/{reportId}/contributions", new ContributionPayload("RISKS", "Too late"))).StatusCode);
+            Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync($"/api/v1/progress-reports/{reportId}",
+                new UpdateProgressReportPayload("overwrite", "", "", "", "", ""))).StatusCode);
 
             var blockedPeriod = new ProgressReportPeriod { ProjectId = project.Id, ReportType = "WEEKLY", PeriodStart = periodStart.AddDays(14),
                 PeriodEnd = periodStart.AddDays(20), DeadlineAt = DateTime.UtcNow.AddMinutes(-1), LatePolicy = "BLOCK", Status = "OPEN" };
@@ -85,6 +88,52 @@ public sealed class ProgressMeetingsIntegrationTests(AipmsWebApplicationFactory 
             Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsJsonAsync($"/api/v1/meetings/{meetingId}/action-items", new CreateActionItemPayload("Follow up", null, project.LeaderId, DateOnly.FromDateTime(start.AddDays(2)), "TODO", null, null))).StatusCode);
             var outsiderId = await db.Users.Where(u => !project.Members.Contains(u.Id)).Select(u => u.Id).FirstAsync();
             Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/api/v1/meetings/{meetingId}/action-items", new CreateActionItemPayload("Invalid owner", null, outsiderId, null, "TODO", null, null))).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/meetings",
+                new CreateMeetingPayload("Invalid participant", null, start, null, null, null, [outsiderId]))).StatusCode);
+
+            var outsiderClient = factory.CreateAuthenticatedClient(outsiderId);
+            Assert.Equal(HttpStatusCode.Forbidden, (await outsiderClient.GetAsync($"/api/v1/progress-reports/{reportId}")).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await outsiderClient.GetAsync($"/api/v1/meetings/{meetingId}")).StatusCode);
+
+            var supervisor = await db.SupervisorProfiles.AsNoTracking().FirstAsync();
+            var now = DateTime.UtcNow;
+            var supervisorRequest = new AIPMS.Infrastructure.Persistence.Generated.Models.SupervisorRequest
+            {
+                ProjectId = project.Id,
+                SupervisorProfileId = supervisor.Id,
+                RequestedBy = project.LeaderId,
+                Status = "ACCEPTED",
+                RequestedAt = now,
+                RespondedAt = now,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            db.SupervisorRequests.Add(supervisorRequest);
+            await db.SaveChangesAsync();
+            supervisorRequestId = supervisorRequest.Id;
+            var assignment = new AIPMS.Infrastructure.Persistence.Generated.Models.SupervisorAssignment
+            {
+                ProjectId = project.Id,
+                SupervisorProfileId = supervisor.Id,
+                SupervisorRequestId = supervisorRequest.Id,
+                IsPrimary = true,
+                AssignedAt = now,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            db.SupervisorAssignments.Add(assignment);
+            await db.SaveChangesAsync();
+            supervisorAssignmentId = assignment.Id;
+
+            var supervisorClient = factory.CreateAuthenticatedClient(supervisor.UserId);
+            Assert.Equal(HttpStatusCode.NoContent, (await supervisorClient.PostAsJsonAsync(
+                $"/api/v1/progress-reports/{reportId}/feedback", new FeedbackPayload("Report reviewed"))).StatusCode);
+            Assert.Equal(HttpStatusCode.NoContent, (await supervisorClient.PostAsJsonAsync(
+                $"/api/v1/meetings/{meetingId}/feedback", new FeedbackPayload("Meeting reviewed"))).StatusCode);
+            Assert.Equal(2, await db.SupervisorFeedbacks.CountAsync(x => x.SupervisorAssignmentId == assignment.Id));
+
+            Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/v1/meetings/{meetingId}")).StatusCode);
+            Assert.Equal("CANCELLED", (await db.Meetings.AsNoTracking().SingleAsync(x => x.Id == meetingId)).Status);
             Assert.Equal(project.Members.Length, await db.MeetingParticipants.CountAsync(x => x.MeetingId == meetingId));
             Assert.Single(await db.Set<MeetingDecision>().Where(x => x.MeetingId == meetingId).ToListAsync());
             Assert.Single(await db.Set<MeetingBlocker>().Where(x => x.MeetingId == meetingId).ToListAsync());
@@ -94,6 +143,21 @@ public sealed class ProgressMeetingsIntegrationTests(AipmsWebApplicationFactory 
         }
         finally
         {
+            if (supervisorAssignmentId != 0)
+            {
+                var feedback = await db.SupervisorFeedbacks.Where(x => x.SupervisorAssignmentId == supervisorAssignmentId).ToListAsync();
+                db.SupervisorFeedbacks.RemoveRange(feedback);
+                await db.SaveChangesAsync();
+                var assignment = await db.SupervisorAssignments.FindAsync(supervisorAssignmentId);
+                if (assignment is not null) db.SupervisorAssignments.Remove(assignment);
+                await db.SaveChangesAsync();
+            }
+            if (supervisorRequestId != 0)
+            {
+                var request = await db.SupervisorRequests.FindAsync(supervisorRequestId);
+                if (request is not null) db.SupervisorRequests.Remove(request);
+                await db.SaveChangesAsync();
+            }
             if (meetingId != 0)
             {
                 var notifications = await db.Notifications.Where(x => x.RelatedEntityType == "MEETING" && x.RelatedEntityId == meetingId).ToListAsync();
