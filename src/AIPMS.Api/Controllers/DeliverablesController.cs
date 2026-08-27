@@ -26,10 +26,15 @@ public sealed class DeliverablesController(ISender sender) : ControllerBase
     [HttpPost("{id:long}/versions")]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<DeliverableVersionDto>> Submit(long id,[FromForm] SubmitDeliverableVersionPayload body,CancellationToken ct){await using var stream=body.File.OpenReadStream();return Ok(await sender.Send(new SubmitDeliverableVersionCommand(id,body.Note,body.File.FileName,body.File.ContentType,body.File.Length,stream),ct));}
+    [HttpPost("{id:long}/files")]
+    [Consumes("multipart/form-data")]
+    public async Task<ActionResult<DeliverableVersionDto>> Upload(long id,[FromForm] SubmitDeliverableVersionPayload body,CancellationToken ct){await using var stream=body.File.OpenReadStream();return Ok(await sender.Send(new UploadDeliverableFileCommand(id,body.Note,body.File.FileName,body.File.ContentType,body.File.Length,stream),ct));}
     [HttpGet("{id:long}/versions")]
     public async Task<ActionResult<IReadOnlyList<DeliverableVersionDto>>> History(long id,CancellationToken ct)=>Ok(await sender.Send(new GetDeliverableHistoryQuery(id),ct));
     [HttpPost("versions/{id:long}/feedback")]
     public async Task<ActionResult> Feedback(long id,[FromBody] FeedbackPayload body,CancellationToken ct){await sender.Send(new AddSupervisorFeedbackCommand(id,body.FeedbackText),ct);return Ok();}
+    [HttpPost("{id:long}/revision")]
+    public async Task<ActionResult> RequestRevision(long id,[FromBody] RevisionPayload body,CancellationToken ct){await sender.Send(new RequestDeliverableRevisionCommand(id,body.Reason),ct);return Ok();}
 }
 
 [ApiController]
@@ -44,4 +49,5 @@ public sealed class DeliverableFilesController(ISender sender) : ControllerBase
 }
 public sealed record UpdateDeliverablePayload(string Title,string? Description,string? DeliverableType,DateTime? DueAt);
 public sealed record FeedbackPayload(string FeedbackText);
+public sealed record RevisionPayload(string Reason);
 public sealed class SubmitDeliverableVersionPayload { public string? Note { get; init; } = null; public IFormFile File { get; init; } = null!; }

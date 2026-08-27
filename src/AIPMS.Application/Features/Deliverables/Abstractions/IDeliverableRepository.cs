@@ -14,7 +14,6 @@ public interface IDeliverableRepository
     Task UpdateAsync(long id, string title, string? description, string? deliverableType, DateTime? dueAt, CancellationToken cancellationToken);
     Task DeleteAsync(long id, CancellationToken cancellationToken);
     Task<SubmissionTarget?> GetSubmissionTargetAsync(long deliverableId, CancellationToken cancellationToken);
-    Task<int> GetNextVersionNumberAsync(long deliverableId, CancellationToken cancellationToken);
     Task<long?> GetActiveSupervisorAssignmentIdAsync(long projectId, CancellationToken cancellationToken);
     Task<long> AddVersionAndFileAsync(VersionSubmission submission, CancellationToken cancellationToken);
     Task<IReadOnlyList<DeliverableVersionDto>> GetHistoryAsync(long deliverableId, CancellationToken cancellationToken);
@@ -23,6 +22,7 @@ public interface IDeliverableRepository
     Task DeleteUnsubmittedFileAsync(long fileId, CancellationToken cancellationToken);
     Task<bool> IsCurrentUserAssignedSupervisorAsync(long userId, long projectId, CancellationToken cancellationToken);
     Task AddFeedbackAsync(long deliverableVersionId, long assignmentId, long projectId, string feedbackText, CancellationToken cancellationToken);
+    Task RequestRevisionAsync(long deliverableId, long versionId, long assignmentId, long projectId, string reason, CancellationToken cancellationToken);
 }
 
 public sealed record SubmissionTarget(long DeliverableId, long ProjectId, DateTime? DueAt, string DeliverableStatus);
