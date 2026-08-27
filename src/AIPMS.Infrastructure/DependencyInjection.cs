@@ -8,7 +8,6 @@ using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Application.Features.Deliverables.Abstractions;
 using AIPMS.Application.Abstractions.Storage;
 using AIPMS.Application.Features.Projects.Abstractions;
-using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Infrastructure.Email;
 using AIPMS.Infrastructure.Storage;
 using AIPMS.Infrastructure.Identity;
@@ -150,10 +149,6 @@ public static class DependencyInjection
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
         services.AddScoped<IPasswordResetNotifier, SmtpPasswordResetNotifier>();
-        services.AddScoped<ISupervisorRepository, Persistence.Repositories.SupervisorRepository>();
-        services.AddScoped<ISupervisorRequestRepository, Persistence.Repositories.SupervisorRequestRepository>();
-        services.AddScoped<ISupervisorAssignmentRepository, Persistence.Repositories.SupervisorAssignmentRepository>();
-        services.AddScoped<IUnitOfWork, Persistence.Repositories.UnitOfWork>();
 
         return services;
     }

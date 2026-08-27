@@ -27,7 +27,7 @@ internal sealed class DeliverableRepository(AipmsDbContext db) : IDeliverableRep
         var q = db.Deliverables.AsNoTracking().Where(x => x.ProjectId == projectId).OrderByDescending(x => x.CreatedAt);
         var total = await q.CountAsync(ct);
         var items = await q.Skip((page - 1) * size).Take(size).Select(Map).ToListAsync(ct);
-        return new PagedResult<DeliverableDto>(items, page, size, total, (int)Math.Ceiling(total / (double)size));
+        return new PagedResult<DeliverableDto>(items, page, size, total);
     }
     public async Task<long> CreateAsync(long projectId, long? milestoneId, string title, string? description, string? type, DateTime? dueAt, long userId, CancellationToken ct)
     {
