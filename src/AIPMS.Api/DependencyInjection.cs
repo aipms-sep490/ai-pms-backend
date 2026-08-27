@@ -1,10 +1,12 @@
+using System.Threading.RateLimiting;
+using AIPMS.Api.Configuration;
 using AIPMS.Api.Security;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Security;
-using AIPMS.Api.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -26,6 +28,7 @@ public static class DependencyInjection
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
+        services.AddScoped<IRequestContext, HttpRequestContext>();
         services.AddScoped<IAuthorizationHandler, ProjectAccessAuthorizationHandler>();
         services.AddSingleton<IConfigureOptions<JwtBearerOptions>, ConfigureJwtBearerOptions>();
 
@@ -41,6 +44,9 @@ public static class DependencyInjection
 
             options.AddPolicy(
                 AuthorizationPolicies.AdminOnly,
+                policy => policy.RequireRole(AppRoles.Admin));
+            options.AddPolicy(
+                AuthorizationPolicies.AccountSecurityManagement,
                 policy => policy.RequireRole(AppRoles.Admin));
             options.AddPolicy(
                 AuthorizationPolicies.AcademicManagement,
@@ -124,6 +130,29 @@ public static class DependencyInjection
 
         services.AddSingleton<IConfigureOptions<CorsOptions>, ConfigureCorsOptions>();
         services.AddCors();
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.OnRejected = async (context, cancellationToken) =>
+            {
+                await Results.Problem(
+                    statusCode: StatusCodes.Status429TooManyRequests,
+                    title: "Too many authentication requests.",
+                    detail: "Wait before retrying this operation.",
+                    instance: context.HttpContext.Request.Path)
+                    .ExecuteAsync(context.HttpContext);
+            };
+            options.AddPolicy("authentication", httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    static _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 10,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    }));
+        });
 
         return services;
     }

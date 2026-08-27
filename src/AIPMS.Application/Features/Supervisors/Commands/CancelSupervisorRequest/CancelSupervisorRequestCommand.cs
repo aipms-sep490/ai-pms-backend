@@ -9,7 +9,6 @@ public sealed record CancelSupervisorRequestCommand(long Id) : IRequest<Unit>;
 
 public sealed class CancelSupervisorRequestCommandHandler(
     ICurrentUser currentUser,
-    IProjectAccessService projectAccessService,
     ISupervisorRequestRepository requestRepository) : IRequestHandler<CancelSupervisorRequestCommand, Unit>
 {
     public async Task<Unit> Handle(CancelSupervisorRequestCommand request, CancellationToken cancellationToken)
@@ -23,9 +22,11 @@ public sealed class CancelSupervisorRequestCommandHandler(
             throw new ConflictException("Only PENDING supervisor requests can be cancelled.");
         }
 
-        if (!await projectAccessService.CanAccessAsync(userId, supervisorRequest.ProjectId, cancellationToken))
+        // The request row is retained as the audit history: RequestedBy identifies the
+        // cancellation actor and RespondedAt records when the cancellation happened.
+        if (supervisorRequest.RequestedBy != userId)
         {
-            throw new ForbiddenException("You are not authorized to cancel this supervisor request.");
+            throw new ForbiddenException("Only the user who sent this request can cancel it.");
         }
 
         supervisorRequest.Status = "CANCELLED";

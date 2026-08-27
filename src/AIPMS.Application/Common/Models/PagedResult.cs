@@ -2,7 +2,11 @@ namespace AIPMS.Application.Common.Models;
 
 public sealed record PagedResult<T>(
     IReadOnlyList<T> Items,
-    int PageNumber,
+    int Page,
     int PageSize,
-    int TotalCount,
-    int TotalPages);
+    long TotalCount)
+{
+    public int TotalPages => TotalCount == 0
+        ? 0
+        : (int)Math.Ceiling(TotalCount / (double)PageSize);
+}

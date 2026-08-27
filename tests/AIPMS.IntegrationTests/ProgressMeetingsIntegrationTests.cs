@@ -18,12 +18,33 @@ public sealed class ProgressMeetingsIntegrationTests(AipmsWebApplicationFactory 
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AipmsDbContext>();
-        var project = await db.Projects.AsNoTracking().Select(p => new
+        var projectSeed = await db.Projects.AsNoTracking().Select(p => new
         {
             p.Id,
+            p.TeamId,
+            p.Team.AcademicSemesterId,
             LeaderId = p.Team.TeamMembers.Where(m => m.IsLeader && m.LeftAt == null).Select(m => m.UserId).First(),
             Members = p.Team.TeamMembers.Where(m => m.LeftAt == null).Select(m => m.UserId).ToArray()
-        }).FirstAsync(x => x.Members.Length >= 2);
+        }).FirstAsync(x => x.Members.Length >= 1);
+        long addedTeamMemberId = 0;
+        var memberIds = projectSeed.Members;
+        if (memberIds.Length < 2)
+        {
+            var additionalUserId = await db.Users.Where(u => !memberIds.Contains(u.Id)).Select(u => u.Id).FirstAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO dbo.team_members
+                    (team_id, academic_semester_id, user_id, is_leader, joined_at, created_at, updated_at)
+                VALUES
+                    ({projectSeed.TeamId}, {projectSeed.AcademicSemesterId}, {additionalUserId}, 0,
+                     SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME())
+                """);
+            addedTeamMemberId = await db.TeamMembers
+                .Where(x => x.TeamId == projectSeed.TeamId && x.UserId == additionalUserId && x.LeftAt == null)
+                .Select(x => x.Id)
+                .SingleAsync();
+            memberIds = [.. memberIds, additionalUserId];
+        }
+        var project = new { projectSeed.Id, projectSeed.LeaderId, Members = memberIds };
         var client = factory.CreateAuthenticatedClient(project.LeaderId);
         long reportId = 0, blockedReportId = 0, meetingId = 0, periodId = 0, blockedPeriodId = 0;
         try
@@ -84,6 +105,7 @@ public sealed class ProgressMeetingsIntegrationTests(AipmsWebApplicationFactory 
             await db.SaveChangesAsync();
             if (periodId != 0) { var period = await db.Set<ProgressReportPeriod>().FindAsync(periodId); if (period is not null) db.Set<ProgressReportPeriod>().Remove(period); await db.SaveChangesAsync(); }
             if (blockedPeriodId != 0) { var period = await db.Set<ProgressReportPeriod>().FindAsync(blockedPeriodId); if (period is not null) db.Set<ProgressReportPeriod>().Remove(period); await db.SaveChangesAsync(); }
+            if (addedTeamMemberId != 0) { var member = await db.TeamMembers.FindAsync(addedTeamMemberId); if (member is not null) db.TeamMembers.Remove(member); await db.SaveChangesAsync(); }
         }
     }
 }

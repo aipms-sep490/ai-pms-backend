@@ -290,6 +290,7 @@ public sealed class SupervisorsTests
         Assert.Null(assignment.EndedAt);
         Assert.True(unitOfWork.TransactionStarted);
         Assert.True(unitOfWork.Committed);
+        Assert.Equal([100L], requestRepo.InitializedWorkspaceProjects);
     }
 
     [Fact]
@@ -335,6 +336,31 @@ public sealed class SupervisorsTests
         await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task AcceptSupervisorRequestCommandHandler_AlreadyAccepted_IsIdempotent()
+    {
+        var currentUser = new FakeCurrentUser(10);
+        var supervisorRepo = new FakeSupervisorRepository();
+        var requestRepo = new FakeSupervisorRequestRepository();
+        var assignmentRepo = new FakeSupervisorAssignmentRepository();
+        var unitOfWork = new FakeUnitOfWork();
+        supervisorRepo.Profiles.Add(new SupervisorProfile { Id = 20, UserId = 10, IsAvailable = true });
+        requestRepo.Requests.Add(new SupervisorRequest { Id = 1, ProjectId = 100, SupervisorProfileId = 20, Status = "ACCEPTED" });
+        assignmentRepo.Assignments.Add(new SupervisorAssignment
+        {
+            Id = 1, ProjectId = 100, SupervisorProfileId = 20, SupervisorRequestId = 1, AssignedAt = DateTime.UtcNow
+        });
+        var handler = new AcceptSupervisorRequestCommandHandler(
+            currentUser, supervisorRepo, requestRepo, assignmentRepo, unitOfWork);
+
+        await handler.Handle(new AcceptSupervisorRequestCommand(1), CancellationToken.None);
+        await handler.Handle(new AcceptSupervisorRequestCommand(1), CancellationToken.None);
+
+        Assert.Single(assignmentRepo.Assignments);
+        Assert.Equal([100L], requestRepo.InitializedWorkspaceProjects);
+        Assert.True(unitOfWork.Committed);
+    }
+
     [Theory]
     [InlineData(0, false)]
     [InlineData(-5, false)]
@@ -347,6 +373,28 @@ public sealed class SupervisorsTests
         var result = await validator.ValidateAsync(command);
 
         Assert.Equal(isValid, result.IsValid);
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    public async Task RemainingSupervisorIdValidators_ValidatePositiveIds(long id, bool isValid)
+    {
+        var results = await Task.WhenAll(
+            new AIPMS.Application.Features.Supervisors.Commands.AcceptSupervisorRequest.AcceptSupervisorRequestCommandValidator()
+                .ValidateAsync(new AcceptSupervisorRequestCommand(id)),
+            new AIPMS.Application.Features.Supervisors.Commands.CancelSupervisorRequest.CancelSupervisorRequestCommandValidator()
+                .ValidateAsync(new CancelSupervisorRequestCommand(id)),
+            new AIPMS.Application.Features.Supervisors.Commands.RejectSupervisorRequest.RejectSupervisorRequestCommandValidator()
+                .ValidateAsync(new RejectSupervisorRequestCommand(id, null)),
+            new AIPMS.Application.Features.Supervisors.Queries.GetSupervisorById.GetSupervisorByIdQueryValidator()
+                .ValidateAsync(new AIPMS.Application.Features.Supervisors.Queries.GetSupervisorById.GetSupervisorByIdQuery(id)),
+            new AIPMS.Application.Features.Supervisors.Queries.GetProjectSupervisor.GetProjectSupervisorQueryValidator()
+                .ValidateAsync(new AIPMS.Application.Features.Supervisors.Queries.GetProjectSupervisor.GetProjectSupervisorQuery(id)),
+            new AIPMS.Application.Features.Supervisors.Queries.GetSupervisorCandidates.GetSupervisorCandidatesQueryValidator()
+                .ValidateAsync(new AIPMS.Application.Features.Supervisors.Queries.GetSupervisorCandidates.GetSupervisorCandidatesQuery(id, null)));
+
+        Assert.All(results, result => Assert.Equal(isValid, result.IsValid));
     }
 
     [Fact]
@@ -411,10 +459,9 @@ public sealed class SupervisorsTests
     public async Task CancelSupervisorRequestCommandHandler_PendingRequest_CancelsRequest()
     {
         var requestRepository = new FakeSupervisorRequestRepository();
-        var supervisorRequest = new SupervisorRequest { Id = 1, ProjectId = 100, SupervisorProfileId = 20, Status = "PENDING" };
+        var supervisorRequest = new SupervisorRequest { Id = 1, ProjectId = 100, SupervisorProfileId = 20, RequestedBy = 5, Status = "PENDING" };
         requestRepository.Requests.Add(supervisorRequest);
-        var handler = new CancelSupervisorRequestCommandHandler(
-            new FakeCurrentUser(5), new FakeProjectAccessService(), requestRepository);
+        var handler = new CancelSupervisorRequestCommandHandler(new FakeCurrentUser(5), requestRepository);
 
         await handler.Handle(new CancelSupervisorRequestCommand(1), CancellationToken.None);
 
@@ -426,11 +473,21 @@ public sealed class SupervisorsTests
     public async Task CancelSupervisorRequestCommandHandler_NonPendingRequest_ThrowsConflictException()
     {
         var requestRepository = new FakeSupervisorRequestRepository();
-        requestRepository.Requests.Add(new SupervisorRequest { Id = 1, ProjectId = 100, Status = "ACCEPTED" });
-        var handler = new CancelSupervisorRequestCommandHandler(
-            new FakeCurrentUser(5), new FakeProjectAccessService(), requestRepository);
+        requestRepository.Requests.Add(new SupervisorRequest { Id = 1, ProjectId = 100, RequestedBy = 5, Status = "ACCEPTED" });
+        var handler = new CancelSupervisorRequestCommandHandler(new FakeCurrentUser(5), requestRepository);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
+            handler.Handle(new CancelSupervisorRequestCommand(1), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CancelSupervisorRequestCommandHandler_DifferentActor_ThrowsForbiddenException()
+    {
+        var requestRepository = new FakeSupervisorRequestRepository();
+        requestRepository.Requests.Add(new SupervisorRequest { Id = 1, ProjectId = 100, RequestedBy = 7, Status = "PENDING" });
+        var handler = new CancelSupervisorRequestCommandHandler(new FakeCurrentUser(5), requestRepository);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() =>
             handler.Handle(new CancelSupervisorRequestCommand(1), CancellationToken.None));
     }
 
@@ -475,6 +532,9 @@ public sealed class SupervisorsTests
             return Task.FromResult(Profiles.FirstOrDefault(p => p.UserId == userId));
         }
 
+        public Task<SupervisorProfile?> GetProfileByUserIdForUpdateAsync(long userId, CancellationToken cancellationToken) =>
+            GetProfileByUserIdAsync(userId, cancellationToken);
+
         public Task UpdateProfileAsync(SupervisorProfile profile, CancellationToken cancellationToken)
         {
             var existing = Profiles.FirstOrDefault(p => p.Id == profile.Id);
@@ -502,6 +562,7 @@ public sealed class SupervisorsTests
     {
         public List<SupervisorRequest> Requests { get; } = new();
         public List<long> ExistingProjectIds { get; } = new();
+        public List<long> InitializedWorkspaceProjects { get; } = new();
 
         public Task AddAsync(SupervisorRequest request, CancellationToken cancellationToken)
         {
@@ -514,6 +575,9 @@ public sealed class SupervisorsTests
         {
             return Task.FromResult(Requests.FirstOrDefault(r => r.Id == id));
         }
+
+        public Task<SupervisorRequest?> GetByIdForUpdateAsync(long id, CancellationToken cancellationToken) =>
+            GetByIdAsync(id, cancellationToken);
 
         public Task<bool> HasPendingRequestAsync(long projectId, long supervisorProfileId, CancellationToken cancellationToken)
         {
@@ -531,6 +595,12 @@ public sealed class SupervisorsTests
             Task.FromResult(true);
 
         public Task ActivateProjectAsync(long projectId, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task InitializeProjectWorkspaceAsync(long projectId, long actorUserId, CancellationToken cancellationToken)
+        {
+            if (!InitializedWorkspaceProjects.Contains(projectId)) InitializedWorkspaceProjects.Add(projectId);
+            return Task.CompletedTask;
+        }
 
         public Task UpdateAsync(SupervisorRequest request, CancellationToken cancellationToken)
         {
@@ -570,6 +640,9 @@ public sealed class SupervisorsTests
         {
             return Task.FromResult(Assignments.FirstOrDefault(a => a.Id == id));
         }
+
+        public Task<SupervisorAssignment?> GetByRequestIdAsync(long requestId, CancellationToken cancellationToken) =>
+            Task.FromResult(Assignments.FirstOrDefault(a => a.SupervisorRequestId == requestId));
 
         public Task UpdateAsync(SupervisorAssignment assignment, CancellationToken cancellationToken)
         {

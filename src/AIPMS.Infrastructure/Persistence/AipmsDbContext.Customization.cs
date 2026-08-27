@@ -12,6 +12,11 @@ public partial class AipmsDbContext
         modelBuilder.Entity<Models.SupervisorRequest>()
             .ToTable(table => table.HasTrigger("tr_supervisor_requests_protect_active_assignment"));
 
+        ConfigureProgressMeetings(modelBuilder);
+    }
+
+    private static void ConfigureProgressMeetings(ModelBuilder modelBuilder)
+    {
         modelBuilder.Entity<ProgressReportPeriod>(e => { e.ToTable("progress_report_periods"); e.HasKey(x => x.Id); e.Property(x => x.Id).HasColumnName("id"); e.Property(x => x.ProjectId).HasColumnName("project_id"); e.Property(x => x.ReportType).HasColumnName("report_type"); e.Property(x => x.PeriodStart).HasColumnName("period_start"); e.Property(x => x.PeriodEnd).HasColumnName("period_end"); e.Property(x => x.DeadlineAt).HasColumnName("deadline_at"); e.Property(x => x.LatePolicy).HasColumnName("late_policy"); e.Property(x => x.Status).HasColumnName("status"); e.Property(x => x.CreatedAt).HasColumnName("created_at"); e.Property(x => x.UpdatedAt).HasColumnName("updated_at"); });
         modelBuilder.Entity<ProgressReportMetadata>(e => { e.ToTable("progress_report_metadata"); e.HasKey(x => x.ReportId); e.Property(x => x.ReportId).HasColumnName("report_id"); e.Property(x => x.ReportPeriodId).HasColumnName("report_period_id"); e.Property(x => x.IsLate).HasColumnName("is_late"); e.Property(x => x.CreatedAt).HasColumnName("created_at"); e.Property(x => x.UpdatedAt).HasColumnName("updated_at"); });
         modelBuilder.Entity<ProgressReportSection>(e => { e.ToTable("progress_report_sections"); e.HasKey(x => x.Id); e.Property(x => x.Id).HasColumnName("id"); e.Property(x => x.ReportId).HasColumnName("report_id"); e.Property(x => x.SectionType).HasColumnName("section_type"); e.Property(x => x.Content).HasColumnName("content"); e.Property(x => x.CreatedAt).HasColumnName("created_at"); e.Property(x => x.UpdatedAt).HasColumnName("updated_at"); });

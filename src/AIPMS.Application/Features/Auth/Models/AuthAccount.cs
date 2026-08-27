@@ -6,4 +6,7 @@ public sealed record AuthAccount(
     string PasswordHash,
     string FullName,
     string Status,
-    IReadOnlyCollection<string> Roles);
+    IReadOnlyCollection<string> Roles,
+    int AccessFailedCount,
+    DateTime? LockoutEndAt,
+    DateTime? PasswordChangedAt);

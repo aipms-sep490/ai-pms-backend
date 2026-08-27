@@ -78,6 +78,18 @@ public sealed class SupervisorAssignmentRepository(AipmsDbContext dbContext) : I
         };
     }
 
+    public async Task<DomainModels.SupervisorAssignment?> GetByRequestIdAsync(long requestId, CancellationToken cancellationToken)
+    {
+        var a = await dbContext.SupervisorAssignments.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.SupervisorRequestId == requestId, cancellationToken);
+        return a == null ? null : new DomainModels.SupervisorAssignment
+        {
+            Id = a.Id, ProjectId = a.ProjectId, SupervisorProfileId = a.SupervisorProfileId,
+            SupervisorRequestId = a.SupervisorRequestId, IsPrimary = a.IsPrimary,
+            AssignedAt = a.AssignedAt, EndedAt = a.EndedAt, CreatedAt = a.CreatedAt, UpdatedAt = a.UpdatedAt
+        };
+    }
+
     public async Task UpdateAsync(DomainModels.SupervisorAssignment assignment, CancellationToken cancellationToken)
     {
         var a = await dbContext.SupervisorAssignments

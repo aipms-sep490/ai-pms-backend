@@ -28,31 +28,45 @@ public sealed class AcceptSupervisorRequestCommandHandler(
             throw new ForbiddenException("User is not authenticated.");
         }
 
-        var supervisorProfile = await supervisorRepository.GetProfileByUserIdAsync(currentUserId.Value, cancellationToken);
-        if (supervisorProfile == null)
-        {
-            throw new ForbiddenException("You do not have a supervisor profile.");
-        }
-
-        var supervisorRequest = await requestRepository.GetByIdAsync(request.Id, cancellationToken);
-        if (supervisorRequest == null)
-        {
-            throw new NotFoundException("SupervisorRequest", request.Id);
-        }
-
-        if (supervisorRequest.Status != "PENDING")
-        {
-            throw new ConflictException($"Cannot accept a request that is in status '{supervisorRequest.Status}'. It must be PENDING.");
-        }
-
-        if (supervisorRequest.SupervisorProfileId != supervisorProfile.Id)
-        {
-            throw new ForbiddenException("You are not authorized to process this request.");
-        }
-
         await unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
+            // Locking the supervisor row serializes capacity decisions across different projects.
+            var supervisorProfile = await supervisorRepository.GetProfileByUserIdForUpdateAsync(currentUserId.Value, cancellationToken);
+            if (supervisorProfile == null)
+            {
+                throw new ForbiddenException("You do not have a supervisor profile.");
+            }
+
+            var supervisorRequest = await requestRepository.GetByIdForUpdateAsync(request.Id, cancellationToken);
+            if (supervisorRequest == null)
+            {
+                throw new NotFoundException("SupervisorRequest", request.Id);
+            }
+
+            if (supervisorRequest.SupervisorProfileId != supervisorProfile.Id)
+            {
+                throw new ForbiddenException("You are not authorized to process this request.");
+            }
+
+            if (supervisorRequest.Status == "ACCEPTED")
+            {
+                var existing = await assignmentRepository.GetByRequestIdAsync(supervisorRequest.Id, cancellationToken);
+                if (existing != null && existing.ProjectId == supervisorRequest.ProjectId &&
+                    existing.SupervisorProfileId == supervisorProfile.Id)
+                {
+                    await requestRepository.ActivateProjectAsync(supervisorRequest.ProjectId, cancellationToken);
+                    await requestRepository.InitializeProjectWorkspaceAsync(supervisorRequest.ProjectId, currentUserId.Value, cancellationToken);
+                    await unitOfWork.CommitAsync(cancellationToken);
+                    return Unit.Value;
+                }
+            }
+
+            if (supervisorRequest.Status != "PENDING")
+            {
+                throw new ConflictException($"Cannot accept a request that is in status '{supervisorRequest.Status}'. It must be PENDING.");
+            }
+
             if (!await requestRepository.IsProjectApprovedAsync(supervisorRequest.ProjectId, cancellationToken))
             {
                 throw new ConflictException("Supervisor requests can only be accepted for APPROVED projects.");
@@ -87,6 +101,7 @@ public sealed class AcceptSupervisorRequestCommandHandler(
 
             await assignmentRepository.AddAsync(assignment, cancellationToken);
             await requestRepository.ActivateProjectAsync(supervisorRequest.ProjectId, cancellationToken);
+            await requestRepository.InitializeProjectWorkspaceAsync(supervisorRequest.ProjectId, currentUserId.Value, cancellationToken);
 
             await unitOfWork.CommitAsync(cancellationToken);
         }

@@ -35,18 +35,24 @@ public sealed class CreateMeetingValidator : AbstractValidator<CreateMeetingComm
 }
 public sealed class UpdateMeetingValidator : AbstractValidator<UpdateMeetingCommand>
 { public UpdateMeetingValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.Title).NotEmpty().MaximumLength(255); RuleFor(x => x.EndAt).GreaterThanOrEqualTo(x => x.StartAt).When(x => x.EndAt.HasValue); } }
+public sealed class CancelMeetingValidator : AbstractValidator<CancelMeetingCommand>
+{ public CancelMeetingValidator() { RuleFor(x => x.Id).GreaterThan(0); } }
+public sealed class UpdateMeetingMinutesValidator : AbstractValidator<UpdateMeetingMinutesCommand>
+{ public UpdateMeetingMinutesValidator() { RuleFor(x => x.Id).GreaterThan(0); } }
 public sealed class SetMeetingAttendanceValidator : AbstractValidator<SetMeetingAttendanceCommand>
 { public SetMeetingAttendanceValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.UserId).GreaterThan(0); RuleFor(x => x.Status).Must(x => new[] { "INVITED", "ACCEPTED", "DECLINED", "ATTENDED", "ABSENT" }.Contains(x.ToUpperInvariant())); } }
 public sealed class ReplaceMeetingParticipantsValidator : AbstractValidator<ReplaceMeetingParticipantsCommand>
 { public ReplaceMeetingParticipantsValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.ParticipantIds).NotNull().Must(x => x.Distinct().Count() == x.Count); RuleForEach(x => x.ParticipantIds).GreaterThan(0); } }
 public sealed class CreateMeetingActionItemValidator : AbstractValidator<CreateMeetingActionItemCommand>
-{ public CreateMeetingActionItemValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.Title).NotEmpty().MaximumLength(255); RuleFor(x => x.OwnerUserId).GreaterThan(0); RuleFor(x => x.Status).Must(ActionItemStatuses.Contains); } internal static readonly string[] ActionItemStatuses = ["TODO", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"]; }
+{ public CreateMeetingActionItemValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.Title).NotEmpty().MaximumLength(255); RuleFor(x => x.OwnerUserId).GreaterThan(0); RuleFor(x => x.Status).NotEmpty().Must(x => x is not null && ActionItemStatuses.Contains(x.ToUpperInvariant())); } internal static readonly string[] ActionItemStatuses = ["TODO", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"]; }
 public sealed class AddMeetingDecisionValidator : AbstractValidator<AddMeetingDecisionCommand>
 { public AddMeetingDecisionValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.Content).NotEmpty(); } }
 public sealed class AddMeetingBlockerValidator : AbstractValidator<AddMeetingBlockerCommand>
 { public AddMeetingBlockerValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.Content).NotEmpty(); } }
+public sealed class AddMeetingFeedbackValidator : AbstractValidator<AddMeetingFeedbackCommand>
+{ public AddMeetingFeedbackValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.FeedbackText).NotEmpty(); } }
 public sealed class UpdateMeetingActionItemStatusValidator : AbstractValidator<UpdateMeetingActionItemStatusCommand>
-{ public UpdateMeetingActionItemStatusValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.ActionItemId).GreaterThan(0); RuleFor(x => x.Status).Must(CreateMeetingActionItemValidator.ActionItemStatuses.Contains); } }
+{ public UpdateMeetingActionItemStatusValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.ActionItemId).GreaterThan(0); RuleFor(x => x.Status).NotEmpty().Must(x => x is not null && CreateMeetingActionItemValidator.ActionItemStatuses.Contains(x.ToUpperInvariant())); } }
 
 public sealed class CreateMeetingHandler(ICurrentUser user, IProgressMeetingRepository repository) : IRequestHandler<CreateMeetingCommand, MeetingDto>
 {
@@ -114,8 +120,8 @@ public sealed class CreateMeetingActionItemHandler(ICurrentUser user, IProgressM
         if (!await repository.IsProjectMemberAsync(r.OwnerUserId, m.ProjectId, ct)) throw new ForbiddenException("Action item owner must be an active project member.");
         if (r.TaskId.HasValue && !await repository.IsTaskInProjectAsync(r.TaskId.Value, m.ProjectId, ct)) throw new ConflictException("Task is not in the meeting project.");
         if (r.MilestoneId.HasValue && !await repository.IsMilestoneInProjectAsync(r.MilestoneId.Value, m.ProjectId, ct)) throw new ConflictException("Milestone is not in the meeting project.");
-        await repository.AddActionItemAsync(new(m.Id, actor, r.Title.Trim(), r.Description, r.OwnerUserId, r.DueDate, r.Status, r.TaskId, r.MilestoneId), ct); return Unit.Value;
+        await repository.AddActionItemAsync(new(m.Id, actor, r.Title.Trim(), r.Description, r.OwnerUserId, r.DueDate, r.Status.ToUpperInvariant(), r.TaskId, r.MilestoneId), ct); return Unit.Value;
     }
 }
 public sealed class UpdateMeetingActionItemStatusHandler(ICurrentUser user, IProgressMeetingRepository repository) : IRequestHandler<UpdateMeetingActionItemStatusCommand, Unit>
-{ public async Task<Unit> Handle(UpdateMeetingActionItemStatusCommand r, CancellationToken ct) { var m = await repository.GetMeetingAsync(r.Id, ct) ?? throw new NotFoundException("Meeting", r.Id); await ProgressMeetingAccess.EnsureScheduler(ProgressMeetingAccess.UserId(user), m.ProjectId, repository, ct); if (!await repository.UpdateActionItemStatusAsync(m.Id, r.ActionItemId, r.Status, ct)) throw new NotFoundException("MeetingActionItem", r.ActionItemId); return Unit.Value; } }
+{ public async Task<Unit> Handle(UpdateMeetingActionItemStatusCommand r, CancellationToken ct) { var m = await repository.GetMeetingAsync(r.Id, ct) ?? throw new NotFoundException("Meeting", r.Id); await ProgressMeetingAccess.EnsureScheduler(ProgressMeetingAccess.UserId(user), m.ProjectId, repository, ct); if (!await repository.UpdateActionItemStatusAsync(m.Id, r.ActionItemId, r.Status.ToUpperInvariant(), ct)) throw new NotFoundException("MeetingActionItem", r.ActionItemId); return Unit.Value; } }

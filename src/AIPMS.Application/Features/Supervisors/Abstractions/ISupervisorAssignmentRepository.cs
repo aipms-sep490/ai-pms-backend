@@ -10,5 +10,6 @@ public interface ISupervisorAssignmentRepository
     Task<int> CountActiveAssignmentsAsync(long supervisorProfileId, CancellationToken cancellationToken);
     Task<SupervisorAssignment?> GetActiveAssignmentByProjectAsync(long projectId, CancellationToken cancellationToken);
     Task<SupervisorAssignment?> GetByIdAsync(long id, CancellationToken cancellationToken);
+    Task<SupervisorAssignment?> GetByRequestIdAsync(long requestId, CancellationToken cancellationToken);
     Task UpdateAsync(SupervisorAssignment assignment, CancellationToken cancellationToken);
 }

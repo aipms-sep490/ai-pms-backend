@@ -6,5 +6,6 @@ public sealed record SupervisorCandidateDto(
     int CurrentActiveProjects,
     int? MaxActiveProjects,
     int? AvailableCapacity,
+    IReadOnlyList<SupervisorExpertiseDto> Expertises,
     bool AiAvailable = false,
     string? AiRationale = null);

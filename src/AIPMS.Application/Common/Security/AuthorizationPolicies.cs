@@ -7,4 +7,5 @@ public static class AuthorizationPolicies
     public const string LecturerOnly = "LecturerOnly";
     public const string StudentOnly = "StudentOnly";
     public const string ProjectAccess = "ProjectAccess";
+    public const string AccountSecurityManagement = "AccountSecurityManagement";
 }

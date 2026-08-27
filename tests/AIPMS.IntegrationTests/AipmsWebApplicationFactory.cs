@@ -1,10 +1,13 @@
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
+using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Security;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
@@ -36,6 +39,11 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
                     "aipms-tests-.log")
             });
         });
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IAccessTokenAccountValidator>();
+            services.AddSingleton<IAccessTokenAccountValidator, AllowAccessTokenAccountValidator>();
+        });
     }
 
     public HttpClient CreateAuthenticatedClient(
@@ -49,7 +57,8 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
         {
             new(ClaimTypes.NameIdentifier, userId.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             new(ClaimTypes.Email, email),
-            new(ClaimTypes.Name, fullName)
+            new(ClaimTypes.Name, fullName),
+            new("pwd", "0")
         };
 
         claims.AddRange(effectiveRoles.Select(static role => new Claim(ClaimTypes.Role, role)));
@@ -74,5 +83,13 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
             new JsonWebTokenHandler().CreateToken(descriptor));
 
         return client;
+    }
+
+    private sealed class AllowAccessTokenAccountValidator : IAccessTokenAccountValidator
+    {
+        public Task<bool> IsValidAsync(
+            long userId,
+            DateTime? passwordChangedAtUtc,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
     }
 }

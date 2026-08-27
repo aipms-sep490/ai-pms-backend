@@ -28,10 +28,12 @@ public sealed class CreateProgressReportValidator : AbstractValidator<CreateProg
 }
 public sealed class UpdateProgressReportValidator : AbstractValidator<UpdateProgressReportCommand>
 { public UpdateProgressReportValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.Summary).NotEmpty(); RuleFor(x => x.Completed).NotNull(); RuleFor(x => x.InProgress).NotNull(); RuleFor(x => x.Blockers).NotNull(); RuleFor(x => x.Risks).NotNull(); RuleFor(x => x.NextActions).NotNull(); } }
+public sealed class SubmitProgressReportValidator : AbstractValidator<SubmitProgressReportCommand>
+{ public SubmitProgressReportValidator() { RuleFor(x => x.Id).GreaterThan(0); } }
 public sealed class AddProgressReportFeedbackValidator : AbstractValidator<AddProgressReportFeedbackCommand>
 { public AddProgressReportFeedbackValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.FeedbackText).NotEmpty(); } }
 public sealed class AddProgressReportContributionValidator : AbstractValidator<AddProgressReportContributionCommand>
-{ public AddProgressReportContributionValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.Content).NotEmpty(); RuleFor(x => x.SectionType).Must(x => ReportSections.Types.Contains(x.ToUpperInvariant())); } }
+{ public AddProgressReportContributionValidator() { RuleFor(x => x.Id).GreaterThan(0); RuleFor(x => x.Content).NotEmpty(); RuleFor(x => x.SectionType).NotEmpty().Must(x => x is not null && ReportSections.Types.Contains(x.ToUpperInvariant())); } }
 
 internal static class ReportSections
 {

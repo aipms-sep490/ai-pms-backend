@@ -3,6 +3,7 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.ProgressMeetings.Abstractions;
 using AIPMS.Application.Features.ProgressMeetings.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
+using AIPMS.Infrastructure.Persistence.Mappers;
 using Microsoft.EntityFrameworkCore;
 using System.Threading.Tasks;
 using Meeting = AIPMS.Infrastructure.Persistence.Generated.Models.Meeting;
@@ -41,7 +42,7 @@ public sealed class ProgressMeetingRepository(AipmsDbContext db) : IProgressMeet
         .Where(x => x.Id == id).Select(x => new ReportPeriodDto(x.Id, x.ProjectId, x.ReportType, x.PeriodStart, x.PeriodEnd, x.DeadlineAt, x.LatePolicy, x.Status)).SingleOrDefaultAsync(ct);
 
     public async Task<ProgressReportDto?> GetReportAsync(long id, CancellationToken ct) =>
-        await ReportQuery(db.ProgressReports.Where(x => x.Id == id)).SingleOrDefaultAsync(ct);
+        await db.ProgressReports.Where(x => x.Id == id).ProjectReports(db).SingleOrDefaultAsync(ct);
 
     public async Task<PagedResult<ProgressReportDto>> ListReportsAsync(long projectId, ReportListFilter f, CancellationToken ct)
     {
@@ -51,8 +52,8 @@ public sealed class ProgressMeetingRepository(AipmsDbContext db) : IProgressMeet
         if (f.From.HasValue) q = q.Where(x => x.PeriodStart >= f.From.Value);
         if (f.To.HasValue) q = q.Where(x => x.PeriodEnd <= f.To.Value);
         var count = await q.CountAsync(ct);
-        var items = await ReportQuery(q.OrderByDescending(x => x.PeriodStart).Skip((f.PageNumber - 1) * f.PageSize).Take(f.PageSize)).ToListAsync(ct);
-        return new(items, f.PageNumber, f.PageSize, count, (int)Math.Ceiling(count / (double)f.PageSize));
+        var items = await q.OrderByDescending(x => x.PeriodStart).Skip((f.PageNumber - 1) * f.PageSize).Take(f.PageSize).ProjectReports(db).ToListAsync(ct);
+        return new(items, f.PageNumber, f.PageSize, count);
     }
 
     public async Task<long> CreateReportAsync(CreateReportData d, CancellationToken ct)
@@ -108,15 +109,15 @@ public sealed class ProgressMeetingRepository(AipmsDbContext db) : IProgressMeet
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
     }
 
-    public Task<MeetingDto?> GetMeetingAsync(long id, CancellationToken ct) => MeetingQuery(db.Meetings.Where(x => x.Id == id)).SingleOrDefaultAsync(ct);
+    public Task<MeetingDto?> GetMeetingAsync(long id, CancellationToken ct) => db.Meetings.Where(x => x.Id == id).ProjectMeetings(db).SingleOrDefaultAsync(ct);
     public async Task<PagedResult<MeetingDto>> ListMeetingsAsync(long projectId, MeetingListFilter f, CancellationToken ct)
     {
         var q = db.Meetings.AsNoTracking().Where(x => x.ProjectId == projectId);
         if (!string.IsNullOrWhiteSpace(f.Status)) q = q.Where(x => x.Status == f.Status);
         if (f.From.HasValue) q = q.Where(x => x.StartAt >= f.From.Value);
         if (f.To.HasValue) q = q.Where(x => x.StartAt <= f.To.Value);
-        var count = await q.CountAsync(ct); var items = await MeetingQuery(q.OrderByDescending(x => x.StartAt).Skip((f.PageNumber - 1) * f.PageSize).Take(f.PageSize)).ToListAsync(ct);
-        return new(items, f.PageNumber, f.PageSize, count, (int)Math.Ceiling(count / (double)f.PageSize));
+        var count = await q.CountAsync(ct); var items = await q.OrderByDescending(x => x.StartAt).Skip((f.PageNumber - 1) * f.PageSize).Take(f.PageSize).ProjectMeetings(db).ToListAsync(ct);
+        return new(items, f.PageNumber, f.PageSize, count);
     }
 
     public async Task<long> CreateMeetingAsync(CreateMeetingData d, CancellationToken ct)
@@ -182,21 +183,4 @@ public sealed class ProgressMeetingRepository(AipmsDbContext db) : IProgressMeet
     public async Task AddMeetingFeedbackAsync(long id, long projectId, long assignmentId, string text, CancellationToken ct)
     { db.SupervisorFeedbacks.Add(new SupervisorFeedback { ProjectId = projectId, SupervisorAssignmentId = assignmentId, MeetingId = id, FeedbackText = text }); await db.SaveChangesAsync(ct); }
 
-    private IQueryable<ProgressReportDto> ReportQuery(IQueryable<ProgressReport> source) => source.AsNoTracking().Select(x => new ProgressReportDto(x.Id, x.ProjectId, x.SubmittedBy,
-        x.ReportType, x.PeriodStart, x.PeriodEnd, x.Summary, x.CompletedWork, x.PlannedWork, x.IssuesAndRisks, x.Status, x.SubmittedAt,
-        x.CreatedAt, x.UpdatedAt,
-        db.Set<ExtensionModels.ProgressReportMetadata>().Where(m => m.ReportId == x.Id).Select(m => (long?)m.ReportPeriodId).FirstOrDefault(),
-        (from m in db.Set<ExtensionModels.ProgressReportMetadata>() join p in db.Set<ExtensionModels.ProgressReportPeriod>() on m.ReportPeriodId equals p.Id where m.ReportId == x.Id select (DateTime?)p.DeadlineAt).FirstOrDefault(),
-        (from m in db.Set<ExtensionModels.ProgressReportMetadata>() join p in db.Set<ExtensionModels.ProgressReportPeriod>() on m.ReportPeriodId equals p.Id where m.ReportId == x.Id select p.LatePolicy).FirstOrDefault(),
-        db.Set<ExtensionModels.ProgressReportMetadata>().Where(m => m.ReportId == x.Id).Select(m => m.IsLate).FirstOrDefault(),
-        db.Set<ExtensionModels.ProgressReportSection>().Where(s => s.ReportId == x.Id).OrderBy(s => s.Id).Select(s => new ReportSectionDto(s.SectionType, s.Content)).ToList(),
-        db.Set<ExtensionModels.ProgressReportContribution>().Where(c => c.ReportId == x.Id).OrderBy(c => c.CreatedAt).Select(c => new ReportContributionDto(c.Id, c.ContributorId, c.SectionType, c.Content, c.CreatedAt)).ToList(),
-        x.SupervisorFeedbacks.OrderBy(f => f.CreatedAt).Select(f => new FeedbackDto(f.Id, f.SupervisorAssignmentId, f.FeedbackText, f.CreatedAt)).ToList()));
-    private IQueryable<MeetingDto> MeetingQuery(IQueryable<Meeting> source) => source.AsNoTracking().Select(x => new MeetingDto(x.Id, x.ProjectId, x.Title, x.Agenda,
-        x.MeetingNotes, x.StartAt, x.EndAt, x.Location, x.OnlineUrl, x.Status, x.CreatedBy, x.CreatedAt, x.UpdatedAt,
-        x.MeetingParticipants.OrderBy(p => p.Id).Select(p => new MeetingParticipantDto(p.UserId, p.User.FullName, p.AttendanceStatus)).ToList(),
-        db.Set<ExtensionModels.MeetingDecision>().Where(d => d.MeetingId == x.Id).OrderBy(d => d.Id).Select(d => new MeetingTextItemDto(d.Id, d.Content, d.CreatedBy, d.CreatedAt)).ToList(),
-        db.Set<ExtensionModels.MeetingBlocker>().Where(b => b.MeetingId == x.Id).OrderBy(b => b.Id).Select(b => new MeetingTextItemDto(b.Id, b.Content, b.CreatedBy, b.CreatedAt)).ToList(),
-        db.Set<ExtensionModels.MeetingActionItem>().Where(a => a.MeetingId == x.Id).OrderBy(a => a.Id).Select(a => new MeetingActionItemDto(a.Id, a.Title, a.Description, a.OwnerUserId, a.DueDate, a.Status, a.TaskId, a.MilestoneId, a.CreatedBy, a.CreatedAt)).ToList(),
-        x.SupervisorFeedbacks.OrderBy(f => f.CreatedAt).Select(f => new FeedbackDto(f.Id, f.SupervisorAssignmentId, f.FeedbackText, f.CreatedAt)).ToList()));
 }

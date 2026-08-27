@@ -5,6 +5,7 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Application.Features.Supervisors.DTOs;
+using AIPMS.Application.Features.Supervisors.Mappings;
 using AIPMS.Domain.Entities;
 using AIPMS.Domain.Exceptions;
 using MediatR;
@@ -84,16 +85,6 @@ public sealed class SendSupervisorRequestCommandHandler(
 
         await requestRepository.AddAsync(supervisorRequest, cancellationToken);
 
-        return new SupervisorRequestDto(
-            supervisorRequest.Id,
-            supervisorRequest.ProjectId,
-            supervisorRequest.SupervisorProfileId,
-            supervisorRequest.RequestedBy,
-            supervisorRequest.Status,
-            supervisorRequest.RequestMessage,
-            supervisorRequest.ResponseMessage,
-            supervisorRequest.RequestedAt,
-            supervisorRequest.RespondedAt
-        );
+        return supervisorRequest.ToDto();
     }
 }
