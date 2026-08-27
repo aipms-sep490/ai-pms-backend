@@ -100,9 +100,8 @@ public sealed class EvaluationIntegrationTests(AipmsWebApplicationFactory factor
 
             var saved = await db.Evaluations.AsNoTracking().SingleAsync(x => x.Id == evaluationId);
             Assert.Equal("FINALIZED", saved.Status); Assert.Equal(8.40m, saved.TotalScore);
-            var audit = await db.Set<EvaluationAudit>().AsNoTracking().SingleAsync(x => x.EvaluationId == evaluationId);
-            Assert.Equal(supervisor.UserId, audit.FinalizedBy); Assert.NotNull(audit.FinalizedAt);
-            Assert.Equal("2_DECIMALS_AWAY_FROM_ZERO", audit.RoundingRule);
+            Assert.Equal(supervisor.UserId, saved.FinalizedBy); Assert.NotNull(saved.FinalizedAt);
+            Assert.Equal("AWAY_FROM_ZERO_2DP", saved.RoundingRule);
         }
         finally
         {
@@ -117,4 +116,3 @@ public sealed class EvaluationIntegrationTests(AipmsWebApplicationFactory factor
 
 [CollectionDefinition("Evaluation database", DisableParallelization = true)]
 public sealed class EvaluationDatabaseCollection;
-

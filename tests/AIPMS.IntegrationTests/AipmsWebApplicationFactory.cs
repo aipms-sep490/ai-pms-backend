@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 using AIPMS.Application.Abstractions.Security;
+using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Common.Security;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -42,6 +43,10 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IAccessTokenAccountValidator>();
             services.AddSingleton<IAccessTokenAccountValidator, AllowAccessTokenAccountValidator>();
+            // The legacy local test database predates audit_logs; preserve the
+            // finalize flow while production continues using DatabaseAuditTrail.
+            services.RemoveAll<IAuditTrail>();
+            services.AddSingleton<IAuditTrail, NoOpAuditTrail>();
         });
     }
 
@@ -90,5 +95,10 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
             long userId,
             DateTime? passwordChangedAtUtc,
             CancellationToken cancellationToken = default) => Task.FromResult(true);
+    }
+
+    private sealed class NoOpAuditTrail : IAuditTrail
+    {
+        public Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

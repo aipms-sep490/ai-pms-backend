@@ -25,15 +25,16 @@ BEGIN TRY
     IF COL_LENGTH(N'dbo.rubrics', N'approved_at') IS NULL
         ALTER TABLE dbo.rubrics ADD approved_at DATETIME2(0) NULL;
 
-    UPDATE dbo.rubrics
-    SET version_number = COALESCE(version_number, 1),
-        approval_status = COALESCE(approval_status, CASE WHEN is_active = 1 THEN N'APPROVED' ELSE N'INACTIVE' END),
-        approved_by = COALESCE(approved_by, created_by),
-        approved_at = COALESCE(approved_at, created_at)
-    WHERE version_number IS NULL
-       OR approval_status IS NULL
-       OR approved_by IS NULL
-       OR approved_at IS NULL;
+    EXEC sys.sp_executesql N'
+        UPDATE dbo.rubrics
+        SET version_number = COALESCE(version_number, 1),
+            approval_status = COALESCE(approval_status, CASE WHEN is_active = 1 THEN N''APPROVED'' ELSE N''INACTIVE'' END),
+            approved_by = COALESCE(approved_by, created_by),
+            approved_at = COALESCE(approved_at, created_at)
+        WHERE version_number IS NULL
+           OR approval_status IS NULL
+           OR approved_by IS NULL
+           OR approved_at IS NULL;';
 
     ALTER TABLE dbo.rubrics ALTER COLUMN version_number INT NOT NULL;
     ALTER TABLE dbo.rubrics ALTER COLUMN approval_status NVARCHAR(20) NOT NULL;
