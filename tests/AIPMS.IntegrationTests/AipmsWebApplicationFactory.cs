@@ -26,7 +26,8 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:DefaultConnection"] = "Server=(local);Database=AIPMS_Tests;",
+                // Local SQL Server uses a development certificate; trust it only in tests.
+                ["ConnectionStrings:DefaultConnection"] = "Server=(local);Database=AIPMS_Tests;Trusted_Connection=True;TrustServerCertificate=True;",
                 ["Cors:AllowedOrigins:0"] = "http://localhost:5173",
                 ["Jwt:Issuer"] = TestIssuer,
                 ["Jwt:Audience"] = TestAudience,

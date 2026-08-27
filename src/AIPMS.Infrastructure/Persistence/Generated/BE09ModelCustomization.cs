@@ -7,6 +7,10 @@ public partial class AipmsDbContext
 {
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
+        // SQL Server test/shared databases may have audit triggers; suppress OUTPUT
+        // without INTO for affected DML while keeping generated files untouched.
+        modelBuilder.Entity<SupervisorAssignment>().ToTable("supervisor_assignments", table =>
+            table.HasTrigger("trg_supervisor_assignments_audit"));
         modelBuilder.Entity<Rubric>(entity =>
         {
             entity.Property(x => x.VersionNumber).HasColumnName("version_number");
