@@ -24,6 +24,8 @@ public interface ISupervisorRepository
 
     Task<SupervisorProfile?> GetProfileByUserIdAsync(long userId, CancellationToken cancellationToken);
 
+    Task<SupervisorProfile?> GetProfileByUserIdForUpdateAsync(long userId, CancellationToken cancellationToken);
+
     Task UpdateProfileAsync(SupervisorProfile profile, CancellationToken cancellationToken);
 
     Task UpdateExpertisesAsync(long supervisorProfileId, IEnumerable<SupervisorExpertise> expertises, CancellationToken cancellationToken);
