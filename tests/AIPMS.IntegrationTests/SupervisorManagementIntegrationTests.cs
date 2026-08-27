@@ -55,6 +55,7 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
 
         db.SupervisorAssignments.RemoveRange(db.SupervisorAssignments);
         db.SupervisorRequests.RemoveRange(db.SupervisorRequests);
+        db.Milestones.RemoveRange(db.Milestones);
         db.Projects.RemoveRange(db.Projects);
         db.TeamMembers.RemoveRange(db.TeamMembers);
         db.Teams.RemoveRange(db.Teams);
@@ -104,6 +105,10 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
 
         _profileAId = profileA.Id;
         _profileBId = profileB.Id;
+        await db.SupervisorExpertises.AddRangeAsync(
+            new SupervisorExpertise { SupervisorProfileId = profileA.Id, ExpertiseName = "AI", ProficiencyLevel = "EXPERT", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new SupervisorExpertise { SupervisorProfileId = profileB.Id, ExpertiseName = "Web", ProficiencyLevel = "ADVANCED", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
 
         // 5. Seed Teams
         var team1 = new Team { AcademicSemesterId = semester.Id, Code = "T01", Name = "Team 1", Status = "FORMING", CreatedBy = student.Id, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
@@ -154,6 +159,70 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
         var supervisorDto = await supervisorResponse.Content.ReadFromJsonAsync<SupervisorDto>();
         Assert.NotNull(supervisorDto);
         Assert.Equal(_profileAId, supervisorDto.Id);
+
+        // Retrying accept is idempotent and initializes the project workspace once.
+        TestCurrentUser.SetUser(_lecturerAUserId, "lecturerA@aipms.com", "LECTURER");
+        var retryResponse = await _client.PostAsync($"/api/supervisor-requests/{requestDto.Id}/accept", null);
+        Assert.Equal(HttpStatusCode.OK, retryResponse.StatusCode);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AipmsDbContext>();
+        Assert.Equal("ACTIVE", (await db.Projects.FindAsync(_project1Id))!.Status);
+        Assert.Single(await db.SupervisorAssignments.Where(x => x.SupervisorRequestId == requestDto.Id).ToListAsync());
+        Assert.Single(await db.Milestones.Where(x => x.ProjectId == _project1Id && x.Title == "Project Workspace").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Candidates_UseDeterministicCapacityAndIncludeExpertise_WhenAiUnavailable()
+    {
+        await SeedDatabaseAsync();
+        TestCurrentUser.SetUser(_studentUserId, "student@aipms.com", "STUDENT");
+
+        var response = await _client.GetAsync($"/api/v1/projects/{_project1Id}/supervisor-candidates?expertise=AI");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var candidates = await response.Content.ReadFromJsonAsync<List<SupervisorCandidateDto>>();
+        var candidate = Assert.Single(candidates!);
+        Assert.Equal(_profileAId, candidate.SupervisorId);
+        Assert.Equal(0, candidate.CurrentActiveProjects);
+        Assert.Equal(2, candidate.AvailableCapacity);
+        Assert.Contains(candidate.Expertises, x => x.ExpertiseName == "AI");
+        Assert.False(candidate.AiAvailable);
+        Assert.Null(candidate.AiRationale);
+    }
+
+    [Fact]
+    public async Task SupervisorListDetailAndProfileUpdates_WorkThroughEndpoints()
+    {
+        await SeedDatabaseAsync();
+        TestCurrentUser.SetUser(_lecturerAUserId, "lecturerA@aipms.com", "LECTURER");
+
+        var listResponse = await _client.GetAsync("/api/supervisors?pageNumber=1&pageSize=1&expertise=AI");
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        var page = await listResponse.Content.ReadFromJsonAsync<AIPMS.Application.Common.Models.PagedResult<SupervisorDto>>();
+        Assert.NotNull(page);
+        Assert.Single(page.Items);
+        Assert.Equal(1, page.PageSize);
+
+        var detailResponse = await _client.GetAsync($"/api/supervisors/{_profileAId}");
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        var detail = await detailResponse.Content.ReadFromJsonAsync<SupervisorDetailDto>();
+        Assert.Equal(_profileAId, detail!.Id);
+        Assert.Contains(detail.Expertises, x => x.ExpertiseName == "AI");
+
+        var profileResponse = await _client.PutAsJsonAsync("/api/supervisors/me/profile",
+            new { Bio = "Updated bio", MaxActiveProjects = 4, IsAvailable = true });
+        Assert.Equal(HttpStatusCode.OK, profileResponse.StatusCode);
+        var expertiseResponse = await _client.PutAsJsonAsync("/api/supervisors/me/expertise",
+            new { Expertises = new[] { new { ExpertiseName = "Data Science", ProficiencyLevel = "EXPERT" } } });
+        Assert.Equal(HttpStatusCode.OK, expertiseResponse.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AipmsDbContext>();
+        var stored = await db.SupervisorProfiles.FindAsync(_profileAId);
+        Assert.Equal("Updated bio", stored!.Bio);
+        Assert.Equal(4, stored.MaxActiveProjects);
+        var storedExpertise = await db.SupervisorExpertises.SingleAsync(x => x.SupervisorProfileId == _profileAId);
+        Assert.Equal("Data Science", storedExpertise.ExpertiseName);
     }
 
     [Fact]
@@ -265,17 +334,107 @@ public sealed class SupervisorManagementIntegrationTests : IClassFixture<AipmsWe
             var a2 = new SupervisorAssignment { ProjectId = _project2Id, SupervisorProfileId = _profileAId, SupervisorRequestId = req2.Id, IsPrimary = true, AssignedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
             await db.SupervisorAssignments.AddAsync(a2);
 
+            // Grant platform project access so this capacity test can target project 3,
+            // whose team intentionally has no seeded member in this fixture.
+            var staffRoleId = await db.Roles.Where(x => x.Code == "DEPARTMENT_STAFF").Select(x => x.Id).SingleAsync();
+            await db.UserRoles.AddAsync(new UserRole
+            {
+                UserId = _studentUserId,
+                RoleId = staffRoleId,
+                AssignedAt = DateTime.UtcNow
+            });
+
             await db.SaveChangesAsync();
         }
 
         TestCurrentUser.SetUser(_studentUserId, "student@aipms.com", "STUDENT");
         var payload = new SendRequestPayload(_profileAId, "supervise project 3");
         var response = await _client.PostAsJsonAsync($"/api/v1/projects/{_project3Id}/supervisor-requests", payload);
-        var requestDto = await response.Content.ReadFromJsonAsync<SupervisorRequestDto>();
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
 
+    [Fact]
+    public async Task SendRequest_ProjectNotApproved_FailsWithConflict()
+    {
+        await SeedDatabaseAsync();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AipmsDbContext>();
+            var project = await db.Projects.FindAsync(_project1Id);
+            project!.Status = "SUBMITTED";
+            await db.SaveChangesAsync();
+        }
+        TestCurrentUser.SetUser(_studentUserId, "student@aipms.com", "STUDENT");
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/v1/projects/{_project1Id}/supervisor-requests",
+            new SendRequestPayload(_profileAId, "supervise"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CancelRequest_OnlySenderCanCancel_AndRetainsActorAndTime()
+    {
+        await SeedDatabaseAsync();
+        TestCurrentUser.SetUser(_studentUserId, "student@aipms.com", "STUDENT");
+        var send = await _client.PostAsJsonAsync(
+            $"/api/v1/projects/{_project1Id}/supervisor-requests",
+            new SendRequestPayload(_profileAId, "supervise"));
+        var request = await send.Content.ReadFromJsonAsync<SupervisorRequestDto>();
+
+        TestCurrentUser.SetUser(_lecturerBUserId, "lecturerB@aipms.com", "LECTURER");
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.PostAsync($"/api/supervisor-requests/{request!.Id}/cancel", null)).StatusCode);
+
+        TestCurrentUser.SetUser(_studentUserId, "student@aipms.com", "STUDENT");
+        Assert.Equal(HttpStatusCode.OK,
+            (await _client.PostAsync($"/api/supervisor-requests/{request.Id}/cancel", null)).StatusCode);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AipmsDbContext>();
+        var stored = await db.SupervisorRequests.FindAsync(request.Id);
+        Assert.Equal("CANCELLED", stored!.Status);
+        Assert.Equal(_studentUserId, stored.RequestedBy);
+        Assert.NotNull(stored.RespondedAt);
+    }
+
+    [Fact]
+    public async Task ConcurrentAccepts_RecheckCapacity_AllowsOnlyOneAssignment()
+    {
+        await SeedDatabaseAsync();
+        long request1Id;
+        long request2Id;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AipmsDbContext>();
+            (await db.SupervisorProfiles.FindAsync(_profileAId))!.MaxActiveProjects = 1;
+            var now = DateTime.UtcNow;
+            var request1 = new SupervisorRequest
+            {
+                ProjectId = _project1Id, SupervisorProfileId = _profileAId, RequestedBy = _studentUserId,
+                Status = "PENDING", RequestedAt = now, CreatedAt = now, UpdatedAt = now
+            };
+            var request2 = new SupervisorRequest
+            {
+                ProjectId = _project2Id, SupervisorProfileId = _profileAId, RequestedBy = _studentUserId,
+                Status = "PENDING", RequestedAt = now, CreatedAt = now, UpdatedAt = now
+            };
+            await db.SupervisorRequests.AddRangeAsync(request1, request2);
+            await db.SaveChangesAsync();
+            request1Id = request1.Id;
+            request2Id = request2.Id;
+        }
         TestCurrentUser.SetUser(_lecturerAUserId, "lecturerA@aipms.com", "LECTURER");
-        var acceptResponse = await _client.PostAsync($"/api/supervisor-requests/{requestDto!.Id}/accept", null);
 
-        Assert.Equal(HttpStatusCode.Conflict, acceptResponse.StatusCode);
+        var responses = await Task.WhenAll(
+            _client.PostAsync($"/api/supervisor-requests/{request1Id}/accept", null),
+            _client.PostAsync($"/api/supervisor-requests/{request2Id}/accept", null));
+
+        Assert.Single(responses, x => x.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, x => x.StatusCode == HttpStatusCode.Conflict);
+        using var verificationScope = _factory.Services.CreateScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<AipmsDbContext>();
+        Assert.Equal(1, await verificationDb.SupervisorAssignments.CountAsync(
+            x => x.SupervisorProfileId == _profileAId && x.EndedAt == null));
     }
 }

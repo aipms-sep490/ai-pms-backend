@@ -13,5 +13,7 @@ public sealed class SendSupervisorRequestCommandValidator : AbstractValidator<Se
         RuleFor(command => command.SupervisorId)
             .GreaterThan(0)
             .WithMessage("Supervisor id must be greater than 0.");
+
+        RuleFor(command => command.RequestMessage).MaximumLength(2000);
     }
 }

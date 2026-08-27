@@ -28,13 +28,18 @@ public sealed class SupervisorRepository(AipmsDbContext dbContext) : ISupervisor
                 p.Id,
                 p.User.FullName,
                 p.MaxActiveProjects,
-                Active = p.SupervisorAssignments.Count(a => a.EndedAt == null)
+                Active = p.SupervisorAssignments.Count(a => a.EndedAt == null),
+                Expertises = p.SupervisorExpertises
+                    .OrderBy(e => e.ExpertiseName)
+                    .Select(e => new SupervisorExpertiseDto(e.ExpertiseName, e.ProficiencyLevel))
+                    .ToList()
             })
             .Where(p => !p.MaxActiveProjects.HasValue || p.Active < p.MaxActiveProjects.Value)
             .OrderBy(p => p.FullName)
             .Select(p => new SupervisorCandidateDto(
                 p.Id, p.FullName, p.Active, p.MaxActiveProjects,
                 p.MaxActiveProjects.HasValue ? p.MaxActiveProjects.Value - p.Active : null,
+                p.Expertises,
                 false, null))
             .ToListAsync(cancellationToken);
     }
@@ -72,8 +77,6 @@ public sealed class SupervisorRepository(AipmsDbContext dbContext) : ISupervisor
         }
 
         var totalCount = await query.CountAsync(cancellationToken);
-        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
-
         var dbItems = await query
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
@@ -90,7 +93,7 @@ public sealed class SupervisorRepository(AipmsDbContext dbContext) : ISupervisor
             p.IsAvailable
         )).ToList();
 
-        return new PagedResult<SupervisorDto>(items, pageNumber, pageSize, totalCount, totalPages);
+        return new PagedResult<SupervisorDto>(items, pageNumber, pageSize, totalCount);
     }
 
     public async Task<SupervisorDetailDto?> GetByIdAsync(long id, CancellationToken cancellationToken)
@@ -152,6 +155,25 @@ public sealed class SupervisorRepository(AipmsDbContext dbContext) : ISupervisor
         if (p == null) return null;
 
         return new SupervisorProfile
+        {
+            Id = p.Id,
+            UserId = p.UserId,
+            Bio = p.Bio,
+            MaxActiveProjects = p.MaxActiveProjects,
+            IsAvailable = p.IsAvailable,
+            CreatedAt = p.CreatedAt,
+            UpdatedAt = p.UpdatedAt
+        };
+    }
+
+    public async Task<SupervisorProfile?> GetProfileByUserIdForUpdateAsync(long userId, CancellationToken cancellationToken)
+    {
+        var p = await dbContext.SupervisorProfiles
+            .FromSqlInterpolated($"SELECT * FROM dbo.supervisor_profiles WITH (UPDLOCK, HOLDLOCK) WHERE user_id = {userId}")
+            .AsNoTracking()
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return p == null ? null : new SupervisorProfile
         {
             Id = p.Id,
             UserId = p.UserId,

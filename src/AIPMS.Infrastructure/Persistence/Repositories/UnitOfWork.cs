@@ -3,7 +3,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using System.Data;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
@@ -23,7 +25,7 @@ public sealed class UnitOfWork(AipmsDbContext dbContext) : IUnitOfWork, IDisposa
             return;
         }
 
-        _currentTransaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        _currentTransaction = await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
     }
 
     public async Task CommitAsync(CancellationToken cancellationToken)
