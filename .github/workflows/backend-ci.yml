@@ -8,6 +8,16 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        ports:
+          - 1433:1433
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "${{ secrets.CI_MSSQL_SA_PASSWORD }}"
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -16,3 +26,6 @@ jobs:
       - run: dotnet restore AIPMS.sln
       - run: dotnet build AIPMS.sln --configuration Release --no-restore
       - run: dotnet test AIPMS.sln --configuration Release --no-build
+        env:
+          ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=AI_PMS;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"
+          AIPMS_TEST_SQL_CONNECTION: "Server=localhost,1433;Database=master;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"

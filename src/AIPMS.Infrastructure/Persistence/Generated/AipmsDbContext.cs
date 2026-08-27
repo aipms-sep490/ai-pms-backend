@@ -14,6 +14,8 @@ public partial class AipmsDbContext : DbContext
 
     public virtual DbSet<AcademicSemester> AcademicSemesters { get; set; }
 
+    public virtual DbSet<AuditLog> AuditLogs { get; set; }
+
     public virtual DbSet<Deliverable> Deliverables { get; set; }
 
     public virtual DbSet<DeliverableVersion> DeliverableVersions { get; set; }
@@ -42,6 +44,10 @@ public partial class AipmsDbContext : DbContext
 
     public virtual DbSet<Organization> Organizations { get; set; }
 
+    public virtual DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
+
+    public virtual DbSet<Permission> Permissions { get; set; }
+
     public virtual DbSet<ProgressReport> ProgressReports { get; set; }
 
     public virtual DbSet<Project> Projects { get; set; }
@@ -52,7 +58,13 @@ public partial class AipmsDbContext : DbContext
 
     public virtual DbSet<ProjectStatusHistory> ProjectStatusHistories { get; set; }
 
+    public virtual DbSet<ProjectTag> ProjectTags { get; set; }
+
+    public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
+
     public virtual DbSet<Role> Roles { get; set; }
+
+    public virtual DbSet<RolePermission> RolePermissions { get; set; }
 
     public virtual DbSet<Rubric> Rubrics { get; set; }
 
@@ -67,6 +79,8 @@ public partial class AipmsDbContext : DbContext
     public virtual DbSet<SupervisorProfile> SupervisorProfiles { get; set; }
 
     public virtual DbSet<SupervisorRequest> SupervisorRequests { get; set; }
+
+    public virtual DbSet<Tag> Tags { get; set; }
 
     public virtual DbSet<Task> Tasks { get; set; }
 
@@ -125,6 +139,55 @@ public partial class AipmsDbContext : DbContext
                 .HasForeignKey(d => d.OrganizationId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_academic_semesters_organization");
+        });
+
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_audit_logs");
+
+            entity.ToTable("audit_logs");
+
+            entity.HasIndex(e => new { e.ActorUserId, e.OccurredAt }, "ix_audit_logs_actor_occurred_at")
+                .IsDescending(false, true)
+                .HasFilter("([actor_user_id] IS NOT NULL)");
+
+            entity.HasIndex(e => e.CorrelationId, "ix_audit_logs_correlation_id").HasFilter("([correlation_id] IS NOT NULL)");
+
+            entity.HasIndex(e => new { e.EntityType, e.EntityId, e.OccurredAt }, "ix_audit_logs_entity").IsDescending(false, false, true);
+
+            entity.HasIndex(e => e.OccurredAt, "ix_audit_logs_occurred_at").IsDescending();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Action)
+                .HasMaxLength(100)
+                .HasColumnName("action");
+            entity.Property(e => e.ActorUserId).HasColumnName("actor_user_id");
+            entity.Property(e => e.CorrelationId).HasColumnName("correlation_id");
+            entity.Property(e => e.DetailsJson).HasColumnName("details_json");
+            entity.Property(e => e.EntityId)
+                .HasMaxLength(100)
+                .HasColumnName("entity_id");
+            entity.Property(e => e.EntityType)
+                .HasMaxLength(100)
+                .HasColumnName("entity_type");
+            entity.Property(e => e.IpAddress)
+                .HasMaxLength(45)
+                .HasColumnName("ip_address");
+            entity.Property(e => e.OccurredAt)
+                .HasPrecision(0)
+                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasColumnName("occurred_at");
+            entity.Property(e => e.Outcome)
+                .HasMaxLength(20)
+                .HasDefaultValue("SUCCESS")
+                .HasColumnName("outcome");
+            entity.Property(e => e.UserAgent)
+                .HasMaxLength(500)
+                .HasColumnName("user_agent");
+
+            entity.HasOne(d => d.ActorUser).WithMany(p => p.AuditLogs)
+                .HasForeignKey(d => d.ActorUserId)
+                .HasConstraintName("fk_audit_logs_actor");
         });
 
         modelBuilder.Entity<Deliverable>(entity =>
@@ -730,6 +793,71 @@ public partial class AipmsDbContext : DbContext
                 .HasColumnName("updated_at");
         });
 
+        modelBuilder.Entity<PasswordResetToken>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_password_reset_tokens");
+
+            entity.ToTable("password_reset_tokens");
+
+            entity.HasIndex(e => new { e.UserId, e.ExpiresAt }, "ix_password_reset_tokens_user_active")
+                .IsDescending(false, true)
+                .HasFilter("([used_at] IS NULL)");
+
+            entity.HasIndex(e => e.TokenHash, "uq_password_reset_tokens_token_hash").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(0)
+                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasColumnName("created_at");
+            entity.Property(e => e.ExpiresAt)
+                .HasPrecision(0)
+                .HasColumnName("expires_at");
+            entity.Property(e => e.RequestedByIp)
+                .HasMaxLength(45)
+                .HasColumnName("requested_by_ip");
+            entity.Property(e => e.TokenHash)
+                .HasMaxLength(64)
+                .HasColumnName("token_hash");
+            entity.Property(e => e.UsedAt)
+                .HasPrecision(0)
+                .HasColumnName("used_at");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.HasOne(d => d.User).WithMany(p => p.PasswordResetTokens)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("fk_password_reset_tokens_user");
+        });
+
+        modelBuilder.Entity<Permission>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_permissions");
+
+            entity.ToTable("permissions");
+
+            entity.HasIndex(e => e.Code, "uq_permissions_code").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Code)
+                .HasMaxLength(100)
+                .HasColumnName("code");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(0)
+                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Description)
+                .HasMaxLength(500)
+                .HasColumnName("description");
+            entity.Property(e => e.IsSystemPermission).HasColumnName("is_system_permission");
+            entity.Property(e => e.Name)
+                .HasMaxLength(150)
+                .HasColumnName("name");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(0)
+                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasColumnName("updated_at");
+        });
+
         modelBuilder.Entity<ProgressReport>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("pk_progress_reports");
@@ -787,9 +915,11 @@ public partial class AipmsDbContext : DbContext
 
             entity.HasIndex(e => e.Status, "ix_projects_status");
 
-            entity.HasIndex(e => e.Code, "uq_projects_code").IsUnique();
+            entity.HasIndex(e => e.TeamId, "uq_projects_active_team")
+                .IsUnique()
+                .HasFilter("([status] IN (N'DRAFT', N'SUBMITTED', N'UNDER_REVIEW', N'REVISION_REQUIRED', N'APPROVED', N'SUPERVISOR_PENDING', N'ACTIVE', N'FINAL_SUBMISSION'))");
 
-            entity.HasIndex(e => e.TeamId, "uq_projects_team").IsUnique();
+            entity.HasIndex(e => e.Code, "uq_projects_code").IsUnique();
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.ApprovedAt)
@@ -807,11 +937,17 @@ public partial class AipmsDbContext : DbContext
                 .HasColumnName("created_at");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by");
             entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.ExpectedOutput).HasColumnName("expected_output");
             entity.Property(e => e.Objectives).HasColumnName("objectives");
+            entity.Property(e => e.ProblemStatement).HasColumnName("problem_statement");
             entity.Property(e => e.RegisteredAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("registered_at");
+            entity.Property(e => e.RowVersion)
+                .IsRowVersion()
+                .IsConcurrencyToken()
+                .HasColumnName("row_version");
             entity.Property(e => e.Status)
                 .HasMaxLength(30)
                 .HasDefaultValue("DRAFT")
@@ -949,6 +1085,84 @@ public partial class AipmsDbContext : DbContext
                 .HasConstraintName("fk_project_status_history_project");
         });
 
+        modelBuilder.Entity<ProjectTag>(entity =>
+        {
+            entity.HasKey(e => new { e.ProjectId, e.TagId }).HasName("pk_project_tags");
+
+            entity.ToTable("project_tags");
+
+            entity.HasIndex(e => new { e.TagId, e.ProjectId }, "ix_project_tags_tag_project");
+
+            entity.Property(e => e.ProjectId).HasColumnName("project_id");
+            entity.Property(e => e.TagId).HasColumnName("tag_id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(0)
+                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.Project).WithMany(p => p.ProjectTags)
+                .HasForeignKey(d => d.ProjectId)
+                .HasConstraintName("fk_project_tags_project");
+
+            entity.HasOne(d => d.Tag).WithMany(p => p.ProjectTags)
+                .HasForeignKey(d => d.TagId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_project_tags_tag");
+        });
+
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_refresh_tokens");
+
+            entity.ToTable("refresh_tokens");
+
+            entity.HasIndex(e => new { e.FamilyId, e.CreatedAt }, "ix_refresh_tokens_family_id").IsDescending(false, true);
+
+            entity.HasIndex(e => new { e.UserId, e.ExpiresAt }, "ix_refresh_tokens_user_active")
+                .IsDescending(false, true)
+                .HasFilter("([revoked_at] IS NULL)");
+
+            entity.HasIndex(e => e.TokenHash, "uq_refresh_tokens_token_hash").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(0)
+                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasColumnName("created_at");
+            entity.Property(e => e.CreatedByIp)
+                .HasMaxLength(45)
+                .HasColumnName("created_by_ip");
+            entity.Property(e => e.ExpiresAt)
+                .HasPrecision(0)
+                .HasColumnName("expires_at");
+            entity.Property(e => e.FamilyId).HasColumnName("family_id");
+            entity.Property(e => e.ReplacedByTokenId).HasColumnName("replaced_by_token_id");
+            entity.Property(e => e.ReuseDetectedAt)
+                .HasPrecision(0)
+                .HasColumnName("reuse_detected_at");
+            entity.Property(e => e.RevokedAt)
+                .HasPrecision(0)
+                .HasColumnName("revoked_at");
+            entity.Property(e => e.RevokedByIp)
+                .HasMaxLength(45)
+                .HasColumnName("revoked_by_ip");
+            entity.Property(e => e.TokenHash)
+                .HasMaxLength(64)
+                .HasColumnName("token_hash");
+            entity.Property(e => e.UserAgent)
+                .HasMaxLength(500)
+                .HasColumnName("user_agent");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.HasOne(d => d.ReplacedByToken).WithMany(p => p.InverseReplacedByToken)
+                .HasForeignKey(d => d.ReplacedByTokenId)
+                .HasConstraintName("fk_refresh_tokens_replaced_by");
+
+            entity.HasOne(d => d.User).WithMany(p => p.RefreshTokens)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("fk_refresh_tokens_user");
+        });
+
         modelBuilder.Entity<Role>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("pk_roles");
@@ -978,6 +1192,37 @@ public partial class AipmsDbContext : DbContext
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<RolePermission>(entity =>
+        {
+            entity.HasKey(e => new { e.RoleId, e.PermissionId }).HasName("pk_role_permissions");
+
+            entity.ToTable("role_permissions");
+
+            entity.HasIndex(e => e.AssignedBy, "ix_role_permissions_assigned_by").HasFilter("([assigned_by] IS NOT NULL)");
+
+            entity.HasIndex(e => e.PermissionId, "ix_role_permissions_permission_id");
+
+            entity.Property(e => e.RoleId).HasColumnName("role_id");
+            entity.Property(e => e.PermissionId).HasColumnName("permission_id");
+            entity.Property(e => e.AssignedAt)
+                .HasPrecision(0)
+                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasColumnName("assigned_at");
+            entity.Property(e => e.AssignedBy).HasColumnName("assigned_by");
+
+            entity.HasOne(d => d.AssignedByNavigation).WithMany(p => p.RolePermissions)
+                .HasForeignKey(d => d.AssignedBy)
+                .HasConstraintName("fk_role_permissions_assigned_by");
+
+            entity.HasOne(d => d.Permission).WithMany(p => p.RolePermissions)
+                .HasForeignKey(d => d.PermissionId)
+                .HasConstraintName("fk_role_permissions_permission");
+
+            entity.HasOne(d => d.Role).WithMany(p => p.RolePermissions)
+                .HasForeignKey(d => d.RoleId)
+                .HasConstraintName("fk_role_permissions_role");
         });
 
         modelBuilder.Entity<Rubric>(entity =>
@@ -1297,6 +1542,30 @@ public partial class AipmsDbContext : DbContext
                 .HasForeignKey(d => d.SupervisorProfileId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_supervisor_requests_profile");
+        });
+
+        modelBuilder.Entity<Tag>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_tags");
+
+            entity.ToTable("tags");
+
+            entity.HasIndex(e => new { e.NormalizedName, e.TagType }, "uq_tags_normalized_name_type").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(0)
+                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Name)
+                .HasMaxLength(100)
+                .HasColumnName("name");
+            entity.Property(e => e.NormalizedName)
+                .HasMaxLength(100)
+                .HasColumnName("normalized_name");
+            entity.Property(e => e.TagType)
+                .HasMaxLength(30)
+                .HasColumnName("tag_type");
         });
 
         modelBuilder.Entity<Task>(entity =>
@@ -1634,6 +1903,7 @@ public partial class AipmsDbContext : DbContext
                 .HasFilter("([student_code] IS NOT NULL)");
 
             entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.AccessFailedCount).HasColumnName("access_failed_count");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
@@ -1651,7 +1921,13 @@ public partial class AipmsDbContext : DbContext
             entity.Property(e => e.LastLoginAt)
                 .HasPrecision(0)
                 .HasColumnName("last_login_at");
+            entity.Property(e => e.LockoutEndAt)
+                .HasPrecision(0)
+                .HasColumnName("lockout_end_at");
             entity.Property(e => e.MajorId).HasColumnName("major_id");
+            entity.Property(e => e.PasswordChangedAt)
+                .HasPrecision(0)
+                .HasColumnName("password_changed_at");
             entity.Property(e => e.PasswordHash)
                 .HasMaxLength(500)
                 .HasColumnName("password_hash");
@@ -1688,6 +1964,8 @@ public partial class AipmsDbContext : DbContext
 
             entity.ToTable("user_roles");
 
+            entity.HasIndex(e => e.AssignedBy, "ix_user_roles_assigned_by").HasFilter("([assigned_by] IS NOT NULL)");
+
             entity.HasIndex(e => e.RoleId, "ix_user_roles_role_id");
 
             entity.HasIndex(e => new { e.UserId, e.RoleId }, "uq_user_roles_user_role").IsUnique();
@@ -1697,15 +1975,20 @@ public partial class AipmsDbContext : DbContext
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("assigned_at");
+            entity.Property(e => e.AssignedBy).HasColumnName("assigned_by");
             entity.Property(e => e.RoleId).HasColumnName("role_id");
             entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.HasOne(d => d.AssignedByNavigation).WithMany(p => p.UserRoleAssignedByNavigations)
+                .HasForeignKey(d => d.AssignedBy)
+                .HasConstraintName("fk_user_roles_assigned_by");
 
             entity.HasOne(d => d.Role).WithMany(p => p.UserRoles)
                 .HasForeignKey(d => d.RoleId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_user_roles_role");
 
-            entity.HasOne(d => d.User).WithMany(p => p.UserRoles)
+            entity.HasOne(d => d.User).WithMany(p => p.UserRoleUsers)
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("fk_user_roles_user");
         });
