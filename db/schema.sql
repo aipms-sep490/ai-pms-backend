@@ -872,20 +872,33 @@ CREATE TABLE dbo.rubrics (
     department_id        BIGINT NULL,
     academic_semester_id BIGINT NULL,
     code                 NVARCHAR(50) NOT NULL,
+    version_number       INT NOT NULL CONSTRAINT df_rubrics_version_number DEFAULT (1),
     name                 NVARCHAR(255) NOT NULL,
     description          NVARCHAR(1000) NULL,
-    is_active            BIT NOT NULL CONSTRAINT df_rubrics_is_active DEFAULT (1),
+    approval_status      NVARCHAR(20) NOT NULL CONSTRAINT df_rubrics_approval_status DEFAULT (N'DRAFT'),
+    is_active            BIT NOT NULL CONSTRAINT df_rubrics_is_active DEFAULT (0),
     created_by           BIGINT NOT NULL,
+    approved_by          BIGINT NULL,
+    approved_at          DATETIME2(0) NULL,
     created_at           DATETIME2(0) NOT NULL CONSTRAINT df_rubrics_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at           DATETIME2(0) NOT NULL CONSTRAINT df_rubrics_updated_at DEFAULT (SYSUTCDATETIME()),
+    row_version          ROWVERSION NOT NULL,
     CONSTRAINT pk_rubrics PRIMARY KEY (id),
-    CONSTRAINT uq_rubrics_code UNIQUE (code),
+    CONSTRAINT uq_rubrics_code_version UNIQUE (code, version_number),
     CONSTRAINT ck_rubrics_scope CHECK (department_id IS NOT NULL OR academic_semester_id IS NOT NULL),
+    CONSTRAINT ck_rubrics_version_number CHECK (version_number > 0),
+    CONSTRAINT ck_rubrics_approval_status CHECK (approval_status IN (N'DRAFT', N'APPROVED', N'INACTIVE')),
+    CONSTRAINT ck_rubrics_approval_audit CHECK (
+        (approval_status = N'DRAFT' AND approved_by IS NULL AND approved_at IS NULL AND is_active = 0)
+        OR (approval_status IN (N'APPROVED', N'INACTIVE') AND approved_by IS NOT NULL AND approved_at IS NOT NULL)
+    ),
     CONSTRAINT fk_rubrics_department FOREIGN KEY (department_id)
         REFERENCES dbo.departments(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_rubrics_semester FOREIGN KEY (academic_semester_id)
         REFERENCES dbo.academic_semesters(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_rubrics_created_by FOREIGN KEY (created_by)
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_rubrics_approved_by FOREIGN KEY (approved_by)
         REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
 GO
@@ -920,19 +933,31 @@ CREATE TABLE dbo.evaluations (
     status          NVARCHAR(20) NOT NULL CONSTRAINT df_evaluations_status DEFAULT (N'DRAFT'),
     total_score     DECIMAL(10,2) NULL,
     comments        NVARCHAR(MAX) NULL,
+    evidence_summary NVARCHAR(MAX) NULL,
     evaluated_at    DATETIME2(0) NULL,
+    finalized_by    BIGINT NULL,
+    finalized_at    DATETIME2(0) NULL,
+    rounding_rule   NVARCHAR(30) NOT NULL CONSTRAINT df_evaluations_rounding_rule DEFAULT (N'AWAY_FROM_ZERO_2DP'),
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_evaluations_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_evaluations_updated_at DEFAULT (SYSUTCDATETIME()),
+    row_version     ROWVERSION NOT NULL,
     CONSTRAINT pk_evaluations PRIMARY KEY (id),
     CONSTRAINT ck_evaluations_type CHECK (evaluation_type IN (N'SUPERVISOR', N'LECTURER', N'COMMITTEE', N'FINAL')),
     CONSTRAINT ck_evaluations_status CHECK (status IN (N'DRAFT', N'SUBMITTED', N'FINALIZED')),
     CONSTRAINT ck_evaluations_total_score CHECK (total_score IS NULL OR total_score >= 0),
+    CONSTRAINT ck_evaluations_rounding_rule CHECK (rounding_rule = N'AWAY_FROM_ZERO_2DP'),
+    CONSTRAINT ck_evaluations_finalize_audit CHECK (
+        (status <> N'FINALIZED' AND finalized_by IS NULL AND finalized_at IS NULL)
+        OR (status = N'FINALIZED' AND finalized_by IS NOT NULL AND finalized_at IS NOT NULL)
+    ),
     CONSTRAINT fk_evaluations_project FOREIGN KEY (project_id)
         REFERENCES dbo.projects(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_evaluations_evaluator FOREIGN KEY (evaluator_id)
         REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_evaluations_rubric FOREIGN KEY (rubric_id)
-        REFERENCES dbo.rubrics(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+        REFERENCES dbo.rubrics(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_evaluations_finalized_by FOREIGN KEY (finalized_by)
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
 GO
 

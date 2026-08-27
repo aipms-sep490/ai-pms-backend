@@ -1003,8 +1003,12 @@ BEGIN TRY
         code,
         name,
         description,
+        version_number,
+        approval_status,
         is_active,
-        created_by
+        created_by,
+        approved_by,
+        approved_at
     )
     VALUES (
         @dept_id,
@@ -1013,7 +1017,11 @@ BEGIN TRY
         N'AI-PMS Smoke Test Rubric',
         N'Rubric used only inside the transactional smoke test.',
         1,
-        @lecturer_id
+        N'APPROVED',
+        1,
+        @lecturer_id,
+        @lecturer_id,
+        SYSUTCDATETIME()
     );
 
     SET @rubric_id = SCOPE_IDENTITY();
@@ -1047,7 +1055,11 @@ BEGIN TRY
         status,
         total_score,
         comments,
-        evaluated_at
+        evidence_summary,
+        evaluated_at,
+        finalized_by,
+        finalized_at,
+        rounding_rule
     )
     VALUES (
         @project_id,
@@ -1057,7 +1069,11 @@ BEGIN TRY
         N'FINALIZED',
         9.00,
         N'Smoke evaluation',
-        SYSUTCDATETIME()
+        N'Smoke-test evidence summary',
+        SYSUTCDATETIME(),
+        @lecturer_id,
+        SYSUTCDATETIME(),
+        N'AWAY_FROM_ZERO_2DP'
     );
 
     SET @evaluation_id = SCOPE_IDENTITY();
@@ -1421,6 +1437,10 @@ BEGIN TRY
         WHERE r.id = @rubric_id
           AND r.department_id = @dept_id
           AND r.academic_semester_id = @semester_id
+          AND r.version_number = 1
+          AND r.approval_status = N'APPROVED'
+          AND r.approved_by = @lecturer_id
+          AND r.approved_at IS NOT NULL
           AND rc.id = @rubric_criterion_id
           AND rc.criterion_id = @criterion_id
           AND rc.weight_percent = 100.00
@@ -1444,6 +1464,10 @@ BEGIN TRY
           AND ed.rubric_criterion_id = @rubric_criterion_id
           AND rc.rubric_id = @rubric_id
           AND ed.score = 9.00
+          AND e.evidence_summary = N'Smoke-test evidence summary'
+          AND e.finalized_by = @lecturer_id
+          AND e.finalized_at IS NOT NULL
+          AND e.rounding_rule = N'AWAY_FROM_ZERO_2DP'
     )
         THROW 51119,
             'Smoke test failed: rubric-based evaluation relationship is invalid.',

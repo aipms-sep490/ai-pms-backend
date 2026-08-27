@@ -685,15 +685,20 @@ BEGIN TRY
        sample demonstrates a semester-specific department rubric.
     */
     INSERT INTO dbo.rubrics
-        (department_id, academic_semester_id, code, name, description, is_active, created_by)
+        (department_id, academic_semester_id, code, version_number, name, description,
+         approval_status, is_active, created_by, approved_by, approved_at)
     VALUES
         (@it_dept_id,
          @semester_fa26,
          N'SEP490_FA26_IT',
+         1,
          N'SEP490 Fall 2026 - IT Project Evaluation Rubric',
          N'Initial SEP490 evaluation rubric used to assess AI-PMS and other IT capstone projects in the Fall 2026 semester.',
+         N'APPROVED',
          1,
-         @staff_id);
+         @staff_id,
+         @staff_id,
+         '2026-08-25T10:00:00');
 
     DECLARE @rubric_sep490 BIGINT =
         (SELECT id FROM dbo.rubrics WHERE code = N'SEP490_FA26_IT');
@@ -735,25 +740,34 @@ BEGIN TRY
     /* Multiple evaluators may evaluate the same project with the same rubric. */
     INSERT INTO dbo.evaluations
         (project_id, evaluator_id, rubric_id, evaluation_type,
-         status, total_score, comments, evaluated_at)
+         status, total_score, comments, evidence_summary, evaluated_at,
+         finalized_by, finalized_at, rounding_rule)
     VALUES
         (@project_id,
          @lecturer1_id,
          @rubric_sep490,
          N'SUPERVISOR',
          N'FINALIZED',
-         8.70,
+         8.71,
          N'Strong core database design and project workflow coverage. Continue improving automated tests and complete collaboration modules before final submission.',
-         '2026-11-30T16:00:00'),
+         N'Rubric scores are supported by reviewed progress reports, accepted deliverables, meeting minutes, and supervisor observations.',
+         '2026-11-30T16:00:00',
+         @lecturer1_id,
+         '2026-11-30T16:00:00',
+         N'AWAY_FROM_ZERO_2DP'),
 
         (@project_id,
          @lecturer2_id,
          @rubric_sep490,
          N'LECTURER',
          N'SUBMITTED',
-         8.40,
+         8.42,
          N'Good preparation for future AI extensions. Progress-report and status-history data are structured well for later analytics use.',
-         '2026-11-30T16:30:00'),
+         N'Reviewed database artifacts, reports, and submitted project evidence.',
+         '2026-11-30T16:30:00',
+         NULL,
+         NULL,
+         N'AWAY_FROM_ZERO_2DP'),
 
         (@project_id,
          @staff_id,
@@ -762,7 +776,11 @@ BEGIN TRY
          N'DRAFT',
          NULL,
          N'Final committee evaluation will be completed after the SEP490 project defense.',
-         NULL);
+         NULL,
+         NULL,
+         NULL,
+         NULL,
+         N'AWAY_FROM_ZERO_2DP');
 
     DECLARE @eval_sup BIGINT =
         (SELECT id
