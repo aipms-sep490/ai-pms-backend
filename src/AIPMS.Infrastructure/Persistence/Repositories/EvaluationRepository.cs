@@ -93,13 +93,14 @@ public sealed class EvaluationRepository(AipmsDbContext db) : IEvaluationReposit
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         if (active)
         {
-            var updated = await DraftRubrics(rubricId).ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, true).SetProperty(x => x.ApprovalStatus, "APPROVED").SetProperty(x => x.ApprovedBy, (long?)actorId).SetProperty(x => x.ApprovedAt, (DateTime?)at).SetProperty(x => x.UpdatedAt, at), ct);
+            var updated = await db.Rubrics.Where(x => x.Id == rubricId && (x.ApprovalStatus == "DRAFT" || x.ApprovalStatus == "INACTIVE"))
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, true).SetProperty(x => x.ApprovalStatus, "APPROVED").SetProperty(x => x.ApprovedBy, (long?)actorId).SetProperty(x => x.ApprovedAt, (DateTime?)at).SetProperty(x => x.UpdatedAt, at), ct);
             if (updated != 1) return false;
         }
         else
         {
             if (await db.Rubrics.Where(x => x.Id == rubricId && x.IsActive)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, false).SetProperty(x => x.UpdatedAt, at), ct) != 1) return false;
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, false).SetProperty(x => x.ApprovalStatus, "INACTIVE").SetProperty(x => x.UpdatedAt, at), ct) != 1) return false;
         }
         await tx.CommitAsync(ct); return true;
     }
@@ -158,7 +159,7 @@ public sealed class EvaluationRepository(AipmsDbContext db) : IEvaluationReposit
     public async Task<bool> UpdateCommentsAsync(long id, string? comments, string? evidenceSummary, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        if (await db.Evaluations.Where(x => x.Id == id && x.Status == "DRAFT").ExecuteUpdateAsync(s => s.SetProperty(x => x.Comments, comments).SetProperty(x => x.UpdatedAt, DateTime.UtcNow), ct) != 1)
+        if (await db.Evaluations.Where(x => x.Id == id && x.Status == "DRAFT").ExecuteUpdateAsync(s => s.SetProperty(x => x.Comments, comments).SetProperty(x => x.EvidenceSummary, evidenceSummary).SetProperty(x => x.UpdatedAt, DateTime.UtcNow), ct) != 1)
         { await tx.RollbackAsync(ct); return false; }
 
         await tx.CommitAsync(ct); return true;
@@ -178,5 +179,4 @@ public sealed class EvaluationRepository(AipmsDbContext db) : IEvaluationReposit
 
     private IQueryable<Rubric> DraftRubrics(long id) => db.Rubrics.Where(x => x.Id == id && x.ApprovalStatus == "DRAFT");
 }
-
 

@@ -1,4 +1,5 @@
 using AIPMS.Application.Abstractions.Security;
+using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.DTOs;
@@ -104,7 +105,7 @@ public sealed class UpdateEvaluationCommentHandler(ICurrentUser user, IEvaluatio
 }
 
 public sealed class FinalizeEvaluationHandler(ICurrentUser user, IEvaluationRepository repository,
-    IEvaluationScoreCalculator calculator, TimeProvider clock) : IRequestHandler<FinalizeEvaluationCommand, Unit>
+    IEvaluationScoreCalculator calculator, IAuditTrail auditTrail, TimeProvider clock) : IRequestHandler<FinalizeEvaluationCommand, Unit>
 {
     public async Task<Unit> Handle(FinalizeEvaluationCommand request, CancellationToken ct)
     {
@@ -124,7 +125,9 @@ public sealed class FinalizeEvaluationHandler(ICurrentUser user, IEvaluationRepo
         if (!await repository.FinalizeAsync(request.EvaluationId, total, actor,
             clock.GetUtcNow().UtcDateTime, ct))
             throw new ConflictException("Evaluation was finalized concurrently.");
+        await auditTrail.RecordAsync(new AuditEntry(actor, "EVALUATION_FINALIZED", "EVALUATION",
+            request.EvaluationId, new Dictionary<string, object?>
+            { ["totalScore"] = total, ["roundingRule"] = "AWAY_FROM_ZERO_2DP" }), ct);
         return Unit.Value;
     }
 }
-
