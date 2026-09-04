@@ -76,7 +76,7 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
         if (!string.IsNullOrWhiteSpace(search))
         {
             var searchLower = search.ToLower();
-            query = query.Where(t => t.Title.ToLower().Contains(searchLower) 
+            query = query.Where(t => t.Title.ToLower().Contains(searchLower)
                                   || (t.Description != null && t.Description.ToLower().Contains(searchLower)));
         }
 
@@ -391,8 +391,8 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
 
         var isSupervisor = await context.SupervisorAssignments
             .AsNoTracking()
-            .AnyAsync(sa => sa.ProjectId == projectId 
-                         && sa.SupervisorProfile.UserId == userId 
+            .AnyAsync(sa => sa.ProjectId == projectId
+                         && sa.SupervisorProfile.UserId == userId
                          && sa.EndedAt == null, cancellationToken);
 
         return isSupervisor;

@@ -9,9 +9,9 @@ namespace AIPMS.Application.Features.Milestones.Abstractions;
 public interface IMilestoneRepository
 {
     Task<MilestoneDto?> GetByIdAsync(long id, CancellationToken cancellationToken);
-    
+
     Task<IReadOnlyList<MilestoneDto>> GetProjectMilestonesAsync(long projectId, CancellationToken cancellationToken);
-    
+
     Task<MilestoneDto> CreateAsync(
         long projectId,
         string title,
@@ -21,7 +21,7 @@ public interface IMilestoneRepository
         int sortOrder,
         long createdByUserId,
         CancellationToken cancellationToken);
-        
+
     Task<MilestoneDto> UpdateAsync(
         long id,
         string title,
@@ -31,11 +31,11 @@ public interface IMilestoneRepository
         string status,
         int sortOrder,
         CancellationToken cancellationToken);
-        
+
     Task DeleteAsync(long id, CancellationToken cancellationToken);
-    
+
     Task<bool> HasTasksAsync(long id, CancellationToken cancellationToken);
-    
+
     Task ReorderAsync(IEnumerable<(long MilestoneId, int SortOrder)> reorderItems, CancellationToken cancellationToken);
 
     Task<bool> IsProjectLeaderOrSupervisorAsync(long projectId, long userId, CancellationToken cancellationToken);
