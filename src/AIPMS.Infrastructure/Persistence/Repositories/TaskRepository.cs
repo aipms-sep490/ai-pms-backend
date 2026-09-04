@@ -158,23 +158,21 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
             UpdatedAt = utcNow
         };
 
-        context.Tasks.Add(task);
-        await context.SaveChangesAsync(cancellationToken);
-
         if (assigneeUserIds.Count > 0)
         {
             foreach (var userId in assigneeUserIds)
             {
-                context.TaskAssignees.Add(new TaskAssignee
+                task.TaskAssignees.Add(new TaskAssignee
                 {
-                    TaskId = task.Id,
                     UserId = userId,
                     AssignedBy = createdByUserId,
                     AssignedAt = utcNow
                 });
             }
-            await context.SaveChangesAsync(cancellationToken);
         }
+
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync(cancellationToken);
 
         return (await GetByIdAsync(task.Id, cancellationToken))!;
     }
@@ -226,6 +224,9 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
 
         var hasDependencies = await context.TaskDependencies.AnyAsync(d => d.TaskId == id || d.DependsOnTaskId == id, cancellationToken);
         if (hasDependencies) return true;
+
+        var hasAssignees = await context.TaskAssignees.AnyAsync(a => a.TaskId == id, cancellationToken);
+        if (hasAssignees) return true;
 
         return false;
     }
