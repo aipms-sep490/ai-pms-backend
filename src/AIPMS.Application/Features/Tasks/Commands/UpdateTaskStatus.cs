@@ -76,13 +76,19 @@ public sealed class UpdateTaskStatusCommandHandler(
 
         var projectId = milestone.ProjectId;
 
-        // Verify authorization: Student Leader, Assigned Supervisor, or Task Assignee
+        // Verify authorization: Student Leader or Assigned Supervisor always allowed;
+        // Task Assignee only if they are still an active team member
         var isLeaderOrSupervisor = await repository.IsProjectLeaderOrSupervisorAsync(projectId, actorUserId, cancellationToken);
-        var isAssignee = await repository.IsTaskAssigneeAsync(request.TaskId, actorUserId, cancellationToken);
 
-        if (!isLeaderOrSupervisor && !isAssignee)
+        if (!isLeaderOrSupervisor)
         {
-            throw new ForbiddenException("You are not authorized to update this task's status.");
+            var isAssignee = await repository.IsTaskAssigneeAsync(request.TaskId, actorUserId, cancellationToken);
+            var isActiveMember = await repository.IsUserActiveTeamMemberAsync(projectId, actorUserId, cancellationToken);
+
+            if (!isAssignee || !isActiveMember)
+            {
+                throw new ForbiddenException("You are not authorized to update this task's status.");
+            }
         }
 
         // Validate state machine transition

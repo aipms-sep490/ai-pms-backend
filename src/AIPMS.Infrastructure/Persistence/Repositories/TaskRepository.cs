@@ -127,7 +127,7 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
 
         var dtos = items.Select(static t => t.ToDto()).ToArray();
 
-        return new PagedResult<TaskDto>(dtos, totalCount, page, pageSize);
+        return new PagedResult<TaskDto>(dtos, page, pageSize, totalCount);
     }
 
     public async Task<TaskDto> CreateAsync(

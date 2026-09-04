@@ -86,6 +86,60 @@ public sealed class TaskHandlerTests
 
         await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task UpdateTaskStatus_AssigneeWhoLeftTeam_ThrowsForbiddenException()
+    {
+        // Regression: user is task assignee but left the team (LeftAt != null)
+        // → must be rejected even though task_assignees row still exists
+        var repository = new StubTaskRepository
+        {
+            IsLeaderOrSupervisor = false,
+            IsAssignee = true,       // has task_assignees row
+            ActiveTeamMember = false, // but no longer active in team_members
+            ExistingTask = new TaskDto(1, 1, null, "Task 1", "Desc", "TODO", "NORMAL", null, null, null, 100, "User 100", DateTime.UtcNow, DateTime.UtcNow, Array.Empty<TaskAssigneeDto>(), Array.Empty<TaskDependencyDto>())
+        };
+        var milestoneRepository = new StubMilestoneRepository
+        {
+            ExistingMilestone = new MilestoneDto(1, 1, "M1", "Desc", null, null, "IN_PROGRESS", 0, 10, "User", DateTime.UtcNow, DateTime.UtcNow)
+        };
+        var executionGuard = new StubProjectExecutionGuard();
+        var currentUser = new TestCurrentUser(200, AppRoles.Student);
+        var auditTrail = new RecordingAuditTrail();
+
+        var handler = new UpdateTaskStatusCommandHandler(repository, milestoneRepository, executionGuard, currentUser, auditTrail);
+        var cmd = new UpdateTaskStatusCommand(1, "IN_PROGRESS", null);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(cmd, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task UpdateTaskStatus_ActiveAssignee_PassesAuthorizationGuard()
+    {
+        // Active assignee (still on team) should pass the guard — will hit state machine
+        var repository = new StubTaskRepository
+        {
+            IsLeaderOrSupervisor = false,
+            IsAssignee = true,
+            ActiveTeamMember = true, // still active
+            ExistingTask = new TaskDto(1, 1, null, "Task 1", "Desc", "TODO", "NORMAL", null, null, null, 100, "User 100", DateTime.UtcNow, DateTime.UtcNow, Array.Empty<TaskAssigneeDto>(), Array.Empty<TaskDependencyDto>())
+        };
+        var milestoneRepository = new StubMilestoneRepository
+        {
+            ExistingMilestone = new MilestoneDto(1, 1, "M1", "Desc", null, null, "IN_PROGRESS", 0, 10, "User", DateTime.UtcNow, DateTime.UtcNow)
+        };
+        var executionGuard = new StubProjectExecutionGuard();
+        var currentUser = new TestCurrentUser(200, AppRoles.Student);
+        var auditTrail = new RecordingAuditTrail();
+
+        var handler = new UpdateTaskStatusCommandHandler(repository, milestoneRepository, executionGuard, currentUser, auditTrail);
+        // TODO → IN_PROGRESS is a valid transition — handler must complete without exception
+        var cmd = new UpdateTaskStatusCommand(1, "IN_PROGRESS", null);
+
+        // Should not throw — active assignee is authorized and transition is valid
+        var result = await handler.Handle(cmd, CancellationToken.None);
+        Assert.NotNull(result);
+    }
 }
 
 internal sealed class StubTaskRepository : ITaskRepository
@@ -100,7 +154,7 @@ internal sealed class StubTaskRepository : ITaskRepository
         Task.FromResult(ExistingTask?.Id == id ? ExistingTask : null);
 
     public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, CancellationToken cancellationToken) =>
-        Task.FromResult(new PagedResult<TaskDto>(Array.Empty<TaskDto>(), 0, page, pageSize));
+        Task.FromResult(new PagedResult<TaskDto>(Array.Empty<TaskDto>(), page, pageSize, 0));
 
     public Task<TaskDto> CreateAsync(long milestoneId, long? parentTaskId, string title, string? description, string? priority, DateTime? startAt, DateTime? dueAt, IReadOnlyList<long> assigneeUserIds, long createdByUserId, CancellationToken cancellationToken) =>
         Task.FromResult(new TaskDto(1, milestoneId, parentTaskId, title, description, "TODO", priority ?? "NORMAL", startAt, dueAt, null, createdByUserId, "User", DateTime.UtcNow, DateTime.UtcNow, Array.Empty<TaskAssigneeDto>(), Array.Empty<TaskDependencyDto>()));

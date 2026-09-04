@@ -181,6 +181,59 @@ public sealed class MilestonesAndTasksEndpointTests : IClassFixture<MilestonesAn
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+
+    [Fact]
+    public async Task GetTasks_PaginationMetadata_IsCorrect()
+    {
+        // TestTaskRepo seeds 2 tasks; request page=1, pageSize=10
+        var client = _factory.CreateAuthenticatedClient(10, "student@aipms.test", "Student", AppRoles.Student);
+
+        var response = await client.GetAsync("api/v1/tasks/project/1?page=1&pageSize=10");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var result = await response.Content.ReadFromJsonAsync<PagedResult<TaskDto>>();
+        Assert.NotNull(result);
+        Assert.Equal(1, result.Page);
+        Assert.Equal(10, result.PageSize);
+        Assert.Equal(2, result.TotalCount);   // 2 seeded tasks
+        Assert.Equal(1, result.TotalPages);   // ceil(2/10) = 1
+    }
+
+    [Fact]
+    public async Task GetTasks_DepartmentStaffOutsideScope_ReturnsForbidden()
+    {
+        // AllowAllProjectAccessService is replaced by a scoped factory that returns Forbidden
+        using var factory = new DeniedAccessWebApplicationFactory();
+        var client = factory.CreateAuthenticatedClient(99, "staff@other.test", "Other Staff", AppRoles.DepartmentStaff);
+
+        var response = await client.GetAsync("api/v1/tasks/project/1");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+}
+
+/// <summary>
+/// Variant factory where IProjectAccessService always denies — simulates
+/// a DepartmentStaff user whose department does not match the project's majors.
+/// </summary>
+internal sealed class DeniedAccessWebApplicationFactory : MilestonesAndTasksEndpointTests.MilestoneWebApplicationFactory
+{
+    protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IProjectAccessService>();
+            services.AddSingleton<IProjectAccessService, DenyAllProjectAccessService>();
+        });
+    }
+}
+
+internal sealed class DenyAllProjectAccessService : IProjectAccessService
+{
+    public Task<bool> CanAccessAsync(long userId, long projectId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
 }
 
 // ── Test Double Repositories for Endpoint Testing ─────────────────────────────
@@ -233,7 +286,7 @@ public class TestTaskRepo : ITaskRepository
         Task.FromResult(Tasks.FirstOrDefault(t => t.Id == id));
 
     public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, CancellationToken cancellationToken) =>
-        Task.FromResult(new PagedResult<TaskDto>(Tasks, Tasks.Count, page, pageSize));
+        Task.FromResult(new PagedResult<TaskDto>(Tasks, page, pageSize, Tasks.Count));
 
     public Task<TaskDto> CreateAsync(long milestoneId, long? parentTaskId, string title, string? description, string? priority, DateTime? startAt, DateTime? dueAt, IReadOnlyList<long> assigneeUserIds, long createdByUserId, CancellationToken cancellationToken)
     {
