@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Email;
 using AIPMS.Application.Abstractions.Security;
@@ -18,6 +19,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+
+[assembly: InternalsVisibleTo("AIPMS.UnitTests")]
+[assembly: InternalsVisibleTo("AIPMS.IntegrationTests")]
 
 namespace AIPMS.Infrastructure;
 
