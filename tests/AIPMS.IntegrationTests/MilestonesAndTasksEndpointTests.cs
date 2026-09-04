@@ -5,6 +5,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using AIPMS.Application.Abstractions.Auditing;
+using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Milestones.Abstractions;
@@ -40,6 +42,15 @@ public sealed class MilestonesAndTasksEndpointTests : IClassFixture<MilestonesAn
 
                 services.RemoveAll<ITaskRepository>();
                 services.AddSingleton<ITaskRepository>(TaskRepository);
+
+                services.RemoveAll<IProjectExecutionGuard>();
+                services.AddSingleton<IProjectExecutionGuard, NoOpProjectExecutionGuard>();
+
+                services.RemoveAll<IAuditTrail>();
+                services.AddSingleton<IAuditTrail, NoOpAuditTrail>();
+
+                services.RemoveAll<IProjectAccessService>();
+                services.AddSingleton<IProjectAccessService, AllowAllProjectAccessService>();
             });
         }
     }
@@ -265,4 +276,17 @@ public class TestTaskRepo : ITaskRepository
 
     public Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult(( (IReadOnlyList<TaskDto>)Array.Empty<TaskDto>(), (IReadOnlyList<TaskDto>)Array.Empty<TaskDto>() ));
+}
+
+internal sealed class NoOpProjectExecutionGuard : IProjectExecutionGuard
+{
+    public Task MustBeActiveAsync(long projectId, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task MustBeActiveForMilestoneAsync(long milestoneId, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task MustBeActiveForTaskAsync(long taskId, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class AllowAllProjectAccessService : IProjectAccessService
+{
+    public Task<bool> CanAccessAsync(long userId, long projectId, CancellationToken cancellationToken = default)
+        => Task.FromResult(true);
 }
