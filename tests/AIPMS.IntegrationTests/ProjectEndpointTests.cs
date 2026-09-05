@@ -495,4 +495,14 @@ public sealed class TestProjectRepository : IProjectRepository
         long? staffScopeDepartmentId,
         CancellationToken cancellationToken) =>
         Task.FromResult(CanView);
+
+    public Task<ProjectProgressSummaryDto> GetProjectProgressSummaryAsync(
+        long projectId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(new ProjectProgressSummaryDto(projectId, 0, 0, 0, 0, 0, 0, 0.0));
+
+    public Task<ProjectTimelineDataDto> GetTimelineDataAsync(
+        long projectId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(new ProjectTimelineDataDto(projectId, Array.Empty<TimelineMilestoneDto>()));
 }

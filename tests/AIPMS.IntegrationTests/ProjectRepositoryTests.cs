@@ -33,19 +33,19 @@ public class DbFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var isCI = Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true";
+        var testConnectionString = Environment.GetEnvironmentVariable("AIPMS_TEST_SQL_CONNECTION");
 
-        if (isCI)
+        if (!string.IsNullOrWhiteSpace(testConnectionString))
         {
-            var testConnectionString = Environment.GetEnvironmentVariable("AIPMS_TEST_SQL_CONNECTION");
-            if (string.IsNullOrWhiteSpace(testConnectionString))
-            {
-                throw new InvalidOperationException("CI environment detected but AIPMS_TEST_SQL_CONNECTION is missing.");
-            }
             ConnectionString = testConnectionString;
+        }
+        else if (isCI)
+        {
+            throw new InvalidOperationException("CI environment detected but AIPMS_TEST_SQL_CONNECTION is missing.");
         }
         else
         {
-            // Local runs must ALWAYS use Testcontainers SQL Server
+            // Local runs without explicit connection string use Testcontainers SQL Server
             _msSqlContainer = new MsSqlBuilder()
                 .WithImage("mcr.microsoft.com/mssql/server:2022-latest")
                 .Build();
@@ -81,10 +81,12 @@ public class DbFixture : IAsyncLifetime
             await master.OpenAsync();
             await using var cmd = master.CreateCommand();
             cmd.CommandText = """
-                IF DB_ID(N'AI_PMS') IS NULL
+                IF DB_ID(N'AI_PMS') IS NOT NULL
                 BEGIN
-                    CREATE DATABASE [AI_PMS];
+                    ALTER DATABASE [AI_PMS] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                    DROP DATABASE [AI_PMS];
                 END
+                CREATE DATABASE [AI_PMS];
                 """;
             await cmd.ExecuteNonQueryAsync();
         }

@@ -110,4 +110,12 @@ public interface IProjectRepository
         bool isAdmin,
         long? staffScopeDepartmentId,
         CancellationToken cancellationToken);
+
+    Task<ProjectProgressSummaryDto> GetProjectProgressSummaryAsync(
+        long projectId,
+        CancellationToken cancellationToken);
+
+    Task<ProjectTimelineDataDto> GetTimelineDataAsync(
+        long projectId,
+        CancellationToken cancellationToken);
 }

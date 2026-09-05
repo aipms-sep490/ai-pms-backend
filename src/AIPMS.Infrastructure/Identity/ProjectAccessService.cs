@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Security;
@@ -13,28 +14,47 @@ internal sealed class ProjectAccessService(AipmsDbContext context) : IProjectAcc
         long projectId,
         CancellationToken cancellationToken = default)
     {
-        var hasPlatformAccess = await context.UserRoles
+        // Load user roles
+        var roles = await context.UserRoles
             .AsNoTracking()
-            .AnyAsync(
-                userRole => userRole.UserId == userId
-                    && (userRole.Role.Code == AppRoles.Admin
-                        || userRole.Role.Code == AppRoles.DepartmentStaff),
-                cancellationToken);
+            .Where(ur => ur.UserId == userId)
+            .Select(ur => ur.Role.Code)
+            .ToListAsync(cancellationToken);
 
-        if (hasPlatformAccess)
+        if (roles.Count == 0) return false;
+
+        // Admin → platform-wide access
+        if (roles.Contains(AppRoles.Admin)) return true;
+
+        // DepartmentStaff → only projects whose majors belong to the staff's department
+        if (roles.Contains(AppRoles.DepartmentStaff))
         {
-            return true;
+            var departmentId = await context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == userId)
+                .Select(u => u.DepartmentId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (departmentId is null) return false;
+
+            return await context.ProjectMajors
+                .AsNoTracking()
+                .AnyAsync(
+                    pm => pm.ProjectId == projectId
+                          && pm.Major.DepartmentId == departmentId.Value,
+                    cancellationToken);
         }
 
+        // Students / Supervisors → must be active team member or active supervisor
         return await context.Projects
             .AsNoTracking()
             .AnyAsync(
-                project => project.Id == projectId
-                    && (project.Team.TeamMembers.Any(
-                            member => member.UserId == userId && member.LeftAt == null)
-                        || (project.SupervisorAssignment != null
-                            && project.SupervisorAssignment.EndedAt == null
-                            && project.SupervisorAssignment.SupervisorProfile.UserId == userId)),
+                p => p.Id == projectId
+                     && (p.Team.TeamMembers.Any(
+                             m => m.UserId == userId && m.LeftAt == null)
+                         || (p.SupervisorAssignment != null
+                             && p.SupervisorAssignment.EndedAt == null
+                             && p.SupervisorAssignment.SupervisorProfile.UserId == userId)),
                 cancellationToken);
     }
 }
