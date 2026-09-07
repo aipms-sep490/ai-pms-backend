@@ -146,6 +146,8 @@ public static class DependencyInjection
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
+        services.AddScoped<Application.Features.Teams.ITeamRepository, TeamRepository>();
+        services.AddScoped<Application.Features.Teams.ITeamFormationPolicyProvider, ConfiguredTeamFormationPolicyProvider>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
         services.AddScoped<IPasswordResetNotifier, SmtpPasswordResetNotifier>();
 

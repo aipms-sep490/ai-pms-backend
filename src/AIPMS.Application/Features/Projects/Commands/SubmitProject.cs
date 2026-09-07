@@ -8,6 +8,7 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
+using AIPMS.Application.Features.Teams;
 using AIPMS.Domain.Entities;
 using AIPMS.Domain.Enums;
 using MediatR;
@@ -22,10 +23,17 @@ public sealed class SubmitProjectCommandHandler(
     IProjectRepository repository,
     ICurrentUser currentUser,
     IAuditTrail auditTrail,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ITeamRegistrationGuard registrationGuard)
     : IRequestHandler<SubmitProjectCommand, ProjectDto>
 {
-    public async Task<ProjectDto> Handle(
+    public Task<ProjectDto> Handle(
+        SubmitProjectCommand request,
+        CancellationToken cancellationToken) =>
+        registrationGuard.InTransactionAsync(
+            token => HandleInTransactionAsync(request, token), cancellationToken);
+
+    private async Task<ProjectDto> HandleInTransactionAsync(
         SubmitProjectCommand request,
         CancellationToken cancellationToken)
     {
@@ -53,11 +61,9 @@ public sealed class SubmitProjectCommandHandler(
             throw new ConflictException($"Cannot transition project from status {project.Status} to SUBMITTED.");
         }
 
-        // BR-51: Check team status
-        if (!await repository.IsTeamEligibleAsync(project.TeamId, cancellationToken))
-        {
-            throw new ConflictException("Your team is not in ELIGIBLE status to submit a project proposal.");
-        }
+        // Re-read leadership, roster, academic accounts and period policy under the
+        // same transaction as the status update, history and audit.
+        await registrationGuard.ValidateAsync(project.TeamId, cancellationToken);
 
         // BR-51: Check registration period/window
         var semesterId = await repository.GetSemesterIdByTeamIdAsync(project.TeamId, cancellationToken);

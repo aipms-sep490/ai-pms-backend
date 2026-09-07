@@ -16,6 +16,8 @@ using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.Academic.Models;
 using AIPMS.Application.Abstractions.Auditing;
+using AIPMS.Application.Features.Teams;
+using AIPMS.Application.Common.Exceptions;
 using Xunit;
 
 namespace AIPMS.IntegrationTests;
@@ -34,6 +36,8 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
             {
                 services.RemoveAll<IProjectRepository>();
                 services.AddSingleton<IProjectRepository>(ProjectRepository);
+                services.RemoveAll<ITeamRegistrationGuard>();
+                services.AddSingleton<ITeamRegistrationGuard>(new StubRegistrationGuard(ProjectRepository));
 
                 services.RemoveAll<IAcademicStructureRepository>();
                 services.AddSingleton<IAcademicStructureRepository>(AcademicRepository);
@@ -45,6 +49,15 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
     }
 
     private readonly ProjectWebApplicationFactory _factory;
+
+    // This suite tests the HTTP/project contracts using stubs; SQL-backed team
+    // registration and transaction behavior is exercised in Teams integration tests.
+    private sealed class StubRegistrationGuard(TestProjectRepository repository) : ITeamRegistrationGuard
+    {
+        public Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) => action(ct);
+        public Task ValidateAsync(long teamId, CancellationToken ct) =>
+            repository.IsTeamEligible ? Task.CompletedTask : throw new ConflictException("Team is not eligible.");
+    }
 
     public ProjectEndpointTests(ProjectWebApplicationFactory factory)
     {
