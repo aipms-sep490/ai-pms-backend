@@ -22,6 +22,8 @@ public static class DependencyInjection
         services.AddValidatorsFromAssembly(applicationAssembly, ServiceLifetime.Transient);
         services.AddScoped<AcademicAccessService>();
         services.AddScoped<AccountSecurityAccessService>();
+        services.AddScoped<Features.Teams.TeamWorkflow>();
+        services.AddScoped<Features.Teams.ITeamRegistrationGuard, Features.Teams.TeamRegistrationGuard>();
 
         return services;
     }

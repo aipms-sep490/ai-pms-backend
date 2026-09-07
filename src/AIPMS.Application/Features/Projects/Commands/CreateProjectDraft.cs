@@ -7,6 +7,7 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
+using AIPMS.Application.Features.Teams;
 using MediatR;
 
 namespace AIPMS.Application.Features.Projects.Commands;
@@ -25,10 +26,18 @@ public sealed record CreateProjectDraftCommand(
 public sealed class CreateProjectDraftCommandHandler(
     IProjectRepository repository,
     ICurrentUser currentUser,
-    IAuditTrail auditTrail)
+    IAuditTrail auditTrail,
+    ITeamRegistrationGuard registrationGuard,
+    TimeProvider timeProvider)
     : IRequestHandler<CreateProjectDraftCommand, ProjectDto>
 {
-    public async Task<ProjectDto> Handle(
+    public Task<ProjectDto> Handle(
+        CreateProjectDraftCommand request,
+        CancellationToken cancellationToken) =>
+        registrationGuard.InTransactionAsync(
+            token => HandleInTransactionAsync(request, token), cancellationToken);
+
+    private async Task<ProjectDto> HandleInTransactionAsync(
         CreateProjectDraftCommand request,
         CancellationToken cancellationToken)
     {
@@ -40,7 +49,8 @@ public sealed class CreateProjectDraftCommandHandler(
         var actorUserId = currentUser.UserId.Value;
 
         // Get the active registration semester for the user's organization
-        var semesterId = await repository.GetActiveRegistrationSemesterIdAsync(actorUserId, DateTime.UtcNow, cancellationToken);
+        var semesterId = await repository.GetActiveRegistrationSemesterIdAsync(
+            actorUserId, timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
         if (semesterId is null)
         {
             throw new ConflictException("The project registration period is currently closed.");
@@ -58,6 +68,8 @@ public sealed class CreateProjectDraftCommandHandler(
         {
             throw new ForbiddenException("Only the Team Leader can create a project draft.");
         }
+
+        await registrationGuard.ValidateAsync(teamId.Value, cancellationToken);
 
         // Rule: One unfinished project per team
         if (await repository.HasActiveProjectAsync(teamId.Value, cancellationToken))

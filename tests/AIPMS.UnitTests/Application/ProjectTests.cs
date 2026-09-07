@@ -12,6 +12,7 @@ using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.Commands;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Projects.Queries;
+using AIPMS.Application.Features.Teams;
 using MediatR;
 using Xunit;
 
@@ -33,7 +34,8 @@ public sealed class ProjectTests
 
         var currentUser = new TestCurrentUser(10, AppRoles.Student);
         var auditTrail = new RecordingAuditTrail();
-        var handler = new CreateProjectDraftCommandHandler(repository, currentUser, auditTrail);
+        var handler = new CreateProjectDraftCommandHandler(repository, currentUser, auditTrail,
+            new StubRegistrationGuard(repository), new FakeTimeProvider(FixedNow));
 
         var command = new CreateProjectDraftCommand(
             "AI-PMS Proposal",
@@ -69,7 +71,8 @@ public sealed class ProjectTests
         repository.HasActiveProject = true; // Blocked
 
         var currentUser = new TestCurrentUser(10, AppRoles.Student);
-        var handler = new CreateProjectDraftCommandHandler(repository, currentUser, new RecordingAuditTrail());
+        var handler = new CreateProjectDraftCommandHandler(repository, currentUser, new RecordingAuditTrail(),
+            new StubRegistrationGuard(repository), new FakeTimeProvider(FixedNow));
 
         var command = new CreateProjectDraftCommand("Title", null, null, null, null, [], "Domain", [], []);
 
@@ -86,7 +89,8 @@ public sealed class ProjectTests
         repository.IsLeader = false; // Not a leader
 
         var currentUser = new TestCurrentUser(10, AppRoles.Student);
-        var handler = new CreateProjectDraftCommandHandler(repository, currentUser, new RecordingAuditTrail());
+        var handler = new CreateProjectDraftCommandHandler(repository, currentUser, new RecordingAuditTrail(),
+            new StubRegistrationGuard(repository), new FakeTimeProvider(FixedNow));
 
         var command = new CreateProjectDraftCommand("Title", null, null, null, null, [], "Domain", [], []);
 
@@ -135,7 +139,8 @@ public sealed class ProjectTests
         var currentUser = new TestCurrentUser(10, AppRoles.Student);
         var auditTrail = new RecordingAuditTrail();
         var timeProvider = new FakeTimeProvider(FixedNow);
-        var handler = new SubmitProjectCommandHandler(repository, currentUser, auditTrail, timeProvider);
+        var handler = new SubmitProjectCommandHandler(repository, currentUser, auditTrail, timeProvider,
+            new StubRegistrationGuard(repository));
 
         var command = new SubmitProjectCommand(50, "token123");
 
@@ -189,7 +194,8 @@ public sealed class ProjectTests
         repository.Projects[50] = initialProject;
 
         var currentUser = new TestCurrentUser(10, AppRoles.Student);
-        var handler = new SubmitProjectCommandHandler(repository, currentUser, new RecordingAuditTrail(), new FakeTimeProvider(FixedNow));
+        var handler = new SubmitProjectCommandHandler(repository, currentUser, new RecordingAuditTrail(), new FakeTimeProvider(FixedNow),
+            new StubRegistrationGuard(repository));
 
         var command = new SubmitProjectCommand(50, "token123");
 
