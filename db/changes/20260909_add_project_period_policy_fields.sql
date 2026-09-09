@@ -92,7 +92,8 @@ BEGIN TRY
 
     PRINT '3. Adding Foreign Keys to dbo.project_periods...';
 
-    IF NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'fk_project_periods_rubric')
+    IF EXISTS (SELECT * FROM sys.tables WHERE object_id = OBJECT_ID(N'dbo.rubrics'))
+       AND NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'fk_project_periods_rubric')
     BEGIN
         ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_rubric FOREIGN KEY (rubric_id)
             REFERENCES dbo.rubrics(id) ON DELETE NO ACTION ON UPDATE NO ACTION;

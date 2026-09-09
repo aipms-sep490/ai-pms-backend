@@ -131,9 +131,7 @@ CREATE TABLE dbo.project_periods (
         max_projects_per_supervisor IS NULL OR max_projects_per_supervisor >= 1
     ),
     CONSTRAINT fk_project_periods_semester FOREIGN KEY (academic_semester_id)
-        REFERENCES dbo.academic_semesters(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
-    CONSTRAINT fk_project_periods_rubric FOREIGN KEY (rubric_id)
-        REFERENCES dbo.rubrics(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+        REFERENCES dbo.academic_semesters(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
 GO
 
@@ -907,6 +905,10 @@ CREATE TABLE dbo.rubrics (
     CONSTRAINT fk_rubrics_created_by FOREIGN KEY (created_by)
         REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
+GO
+
+ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_rubric
+    FOREIGN KEY (rubric_id) REFERENCES dbo.rubrics(id) ON DELETE NO ACTION ON UPDATE NO ACTION;
 GO
 
 CREATE TABLE dbo.rubric_criteria (
