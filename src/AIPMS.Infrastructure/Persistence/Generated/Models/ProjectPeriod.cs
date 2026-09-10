@@ -21,9 +21,23 @@ public partial class ProjectPeriod
 
     public string Status { get; set; } = null!;
 
+    public int? MinTeamSize { get; set; }
+
+    public int? MaxTeamSize { get; set; }
+
+    public int? MinDistinctMajors { get; set; }
+
+    public int? MaxProjectsPerSupervisor { get; set; }
+
+    public long? MilestoneTemplateId { get; set; }
+
+    public long? RubricId { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
 
     public virtual AcademicSemester AcademicSemester { get; set; } = null!;
+
+    public virtual Rubric? Rubric { get; set; }
 }

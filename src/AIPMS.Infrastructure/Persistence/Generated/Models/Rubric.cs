@@ -33,5 +33,7 @@ public partial class Rubric
 
     public virtual ICollection<Evaluation> Evaluations { get; set; } = new List<Evaluation>();
 
+    public virtual ICollection<ProjectPeriod> ProjectPeriods { get; set; } = new List<ProjectPeriod>();
+
     public virtual ICollection<RubricCriterion> RubricCriteria { get; set; } = new List<RubricCriterion>();
 }
