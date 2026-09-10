@@ -15,6 +15,64 @@ namespace AIPMS.UnitTests.Application;
 
 public sealed class SupervisorProfileTests
 {
+    [Fact]
+    public async Task Candidate_handler_applies_policy_and_normalizes_filters()
+    {
+        var accounts = new StubRepository();
+        accounts.Accounts[1] = new(1, 10, true, true, [AppRoles.Student]);
+        var candidates = new CandidateRepositoryStub();
+        var handler = new GetSupervisorCandidatesQueryHandler(candidates,
+            new SupervisorAccessService(new Actor(1), accounts), new ProjectAccessStub(true), TimeProvider.System);
+        var result = await handler.Handle(new(7, " Lecturer ", " AI ", 2, 5), default);
+        Assert.Equal(new SupervisorCandidateSearch(7, 3, candidates.Project.DepartmentIds, 5,
+            "Lecturer", "AI", 2, 5), candidates.Search);
+        var candidate = Assert.Single(result.Items);
+        Assert.Equal(1, candidate.RemainingSlots);
+        Assert.Equal(4, candidate.SelectionPeriodId);
+        Assert.Equal(2, result.Page);
+        Assert.Equal(12, result.TotalCount);
+    }
+
+    [Fact]
+    public async Task Candidate_handler_does_not_load_project_or_workload_when_access_is_denied()
+    {
+        var accounts = new StubRepository();
+        accounts.Accounts[1] = new(1, 10, true, true, [AppRoles.Student]);
+        var candidates = new CandidateRepositoryStub();
+        var handler = new GetSupervisorCandidatesQueryHandler(candidates,
+            new SupervisorAccessService(new Actor(1), accounts), new ProjectAccessStub(false), TimeProvider.System);
+        await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(new(7), default));
+        Assert.False(candidates.ProjectRead);
+        Assert.Null(candidates.Search);
+    }
+
+    private sealed class ProjectAccessStub(bool allowed) : IProjectAccessService
+    {
+        public Task<bool> CanAccessAsync(long userId, long projectId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(allowed);
+    }
+
+    private sealed class CandidateRepositoryStub : ISupervisorCandidateRepository
+    {
+        public SupervisorCandidateProject Project { get; } = new(7, 3, "APPROVED", true, false, [10]);
+        public bool ProjectRead { get; private set; }
+        public SupervisorCandidateSearch? Search { get; private set; }
+        public Task<SupervisorCandidateProject?> GetProjectAsync(long projectId, DateTime now, CancellationToken ct)
+        {
+            ProjectRead = true;
+            return Task.FromResult<SupervisorCandidateProject?>(Project);
+        }
+        public Task<IReadOnlyList<SupervisorSelectionPolicy>> GetSelectionPoliciesAsync(long semesterId, DateTime now, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<SupervisorSelectionPolicy>>([new(4, 5)]);
+        public Task<PagedResult<SupervisorCandidateModel>> SearchAsync(SupervisorCandidateSearch search, CancellationToken ct)
+        {
+            Search = search;
+            return Task.FromResult(new PagedResult<SupervisorCandidateModel>(
+                [new(new(2, 9, "Lecturer", 10, "IT", null, true, [new("AI", null)]), 3, 2, 1)],
+                search.Page, search.PageSize, 12));
+        }
+    }
+
     [Theory]
     [InlineData(AppRoles.Admin, 99, true)]
     [InlineData(AppRoles.DepartmentStaff, 10, true)]

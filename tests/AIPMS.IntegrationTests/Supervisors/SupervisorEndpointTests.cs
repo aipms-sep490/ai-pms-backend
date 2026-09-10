@@ -243,13 +243,18 @@ public sealed class SupervisorEndpointTests(SupervisorDatabaseFixture database) 
 }
 
 internal sealed class SupervisorFactory(SupervisorDatabaseFixture database, bool failAudit = false,
-    SaveChangesInterceptor? saveInterceptor = null) : AipmsWebApplicationFactory
+    SaveChangesInterceptor? saveInterceptor = null, TimeProvider? clock = null) : AipmsWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
             new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = database.ConnectionString }));
+        if (clock is not null) builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+        });
         if (saveInterceptor is not null) builder.ConfigureServices(services =>
         {
             services.RemoveAll<DbContextOptions<AipmsDbContext>>();
