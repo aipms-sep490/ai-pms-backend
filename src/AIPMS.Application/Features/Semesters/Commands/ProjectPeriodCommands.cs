@@ -15,7 +15,13 @@ public sealed record CreateProjectPeriodCommand(
     string Name,
     string PeriodType,
     DateTime StartAt,
-    DateTime EndAt) : IRequest<ProjectPeriodDto>;
+    DateTime EndAt,
+    int? MinTeamSize = 3,
+    int? MaxTeamSize = 5,
+    int? MinDistinctMajors = 1,
+    int? MaxProjectsPerSupervisor = 5,
+    long? MilestoneTemplateId = null,
+    long? RubricId = null) : IRequest<ProjectPeriodDto>;
 
 public sealed class CreateProjectPeriodCommandHandler(
     ISemesterRepository repository,
@@ -41,6 +47,15 @@ public sealed class CreateProjectPeriodCommandHandler(
                 "Cannot add project periods to a closed or archived semester.");
         }
 
+        // Validate period dates against semester dates
+        var semStart = semester.StartDate.ToDateTime(TimeOnly.MinValue);
+        var semEnd = semester.EndDate.ToDateTime(TimeOnly.MaxValue);
+        if (request.StartAt < semStart || request.EndAt > semEnd)
+        {
+            throw new ConflictException(
+                $"Project Period window ({request.StartAt:yyyy-MM-dd} - {request.EndAt:yyyy-MM-dd}) must fall within parent Academic Semester window ({semester.StartDate:yyyy-MM-dd} - {semester.EndDate:yyyy-MM-dd}).");
+        }
+
         var code = request.Code.Trim().ToUpperInvariant();
         var name = request.Name.Trim();
 
@@ -54,32 +69,65 @@ public sealed class CreateProjectPeriodCommandHandler(
                 "A project period with the same code already exists in this semester.");
         }
 
-        var period = await repository.CreateProjectPeriodAsync(
+        // Check for chronological overlap with existing periods of the same type in this semester
+        var existingPeriods = await repository.GetProjectPeriodsAsync(
             request.AcademicSemesterId,
-            code,
-            name,
+            null,
+            null,
             request.PeriodType,
-            request.StartAt,
-            request.EndAt,
-            timeProvider.GetUtcNow().UtcDateTime,
+            1,
+            1000,
             cancellationToken);
 
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                accessService.ActorUserId,
-                "PROJECT_PERIOD_CREATED",
-                "PROJECT_PERIOD",
-                period.Id,
-                new Dictionary<string, object?>
-                {
-                    ["semesterId"] = period.AcademicSemesterId,
-                    ["code"] = period.Code,
-                    ["name"] = period.Name,
-                    ["periodType"] = period.PeriodType
-                }),
-            cancellationToken);
+        bool hasOverlap = existingPeriods.Items.Any(p =>
+            p.Status != SemesterStatuses.Archived
+            && p.StartAt < request.EndAt
+            && request.StartAt < p.EndAt);
 
-        return period.ToDto();
+        if (hasOverlap)
+        {
+            throw new ConflictException(
+                $"Project Period window overlaps with an existing '{request.PeriodType}' period in this semester.");
+        }
+
+        return await repository.ExecuteInTransactionAsync(async () =>
+        {
+            var period = await repository.CreateProjectPeriodAsync(
+                request.AcademicSemesterId,
+                code,
+                name,
+                request.PeriodType,
+                request.StartAt,
+                request.EndAt,
+                request.MinTeamSize,
+                request.MaxTeamSize,
+                request.MinDistinctMajors,
+                request.MaxProjectsPerSupervisor,
+                request.MilestoneTemplateId,
+                request.RubricId,
+                timeProvider.GetUtcNow().UtcDateTime,
+                cancellationToken);
+
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    accessService.ActorUserId,
+                    "PROJECT_PERIOD_CREATED",
+                    "PROJECT_PERIOD",
+                    period.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["semesterId"] = period.AcademicSemesterId,
+                        ["code"] = period.Code,
+                        ["name"] = period.Name,
+                        ["periodType"] = period.PeriodType,
+                        ["minTeamSize"] = period.MinTeamSize,
+                        ["maxTeamSize"] = period.MaxTeamSize,
+                        ["minDistinctMajors"] = period.MinDistinctMajors
+                    }),
+                cancellationToken);
+
+            return period.ToDto();
+        }, cancellationToken);
     }
 }
 
@@ -91,7 +139,13 @@ public sealed record UpdateProjectPeriodCommand(
     string Name,
     string PeriodType,
     DateTime StartAt,
-    DateTime EndAt) : IRequest<ProjectPeriodDto>;
+    DateTime EndAt,
+    int? MinTeamSize = null,
+    int? MaxTeamSize = null,
+    int? MinDistinctMajors = null,
+    int? MaxProjectsPerSupervisor = null,
+    long? MilestoneTemplateId = null,
+    long? RubricId = null) : IRequest<ProjectPeriodDto>;
 
 public sealed class UpdateProjectPeriodCommandHandler(
     ISemesterRepository repository,
@@ -117,6 +171,26 @@ public sealed class UpdateProjectPeriodCommandHandler(
                 "A closed or archived project period cannot be modified.");
         }
 
+        var semester = await repository.GetSemesterAsync(
+            existing.AcademicSemesterId,
+            cancellationToken)
+            ?? throw new NotFoundException("AcademicSemester", existing.AcademicSemesterId);
+
+        if (semester.Status is SemesterStatuses.Closed or SemesterStatuses.Archived)
+        {
+            throw new ConflictException(
+                "Cannot modify a project period belonging to a closed or archived semester.");
+        }
+
+        // Validate period dates against semester dates
+        var semStart = semester.StartDate.ToDateTime(TimeOnly.MinValue);
+        var semEnd = semester.EndDate.ToDateTime(TimeOnly.MaxValue);
+        if (request.StartAt < semStart || request.EndAt > semEnd)
+        {
+            throw new ConflictException(
+                $"Project Period window ({request.StartAt:yyyy-MM-dd} - {request.EndAt:yyyy-MM-dd}) must fall within parent Academic Semester window ({semester.StartDate:yyyy-MM-dd} - {semester.EndDate:yyyy-MM-dd}).");
+        }
+
         var code = request.Code.Trim().ToUpperInvariant();
         var name = request.Name.Trim();
 
@@ -130,31 +204,100 @@ public sealed class UpdateProjectPeriodCommandHandler(
                 "A project period with the same code already exists in this semester.");
         }
 
-        var period = await repository.UpdateProjectPeriodAsync(
-            existing.Id,
-            code,
-            name,
+        // Check for chronological overlap with existing periods of the same type
+        var existingPeriods = await repository.GetProjectPeriodsAsync(
+            existing.AcademicSemesterId,
+            null,
+            null,
             request.PeriodType,
-            request.StartAt,
-            request.EndAt,
-            timeProvider.GetUtcNow().UtcDateTime,
+            1,
+            1000,
             cancellationToken);
 
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                accessService.ActorUserId,
-                "PROJECT_PERIOD_UPDATED",
-                "PROJECT_PERIOD",
-                period.Id,
-                new Dictionary<string, object?>
-                {
-                    ["code"] = period.Code,
-                    ["name"] = period.Name,
-                    ["periodType"] = period.PeriodType
-                }),
+        bool hasOverlap = existingPeriods.Items.Any(p =>
+            p.Id != existing.Id
+            && p.Status != SemesterStatuses.Archived
+            && p.StartAt < request.EndAt
+            && request.StartAt < p.EndAt);
+
+        if (hasOverlap)
+        {
+            throw new ConflictException(
+                $"Project Period window overlaps with an existing '{request.PeriodType}' period in this semester.");
+        }
+
+        // Check for unsafe retroactive updates when active projects exist in the semester
+        bool hasActiveProjects = await repository.HasActiveProjectsAsync(
+            existing.AcademicSemesterId,
             cancellationToken);
 
-        return period.ToDto();
+        if (hasActiveProjects)
+        {
+            if (request.PeriodType != existing.PeriodType)
+            {
+                throw new ConflictException(
+                    "Cannot modify period type of a project period when active projects exist in the semester.");
+            }
+
+            if (request.MaxTeamSize.HasValue && request.MaxTeamSize.Value < existing.MaxTeamSize)
+            {
+                throw new ConflictException(
+                    "Cannot decrease max team size when active projects exist in the semester.");
+            }
+
+            if (request.MinTeamSize.HasValue && request.MinTeamSize.Value > existing.MinTeamSize)
+            {
+                throw new ConflictException(
+                    "Cannot increase min team size when active projects exist in the semester.");
+            }
+
+            if (request.MinDistinctMajors.HasValue && request.MinDistinctMajors.Value > existing.MinDistinctMajors)
+            {
+                throw new ConflictException(
+                    "Cannot increase min distinct majors when active projects exist in the semester.");
+            }
+
+            if (request.EndAt < timeProvider.GetUtcNow().UtcDateTime)
+            {
+                throw new ConflictException(
+                    "Cannot set period end date to the past when active projects exist in the semester.");
+            }
+        }
+
+        return await repository.ExecuteInTransactionAsync(async () =>
+        {
+            var period = await repository.UpdateProjectPeriodAsync(
+                existing.Id,
+                code,
+                name,
+                request.PeriodType,
+                request.StartAt,
+                request.EndAt,
+                request.MinTeamSize ?? existing.MinTeamSize,
+                request.MaxTeamSize ?? existing.MaxTeamSize,
+                request.MinDistinctMajors ?? existing.MinDistinctMajors,
+                request.MaxProjectsPerSupervisor ?? existing.MaxProjectsPerSupervisor,
+                request.MilestoneTemplateId ?? existing.MilestoneTemplateId,
+                request.RubricId ?? existing.RubricId,
+                timeProvider.GetUtcNow().UtcDateTime,
+                cancellationToken);
+
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    accessService.ActorUserId,
+                    "PROJECT_PERIOD_UPDATED",
+                    "PROJECT_PERIOD",
+                    period.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["code"] = period.Code,
+                        ["name"] = period.Name,
+                        ["periodType"] = period.PeriodType
+                    }),
+                cancellationToken);
+
+            return period.ToDto();
+        }, cancellationToken);
     }
 }
 
@@ -162,7 +305,8 @@ public sealed class UpdateProjectPeriodCommandHandler(
 
 public sealed record SetProjectPeriodStatusCommand(
     long PeriodId,
-    string Status) : IRequest<ProjectPeriodDto>;
+    string Status,
+    string? ExpectedStatus = null) : IRequest<ProjectPeriodDto>;
 
 public sealed class SetProjectPeriodStatusCommandHandler(
     ISemesterRepository repository,
@@ -171,7 +315,6 @@ public sealed class SetProjectPeriodStatusCommandHandler(
     TimeProvider timeProvider)
     : IRequestHandler<SetProjectPeriodStatusCommand, ProjectPeriodDto>
 {
-    // Same lifecycle as semester: DRAFT → UPCOMING → ACTIVE → CLOSED → ARCHIVED
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> AllowedTransitions =
         new Dictionary<string, IReadOnlySet<string>>
         {
@@ -212,25 +355,64 @@ public sealed class SetProjectPeriodStatusCommandHandler(
                 $"Cannot transition project period from '{existing.Status}' to '{request.Status}'.");
         }
 
-        var period = await repository.SetProjectPeriodStatusAsync(
-            existing.Id,
-            request.Status,
-            timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+        var semester = await repository.GetSemesterAsync(
+            existing.AcademicSemesterId,
+            cancellationToken)
+            ?? throw new NotFoundException("AcademicSemester", existing.AcademicSemesterId);
 
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                accessService.ActorUserId,
-                "PROJECT_PERIOD_STATUS_CHANGED",
-                "PROJECT_PERIOD",
-                period.Id,
-                new Dictionary<string, object?>
-                {
-                    ["fromStatus"] = existing.Status,
-                    ["toStatus"] = period.Status
-                }),
-            cancellationToken);
+        if (semester.Status is SemesterStatuses.Closed or SemesterStatuses.Archived)
+        {
+            throw new ConflictException(
+                "Cannot activate or change status of a project period in a closed or archived semester.");
+        }
 
-        return period.ToDto();
+        // When activating (transitioning to ACTIVE), verify no overlap with another ACTIVE period of same type
+        if (request.Status == SemesterStatuses.Active)
+        {
+            var existingPeriods = await repository.GetProjectPeriodsAsync(
+                existing.AcademicSemesterId,
+                null,
+                SemesterStatuses.Active,
+                existing.PeriodType,
+                1,
+                1000,
+                cancellationToken);
+
+            bool hasActiveOverlap = existingPeriods.Items.Any(p =>
+                p.Id != existing.Id
+                && p.StartAt < existing.EndAt
+                && existing.StartAt < p.EndAt);
+
+            if (hasActiveOverlap)
+            {
+                throw new ConflictException(
+                    $"Cannot activate project period: it overlaps with another active '{existing.PeriodType}' period in this semester.");
+            }
+        }
+
+        return await repository.ExecuteInTransactionAsync(async () =>
+        {
+            var period = await repository.SetProjectPeriodStatusAsync(
+                existing.Id,
+                request.Status,
+                request.ExpectedStatus ?? existing.Status,
+                timeProvider.GetUtcNow().UtcDateTime,
+                cancellationToken);
+
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    accessService.ActorUserId,
+                    "PROJECT_PERIOD_STATUS_CHANGED",
+                    "PROJECT_PERIOD",
+                    period.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["fromStatus"] = existing.Status,
+                        ["toStatus"] = period.Status
+                    }),
+                cancellationToken);
+
+            return period.ToDto();
+        }, cancellationToken);
     }
 }

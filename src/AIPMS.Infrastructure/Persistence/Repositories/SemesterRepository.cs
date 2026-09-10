@@ -141,17 +141,46 @@ internal sealed class SemesterRepository(AipmsDbContext context)
     public async Task<AcademicSemesterModel> SetSemesterStatusAsync(
         long semesterId,
         string status,
+        string? expectedStatus,
         DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
-        var entity = await context.AcademicSemesters
-            .SingleAsync(s => s.Id == semesterId, cancellationToken);
+        if (!string.IsNullOrEmpty(expectedStatus))
+        {
+            var affected = await context.AcademicSemesters
+                .Where(s => s.Id == semesterId && s.Status == expectedStatus)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(b => b.Status, status)
+                    .SetProperty(b => b.UpdatedAt, utcNow), cancellationToken);
 
-        entity.Status = status;
-        entity.UpdatedAt = utcNow;
+            if (affected == 0)
+            {
+                var currentStatus = await context.AcademicSemesters
+                    .Where(s => s.Id == semesterId)
+                    .Select(s => s.Status)
+                    .FirstOrDefaultAsync(cancellationToken);
 
-        await SaveChangesAsync(cancellationToken);
-        return (await GetSemesterAsync(entity.Id, cancellationToken))!;
+                if (currentStatus == null)
+                {
+                    throw new NotFoundException("AcademicSemester", semesterId);
+                }
+
+                throw new ConflictException(
+                    $"Academic Semester status was modified concurrently (expected '{expectedStatus}', actual '{currentStatus}').");
+            }
+        }
+        else
+        {
+            var entity = await context.AcademicSemesters
+                .SingleOrDefaultAsync(s => s.Id == semesterId, cancellationToken)
+                ?? throw new NotFoundException("AcademicSemester", semesterId);
+
+            entity.Status = status;
+            entity.UpdatedAt = utcNow;
+            await SaveChangesAsync(cancellationToken);
+        }
+
+        return (await GetSemesterAsync(semesterId, cancellationToken))!;
     }
 
     // ── ProjectPeriod ─────────────────────────────────────────────────────────
@@ -241,25 +270,89 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         string periodType,
         DateTime startAt,
         DateTime endAt,
+        int? minTeamSize,
+        int? maxTeamSize,
+        int? minDistinctMajors,
+        int? maxProjectsPerSupervisor,
+        long? milestoneTemplateId,
+        long? rubricId,
         DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
-        var entity = new ProjectPeriodEntity
-        {
-            AcademicSemesterId = semesterId,
-            Code = code,
-            Name = name,
-            PeriodType = periodType,
-            StartAt = startAt,
-            EndAt = endAt,
-            Status = "DRAFT",
-            CreatedAt = utcNow,
-            UpdatedAt = utcNow
-        };
+        var useLocalTx = context.Database.CurrentTransaction == null;
+        var transaction = useLocalTx
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
-        context.ProjectPeriods.Add(entity);
-        await SaveChangesAsync(cancellationToken);
-        return (await GetProjectPeriodAsync(entity.Id, cancellationToken))!;
+        try
+        {
+            var lockKey = $"pp_lock_{semesterId}_{periodType}";
+            await context.Database.ExecuteSqlRawAsync(
+                "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                new object[] { lockKey },
+                cancellationToken);
+
+            bool hasOverlap = await context.ProjectPeriods.AnyAsync(
+                p => p.AcademicSemesterId == semesterId
+                     && p.PeriodType == periodType
+                     && p.Status != "ARCHIVED"
+                     && p.StartAt < endAt
+                     && startAt < p.EndAt,
+                cancellationToken);
+
+            if (hasOverlap)
+            {
+                throw new ConflictException(
+                    $"Project Period window overlaps with an existing '{periodType}' period in this semester.");
+            }
+
+            var entity = new ProjectPeriodEntity
+            {
+                AcademicSemesterId = semesterId,
+                Code = code,
+                Name = name,
+                PeriodType = periodType,
+                StartAt = startAt,
+                EndAt = endAt,
+                MinTeamSize = minTeamSize,
+                MaxTeamSize = maxTeamSize,
+                MinDistinctMajors = minDistinctMajors,
+                MaxProjectsPerSupervisor = maxProjectsPerSupervisor,
+                MilestoneTemplateId = milestoneTemplateId,
+                RubricId = rubricId,
+                Status = "DRAFT",
+                CreatedAt = utcNow,
+                UpdatedAt = utcNow
+            };
+
+            context.ProjectPeriods.Add(entity);
+            await context.SaveChangesAsync(cancellationToken);
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            return (await GetProjectPeriodAsync(entity.Id, cancellationToken))!;
+        }
+        catch (DbUpdateException exception)
+            when (exception.InnerException is SqlException { Number: 2601 or 2627 })
+        {
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            throw new ConflictException(
+                "A project period with the same code already exists in this semester.");
+        }
+        catch
+        {
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            throw;
+        }
     }
 
     public async Task<ProjectPeriodModel> UpdateProjectPeriodAsync(
@@ -269,37 +362,225 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         string periodType,
         DateTime startAt,
         DateTime endAt,
+        int? minTeamSize,
+        int? maxTeamSize,
+        int? minDistinctMajors,
+        int? maxProjectsPerSupervisor,
+        long? milestoneTemplateId,
+        long? rubricId,
         DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
-        var entity = await context.ProjectPeriods
-            .SingleAsync(p => p.Id == periodId, cancellationToken);
+        var useLocalTx = context.Database.CurrentTransaction == null;
+        var transaction = useLocalTx
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
-        entity.Code = code;
-        entity.Name = name;
-        entity.PeriodType = periodType;
-        entity.StartAt = startAt;
-        entity.EndAt = endAt;
-        entity.UpdatedAt = utcNow;
+        try
+        {
+            var entity = await context.ProjectPeriods
+                .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
+                ?? throw new NotFoundException("ProjectPeriod", periodId);
 
-        await SaveChangesAsync(cancellationToken);
-        return (await GetProjectPeriodAsync(entity.Id, cancellationToken))!;
+            var lockKey = $"pp_lock_{entity.AcademicSemesterId}_{periodType}";
+            await context.Database.ExecuteSqlRawAsync(
+                "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                new object[] { lockKey },
+                cancellationToken);
+
+            bool hasOverlap = await context.ProjectPeriods.AnyAsync(
+                p => p.AcademicSemesterId == entity.AcademicSemesterId
+                     && p.Id != periodId
+                     && p.PeriodType == periodType
+                     && p.Status != "ARCHIVED"
+                     && p.StartAt < endAt
+                     && startAt < p.EndAt,
+                cancellationToken);
+
+            if (hasOverlap)
+            {
+                throw new ConflictException(
+                    $"Project Period window overlaps with an existing '{periodType}' period in this semester.");
+            }
+
+            entity.Code = code;
+            entity.Name = name;
+            entity.PeriodType = periodType;
+            entity.StartAt = startAt;
+            entity.EndAt = endAt;
+            entity.MinTeamSize = minTeamSize;
+            entity.MaxTeamSize = maxTeamSize;
+            entity.MinDistinctMajors = minDistinctMajors;
+            entity.MaxProjectsPerSupervisor = maxProjectsPerSupervisor;
+            entity.MilestoneTemplateId = milestoneTemplateId;
+            entity.RubricId = rubricId;
+            entity.UpdatedAt = utcNow;
+
+            await context.SaveChangesAsync(cancellationToken);
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            return (await GetProjectPeriodAsync(entity.Id, cancellationToken))!;
+        }
+        catch (DbUpdateException exception)
+            when (exception.InnerException is SqlException { Number: 2601 or 2627 })
+        {
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            throw new ConflictException(
+                "A project period with the same code already exists in this semester.");
+        }
+        catch
+        {
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            throw;
+        }
     }
 
     public async Task<ProjectPeriodModel> SetProjectPeriodStatusAsync(
         long periodId,
         string status,
+        string? expectedStatus,
         DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
         var entity = await context.ProjectPeriods
-            .SingleAsync(p => p.Id == periodId, cancellationToken);
+            .AsNoTracking()
+            .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
+            ?? throw new NotFoundException("ProjectPeriod", periodId);
 
-        entity.Status = status;
-        entity.UpdatedAt = utcNow;
+        var useLocalTx = context.Database.CurrentTransaction == null;
+        var transaction = useLocalTx
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
-        await SaveChangesAsync(cancellationToken);
-        return (await GetProjectPeriodAsync(entity.Id, cancellationToken))!;
+        try
+        {
+            if (status == "ACTIVE")
+            {
+                var lockKey = $"pp_lock_{entity.AcademicSemesterId}_{entity.PeriodType}";
+                await context.Database.ExecuteSqlRawAsync(
+                    "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                    new object[] { lockKey },
+                    cancellationToken);
+
+                bool hasActiveOverlap = await context.ProjectPeriods.AnyAsync(
+                    p => p.AcademicSemesterId == entity.AcademicSemesterId
+                         && p.Id != periodId
+                         && p.PeriodType == entity.PeriodType
+                         && p.Status == "ACTIVE"
+                         && p.StartAt < entity.EndAt
+                         && entity.StartAt < p.EndAt,
+                    cancellationToken);
+
+                if (hasActiveOverlap)
+                {
+                    throw new ConflictException(
+                        $"Cannot activate project period because it overlaps with an existing ACTIVE '{entity.PeriodType}' period in this semester.");
+                }
+            }
+
+            if (!string.IsNullOrEmpty(expectedStatus))
+            {
+                var affected = await context.ProjectPeriods
+                    .Where(p => p.Id == periodId && p.Status == expectedStatus)
+                    .ExecuteUpdateAsync(p => p
+                        .SetProperty(b => b.Status, status)
+                        .SetProperty(b => b.UpdatedAt, utcNow), cancellationToken);
+
+                if (affected == 0)
+                {
+                    var currentStatus = await context.ProjectPeriods
+                        .Where(p => p.Id == periodId)
+                        .Select(p => p.Status)
+                        .FirstOrDefaultAsync(cancellationToken);
+
+                    if (currentStatus == null)
+                    {
+                        throw new NotFoundException("ProjectPeriod", periodId);
+                    }
+
+                    throw new ConflictException(
+                        $"Project Period status was modified concurrently (expected '{expectedStatus}', actual '{currentStatus}').");
+                }
+            }
+            else
+            {
+                var trackedEntity = await context.ProjectPeriods
+                    .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
+                    ?? throw new NotFoundException("ProjectPeriod", periodId);
+
+                trackedEntity.Status = status;
+                trackedEntity.UpdatedAt = utcNow;
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            return (await GetProjectPeriodAsync(periodId, cancellationToken))!;
+        }
+        catch
+        {
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            throw;
+        }
+    }
+
+    public async Task<bool> HasActiveProjectsAsync(
+        long semesterId,
+        CancellationToken cancellationToken = default)
+    {
+        var activeStatuses = new[]
+        {
+            "DRAFT", "SUBMITTED", "UNDER_REVIEW", "REVISION_REQUIRED",
+            "APPROVED", "SUPERVISOR_PENDING", "ACTIVE", "FINAL_SUBMISSION"
+        };
+
+        return await context.Projects
+            .AsNoTracking()
+            .AnyAsync(p => p.Team.AcademicSemesterId == semesterId && activeStatuses.Contains(p.Status), cancellationToken);
+    }
+
+    public async Task<T> ExecuteInTransactionAsync<T>(
+        Func<Task<T>> action,
+        CancellationToken cancellationToken = default)
+    {
+        var useLocalTx = context.Database.CurrentTransaction == null;
+        var transaction = useLocalTx
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
+        try
+        {
+            var result = await action();
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+            return result;
+        }
+        catch
+        {
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            throw;
+        }
     }
 
     private async Task SaveChangesAsync(CancellationToken cancellationToken)

@@ -53,7 +53,13 @@ public sealed class ProjectPeriodsController(ISender sender) : ControllerBase
                 request.Name,
                 request.PeriodType,
                 request.StartAt,
-                request.EndAt),
+                request.EndAt,
+                request.MinTeamSize,
+                request.MaxTeamSize,
+                request.MinDistinctMajors,
+                request.MaxProjectsPerSupervisor,
+                request.MilestoneTemplateId,
+                request.RubricId),
             cancellationToken);
 
         return CreatedAtAction(
@@ -79,7 +85,13 @@ public sealed class ProjectPeriodsController(ISender sender) : ControllerBase
                 request.Name,
                 request.PeriodType,
                 request.StartAt,
-                request.EndAt),
+                request.EndAt,
+                request.MinTeamSize,
+                request.MaxTeamSize,
+                request.MinDistinctMajors,
+                request.MaxProjectsPerSupervisor,
+                request.MilestoneTemplateId,
+                request.RubricId),
             cancellationToken));
 
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
@@ -93,6 +105,6 @@ public sealed class ProjectPeriodsController(ISender sender) : ControllerBase
         SetProjectPeriodStatusRequest request,
         CancellationToken cancellationToken) =>
         Ok(await sender.Send(
-            new SetProjectPeriodStatusCommand(periodId, request.Status),
+            new SetProjectPeriodStatusCommand(periodId, request.Status, request.ExpectedStatus),
             cancellationToken));
 }

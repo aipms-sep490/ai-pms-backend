@@ -42,30 +42,33 @@ public sealed class CreateSemesterCommandHandler(
                 "A semester with the same code already exists in this organization.");
         }
 
-        var semester = await repository.CreateSemesterAsync(
-            request.OrganizationId,
-            code,
-            name,
-            request.StartDate,
-            request.EndDate,
-            timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+        return await repository.ExecuteInTransactionAsync(async () =>
+        {
+            var semester = await repository.CreateSemesterAsync(
+                request.OrganizationId,
+                code,
+                name,
+                request.StartDate,
+                request.EndDate,
+                timeProvider.GetUtcNow().UtcDateTime,
+                cancellationToken);
 
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                accessService.ActorUserId,
-                "SEMESTER_CREATED",
-                "SEMESTER",
-                semester.Id,
-                new Dictionary<string, object?>
-                {
-                    ["organizationId"] = semester.OrganizationId,
-                    ["code"] = semester.Code,
-                    ["name"] = semester.Name
-                }),
-            cancellationToken);
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    accessService.ActorUserId,
+                    "SEMESTER_CREATED",
+                    "SEMESTER",
+                    semester.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["organizationId"] = semester.OrganizationId,
+                        ["code"] = semester.Code,
+                        ["name"] = semester.Name
+                    }),
+                cancellationToken);
 
-        return semester.ToDto();
+            return semester.ToDto();
+        }, cancellationToken);
     }
 }
 
@@ -115,29 +118,32 @@ public sealed class UpdateSemesterCommandHandler(
                 "A semester with the same code already exists in this organization.");
         }
 
-        var semester = await repository.UpdateSemesterAsync(
-            existing.Id,
-            code,
-            name,
-            request.StartDate,
-            request.EndDate,
-            timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+        return await repository.ExecuteInTransactionAsync(async () =>
+        {
+            var semester = await repository.UpdateSemesterAsync(
+                existing.Id,
+                code,
+                name,
+                request.StartDate,
+                request.EndDate,
+                timeProvider.GetUtcNow().UtcDateTime,
+                cancellationToken);
 
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                accessService.ActorUserId,
-                "SEMESTER_UPDATED",
-                "SEMESTER",
-                semester.Id,
-                new Dictionary<string, object?>
-                {
-                    ["code"] = semester.Code,
-                    ["name"] = semester.Name
-                }),
-            cancellationToken);
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    accessService.ActorUserId,
+                    "SEMESTER_UPDATED",
+                    "SEMESTER",
+                    semester.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["code"] = semester.Code,
+                        ["name"] = semester.Name
+                    }),
+                cancellationToken);
 
-        return semester.ToDto();
+            return semester.ToDto();
+        }, cancellationToken);
     }
 }
 
@@ -145,7 +151,8 @@ public sealed class UpdateSemesterCommandHandler(
 
 public sealed record SetSemesterStatusCommand(
     long SemesterId,
-    string Status) : IRequest<SemesterDto>;
+    string Status,
+    string? ExpectedStatus = null) : IRequest<SemesterDto>;
 
 public sealed class SetSemesterStatusCommandHandler(
     ISemesterRepository repository,
@@ -154,7 +161,6 @@ public sealed class SetSemesterStatusCommandHandler(
     TimeProvider timeProvider)
     : IRequestHandler<SetSemesterStatusCommand, SemesterDto>
 {
-    // Forward-only state machine: DRAFT → UPCOMING → ACTIVE → CLOSED → ARCHIVED
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> AllowedTransitions =
         new Dictionary<string, IReadOnlySet<string>>
         {
@@ -195,25 +201,29 @@ public sealed class SetSemesterStatusCommandHandler(
                 $"Cannot transition semester from '{existing.Status}' to '{request.Status}'.");
         }
 
-        var semester = await repository.SetSemesterStatusAsync(
-            existing.Id,
-            request.Status,
-            timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
+        return await repository.ExecuteInTransactionAsync(async () =>
+        {
+            var semester = await repository.SetSemesterStatusAsync(
+                existing.Id,
+                request.Status,
+                request.ExpectedStatus ?? existing.Status,
+                timeProvider.GetUtcNow().UtcDateTime,
+                cancellationToken);
 
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                accessService.ActorUserId,
-                "SEMESTER_STATUS_CHANGED",
-                "SEMESTER",
-                semester.Id,
-                new Dictionary<string, object?>
-                {
-                    ["fromStatus"] = existing.Status,
-                    ["toStatus"] = semester.Status
-                }),
-            cancellationToken);
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    accessService.ActorUserId,
+                    "SEMESTER_STATUS_CHANGED",
+                    "SEMESTER",
+                    semester.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["fromStatus"] = existing.Status,
+                        ["toStatus"] = semester.Status
+                    }),
+                cancellationToken);
 
-        return semester.ToDto();
+            return semester.ToDto();
+        }, cancellationToken);
     }
 }

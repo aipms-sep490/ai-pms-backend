@@ -36,6 +36,12 @@ internal static class SemesterMapper
             entity.StartAt,
             entity.EndAt,
             entity.Status,
+            entity.MinTeamSize,
+            entity.MaxTeamSize,
+            entity.MinDistinctMajors,
+            entity.MaxProjectsPerSupervisor,
+            entity.MilestoneTemplateId,
+            entity.RubricId,
             entity.CreatedAt,
             entity.UpdatedAt);
 }

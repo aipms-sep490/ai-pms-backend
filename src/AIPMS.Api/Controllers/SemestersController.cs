@@ -89,6 +89,6 @@ public sealed class SemestersController(ISender sender) : ControllerBase
         SetSemesterStatusRequest request,
         CancellationToken cancellationToken) =>
         Ok(await sender.Send(
-            new SetSemesterStatusCommand(semesterId, request.Status),
+            new SetSemesterStatusCommand(semesterId, request.Status, request.ExpectedStatus),
             cancellationToken));
 }

@@ -30,6 +30,12 @@ internal static class SemesterDtoMapper
             period.StartAt,
             period.EndAt,
             period.Status,
+            period.MinTeamSize,
+            period.MaxTeamSize,
+            period.MinDistinctMajors,
+            period.MaxProjectsPerSupervisor,
+            period.MilestoneTemplateId,
+            period.RubricId,
             period.CreatedAt,
             period.UpdatedAt);
 }

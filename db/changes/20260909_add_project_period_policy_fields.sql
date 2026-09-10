@@ -2,9 +2,6 @@
 -- Date: 2026-09-09
 -- Description: Add policy configuration fields (min/max team size, min distinct majors, supervisor quota, milestone template ID, rubric ID) to dbo.project_periods.
 
-USE [AI_PMS];
-GO
-
 SET XACT_ABORT ON;
 SET ANSI_NULLS ON;
 SET ANSI_PADDING ON;

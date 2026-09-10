@@ -23,6 +23,7 @@ internal sealed class StubSemesterRepository : ISemesterRepository
     public Dictionary<long, ProjectPeriodModel> Periods { get; } = [];
     public bool SemesterCodeDuplicate { get; set; }
     public bool PeriodCodeDuplicate { get; set; }
+    public bool HasActiveProjects { get; set; }
 
     private static readonly DateTime Ts = new(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -69,10 +70,14 @@ internal sealed class StubSemesterRepository : ISemesterRepository
     }
 
     public Task<AcademicSemesterModel> SetSemesterStatusAsync(
-        long semesterId, string status, DateTime utcNow,
+        long semesterId, string status, string? expectedStatus, DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
         var existing = Semesters[semesterId];
+        if (!string.IsNullOrEmpty(expectedStatus) && existing.Status != expectedStatus)
+        {
+            throw new ConflictException("Concurrent modification");
+        }
         var updated = existing with { Status = status, UpdatedAt = utcNow };
         Semesters[semesterId] = updated;
         return Task.FromResult(updated);
@@ -95,41 +100,62 @@ internal sealed class StubSemesterRepository : ISemesterRepository
 
     public Task<ProjectPeriodModel> CreateProjectPeriodAsync(
         long semesterId, string code, string name, string periodType,
-        DateTime startAt, DateTime endAt, DateTime utcNow,
-        CancellationToken cancellationToken = default)
+        DateTime startAt, DateTime endAt,
+        int? minTeamSize, int? maxTeamSize, int? minDistinctMajors, int? maxProjectsPerSupervisor,
+        long? milestoneTemplateId, long? rubricId,
+        DateTime utcNow, CancellationToken cancellationToken = default)
     {
         var semester = Semesters[semesterId];
         var result = new ProjectPeriodModel(
             _nextPeriodId++, semesterId, semester.Code, semester.Name,
-            code, name, periodType, startAt, endAt, "DRAFT", utcNow, utcNow);
+            code, name, periodType, startAt, endAt, "DRAFT",
+            minTeamSize, maxTeamSize, minDistinctMajors, maxProjectsPerSupervisor, milestoneTemplateId, rubricId, utcNow, utcNow);
         Periods[result.Id] = result;
         return Task.FromResult(result);
     }
 
     public Task<ProjectPeriodModel> UpdateProjectPeriodAsync(
         long periodId, string code, string name, string periodType,
-        DateTime startAt, DateTime endAt, DateTime utcNow,
-        CancellationToken cancellationToken = default)
+        DateTime startAt, DateTime endAt,
+        int? minTeamSize, int? maxTeamSize, int? minDistinctMajors, int? maxProjectsPerSupervisor,
+        long? milestoneTemplateId, long? rubricId,
+        DateTime utcNow, CancellationToken cancellationToken = default)
     {
         var existing = Periods[periodId];
         var updated = existing with
         {
             Code = code, Name = name, PeriodType = periodType,
-            StartAt = startAt, EndAt = endAt, UpdatedAt = utcNow
+            StartAt = startAt, EndAt = endAt,
+            MinTeamSize = minTeamSize, MaxTeamSize = maxTeamSize,
+            MinDistinctMajors = minDistinctMajors, MaxProjectsPerSupervisor = maxProjectsPerSupervisor,
+            MilestoneTemplateId = milestoneTemplateId, RubricId = rubricId,
+            UpdatedAt = utcNow
         };
         Periods[periodId] = updated;
         return Task.FromResult(updated);
     }
 
     public Task<ProjectPeriodModel> SetProjectPeriodStatusAsync(
-        long periodId, string status, DateTime utcNow,
+        long periodId, string status, string? expectedStatus, DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
         var existing = Periods[periodId];
+        if (!string.IsNullOrEmpty(expectedStatus) && existing.Status != expectedStatus)
+        {
+            throw new ConflictException("Concurrent modification");
+        }
         var updated = existing with { Status = status, UpdatedAt = utcNow };
         Periods[periodId] = updated;
         return Task.FromResult(updated);
     }
+
+    public Task<bool> HasActiveProjectsAsync(
+        long semesterId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(HasActiveProjects);
+
+    public Task<T> ExecuteInTransactionAsync<T>(
+        Func<Task<T>> action, CancellationToken cancellationToken = default) =>
+        action();
 
     public AcademicSemesterModel AddDraftSemester(long id = 1, string status = "DRAFT")
     {
@@ -148,7 +174,7 @@ internal sealed class StubSemesterRepository : ISemesterRepository
             "REGISTRATION",
             new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
             new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
-            status, Ts, Ts);
+            status, 3, 5, 1, 5, null, null, Ts, Ts);
         Periods[id] = p;
         return p;
     }

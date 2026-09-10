@@ -107,6 +107,30 @@ public sealed class CreateProjectPeriodCommandValidator : AbstractValidator<Crea
         RuleFor(static c => c.EndAt)
             .GreaterThanOrEqualTo(static c => c.StartAt)
             .WithMessage("EndAt must be on or after StartAt.");
+
+        RuleFor(static c => c.MinTeamSize)
+            .GreaterThan(0).When(static c => c.MinTeamSize.HasValue)
+            .WithMessage("MinTeamSize must be greater than 0.");
+
+        RuleFor(static c => c.MaxTeamSize)
+            .GreaterThan(0).When(static c => c.MaxTeamSize.HasValue)
+            .WithMessage("MaxTeamSize must be greater than 0.");
+
+        RuleFor(static c => c)
+            .Must(static c => !c.MinTeamSize.HasValue || !c.MaxTeamSize.HasValue || c.MinTeamSize.Value <= c.MaxTeamSize.Value)
+            .WithMessage("MinTeamSize must be less than or equal to MaxTeamSize.");
+
+        RuleFor(static c => c.MinDistinctMajors)
+            .GreaterThan(0).When(static c => c.MinDistinctMajors.HasValue)
+            .WithMessage("MinDistinctMajors must be greater than 0.");
+
+        RuleFor(static c => c)
+            .Must(static c => !c.MinDistinctMajors.HasValue || !c.MaxTeamSize.HasValue || c.MinDistinctMajors.Value <= c.MaxTeamSize.Value)
+            .WithMessage("MinDistinctMajors must be less than or equal to MaxTeamSize.");
+
+        RuleFor(static c => c.MaxProjectsPerSupervisor)
+            .GreaterThanOrEqualTo(1).When(static c => c.MaxProjectsPerSupervisor.HasValue)
+            .WithMessage("MaxProjectsPerSupervisor must be at least 1.");
     }
 }
 
@@ -126,6 +150,30 @@ public sealed class UpdateProjectPeriodCommandValidator : AbstractValidator<Upda
         RuleFor(static c => c.EndAt)
             .GreaterThanOrEqualTo(static c => c.StartAt)
             .WithMessage("EndAt must be on or after StartAt.");
+
+        RuleFor(static c => c.MinTeamSize)
+            .GreaterThan(0).When(static c => c.MinTeamSize.HasValue)
+            .WithMessage("MinTeamSize must be greater than 0.");
+
+        RuleFor(static c => c.MaxTeamSize)
+            .GreaterThan(0).When(static c => c.MaxTeamSize.HasValue)
+            .WithMessage("MaxTeamSize must be greater than 0.");
+
+        RuleFor(static c => c)
+            .Must(static c => !c.MinTeamSize.HasValue || !c.MaxTeamSize.HasValue || c.MinTeamSize.Value <= c.MaxTeamSize.Value)
+            .WithMessage("MinTeamSize must be less than or equal to MaxTeamSize.");
+
+        RuleFor(static c => c.MinDistinctMajors)
+            .GreaterThan(0).When(static c => c.MinDistinctMajors.HasValue)
+            .WithMessage("MinDistinctMajors must be greater than 0.");
+
+        RuleFor(static c => c)
+            .Must(static c => !c.MinDistinctMajors.HasValue || !c.MaxTeamSize.HasValue || c.MinDistinctMajors.Value <= c.MaxTeamSize.Value)
+            .WithMessage("MinDistinctMajors must be less than or equal to MaxTeamSize.");
+
+        RuleFor(static c => c.MaxProjectsPerSupervisor)
+            .GreaterThanOrEqualTo(1).When(static c => c.MaxProjectsPerSupervisor.HasValue)
+            .WithMessage("MaxProjectsPerSupervisor must be at least 1.");
     }
 }
 

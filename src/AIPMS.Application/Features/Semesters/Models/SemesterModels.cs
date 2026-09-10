@@ -24,5 +24,11 @@ public sealed record ProjectPeriodModel(
     DateTime StartAt,
     DateTime EndAt,
     string Status,
+    int? MinTeamSize,
+    int? MaxTeamSize,
+    int? MinDistinctMajors,
+    int? MaxProjectsPerSupervisor,
+    long? MilestoneTemplateId,
+    long? RubricId,
     DateTime CreatedAt,
     DateTime UpdatedAt);

@@ -28,6 +28,12 @@ public sealed record ProjectPeriodDto(
     DateTime StartAt,
     DateTime EndAt,
     string Status,
+    int? MinTeamSize,
+    int? MaxTeamSize,
+    int? MinDistinctMajors,
+    int? MaxProjectsPerSupervisor,
+    long? MilestoneTemplateId,
+    long? RubricId,
     DateTime CreatedAt,
     DateTime UpdatedAt);
 
@@ -46,7 +52,9 @@ public sealed record UpdateSemesterRequest(
     DateOnly StartDate,
     DateOnly EndDate);
 
-public sealed record SetSemesterStatusRequest(string Status);
+public sealed record SetSemesterStatusRequest(
+    string Status,
+    string? ExpectedStatus = null);
 
 public sealed record CreateProjectPeriodRequest(
     long AcademicSemesterId,
@@ -54,13 +62,27 @@ public sealed record CreateProjectPeriodRequest(
     string Name,
     string PeriodType,
     DateTime StartAt,
-    DateTime EndAt);
+    DateTime EndAt,
+    int? MinTeamSize = 3,
+    int? MaxTeamSize = 5,
+    int? MinDistinctMajors = 1,
+    int? MaxProjectsPerSupervisor = 5,
+    long? MilestoneTemplateId = null,
+    long? RubricId = null);
 
 public sealed record UpdateProjectPeriodRequest(
     string Code,
     string Name,
     string PeriodType,
     DateTime StartAt,
-    DateTime EndAt);
+    DateTime EndAt,
+    int? MinTeamSize = null,
+    int? MaxTeamSize = null,
+    int? MinDistinctMajors = null,
+    int? MaxProjectsPerSupervisor = null,
+    long? MilestoneTemplateId = null,
+    long? RubricId = null);
 
-public sealed record SetProjectPeriodStatusRequest(string Status);
+public sealed record SetProjectPeriodStatusRequest(
+    string Status,
+    string? ExpectedStatus = null);

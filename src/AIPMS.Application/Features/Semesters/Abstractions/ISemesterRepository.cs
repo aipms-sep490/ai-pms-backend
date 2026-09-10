@@ -46,6 +46,7 @@ public interface ISemesterRepository
     Task<AcademicSemesterModel> SetSemesterStatusAsync(
         long semesterId,
         string status,
+        string? expectedStatus,
         DateTime utcNow,
         CancellationToken cancellationToken = default);
 
@@ -77,6 +78,12 @@ public interface ISemesterRepository
         string periodType,
         DateTime startAt,
         DateTime endAt,
+        int? minTeamSize,
+        int? maxTeamSize,
+        int? minDistinctMajors,
+        int? maxProjectsPerSupervisor,
+        long? milestoneTemplateId,
+        long? rubricId,
         DateTime utcNow,
         CancellationToken cancellationToken = default);
 
@@ -87,12 +94,27 @@ public interface ISemesterRepository
         string periodType,
         DateTime startAt,
         DateTime endAt,
+        int? minTeamSize,
+        int? maxTeamSize,
+        int? minDistinctMajors,
+        int? maxProjectsPerSupervisor,
+        long? milestoneTemplateId,
+        long? rubricId,
         DateTime utcNow,
         CancellationToken cancellationToken = default);
 
     Task<ProjectPeriodModel> SetProjectPeriodStatusAsync(
         long periodId,
         string status,
+        string? expectedStatus,
         DateTime utcNow,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> HasActiveProjectsAsync(
+        long semesterId,
+        CancellationToken cancellationToken = default);
+
+    Task<T> ExecuteInTransactionAsync<T>(
+        Func<Task<T>> action,
         CancellationToken cancellationToken = default);
 }
