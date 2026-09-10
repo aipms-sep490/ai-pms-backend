@@ -220,6 +220,33 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                 new object[] { lockKey },
                 cancellationToken);
 
+            if (status == "CLOSED")
+            {
+                var activeChild = await context.ProjectPeriods
+                    .AsNoTracking()
+                    .Where(p => p.AcademicSemesterId == semesterId && (p.Status == "DRAFT" || p.Status == "UPCOMING" || p.Status == "ACTIVE"))
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (activeChild != null)
+                {
+                    throw new ConflictException(
+                        $"Cannot transition Academic Semester to '{status}': child Project Period '{activeChild.Code}' is still in '{activeChild.Status}' status. All project periods must be closed or archived first.");
+                }
+            }
+            else if (status == "ARCHIVED")
+            {
+                var nonArchivedChild = await context.ProjectPeriods
+                    .AsNoTracking()
+                    .Where(p => p.AcademicSemesterId == semesterId && p.Status != "ARCHIVED")
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (nonArchivedChild != null)
+                {
+                    throw new ConflictException(
+                        $"Cannot archive Academic Semester: child Project Period '{nonArchivedChild.Code}' is in '{nonArchivedChild.Status}' status. All child project periods must be archived first.");
+                }
+            }
+
             if (!string.IsNullOrEmpty(expectedStatus))
             {
                 var affected = await context.AcademicSemesters
@@ -419,6 +446,16 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                     $"Project Period window overlaps with an existing '{periodType}' period in this semester.");
             }
 
+            if (rubricId.HasValue)
+            {
+                var isRubricUsable = await ValidateRubricUsableAsync(rubricId.Value, semesterId, cancellationToken);
+                if (!isRubricUsable)
+                {
+                    throw new ConflictException(
+                        $"Rubric with ID {rubricId.Value} does not exist, is inactive, or does not belong to this semester.");
+                }
+            }
+
             var entity = new ProjectPeriodEntity
             {
                 AcademicSemesterId = semesterId,
@@ -564,6 +601,16 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                     $"Project Period window overlaps with an existing '{periodType}' period in this semester.");
             }
 
+            if (rubricId.HasValue)
+            {
+                var isRubricUsable = await ValidateRubricUsableAsync(rubricId.Value, entity.AcademicSemesterId, cancellationToken);
+                if (!isRubricUsable)
+                {
+                    throw new ConflictException(
+                        $"Rubric with ID {rubricId.Value} does not exist, is inactive, or does not belong to this semester.");
+                }
+            }
+
             entity.Code = code;
             entity.Name = name;
             entity.PeriodType = periodType;
@@ -625,11 +672,34 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
         try
         {
+            var semLockKey = $"sem_lock_{entity.AcademicSemesterId}";
+            await context.Database.ExecuteSqlRawAsync(
+                "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                new object[] { semLockKey },
+                cancellationToken);
+
             var lockKey = $"pp_lock_{entity.AcademicSemesterId}_{entity.PeriodType}";
             await context.Database.ExecuteSqlRawAsync(
                 "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
                 new object[] { lockKey },
                 cancellationToken);
+
+            var semester = await context.AcademicSemesters
+                .AsNoTracking()
+                .SingleOrDefaultAsync(s => s.Id == entity.AcademicSemesterId, cancellationToken)
+                ?? throw new NotFoundException("AcademicSemester", entity.AcademicSemesterId);
+
+            if (semester.Status == "ARCHIVED")
+            {
+                throw new ConflictException(
+                    "Cannot change status of a project period in an archived semester.");
+            }
+
+            if (semester.Status == "CLOSED" && status != "ARCHIVED")
+            {
+                throw new ConflictException(
+                    "Cannot change status of a project period in a closed semester unless archiving it.");
+            }
 
             if (status == "ACTIVE")
             {
@@ -723,9 +793,10 @@ internal sealed class SemesterRepository(AipmsDbContext context)
     {
         var semester = await context.AcademicSemesters
             .AsNoTracking()
+            .Include(s => s.Organization)
             .SingleOrDefaultAsync(s => s.Id == semesterId, cancellationToken);
 
-        if (semester == null)
+        if (semester == null || !semester.Organization.IsActive)
         {
             return false;
         }
@@ -735,7 +806,10 @@ internal sealed class SemesterRepository(AipmsDbContext context)
             .AnyAsync(r => r.Id == rubricId
                            && r.IsActive
                            && r.AcademicSemesterId == semesterId
-                           && (r.DepartmentId == null || r.Department!.OrganizationId == semester.OrganizationId),
+                           && (r.DepartmentId == null ||
+                               (r.Department!.IsActive
+                                && r.Department.OrganizationId == semester.OrganizationId
+                                && r.Department.Organization.IsActive)),
                 cancellationToken);
     }
 

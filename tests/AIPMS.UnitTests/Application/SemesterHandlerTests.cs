@@ -85,9 +85,16 @@ internal sealed class StubSemesterRepository : ISemesterRepository
 
     public Task<PagedResult<ProjectPeriodModel>> GetProjectPeriodsAsync(
         long? semesterId, string? search, string? status, string? periodType,
-        int page, int pageSize, CancellationToken cancellationToken = default) =>
-        Task.FromResult(new PagedResult<ProjectPeriodModel>(
-            Periods.Values.ToArray(), page, pageSize, Periods.Count));
+        int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var items = Periods.Values.AsEnumerable();
+        if (semesterId.HasValue)
+        {
+            items = items.Where(p => p.AcademicSemesterId == semesterId.Value);
+        }
+        var arr = items.ToArray();
+        return Task.FromResult(new PagedResult<ProjectPeriodModel>(arr, page, pageSize, arr.Length));
+    }
 
     public Task<ProjectPeriodModel?> GetProjectPeriodAsync(
         long periodId, CancellationToken cancellationToken = default) =>
@@ -348,6 +355,38 @@ public sealed class SemesterHandlerTests
         await Assert.ThrowsAsync<ConflictException>(() =>
             handler.Handle(
                 new SetSemesterStatusCommand(11, to), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task SetSemesterStatus_ArchiveWithClosedChild_ThrowsConflict()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 12, status: "CLOSED");
+        repo.AddDraftPeriod(semesterId: 12, id: 101, status: "CLOSED");
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new SetSemesterStatusCommandHandler(
+            repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            handler.Handle(new SetSemesterStatusCommand(12, "ARCHIVED"), CancellationToken.None));
+        Assert.Contains("All child project periods must be archived first", ex.Message);
+    }
+
+    [Fact]
+    public async Task SetSemesterStatus_ArchiveWithArchivedChild_Succeeds()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 13, status: "CLOSED");
+        repo.AddDraftPeriod(semesterId: 13, id: 102, status: "ARCHIVED");
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new SetSemesterStatusCommandHandler(
+            repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        var result = await handler.Handle(
+            new SetSemesterStatusCommand(13, "ARCHIVED"), CancellationToken.None);
+        Assert.Equal("ARCHIVED", result.Status);
     }
 }
 

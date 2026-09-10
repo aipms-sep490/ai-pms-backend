@@ -222,7 +222,7 @@ public sealed class SetSemesterStatusCommandHandler(
                 $"Cannot transition semester from '{existing.Status}' to '{request.Status}'.");
         }
 
-        if (request.Status is SemesterStatuses.Closed or SemesterStatuses.Archived)
+        if (request.Status is SemesterStatuses.Closed)
         {
             var childPeriods = await repository.GetProjectPeriodsAsync(
                 existing.Id,
@@ -240,6 +240,26 @@ public sealed class SetSemesterStatusCommandHandler(
             {
                 throw new ConflictException(
                     $"Cannot transition Academic Semester to '{request.Status}': child Project Period '{activeChild.Code}' is still in '{activeChild.Status}' status. All project periods must be closed or archived first.");
+            }
+        }
+        else if (request.Status is SemesterStatuses.Archived)
+        {
+            var childPeriods = await repository.GetProjectPeriodsAsync(
+                existing.Id,
+                search: null,
+                status: null,
+                periodType: null,
+                page: 1,
+                pageSize: 1000,
+                cancellationToken);
+
+            var nonArchivedChild = childPeriods.Items.FirstOrDefault(p =>
+                p.Status != SemesterStatuses.Archived);
+
+            if (nonArchivedChild != null)
+            {
+                throw new ConflictException(
+                    $"Cannot archive Academic Semester: child Project Period '{nonArchivedChild.Code}' is in '{nonArchivedChild.Status}' status. All child project periods must be archived first.");
             }
         }
 

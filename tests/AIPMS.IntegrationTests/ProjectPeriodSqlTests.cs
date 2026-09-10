@@ -1667,6 +1667,430 @@ public class ProjectPeriodSqlTests
         Assert.Equal("ARCHIVED", loadedPeriod.Status);
     }
 
+    [Fact]
+    public async Task ConcurrentSemesterCloseAndPeriodCreate_ShouldRecheckChildrenAfterLockAndRejectClose()
+    {
+        using var contextInit = _fixture.CreateContext();
+        var student1Id = await contextInit.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var orgId = await contextInit.Organizations.Select(o => o.Id).FirstAsync();
+        var repoInit = new SemesterRepository(contextInit);
+
+        var semCode = "SEM_RACE_CLS_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant();
+        var semester = await repoInit.CreateSemesterAsync(
+            orgId, semCode, "Race Semester Close",
+            new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), DateTime.UtcNow);
+
+        var initStatusHandler = new SetSemesterStatusCommandHandler(
+            repoInit,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(contextInit, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        await initStatusHandler.Handle(new SetSemesterStatusCommand(semester.Id, "UPCOMING", "DRAFT"), CancellationToken.None);
+        await initStatusHandler.Handle(new SetSemesterStatusCommand(semester.Id, "ACTIVE", "UPCOMING"), CancellationToken.None);
+
+        var appLockAboutToExecuteTcs = new TaskCompletionSource<bool>();
+        var periodCreatedTcs = new TaskCompletionSource<bool>();
+
+        var closeOptions = new DbContextOptionsBuilder<AipmsDbContext>()
+            .UseSqlServer(_fixture.ConnectionString)
+            .AddInterceptors(new SpGetAppLockInterceptor(appLockAboutToExecuteTcs, periodCreatedTcs))
+            .Options;
+
+        using var contextClose = new AipmsDbContext(closeOptions);
+        using var contextCreate = _fixture.CreateContext();
+
+        var repoClose = new SemesterRepository(contextClose);
+        var repoCreate = new SemesterRepository(contextCreate);
+
+        var closeHandler = new SetSemesterStatusCommandHandler(
+            repoClose,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(contextClose, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var createHandler = new CreateProjectPeriodCommandHandler(
+            repoCreate,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(contextCreate, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        // Task Close: starts close handler, queries children (finds 0), enters SetSemesterStatusAsync, reaches sp_getapplock sem_lock, pauses
+        var taskClose = Task.Run<object>(async () =>
+        {
+            try
+            {
+                return await closeHandler.Handle(
+                    new SetSemesterStatusCommand(semester.Id, "CLOSED", "ACTIVE"), CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                return ex;
+            }
+        });
+
+        // 1. Wait until close operation reaches sp_getapplock interceptor
+        await appLockAboutToExecuteTcs.Task;
+
+        // 2. While close operation is paused before acquiring lock, concurrently create a child ProjectPeriod (DRAFT)
+        var periodCode = "PER_RACE_CLS_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant();
+        var createdPeriod = await createHandler.Handle(new CreateProjectPeriodCommand(
+            semester.Id, periodCode, "Concurrent Created Period",
+            "REGISTRATION",
+            new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc)), CancellationToken.None);
+        Assert.NotNull(createdPeriod);
+        Assert.Equal("DRAFT", createdPeriod.Status);
+
+        // 3. Unblock close operation to proceed with sp_getapplock
+        periodCreatedTcs.SetResult(true);
+
+        // 4. Await close result
+        var closeResult = await taskClose;
+
+        // Verification: Close MUST fail with ConflictException because it rechecks children under lock
+        Assert.IsType<ConflictException>(closeResult);
+        var conflict = (ConflictException)closeResult;
+        Assert.Contains("child Project Period", conflict.Message);
+        Assert.Contains("still in 'DRAFT' status", conflict.Message);
+
+        // Database verification: Semester MUST remain ACTIVE, ProjectPeriod MUST remain DRAFT
+        using var verifyContext = _fixture.CreateContext();
+        var dbSemester = await verifyContext.AcademicSemesters.FindAsync(semester.Id);
+        var dbPeriod = await verifyContext.ProjectPeriods.FindAsync(createdPeriod.Id);
+
+        Assert.NotNull(dbSemester);
+        Assert.Equal("ACTIVE", dbSemester.Status);
+
+        Assert.NotNull(dbPeriod);
+        Assert.Equal("DRAFT", dbPeriod.Status);
+    }
+
+    [Fact]
+    public async Task ArchiveSemester_WithClosedChildPeriod_ShouldReject()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var repo = new SemesterRepository(context);
+
+        var setSemStatusHandler = new SetSemesterStatusCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var setPeriodStatusHandler = new SetProjectPeriodStatusCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var orgId = await context.Organizations.Select(o => o.Id).FirstAsync();
+        var semester = await repo.CreateSemesterAsync(
+            orgId, "SEM_STRAND_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Strand Child Test Semester",
+            new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), DateTime.UtcNow);
+
+        // Put Semester into ACTIVE
+        await setSemStatusHandler.Handle(new SetSemesterStatusCommand(semester.Id, "UPCOMING", "DRAFT"), CancellationToken.None);
+        await setSemStatusHandler.Handle(new SetSemesterStatusCommand(semester.Id, "ACTIVE", "UPCOMING"), CancellationToken.None);
+
+        var period = await repo.CreateProjectPeriodAsync(
+            semester.Id, "PER_STRAND_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Strand Test Period",
+            "REGISTRATION",
+            new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
+            3, 5, 1, 5, null, null, DateTime.UtcNow);
+
+        // Put Period into CLOSED
+        await setPeriodStatusHandler.Handle(new SetProjectPeriodStatusCommand(period.Id, "UPCOMING", "DRAFT"), CancellationToken.None);
+        await setPeriodStatusHandler.Handle(new SetProjectPeriodStatusCommand(period.Id, "ACTIVE", "UPCOMING"), CancellationToken.None);
+        await setPeriodStatusHandler.Handle(new SetProjectPeriodStatusCommand(period.Id, "CLOSED", "ACTIVE"), CancellationToken.None);
+
+        // Put Semester into CLOSED
+        await setSemStatusHandler.Handle(new SetSemesterStatusCommand(semester.Id, "CLOSED", "ACTIVE"), CancellationToken.None);
+
+        // Attempting to Archive Semester while child Period is still CLOSED MUST throw ConflictException
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            setSemStatusHandler.Handle(new SetSemesterStatusCommand(semester.Id, "ARCHIVED", "CLOSED"), CancellationToken.None));
+
+        Assert.Contains("All child project periods must be archived first", ex.Message);
+        Assert.Contains("is in 'CLOSED' status", ex.Message);
+
+        // Verify Semester remains CLOSED in DB
+        using var verifyContext = _fixture.CreateContext();
+        var loadedSem = await verifyContext.AcademicSemesters.FindAsync(semester.Id);
+        Assert.NotNull(loadedSem);
+        Assert.Equal("CLOSED", loadedSem.Status);
+    }
+
+    [Fact]
+    public async Task ArchiveChildThenSemester_ShouldSucceed()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var repo = new SemesterRepository(context);
+
+        var setSemStatusHandler = new SetSemesterStatusCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var setPeriodStatusHandler = new SetProjectPeriodStatusCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var orgId = await context.Organizations.Select(o => o.Id).FirstAsync();
+        var semester = await repo.CreateSemesterAsync(
+            orgId, "SEM_ARCH_OK_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Archive Sequential Semester",
+            new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), DateTime.UtcNow);
+
+        // Transition Semester to ACTIVE
+        await setSemStatusHandler.Handle(new SetSemesterStatusCommand(semester.Id, "UPCOMING", "DRAFT"), CancellationToken.None);
+        await setSemStatusHandler.Handle(new SetSemesterStatusCommand(semester.Id, "ACTIVE", "UPCOMING"), CancellationToken.None);
+
+        var period = await repo.CreateProjectPeriodAsync(
+            semester.Id, "PER_ARCH_OK_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Archive Sequential Period",
+            "REGISTRATION",
+            new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
+            3, 5, 1, 5, null, null, DateTime.UtcNow);
+
+        // Transition Period to CLOSED
+        await setPeriodStatusHandler.Handle(new SetProjectPeriodStatusCommand(period.Id, "UPCOMING", "DRAFT"), CancellationToken.None);
+        await setPeriodStatusHandler.Handle(new SetProjectPeriodStatusCommand(period.Id, "ACTIVE", "UPCOMING"), CancellationToken.None);
+        await setPeriodStatusHandler.Handle(new SetProjectPeriodStatusCommand(period.Id, "CLOSED", "ACTIVE"), CancellationToken.None);
+
+        // Transition Semester to CLOSED
+        await setSemStatusHandler.Handle(new SetSemesterStatusCommand(semester.Id, "CLOSED", "ACTIVE"), CancellationToken.None);
+
+        // 1. Archive Child Period FIRST (CLOSED -> ARCHIVED)
+        var periodResult = await setPeriodStatusHandler.Handle(
+            new SetProjectPeriodStatusCommand(period.Id, "ARCHIVED", "CLOSED"), CancellationToken.None);
+        Assert.Equal("ARCHIVED", periodResult.Status);
+
+        // 2. Archive Semester SECOND (CLOSED -> ARCHIVED)
+        var semResult = await setSemStatusHandler.Handle(
+            new SetSemesterStatusCommand(semester.Id, "ARCHIVED", "CLOSED"), CancellationToken.None);
+        Assert.Equal("ARCHIVED", semResult.Status);
+
+        // Verify in DB
+        using var verifyContext = _fixture.CreateContext();
+        var dbSem = await verifyContext.AcademicSemesters.FindAsync(semester.Id);
+        var dbPeriod = await verifyContext.ProjectPeriods.FindAsync(period.Id);
+
+        Assert.NotNull(dbSem);
+        Assert.Equal("ARCHIVED", dbSem.Status);
+        Assert.NotNull(dbPeriod);
+        Assert.Equal("ARCHIVED", dbPeriod.Status);
+    }
+
+    [Fact]
+    public async Task Rubric_InactiveDepartment_Rejects()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var repo = new SemesterRepository(context);
+
+        var orgA = new Organization { Code = "ORG_INACT_D_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), Name = "Org Active", IsActive = true };
+        context.Organizations.Add(orgA);
+        await context.SaveChangesAsync();
+
+        var deptInactive = new Department { OrganizationId = orgA.Id, Code = "DEPT_INACT_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), Name = "Dept Inactive", IsActive = false };
+        context.Departments.Add(deptInactive);
+        await context.SaveChangesAsync();
+
+        var semA = await repo.CreateSemesterAsync(
+            orgA.Id, "SEM_INACT_D_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Semester Org Active",
+            new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), DateTime.UtcNow);
+
+        var rubricInactiveDept = new Rubric
+        {
+            DepartmentId = deptInactive.Id,
+            AcademicSemesterId = semA.Id,
+            Code = "RUB_INACT_D_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(),
+            Name = "Rubric Inactive Dept",
+            IsActive = true,
+            CreatedBy = student1Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Rubrics.Add(rubricInactiveDept);
+        await context.SaveChangesAsync();
+
+        var createHandler = new CreateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new CreateProjectPeriodCommand(
+            semA.Id, "PER_INACT_D_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Inactive Dept Rubric Period",
+            "REGISTRATION",
+            new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
+            RubricId: rubricInactiveDept.Id);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => createHandler.Handle(cmd, CancellationToken.None));
+        Assert.Contains("Rubric with ID", ex.Message);
+        Assert.Contains("is inactive, or does not belong to this semester", ex.Message);
+    }
+
+    [Fact]
+    public async Task Rubric_InactiveOrganization_Rejects()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var repo = new SemesterRepository(context);
+
+        var orgInactive = new Organization { Code = "ORG_INACT_O_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), Name = "Org Inactive", IsActive = false };
+        context.Organizations.Add(orgInactive);
+        await context.SaveChangesAsync();
+
+        var semA = await repo.CreateSemesterAsync(
+            orgInactive.Id, "SEM_INACT_O_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Semester Inactive Org",
+            new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), DateTime.UtcNow);
+
+        var rubricInactiveOrg = new Rubric
+        {
+            DepartmentId = null,
+            AcademicSemesterId = semA.Id,
+            Code = "RUB_INACT_O_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(),
+            Name = "Rubric Inactive Org",
+            IsActive = true,
+            CreatedBy = student1Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Rubrics.Add(rubricInactiveOrg);
+        await context.SaveChangesAsync();
+
+        var createHandler = new CreateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new CreateProjectPeriodCommand(
+            semA.Id, "PER_INACT_O_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Inactive Org Rubric Period",
+            "REGISTRATION",
+            new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
+            RubricId: rubricInactiveOrg.Id);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => createHandler.Handle(cmd, CancellationToken.None));
+        Assert.Contains("Rubric with ID", ex.Message);
+        Assert.Contains("is inactive, or does not belong to this semester", ex.Message);
+    }
+
+    [Fact]
+    public async Task Rubric_ActiveDepartmentAndOrganization_ValidScope_Succeeds()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var repo = new SemesterRepository(context);
+
+        var orgA = new Organization { Code = "ORG_ACT_OK_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), Name = "Org Active OK", IsActive = true };
+        context.Organizations.Add(orgA);
+        await context.SaveChangesAsync();
+
+        var deptA = new Department { OrganizationId = orgA.Id, Code = "DEPT_ACT_OK_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), Name = "Dept Active OK", IsActive = true };
+        context.Departments.Add(deptA);
+        await context.SaveChangesAsync();
+
+        var semA = await repo.CreateSemesterAsync(
+            orgA.Id, "SEM_ACT_OK_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Semester Active OK",
+            new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), DateTime.UtcNow);
+
+        var rubricValid = new Rubric
+        {
+            DepartmentId = deptA.Id,
+            AcademicSemesterId = semA.Id,
+            Code = "RUB_ACT_OK_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(),
+            Name = "Rubric Active OK",
+            IsActive = true,
+            CreatedBy = student1Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Rubrics.Add(rubricValid);
+        await context.SaveChangesAsync();
+
+        var createHandler = new CreateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new CreateProjectPeriodCommand(
+            semA.Id, "PER_ACT_OK_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Active OK Rubric Period",
+            "REGISTRATION",
+            new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
+            RubricId: rubricValid.Id);
+
+        var period = await createHandler.Handle(cmd, CancellationToken.None);
+        Assert.NotNull(period);
+        Assert.Equal(rubricValid.Id, period.RubricId);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_RubricInactiveDepartment_Rejects()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var repo = new SemesterRepository(context);
+
+        var orgA = new Organization { Code = "ORG_UPD_RUB_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), Name = "Org Upd Rub", IsActive = true };
+        context.Organizations.Add(orgA);
+        await context.SaveChangesAsync();
+
+        var deptInactive = new Department { OrganizationId = orgA.Id, Code = "DEPT_UPD_INACT_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), Name = "Dept Inact", IsActive = false };
+        context.Departments.Add(deptInactive);
+        await context.SaveChangesAsync();
+
+        var semA = await repo.CreateSemesterAsync(
+            orgA.Id, "SEM_UPD_RUB_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Semester Upd Rub",
+            new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), DateTime.UtcNow);
+
+        var rubricInactive = new Rubric
+        {
+            DepartmentId = deptInactive.Id,
+            AcademicSemesterId = semA.Id,
+            Code = "RUB_UPD_INACT_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(),
+            Name = "Rubric Upd Inactive Dept",
+            IsActive = true,
+            CreatedBy = student1Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Rubrics.Add(rubricInactive);
+        await context.SaveChangesAsync();
+
+        var period = await repo.CreateProjectPeriodAsync(
+            semA.Id, "PER_UPD_RUB_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Initial Period",
+            "REGISTRATION",
+            new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
+            3, 5, 1, 5, null, null, DateTime.UtcNow);
+
+        var updateHandler = new UpdateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var updateCmd = new UpdateProjectPeriodCommand(
+            period.Id, period.Code, "Updated Name", period.PeriodType, period.StartAt, period.EndAt,
+            RubricId: rubricInactive.Id);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => updateHandler.Handle(updateCmd, CancellationToken.None));
+        Assert.Contains("Rubric with ID", ex.Message);
+        Assert.Contains("is inactive, or does not belong to this semester", ex.Message);
+    }
+
     private class SpGetAppLockInterceptor : DbCommandInterceptor
     {
         private readonly TaskCompletionSource<bool> _appLockAboutToExecuteTcs;
