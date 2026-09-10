@@ -1,8 +1,8 @@
-# Supervisors — BE-07, profiles and candidates
+# Supervisors — BE-07, profiles, candidates and requests
 
 Profile/expertise APIs run against the existing schema. Project candidates use
 the persisted BE-12 supervisor-selection quota. This does **not** complete issue
-#12: requests, assignment, activation and workspace initialization remain follow-up work.
+#12: assignment read/end APIs and template-based workspace initialization remain follow-up work.
 
 ## API contract
 
@@ -16,6 +16,12 @@ are **supervisor profile IDs**; provisioning explicitly uses a **user ID**.
 | GET | `/api/v1/projects/{projectId}/supervisor-candidates` | Eligible lecturers with expertise, workload and remaining capacity; `search`, `expertise`, `page=1`, `pageSize=20` (max 100). |
 | PUT | `/api/v1/supervisors/users/{userId}/profile` | Upsert the lecturer's unique profile. Body: `{ "bio": "...", "isAvailable": true }`; returns 200 with profile ID. Null/blank bio clears it. |
 | PUT | `/api/v1/supervisors/{profileId}/expertise` | Replace the complete list. Body: `{ "expertise": [{ "name": "Software Engineering", "proficiencyLevel": "Advanced" }] }`. Empty list clears expertise; null list is invalid. |
+| POST | `/api/v1/projects/{projectId}/supervisor-requests` | Current student team leader sends `{ "supervisorProfileId": 1, "message": "..." }`. Returns request DTO (200). |
+| GET | `/api/v1/projects/{projectId}/supervisor-requests` | Project readers list requests; optional `status`, `page`, `pageSize`. |
+| GET | `/api/v1/supervisors/requests` | Lecturer's own inbox; optional `status`, `page`, `pageSize`. |
+| POST | `/api/v1/supervisor-requests/{requestId}/cancel` | Current student team leader cancels a pending request; no body. |
+| POST | `/api/v1/supervisor-requests/{requestId}/accept` | Requested lecturer accepts with `{ "message": "..." }`; returns request DTO including assignment ID. |
+| POST | `/api/v1/supervisor-requests/{requestId}/reject` | Requested lecturer rejects with `{ "message": "..." }`. |
 
 `proficiencyLevel` is optional descriptive text, not a scored/ranked qualification.
 Names are trimmed and duplicate names ignoring case/outer whitespace are rejected.
@@ -33,7 +39,7 @@ The database unique index remains the final guard for collation-equivalent names
   before/after audit. Concurrent conflicting edits can return 409 and require a
   reload/retry. Profile and expertise are separate updates; successful later full
   replacements of the same fields take precedence.
-- Existing `max_active_projects` is preserved. This API does not configure quota,
+- Existing `max_active_projects` is preserved. Profile/expertise APIs do not configure quota,
   create assignments or change project status. No schema/generated model edits.
 - ProblemDetails: 400 invalid input, 401 anonymous, 403 unauthorized/inactive actor,
   404 absent/non-directory profile, 409 invalid lecturer or conflicting write.
@@ -73,10 +79,51 @@ project databases or legacy unmerged implementations.
   `semesterLimit`, `remainingSlots` and `selectionPeriodId`, plus public profile
   fields and expertise. Ordering is name then profile ID. There is no AI dependency.
 - This is a read-only snapshot, not a reservation. Counts/pages can change between
-  reads. The future accept flow must recheck eligibility and both caps within its
-  concurrency-safe transaction, then create assignment/activate/init atomically.
+  reads. Accept rechecks eligibility and both caps inside its transaction.
 
 `SupervisorCandidateEndpointTests` verifies permissions, project/period eligibility,
 cross-semester capacity, null/zero limits, pending requests, paging and no writes.
 `SupervisorCapacityTests`, candidate validator tests and handler tests cover the
 rules and response mapping. No migration or generated-model edits are required.
+
+## Request decisions and concurrency
+
+- Sending requires current active student membership with `is_leader = true`.
+  Project read access and admin/staff roles alone do not grant send/cancel rights.
+  The current leader may cancel even when they were not the original sender.
+  Only the profile's current active lecturer can accept/reject; role claims do not
+  override persisted roles or ownership.
+- Send checks the same project, academic scope, selection period and dual capacity
+  rules as candidates, plus the database-backed duplicate-pending guard. A pending
+  request does not reserve capacity or change project status, so an approved project
+  can approach more than one eligible supervisor.
+- Accept rechecks current eligibility, both capacity caps and the selection window
+  after acquiring capacity/project locks. It creates one primary assignment, records
+  `APPROVED -> SUPERVISOR_PENDING -> ACTIVE` history, accepts the request and cancels
+  the project's other pending requests in one serializable transaction. An existing
+  `SUPERVISOR_PENDING` project may also finish this flow. The project/profile/request
+  IDs are taken from the stored request, never supplied separately by the responder.
+- Existing project/team data forms the execution workspace; activating the project
+  enables the existing milestone/task APIs. This slice does not invent default
+  milestones or instantiate a template. Template-based initialization and assignment
+  listing/ending are the next slice; do not mark all of BE-07 complete yet.
+- All decisions record actor/time and before/after audit data in the same transaction.
+  Assignment and project audit events reference their respective entities. Automatic
+  cancellation records the winning request ID. Any failure, including the final audit
+  write, rolls back request, assignment, project, history and previous audit writes.
+- Request row update locks serialize decisions. Supervisor row update locks protect
+  global capacity across projects/semesters, and project locks protect the single
+  assignment across different supervisors. Serializable reads also protect policy,
+  account and workload checks. Deadlocks, lock conflicts and unique/concurrency
+  conflicts return 409 ProblemDetails with trace ID; the caller can reload/retry.
+- Repeating the same accept/reject/cancel returns the original decision without
+  another write or audit. Accepted replays require a matching assignment and never
+  reopen completed/archived projects or ended assignments. A different final decision
+  is 409; cancellation/rejection can clear pending requests after the period closes.
+- Request/response messages allow null or up to 2000 characters and are trimmed.
+  List statuses are `PENDING`, `ACCEPTED`, `REJECTED`, `CANCELLED`; page is 1..1000000,
+  pageSize is 1..100. Lists sort by requested time descending then ID descending.
+
+`SupervisorRequestEndpointTests` covers the request lifecycle, persisted permissions,
+stale eligibility, concurrent duplicate sends/accepts/cancel, idempotent replay and
+rollback. Handler and validator unit tests cover decision replays and input contracts.

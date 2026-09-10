@@ -28,6 +28,7 @@ public static class DependencyInjection
         services.AddScoped<AccountSecurityAccessService>();
         services.AddScoped<SemesterAccessService>();
         services.AddScoped<SupervisorAccessService>();
+        services.AddScoped<SupervisorRequestWorkflow>();
         services.AddScoped<TeamWorkflow>();
         services.AddScoped<ITeamRegistrationGuard, TeamRegistrationGuard>();
 
