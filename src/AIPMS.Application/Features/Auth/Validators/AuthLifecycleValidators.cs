@@ -1,8 +1,4 @@
-using AIPMS.Application.Features.Auth.Commands.ChangePassword;
-using AIPMS.Application.Features.Auth.Commands.ForgotPassword;
-using AIPMS.Application.Features.Auth.Commands.Logout;
-using AIPMS.Application.Features.Auth.Commands.RefreshToken;
-using AIPMS.Application.Features.Auth.Commands.ResetPassword;
+using AIPMS.Application.Features.Auth.Commands;
 using FluentValidation;
 
 namespace AIPMS.Application.Features.Auth.Validators;

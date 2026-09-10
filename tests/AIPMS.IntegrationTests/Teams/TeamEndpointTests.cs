@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Common.Models;
-using AIPMS.Application.Features.Teams;
+using AIPMS.Application.Features.Teams.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -28,8 +28,8 @@ public sealed partial class TeamEndpointTests(TeamDatabaseFixture database) : IC
         await BodyAsync<TeamDto>(await client.PostAsJsonAsync("/api/v1/teams",
             new { academicSemesterId = scenario.SemesterId, code, name = "My Team", description = "Capstone" }));
 
-    private static async System.Threading.Tasks.Task<TeamInvitationData> InviteAsync(HttpClient client, long teamId, long userId) =>
-        await BodyAsync<TeamInvitationData>(await client.PostAsJsonAsync($"/api/v1/teams/{teamId}/invitations",
+    private static async System.Threading.Tasks.Task<TeamInvitationDto> InviteAsync(HttpClient client, long teamId, long userId) =>
+        await BodyAsync<TeamInvitationDto>(await client.PostAsJsonAsync($"/api/v1/teams/{teamId}/invitations",
             new { invitedUserId = userId, message = "Join us" }));
 
     private static System.Threading.Tasks.Task<HttpResponseMessage> AcceptAsync(HttpClient client, long id) =>
@@ -102,7 +102,7 @@ public sealed partial class TeamEndpointTests(TeamDatabaseFixture database) : IC
             await context.TeamInvitations.Where(i => i.Id == invitation.Id)
                 .ExecuteUpdateAsync(u => u.SetProperty(i => i.ExpiresAt, TeamDatabaseFixture.Now));
         Assert.Equal(HttpStatusCode.Conflict, (await AcceptAsync(b, invitation.Id)).StatusCode);
-        var inbox = await BodyAsync<PagedResult<TeamInvitationData>>(await b.GetAsync("/api/v1/teams/invitations"));
+        var inbox = await BodyAsync<PagedResult<TeamInvitationDto>>(await b.GetAsync("/api/v1/teams/invitations"));
         Assert.Equal("EXPIRED", Assert.Single(inbox.Items).Status);
         invitation = await InviteAsync(a, team.Id, s.Students[1]);
         Assert.Equal(HttpStatusCode.NoContent, (await b.PostAsync($"/api/v1/teams/invitations/{invitation.Id}/reject", null)).StatusCode);
@@ -257,7 +257,7 @@ public sealed partial class TeamEndpointTests(TeamDatabaseFixture database) : IC
         Assert.Equal("Renamed", team.Name);
         await InviteAsync(a, team.Id, s.Students[1]);
         await InviteAsync(a, team.Id, s.Students[2]);
-        var page = await BodyAsync<PagedResult<TeamInvitationData>>(
+        var page = await BodyAsync<PagedResult<TeamInvitationDto>>(
             await a.GetAsync($"/api/v1/teams/invitations?teamId={team.Id}&page=2&pageSize=1"));
         Assert.Single(page.Items);
         Assert.Equal(2, page.TotalCount);

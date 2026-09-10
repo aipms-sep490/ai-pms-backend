@@ -1,6 +1,7 @@
 using System;
 using AIPMS.Application.Features.Milestones.Commands;
 using AIPMS.Application.Features.Milestones.Queries;
+using AIPMS.Application.Features.Milestones.Validators;
 using FluentValidation.TestHelper;
 using Xunit;
 

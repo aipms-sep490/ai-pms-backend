@@ -1,5 +1,5 @@
 using AIPMS.Application.Common.Exceptions;
-using AIPMS.Application.Features.Teams;
+using AIPMS.Application.Features.Teams.Abstractions;
 
 namespace AIPMS.UnitTests.Application;
 
