@@ -125,17 +125,79 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
-        var entity = await context.AcademicSemesters
-            .SingleAsync(s => s.Id == semesterId, cancellationToken);
+        var useLocalTx = context.Database.CurrentTransaction == null;
+        var transaction = useLocalTx
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
-        entity.Code = code;
-        entity.Name = name;
-        entity.StartDate = startDate;
-        entity.EndDate = endDate;
-        entity.UpdatedAt = utcNow;
+        try
+        {
+            var semLockKey = $"sem_lock_{semesterId}";
+            await context.Database.ExecuteSqlRawAsync(
+                "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                new object[] { semLockKey },
+                cancellationToken);
 
-        await SaveChangesAsync(cancellationToken);
-        return (await GetSemesterAsync(entity.Id, cancellationToken))!;
+            var entity = await context.AcademicSemesters
+                .SingleOrDefaultAsync(s => s.Id == semesterId, cancellationToken)
+                ?? throw new NotFoundException("AcademicSemester", semesterId);
+
+            if (entity.Status is "CLOSED" or "ARCHIVED")
+            {
+                throw new ConflictException(
+                    "A closed or archived semester cannot be modified.");
+            }
+
+            var childPeriods = await context.ProjectPeriods
+                .AsNoTracking()
+                .Where(p => p.AcademicSemesterId == semesterId && p.Status != "ARCHIVED")
+                .ToListAsync(cancellationToken);
+
+            var newSemStart = startDate.ToDateTime(TimeOnly.MinValue);
+            var newSemEnd = endDate.ToDateTime(TimeOnly.MaxValue);
+
+            foreach (var period in childPeriods)
+            {
+                if (period.StartAt < newSemStart || period.EndAt > newSemEnd)
+                {
+                    throw new ConflictException(
+                        $"Cannot update Academic Semester window ({startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd}): child Project Period '{period.Code}' ({period.StartAt:yyyy-MM-dd} - {period.EndAt:yyyy-MM-dd}) would fall outside the new semester bounds.");
+                }
+            }
+
+            entity.Code = code;
+            entity.Name = name;
+            entity.StartDate = startDate;
+            entity.EndDate = endDate;
+            entity.UpdatedAt = utcNow;
+
+            await context.SaveChangesAsync(cancellationToken);
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            return (await GetSemesterAsync(entity.Id, cancellationToken))!;
+        }
+        catch (DbUpdateException exception)
+            when (exception.InnerException is SqlException { Number: 2601 or 2627 })
+        {
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            throw new ConflictException(
+                "A semester with the same code already exists in this organization.");
+        }
+        catch
+        {
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            throw;
+        }
     }
 
     public async Task<AcademicSemesterModel> SetSemesterStatusAsync(
@@ -313,6 +375,30 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
         try
         {
+            var semLockKey = $"sem_lock_{semesterId}";
+            await context.Database.ExecuteSqlRawAsync(
+                "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                new object[] { semLockKey },
+                cancellationToken);
+
+            var semester = await context.AcademicSemesters
+                .AsNoTracking()
+                .SingleOrDefaultAsync(s => s.Id == semesterId, cancellationToken)
+                ?? throw new NotFoundException("AcademicSemester", semesterId);
+
+            if (semester.Status is "CLOSED" or "ARCHIVED")
+            {
+                throw new ConflictException("Cannot add project periods to a closed or archived semester.");
+            }
+
+            var semStart = semester.StartDate.ToDateTime(TimeOnly.MinValue);
+            var semEnd = semester.EndDate.ToDateTime(TimeOnly.MaxValue);
+            if (startAt < semStart || endAt > semEnd)
+            {
+                throw new ConflictException(
+                    $"Project Period window ({startAt:yyyy-MM-dd} - {endAt:yyyy-MM-dd}) must fall within parent Academic Semester window ({semester.StartDate:yyyy-MM-dd} - {semester.EndDate:yyyy-MM-dd}).");
+            }
+
             var lockKey = $"pp_lock_{semesterId}_{periodType}";
             await context.Database.ExecuteSqlRawAsync(
                 "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
@@ -405,12 +491,18 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
         try
         {
-            var entity = await context.ProjectPeriods
-                .Include(p => p.AcademicSemester)
+            var initialEntity = await context.ProjectPeriods
+                .AsNoTracking()
                 .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
                 ?? throw new NotFoundException("ProjectPeriod", periodId);
 
-            var oldPeriodType = entity.PeriodType;
+            var semLockKey = $"sem_lock_{initialEntity.AcademicSemesterId}";
+            await context.Database.ExecuteSqlRawAsync(
+                "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                new object[] { semLockKey },
+                cancellationToken);
+
+            var oldPeriodType = initialEntity.PeriodType;
             var newPeriodType = periodType;
 
             var lockTypes = new List<string> { oldPeriodType };
@@ -422,12 +514,20 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
             foreach (var lockType in lockTypes)
             {
-                var lockKey = $"pp_lock_{entity.AcademicSemesterId}_{lockType}";
+                var lockKey = $"pp_lock_{initialEntity.AcademicSemesterId}_{lockType}";
                 await context.Database.ExecuteSqlRawAsync(
                     "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
                     new object[] { lockKey },
                     cancellationToken);
             }
+
+            var entity = await context.ProjectPeriods
+                .Include(p => p.AcademicSemester)
+                .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
+                ?? throw new NotFoundException("ProjectPeriod", periodId);
+
+            await context.Entry(entity).ReloadAsync(cancellationToken);
+            await context.Entry(entity).Reference(p => p.AcademicSemester).LoadAsync(cancellationToken);
 
             if (entity.Status is "CLOSED" or "ARCHIVED")
             {
@@ -439,6 +539,14 @@ internal sealed class SemesterRepository(AipmsDbContext context)
             {
                 throw new ConflictException(
                     "Cannot modify a project period belonging to a closed or archived semester.");
+            }
+
+            var semStart = entity.AcademicSemester.StartDate.ToDateTime(TimeOnly.MinValue);
+            var semEnd = entity.AcademicSemester.EndDate.ToDateTime(TimeOnly.MaxValue);
+            if (startAt < semStart || endAt > semEnd)
+            {
+                throw new ConflictException(
+                    $"Project Period window ({startAt:yyyy-MM-dd} - {endAt:yyyy-MM-dd}) must fall within parent Academic Semester window ({entity.AcademicSemester.StartDate:yyyy-MM-dd} - {entity.AcademicSemester.EndDate:yyyy-MM-dd}).");
             }
 
             bool hasOverlap = await context.ProjectPeriods.AnyAsync(
@@ -613,11 +721,21 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         long semesterId,
         CancellationToken cancellationToken = default)
     {
+        var semester = await context.AcademicSemesters
+            .AsNoTracking()
+            .SingleOrDefaultAsync(s => s.Id == semesterId, cancellationToken);
+
+        if (semester == null)
+        {
+            return false;
+        }
+
         return await context.Rubrics
             .AsNoTracking()
             .AnyAsync(r => r.Id == rubricId
                            && r.IsActive
-                           && (r.AcademicSemesterId == null || r.AcademicSemesterId == semesterId),
+                           && r.AcademicSemesterId == semesterId
+                           && (r.DepartmentId == null || r.Department!.OrganizationId == semester.OrganizationId),
                 cancellationToken);
     }
 

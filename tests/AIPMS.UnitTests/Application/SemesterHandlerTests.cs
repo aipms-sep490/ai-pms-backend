@@ -535,6 +535,39 @@ public sealed class ProjectPeriodHandlerTests
             handler.Handle(
                 new SetProjectPeriodStatusCommand(21, to), CancellationToken.None));
     }
+
+    [Fact]
+    public async Task SetProjectPeriodStatus_ClosedPeriodToArchived_WhenSemesterClosed_Succeeds()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 1, status: "CLOSED");
+        repo.AddDraftPeriod(semesterId: 1, id: 20, status: "CLOSED");
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new SetProjectPeriodStatusCommandHandler(
+            repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        var result = await handler.Handle(
+            new SetProjectPeriodStatusCommand(20, "ARCHIVED"), CancellationToken.None);
+
+        Assert.Equal("ARCHIVED", result.Status);
+    }
+
+    [Fact]
+    public async Task SetProjectPeriodStatus_AnyTransition_WhenSemesterArchived_ThrowsConflict()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 1, status: "ARCHIVED");
+        repo.AddDraftPeriod(semesterId: 1, id: 20, status: "CLOSED");
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new SetProjectPeriodStatusCommandHandler(
+            repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            handler.Handle(
+                new SetProjectPeriodStatusCommand(20, "ARCHIVED"), CancellationToken.None));
+    }
 }
 
 // ── Validator Tests ────────────────────────────────────────────────────────────

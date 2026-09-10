@@ -474,10 +474,16 @@ public sealed class SetProjectPeriodStatusCommandHandler(
             cancellationToken)
             ?? throw new NotFoundException("AcademicSemester", existing.AcademicSemesterId);
 
-        if (semester.Status is SemesterStatuses.Closed or SemesterStatuses.Archived)
+        if (semester.Status == SemesterStatuses.Archived)
         {
             throw new ConflictException(
-                "Cannot activate or change status of a project period in a closed or archived semester.");
+                "Cannot change status of a project period in an archived semester.");
+        }
+
+        if (semester.Status == SemesterStatuses.Closed && request.Status != SemesterStatuses.Archived)
+        {
+            throw new ConflictException(
+                "Cannot change status of a project period in a closed semester unless archiving it.");
         }
 
         // When activating (transitioning to ACTIVE), verify no overlap with another ACTIVE period of same type
