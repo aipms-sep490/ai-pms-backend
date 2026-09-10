@@ -8,6 +8,7 @@ using AIPMS.Application.Features.Auth.Abstractions;
 using AIPMS.Application.Features.Milestones.Abstractions;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Semesters.Abstractions;
+using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Application.Features.Tasks.Abstractions;
 using AIPMS.Application.Features.Teams.Abstractions;
 using AIPMS.Infrastructure.Email;
@@ -148,6 +149,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectExecutionGuard, ProjectExecutionGuard>();
         services.AddScoped<IAcademicStructureRepository, AcademicStructureRepository>();
         services.AddScoped<Application.Features.Supervisors.Abstractions.ISupervisorProfileRepository, SupervisorProfileRepository>();
+        services.AddScoped<ISupervisorCandidateRepository, SupervisorCandidateRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();

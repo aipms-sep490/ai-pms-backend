@@ -15,6 +15,17 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
 public sealed class SupervisorsController(ISender sender) : ControllerBase
 {
+    [HttpGet("/api/v1/projects/{projectId:long}/supervisor-candidates")]
+    [ProducesResponseType<PagedResult<SupervisorCandidateDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<PagedResult<SupervisorCandidateDto>>> Candidates(long projectId,
+        [FromQuery] string? search, [FromQuery] string? expertise,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default) =>
+        Ok(await sender.Send(new GetSupervisorCandidatesQuery(projectId, search, expertise, page, pageSize), cancellationToken));
+
     [HttpGet]
     [ProducesResponseType<PagedResult<SupervisorProfileDto>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
