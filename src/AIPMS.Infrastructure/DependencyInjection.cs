@@ -143,6 +143,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectAccessService, ProjectAccessService>();
         services.AddScoped<IProjectExecutionGuard, ProjectExecutionGuard>();
         services.AddScoped<IAcademicStructureRepository, AcademicStructureRepository>();
+        services.AddScoped<Application.Features.Supervisors.Abstractions.ISupervisorProfileRepository, SupervisorProfileRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
