@@ -243,7 +243,7 @@ public sealed class SupervisorEndpointTests(SupervisorDatabaseFixture database) 
 }
 
 internal sealed class SupervisorFactory(SupervisorDatabaseFixture database, bool failAudit = false,
-    SaveChangesInterceptor? saveInterceptor = null, TimeProvider? clock = null) : AipmsWebApplicationFactory
+    IInterceptor? saveInterceptor = null, TimeProvider? clock = null) : AipmsWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
