@@ -145,42 +145,69 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
-        if (!string.IsNullOrEmpty(expectedStatus))
-        {
-            var affected = await context.AcademicSemesters
-                .Where(s => s.Id == semesterId && s.Status == expectedStatus)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(b => b.Status, status)
-                    .SetProperty(b => b.UpdatedAt, utcNow), cancellationToken);
+        var useLocalTx = context.Database.CurrentTransaction == null;
+        var transaction = useLocalTx
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
-            if (affected == 0)
+        try
+        {
+            var lockKey = $"sem_lock_{semesterId}";
+            await context.Database.ExecuteSqlRawAsync(
+                "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                new object[] { lockKey },
+                cancellationToken);
+
+            if (!string.IsNullOrEmpty(expectedStatus))
             {
-                var currentStatus = await context.AcademicSemesters
-                    .Where(s => s.Id == semesterId)
-                    .Select(s => s.Status)
-                    .FirstOrDefaultAsync(cancellationToken);
+                var affected = await context.AcademicSemesters
+                    .Where(s => s.Id == semesterId && s.Status == expectedStatus)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(b => b.Status, status)
+                        .SetProperty(b => b.UpdatedAt, utcNow), cancellationToken);
 
-                if (currentStatus == null)
+                if (affected == 0)
                 {
-                    throw new NotFoundException("AcademicSemester", semesterId);
+                    var currentStatus = await context.AcademicSemesters
+                        .Where(s => s.Id == semesterId)
+                        .Select(s => s.Status)
+                        .FirstOrDefaultAsync(cancellationToken);
+
+                    if (currentStatus == null)
+                    {
+                        throw new NotFoundException("AcademicSemester", semesterId);
+                    }
+
+                    throw new ConflictException(
+                        $"Academic Semester status was modified concurrently (expected '{expectedStatus}', actual '{currentStatus}').");
                 }
-
-                throw new ConflictException(
-                    $"Academic Semester status was modified concurrently (expected '{expectedStatus}', actual '{currentStatus}').");
             }
+            else
+            {
+                var entity = await context.AcademicSemesters
+                    .SingleOrDefaultAsync(s => s.Id == semesterId, cancellationToken)
+                    ?? throw new NotFoundException("AcademicSemester", semesterId);
+
+                entity.Status = status;
+                entity.UpdatedAt = utcNow;
+                await SaveChangesAsync(cancellationToken);
+            }
+
+            if (transaction != null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+
+            return (await GetSemesterAsync(semesterId, cancellationToken))!;
         }
-        else
+        catch
         {
-            var entity = await context.AcademicSemesters
-                .SingleOrDefaultAsync(s => s.Id == semesterId, cancellationToken)
-                ?? throw new NotFoundException("AcademicSemester", semesterId);
-
-            entity.Status = status;
-            entity.UpdatedAt = utcNow;
-            await SaveChangesAsync(cancellationToken);
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+            throw;
         }
-
-        return (await GetSemesterAsync(semesterId, cancellationToken))!;
     }
 
     // ── ProjectPeriod ─────────────────────────────────────────────────────────
@@ -379,14 +406,40 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         try
         {
             var entity = await context.ProjectPeriods
+                .Include(p => p.AcademicSemester)
                 .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
                 ?? throw new NotFoundException("ProjectPeriod", periodId);
 
-            var lockKey = $"pp_lock_{entity.AcademicSemesterId}_{periodType}";
-            await context.Database.ExecuteSqlRawAsync(
-                "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
-                new object[] { lockKey },
-                cancellationToken);
+            var oldPeriodType = entity.PeriodType;
+            var newPeriodType = periodType;
+
+            var lockTypes = new List<string> { oldPeriodType };
+            if (!string.Equals(oldPeriodType, newPeriodType, StringComparison.OrdinalIgnoreCase))
+            {
+                lockTypes.Add(newPeriodType);
+            }
+            lockTypes.Sort(StringComparer.Ordinal);
+
+            foreach (var lockType in lockTypes)
+            {
+                var lockKey = $"pp_lock_{entity.AcademicSemesterId}_{lockType}";
+                await context.Database.ExecuteSqlRawAsync(
+                    "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                    new object[] { lockKey },
+                    cancellationToken);
+            }
+
+            if (entity.Status is "CLOSED" or "ARCHIVED")
+            {
+                throw new ConflictException(
+                    "A closed or archived project period cannot be modified.");
+            }
+
+            if (entity.AcademicSemester.Status is "CLOSED" or "ARCHIVED")
+            {
+                throw new ConflictException(
+                    "Cannot modify a project period belonging to a closed or archived semester.");
+            }
 
             bool hasOverlap = await context.ProjectPeriods.AnyAsync(
                 p => p.AcademicSemesterId == entity.AcademicSemesterId
@@ -464,14 +517,14 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
         try
         {
+            var lockKey = $"pp_lock_{entity.AcademicSemesterId}_{entity.PeriodType}";
+            await context.Database.ExecuteSqlRawAsync(
+                "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                new object[] { lockKey },
+                cancellationToken);
+
             if (status == "ACTIVE")
             {
-                var lockKey = $"pp_lock_{entity.AcademicSemesterId}_{entity.PeriodType}";
-                await context.Database.ExecuteSqlRawAsync(
-                    "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
-                    new object[] { lockKey },
-                    cancellationToken);
-
                 bool hasActiveOverlap = await context.ProjectPeriods.AnyAsync(
                     p => p.AcademicSemesterId == entity.AcademicSemesterId
                          && p.Id != periodId
@@ -553,6 +606,19 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         return await context.Projects
             .AsNoTracking()
             .AnyAsync(p => p.Team.AcademicSemesterId == semesterId && activeStatuses.Contains(p.Status), cancellationToken);
+    }
+
+    public async Task<bool> ValidateRubricUsableAsync(
+        long rubricId,
+        long semesterId,
+        CancellationToken cancellationToken = default)
+    {
+        return await context.Rubrics
+            .AsNoTracking()
+            .AnyAsync(r => r.Id == rubricId
+                           && r.IsActive
+                           && (r.AcademicSemesterId == null || r.AcademicSemesterId == semesterId),
+                cancellationToken);
     }
 
     public async Task<T> ExecuteInTransactionAsync<T>(

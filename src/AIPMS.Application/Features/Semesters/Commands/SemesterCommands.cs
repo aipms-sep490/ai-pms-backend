@@ -118,6 +118,27 @@ public sealed class UpdateSemesterCommandHandler(
                 "A semester with the same code already exists in this organization.");
         }
 
+        var childPeriods = await repository.GetProjectPeriodsAsync(
+            existing.Id,
+            search: null,
+            status: null,
+            periodType: null,
+            page: 1,
+            pageSize: 1000,
+            cancellationToken);
+
+        var newSemStart = request.StartDate.ToDateTime(TimeOnly.MinValue);
+        var newSemEnd = request.EndDate.ToDateTime(TimeOnly.MaxValue);
+
+        foreach (var period in childPeriods.Items)
+        {
+            if (period.Status != SemesterStatuses.Archived && (period.StartAt < newSemStart || period.EndAt > newSemEnd))
+            {
+                throw new ConflictException(
+                    $"Cannot update Academic Semester window ({request.StartDate:yyyy-MM-dd} - {request.EndDate:yyyy-MM-dd}): child Project Period '{period.Code}' ({period.StartAt:yyyy-MM-dd} - {period.EndAt:yyyy-MM-dd}) would fall outside the new semester bounds.");
+            }
+        }
+
         return await repository.ExecuteInTransactionAsync(async () =>
         {
             var semester = await repository.UpdateSemesterAsync(
@@ -199,6 +220,27 @@ public sealed class SetSemesterStatusCommandHandler(
         {
             throw new ConflictException(
                 $"Cannot transition semester from '{existing.Status}' to '{request.Status}'.");
+        }
+
+        if (request.Status is SemesterStatuses.Closed or SemesterStatuses.Archived)
+        {
+            var childPeriods = await repository.GetProjectPeriodsAsync(
+                existing.Id,
+                search: null,
+                status: null,
+                periodType: null,
+                page: 1,
+                pageSize: 1000,
+                cancellationToken);
+
+            var activeChild = childPeriods.Items.FirstOrDefault(p =>
+                p.Status is SemesterStatuses.Draft or SemesterStatuses.Upcoming or SemesterStatuses.Active);
+
+            if (activeChild != null)
+            {
+                throw new ConflictException(
+                    $"Cannot transition Academic Semester to '{request.Status}': child Project Period '{activeChild.Code}' is still in '{activeChild.Status}' status. All project periods must be closed or archived first.");
+            }
         }
 
         return await repository.ExecuteInTransactionAsync(async () =>

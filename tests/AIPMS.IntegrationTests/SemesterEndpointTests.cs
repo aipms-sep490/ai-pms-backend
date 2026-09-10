@@ -542,6 +542,10 @@ public sealed class SemesterEndpointTests
             long semesterId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
 
+        public Task<bool> ValidateRubricUsableAsync(
+            long rubricId, long semesterId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
         public Task<T> ExecuteInTransactionAsync<T>(
             Func<Task<T>> action, CancellationToken cancellationToken = default) =>
             action();

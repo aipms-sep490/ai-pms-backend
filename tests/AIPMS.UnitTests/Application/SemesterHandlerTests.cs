@@ -153,6 +153,12 @@ internal sealed class StubSemesterRepository : ISemesterRepository
         long semesterId, CancellationToken cancellationToken = default) =>
         Task.FromResult(HasActiveProjects);
 
+    public HashSet<long> UsableRubricIds { get; } = [];
+
+    public Task<bool> ValidateRubricUsableAsync(
+        long rubricId, long semesterId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(UsableRubricIds.Contains(rubricId));
+
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<Task<T>> action, CancellationToken cancellationToken = default) =>
         action();

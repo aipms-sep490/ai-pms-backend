@@ -69,6 +69,49 @@ public sealed class CreateProjectPeriodCommandHandler(
                 "A project period with the same code already exists in this semester.");
         }
 
+        if (request.MilestoneTemplateId.HasValue)
+        {
+            throw new ConflictException(
+                "Milestone template module/schema is currently unavailable (DEFERRED).");
+        }
+
+        if (request.RubricId.HasValue)
+        {
+            var isRubricUsable = await repository.ValidateRubricUsableAsync(
+                request.RubricId.Value,
+                request.AcademicSemesterId,
+                cancellationToken);
+
+            if (!isRubricUsable)
+            {
+                throw new ConflictException(
+                    $"Rubric with ID {request.RubricId.Value} does not exist, is inactive, or does not belong to this semester.");
+            }
+        }
+
+        int effMinTeam = request.MinTeamSize ?? 3;
+        int effMaxTeam = request.MaxTeamSize ?? 5;
+        int effMinMajors = request.MinDistinctMajors ?? 1;
+        int effMaxProjects = request.MaxProjectsPerSupervisor ?? 5;
+
+        if (effMinTeam < 1 || effMaxTeam < effMinTeam)
+        {
+            throw new ConflictException(
+                $"Invalid team size configuration: minTeamSize ({effMinTeam}) must be >= 1 and <= maxTeamSize ({effMaxTeam}).");
+        }
+
+        if (effMinMajors < 1 || effMinMajors > effMaxTeam)
+        {
+            throw new ConflictException(
+                $"Invalid distinct majors configuration: minDistinctMajors ({effMinMajors}) must be >= 1 and <= maxTeamSize ({effMaxTeam}).");
+        }
+
+        if (effMaxProjects < 1)
+        {
+            throw new ConflictException(
+                $"Invalid supervisor quota configuration: maxProjectsPerSupervisor ({effMaxProjects}) must be >= 1.");
+        }
+
         // Check for chronological overlap with existing periods of the same type in this semester
         var existingPeriods = await repository.GetProjectPeriodsAsync(
             request.AcademicSemesterId,
@@ -226,6 +269,49 @@ public sealed class UpdateProjectPeriodCommandHandler(
                 $"Project Period window overlaps with an existing '{request.PeriodType}' period in this semester.");
         }
 
+        if (request.MilestoneTemplateId.HasValue)
+        {
+            throw new ConflictException(
+                "Milestone template module/schema is currently unavailable (DEFERRED).");
+        }
+
+        if (request.RubricId.HasValue && request.RubricId.Value != existing.RubricId)
+        {
+            var isRubricUsable = await repository.ValidateRubricUsableAsync(
+                request.RubricId.Value,
+                existing.AcademicSemesterId,
+                cancellationToken);
+
+            if (!isRubricUsable)
+            {
+                throw new ConflictException(
+                    $"Rubric with ID {request.RubricId.Value} does not exist, is inactive, or does not belong to this semester.");
+            }
+        }
+
+        int effMinTeam = request.MinTeamSize ?? existing.MinTeamSize ?? 3;
+        int effMaxTeam = request.MaxTeamSize ?? existing.MaxTeamSize ?? 5;
+        int effMinMajors = request.MinDistinctMajors ?? existing.MinDistinctMajors ?? 1;
+        int effMaxProjects = request.MaxProjectsPerSupervisor ?? existing.MaxProjectsPerSupervisor ?? 5;
+
+        if (effMinTeam < 1 || effMaxTeam < effMinTeam)
+        {
+            throw new ConflictException(
+                $"Invalid team size configuration: minTeamSize ({effMinTeam}) must be >= 1 and <= maxTeamSize ({effMaxTeam}).");
+        }
+
+        if (effMinMajors < 1 || effMinMajors > effMaxTeam)
+        {
+            throw new ConflictException(
+                $"Invalid distinct majors configuration: minDistinctMajors ({effMinMajors}) must be >= 1 and <= maxTeamSize ({effMaxTeam}).");
+        }
+
+        if (effMaxProjects < 1)
+        {
+            throw new ConflictException(
+                $"Invalid supervisor quota configuration: maxProjectsPerSupervisor ({effMaxProjects}) must be >= 1.");
+        }
+
         // Check for unsafe retroactive updates when active projects exist in the semester
         bool hasActiveProjects = await repository.HasActiveProjectsAsync(
             existing.AcademicSemesterId,
@@ -292,7 +378,35 @@ public sealed class UpdateProjectPeriodCommandHandler(
                     {
                         ["code"] = period.Code,
                         ["name"] = period.Name,
-                        ["periodType"] = period.PeriodType
+                        ["periodType"] = period.PeriodType,
+                        ["before"] = new Dictionary<string, object?>
+                        {
+                            ["code"] = existing.Code,
+                            ["name"] = existing.Name,
+                            ["periodType"] = existing.PeriodType,
+                            ["startAt"] = existing.StartAt,
+                            ["endAt"] = existing.EndAt,
+                            ["minTeamSize"] = existing.MinTeamSize,
+                            ["maxTeamSize"] = existing.MaxTeamSize,
+                            ["minDistinctMajors"] = existing.MinDistinctMajors,
+                            ["maxProjectsPerSupervisor"] = existing.MaxProjectsPerSupervisor,
+                            ["milestoneTemplateId"] = existing.MilestoneTemplateId,
+                            ["rubricId"] = existing.RubricId
+                        },
+                        ["after"] = new Dictionary<string, object?>
+                        {
+                            ["code"] = period.Code,
+                            ["name"] = period.Name,
+                            ["periodType"] = period.PeriodType,
+                            ["startAt"] = period.StartAt,
+                            ["endAt"] = period.EndAt,
+                            ["minTeamSize"] = period.MinTeamSize,
+                            ["maxTeamSize"] = period.MaxTeamSize,
+                            ["minDistinctMajors"] = period.MinDistinctMajors,
+                            ["maxProjectsPerSupervisor"] = period.MaxProjectsPerSupervisor,
+                            ["milestoneTemplateId"] = period.MilestoneTemplateId,
+                            ["rubricId"] = period.RubricId
+                        }
                     }),
                 cancellationToken);
 

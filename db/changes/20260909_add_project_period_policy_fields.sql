@@ -20,28 +20,28 @@ BEGIN TRY
     -- min_team_size
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'min_team_size')
     BEGIN
-        ALTER TABLE dbo.project_periods ADD min_team_size INT NULL CONSTRAINT df_project_periods_min_team_size DEFAULT (3);
+        ALTER TABLE dbo.project_periods ADD min_team_size INT NULL CONSTRAINT df_project_periods_min_team_size DEFAULT (3) WITH VALUES;
         PRINT 'Added column [min_team_size] to [dbo].[project_periods].';
     END
 
     -- max_team_size
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'max_team_size')
     BEGIN
-        ALTER TABLE dbo.project_periods ADD max_team_size INT NULL CONSTRAINT df_project_periods_max_team_size DEFAULT (5);
+        ALTER TABLE dbo.project_periods ADD max_team_size INT NULL CONSTRAINT df_project_periods_max_team_size DEFAULT (5) WITH VALUES;
         PRINT 'Added column [max_team_size] to [dbo].[project_periods].';
     END
 
     -- min_distinct_majors
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'min_distinct_majors')
     BEGIN
-        ALTER TABLE dbo.project_periods ADD min_distinct_majors INT NULL CONSTRAINT df_project_periods_min_distinct_majors DEFAULT (1);
+        ALTER TABLE dbo.project_periods ADD min_distinct_majors INT NULL CONSTRAINT df_project_periods_min_distinct_majors DEFAULT (1) WITH VALUES;
         PRINT 'Added column [min_distinct_majors] to [dbo].[project_periods].';
     END
 
     -- max_projects_per_supervisor
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'max_projects_per_supervisor')
     BEGIN
-        ALTER TABLE dbo.project_periods ADD max_projects_per_supervisor INT NULL CONSTRAINT df_project_periods_max_projects_per_supervisor DEFAULT (5);
+        ALTER TABLE dbo.project_periods ADD max_projects_per_supervisor INT NULL CONSTRAINT df_project_periods_max_projects_per_supervisor DEFAULT (5) WITH VALUES;
         PRINT 'Added column [max_projects_per_supervisor] to [dbo].[project_periods].';
     END
 
@@ -63,27 +63,27 @@ BEGIN TRY
 
     IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'ck_project_periods_team_size')
     BEGIN
-        ALTER TABLE dbo.project_periods ADD CONSTRAINT ck_project_periods_team_size CHECK (
+        EXEC(N'ALTER TABLE dbo.project_periods ADD CONSTRAINT ck_project_periods_team_size CHECK (
             (min_team_size IS NULL AND max_team_size IS NULL) OR
             (min_team_size >= 1 AND max_team_size >= min_team_size)
-        );
+        );');
         PRINT 'Added constraint ck_project_periods_team_size.';
     END
 
     IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'ck_project_periods_majors')
     BEGIN
-        ALTER TABLE dbo.project_periods ADD CONSTRAINT ck_project_periods_majors CHECK (
+        EXEC(N'ALTER TABLE dbo.project_periods ADD CONSTRAINT ck_project_periods_majors CHECK (
             min_distinct_majors IS NULL OR
             (min_distinct_majors >= 1 AND (max_team_size IS NULL OR min_distinct_majors <= max_team_size))
-        );
+        );');
         PRINT 'Added constraint ck_project_periods_majors.';
     END
 
     IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'ck_project_periods_supervisor')
     BEGIN
-        ALTER TABLE dbo.project_periods ADD CONSTRAINT ck_project_periods_supervisor CHECK (
+        EXEC(N'ALTER TABLE dbo.project_periods ADD CONSTRAINT ck_project_periods_supervisor CHECK (
             max_projects_per_supervisor IS NULL OR max_projects_per_supervisor >= 1
-        );
+        );');
         PRINT 'Added constraint ck_project_periods_supervisor.';
     END
 
@@ -92,8 +92,8 @@ BEGIN TRY
     IF EXISTS (SELECT * FROM sys.tables WHERE object_id = OBJECT_ID(N'dbo.rubrics'))
        AND NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'fk_project_periods_rubric')
     BEGIN
-        ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_rubric FOREIGN KEY (rubric_id)
-            REFERENCES dbo.rubrics(id) ON DELETE NO ACTION ON UPDATE NO ACTION;
+        EXEC(N'ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_rubric FOREIGN KEY (rubric_id)
+            REFERENCES dbo.rubrics(id) ON DELETE NO ACTION ON UPDATE NO ACTION;');
         PRINT 'Added foreign key fk_project_periods_rubric.';
     END
 
