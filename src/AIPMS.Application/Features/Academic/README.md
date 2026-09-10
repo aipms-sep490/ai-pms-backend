@@ -19,6 +19,6 @@ Department also deactivates its Majors. Reactivating a parent does not
 automatically reactivate its children.
 
 Structural changes are emitted through `IAuditTrail`. The current Infrastructure
-implementation writes structured audit events to the configured logs; BE-10 can
-replace this implementation with persistent audit storage without changing the
-Academic handlers.
+implementation, `DatabaseAuditTrail`, persists audit events in SQL Server.
+The adapter lives in `Infrastructure/Services/Auditing`; Academic handlers depend
+only on the audit interface.

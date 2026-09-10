@@ -12,7 +12,6 @@ using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.Commands;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Projects.Queries;
-using AIPMS.Application.Features.Teams;
 using MediatR;
 using Xunit;
 

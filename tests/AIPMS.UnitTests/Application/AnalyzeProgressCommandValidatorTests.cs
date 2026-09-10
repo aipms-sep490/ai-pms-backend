@@ -1,4 +1,5 @@
-using AIPMS.Application.Features.ProgressReports.Commands.AnalyzeProgress;
+using AIPMS.Application.Features.ProgressReports.Commands;
+using AIPMS.Application.Features.ProgressReports.Validators;
 
 namespace AIPMS.UnitTests.Application;
 

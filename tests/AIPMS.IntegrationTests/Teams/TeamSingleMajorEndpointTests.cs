@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
-using AIPMS.Application.Features.Teams;
+using AIPMS.Application.Features.Teams.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
