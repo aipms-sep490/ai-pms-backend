@@ -151,6 +151,7 @@ public static class DependencyInjection
         services.AddScoped<Application.Features.Supervisors.Abstractions.ISupervisorProfileRepository, SupervisorProfileRepository>();
         services.AddScoped<ISupervisorCandidateRepository, SupervisorCandidateRepository>();
         services.AddScoped<ISupervisorRequestRepository, SupervisorRequestRepository>();
+        services.AddScoped<ISupervisorAssignmentRepository, SupervisorAssignmentRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();

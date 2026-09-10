@@ -1,8 +1,10 @@
-# Supervisors — BE-07, profiles, candidates and requests
+# Supervisors — BE-07, profiles, candidates, requests and assignments
 
 Profile/expertise APIs run against the existing schema. Project candidates use
-the persisted BE-12 supervisor-selection quota. This does **not** complete issue
-#12: assignment read/end APIs and template-based workspace initialization remain follow-up work.
+the persisted BE-12 supervisor-selection quota. Assignment read/end APIs complete
+the request lifecycle. Workspace uses the existing project/team and milestone/task
+APIs; template-based milestone initialization is deferred until a template module
+and schema exist (BE-12 currently rejects template configuration).
 
 ## API contract
 
@@ -22,6 +24,10 @@ are **supervisor profile IDs**; provisioning explicitly uses a **user ID**.
 | POST | `/api/v1/supervisor-requests/{requestId}/cancel` | Current student team leader cancels a pending request; no body. |
 | POST | `/api/v1/supervisor-requests/{requestId}/accept` | Requested lecturer accepts with `{ "message": "..." }`; returns request DTO including assignment ID. |
 | POST | `/api/v1/supervisor-requests/{requestId}/reject` | Requested lecturer rejects with `{ "message": "..." }`. |
+| GET | `/api/v1/projects/{projectId}/supervisor-assignments` | Project readers list assignments; optional `status=ACTIVE\|ENDED`, `page`, `pageSize`. Omit status for all records. |
+| GET | `/api/v1/supervisors/assignments` | Lecturer's own current and ended assignments, with the same filters and pagination. |
+| GET | `/api/v1/supervisor-assignments/{assignmentId}` | Assignment detail for project readers or its lecturer, including after ending. |
+| POST | `/api/v1/supervisor-assignments/{assignmentId}/end` | End an assignment on a completed/archived project with `{ "reason": "Guidance completed" }`. Returns assignment DTO (200). |
 
 `proficiencyLevel` is optional descriptive text, not a scored/ranked qualification.
 Names are trimmed and duplicate names ignoring case/outer whitespace are rejected.
@@ -105,8 +111,8 @@ rules and response mapping. No migration or generated-model edits are required.
   IDs are taken from the stored request, never supplied separately by the responder.
 - Existing project/team data forms the execution workspace; activating the project
   enables the existing milestone/task APIs. This slice does not invent default
-  milestones or instantiate a template. Template-based initialization and assignment
-  listing/ending are the next slice; do not mark all of BE-07 complete yet.
+  milestones or instantiate a template. Template-based initialization is deferred
+  by the agreed scope; it requires its own module/schema review.
 - All decisions record actor/time and before/after audit data in the same transaction.
   Assignment and project audit events reference their respective entities. Automatic
   cancellation records the winning request ID. Any failure, including the final audit
@@ -127,3 +133,40 @@ rules and response mapping. No migration or generated-model edits are required.
 `SupervisorRequestEndpointTests` covers the request lifecycle, persisted permissions,
 stale eligibility, concurrent duplicate sends/accepts/cancel, idempotent replay and
 rollback. Handler and validator unit tests cover decision replays and input contracts.
+
+## Assignment lifecycle and workspace
+
+- Assignment IDs, profile IDs, user IDs and request IDs are distinct fields in the
+  response. It includes the supervisor's public name, primary flag, assigned time
+  and ended time, without account contact/security data.
+- Project assignment lists require existing project read access. The lecturer's
+  own list and detail retain their historical assignment records after ending,
+  without restoring access to the project's workspace. Lists sort by assigned time
+  descending then ID descending, with page 1..1000000 and pageSize 1..100.
+  `ACTIVE` means `ended_at IS NULL`, independent of the project's lifecycle status.
+- Ending requires an active persisted admin, the assigned active lecturer in an
+  active academic scope, or active Department Staff whose department has an active
+  project major. Student leaders and other project readers cannot end assignments.
+  Token role claims and profile availability do not grant this permission.
+- Only `COMPLETED` or `ARCHIVED` projects can end an unended assignment. There is
+  no supervisor replacement transition in the current project state machine;
+  ending assignments on unfinished projects returns 409. Ending does not change
+  the project status, accepted request, primary flag or existing workspace data.
+- The nonblank reason (max 2000 characters, trimmed) is stored in audit with actor,
+  time and before/after assignment data. The server writes `ended_at`/`updated_at`
+  atomically with `SUPERVISOR_ASSIGNMENT_ENDED`; audit failure rolls back the end.
+  Both capacity limits then stop counting this assignment.
+- End locks the assignment and shares the request workflow's supervisor/project
+  locks. Concurrent end/accept conflicts return 409 and may be retried. Repeating
+  an end first rechecks permission, then returns the original end time without
+  changing its reason or producing another audit. End never deletes/reopens data.
+- Acceptance already atomically grants supervisor project access through the
+  assignment and activates the existing team/project workspace. The workspace
+  starts with no generated milestones; its existing milestone/task APIs are usable
+  immediately after acceptance. An accept replay preserves all user-created work.
+
+`SupervisorAssignmentEndpointTests` verifies workspace usability, request-to-assignment
+identity, end permissions, historical access, both capacity releases, concurrent
+end/accept, idempotency and audit rollback against an isolated SQL database.
+Handler/validator unit tests cover rules and input bounds. No schema or generated
+model changes, SQL rollout, or template defaults are required by this slice.
