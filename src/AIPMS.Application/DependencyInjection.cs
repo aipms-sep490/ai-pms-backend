@@ -2,6 +2,7 @@ using AIPMS.Application.Common.Behaviors;
 using AIPMS.Application.Features.Academic.Services;
 using AIPMS.Application.Features.AccountSecurity.Services;
 using AIPMS.Application.Features.Semesters.Services;
+using AIPMS.Application.Features.Supervisors.Services;
 using AIPMS.Application.Features.Teams.Abstractions;
 using AIPMS.Application.Features.Teams.Services;
 using FluentValidation;
@@ -26,6 +27,7 @@ public static class DependencyInjection
         services.AddScoped<AcademicAccessService>();
         services.AddScoped<AccountSecurityAccessService>();
         services.AddScoped<SemesterAccessService>();
+        services.AddScoped<SupervisorAccessService>();
         services.AddScoped<TeamWorkflow>();
         services.AddScoped<ITeamRegistrationGuard, TeamRegistrationGuard>();
 
