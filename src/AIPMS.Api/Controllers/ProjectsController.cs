@@ -6,7 +6,6 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Projects.Commands;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Projects.Queries;
-using AIPMS.Application.Features.Projects.Queries.GetProjectLifecycle;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;

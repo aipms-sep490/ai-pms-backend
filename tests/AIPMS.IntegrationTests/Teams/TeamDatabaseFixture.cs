@@ -19,7 +19,7 @@ public sealed class TeamDatabaseFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         var source = Environment.GetEnvironmentVariable("AIPMS_TEAM_TEST_SQL_CONNECTION");
-        if (string.IsNullOrWhiteSpace(source) && Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true")
+        if (string.IsNullOrWhiteSpace(source))
             source = Environment.GetEnvironmentVariable("AIPMS_TEST_SQL_CONNECTION");
         await database.StartAsync(source);
         try

@@ -95,16 +95,22 @@ CREATE TABLE dbo.academic_semesters (
 GO
 
 CREATE TABLE dbo.project_periods (
-    id                  BIGINT IDENTITY(1,1) NOT NULL,
-    academic_semester_id BIGINT NOT NULL,
-    code                NVARCHAR(50) NOT NULL,
-    name                NVARCHAR(255) NOT NULL,
-    period_type         NVARCHAR(50) NOT NULL,
-    start_at            DATETIME2(0) NOT NULL,
-    end_at              DATETIME2(0) NOT NULL,
-    status              NVARCHAR(20) NOT NULL CONSTRAINT df_project_periods_status DEFAULT (N'DRAFT'),
-    created_at          DATETIME2(0) NOT NULL CONSTRAINT df_project_periods_created_at DEFAULT (SYSUTCDATETIME()),
-    updated_at          DATETIME2(0) NOT NULL CONSTRAINT df_project_periods_updated_at DEFAULT (SYSUTCDATETIME()),
+    id                          BIGINT IDENTITY(1,1) NOT NULL,
+    academic_semester_id         BIGINT NOT NULL,
+    code                        NVARCHAR(50) NOT NULL,
+    name                        NVARCHAR(255) NOT NULL,
+    period_type                 NVARCHAR(50) NOT NULL,
+    start_at                    DATETIME2(0) NOT NULL,
+    end_at                      DATETIME2(0) NOT NULL,
+    status                      NVARCHAR(20) NOT NULL CONSTRAINT df_project_periods_status DEFAULT (N'DRAFT'),
+    min_team_size               INT NULL CONSTRAINT df_project_periods_min_team_size DEFAULT (3),
+    max_team_size               INT NULL CONSTRAINT df_project_periods_max_team_size DEFAULT (5),
+    min_distinct_majors         INT NULL CONSTRAINT df_project_periods_min_distinct_majors DEFAULT (1),
+    max_projects_per_supervisor INT NULL CONSTRAINT df_project_periods_max_projects_per_supervisor DEFAULT (5),
+    milestone_template_id          BIGINT NULL,
+    rubric_id                   BIGINT NULL,
+    created_at                  DATETIME2(0) NOT NULL CONSTRAINT df_project_periods_created_at DEFAULT (SYSUTCDATETIME()),
+    updated_at                  DATETIME2(0) NOT NULL CONSTRAINT df_project_periods_updated_at DEFAULT (SYSUTCDATETIME()),
     CONSTRAINT pk_project_periods PRIMARY KEY (id),
     CONSTRAINT uq_project_periods_semester_code UNIQUE (academic_semester_id, code),
     CONSTRAINT ck_project_periods_dates CHECK (end_at >= start_at),
@@ -113,6 +119,17 @@ CREATE TABLE dbo.project_periods (
         N'EXECUTION', N'FINAL_SUBMISSION', N'EVALUATION'
     )),
     CONSTRAINT ck_project_periods_status CHECK (status IN (N'DRAFT', N'UPCOMING', N'ACTIVE', N'CLOSED', N'ARCHIVED')),
+    CONSTRAINT ck_project_periods_team_size CHECK (
+        (min_team_size IS NULL AND max_team_size IS NULL) OR
+        (min_team_size >= 1 AND max_team_size >= min_team_size)
+    ),
+    CONSTRAINT ck_project_periods_majors CHECK (
+        min_distinct_majors IS NULL OR
+        (min_distinct_majors >= 1 AND (max_team_size IS NULL OR min_distinct_majors <= max_team_size))
+    ),
+    CONSTRAINT ck_project_periods_supervisor CHECK (
+        max_projects_per_supervisor IS NULL OR max_projects_per_supervisor >= 1
+    ),
     CONSTRAINT fk_project_periods_semester FOREIGN KEY (academic_semester_id)
         REFERENCES dbo.academic_semesters(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
@@ -888,6 +905,10 @@ CREATE TABLE dbo.rubrics (
     CONSTRAINT fk_rubrics_created_by FOREIGN KEY (created_by)
         REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
+GO
+
+ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_rubric
+    FOREIGN KEY (rubric_id) REFERENCES dbo.rubrics(id) ON DELETE NO ACTION ON UPDATE NO ACTION;
 GO
 
 CREATE TABLE dbo.rubric_criteria (

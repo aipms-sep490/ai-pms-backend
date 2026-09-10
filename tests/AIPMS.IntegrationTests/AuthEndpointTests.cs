@@ -3,7 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Features.Auth.Abstractions;
-using AIPMS.Application.Features.Auth.Commands.Login;
+using AIPMS.Application.Features.Auth.Commands;
 using AIPMS.Application.Features.Auth.DTOs;
 using AIPMS.Application.Features.Auth.Models;
 using Microsoft.AspNetCore.Hosting;

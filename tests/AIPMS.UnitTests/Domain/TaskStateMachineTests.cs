@@ -1,4 +1,4 @@
-using AIPMS.Application.Features.Tasks.Domain;
+using AIPMS.Domain.Tasks;
 using Xunit;
 
 namespace AIPMS.UnitTests.Domain;

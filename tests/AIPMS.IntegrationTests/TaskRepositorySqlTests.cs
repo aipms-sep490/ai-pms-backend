@@ -6,6 +6,7 @@ using AIPMS.Infrastructure.Identity;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Repositories;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 using Task = System.Threading.Tasks.Task;

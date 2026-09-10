@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using AIPMS.Application.Features.Tasks.Commands;
 using AIPMS.Application.Features.Tasks.Queries;
+using AIPMS.Application.Features.Tasks.Validators;
 using FluentValidation.TestHelper;
 using Xunit;
 

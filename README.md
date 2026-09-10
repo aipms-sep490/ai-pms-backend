@@ -6,6 +6,8 @@ ASP.NET Core backend for the AI-Powered Academic Project Progress Management Sys
 
 The solution follows Clean Architecture with feature-based use cases:
 
+Folder and namespace conventions are documented in [Backend structure](docs/BACKEND_STRUCTURE.md).
+
 ```text
 Api -> Application -> Domain
 Api -> Infrastructure -> Application / Domain
