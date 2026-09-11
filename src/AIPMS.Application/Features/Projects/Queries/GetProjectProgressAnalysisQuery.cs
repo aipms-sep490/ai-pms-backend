@@ -13,15 +13,6 @@ namespace AIPMS.Application.Features.Projects.Queries;
 
 public sealed record GetProjectProgressAnalysisQuery(long ProjectId) : IRequest<ProjectProgressAnalysisDto>;
 
-public sealed class GetProjectProgressAnalysisQueryValidator : AbstractValidator<GetProjectProgressAnalysisQuery>
-{
-    public GetProjectProgressAnalysisQueryValidator()
-    {
-        RuleFor(static x => x.ProjectId)
-            .GreaterThan(0).WithMessage("ProjectId must be greater than 0.");
-    }
-}
-
 public sealed class GetProjectProgressAnalysisQueryHandler(
     IProjectProgressDataReader dataReader,
     IProgressAnalysisService aiService,
