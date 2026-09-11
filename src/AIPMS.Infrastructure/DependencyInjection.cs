@@ -163,7 +163,7 @@ public static class DependencyInjection
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
         services.AddScoped<ITeamInvitationCandidateReader, TeamInvitationCandidateReader>();
-        services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, ConfiguredTeamFormationPolicyProvider>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, DatabaseTeamFormationPolicyProvider>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
         services.AddScoped<IPasswordResetNotifier, SmtpPasswordResetNotifier>();
 

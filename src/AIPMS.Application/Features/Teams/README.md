@@ -71,8 +71,31 @@ Responses use the shared ProblemDetails pipeline: 400 invalid query, 401 missing
 authentication, 403 non-leader/non-student, 404 missing team, and 409 unavailable
 window/policy, locked/full team or incompatible academic context.
 
-This endpoint uses the current ITeamFormationPolicyProvider. It does not implement
-the separate BE-12 database-policy adapter: deployments still need explicit
-`TeamFormation:Periods:{registrationPeriodId}:MinMembers`, MaxMembers,
-InvitationHours and Version settings until that adapter is integrated. No schema
-change is required by candidate search.
+## BE-12 database policy (Foundation)
+
+Teams uses DatabaseTeamFormationPolicyProvider to read MinTeamSize, MaxTeamSize
+and MinDistinctMajors from the applicable REGISTRATION row in project_periods.
+Create, invite, accept, eligibility, project registration and invitation candidate
+search consume this policy. Candidate search rejects a team at the DB member limit;
+transactional invite/accept operations recheck the current limits.
+
+Missing or invalid policy blocks operations. When both size limits are null, the
+policy is unconfigured; otherwise a null minimum defaults to 3 and a null maximum
+to 5. A null MinDistinctMajors defaults to 1. Foundation supports single-major
+teams only: MinDistinctMajors > 1 returns 409 for operations requiring a usable
+policy, while team reads expose UNSUPPORTED_HYBRID_POLICY and CanRegister=false.
+
+Invitation expiry remains a separate Teams setting: a valid 1..720-hour value in
+`TeamFormation:Periods:{registrationPeriodId}:InvitationHours` takes precedence
+over `TeamFormation:DefaultInvitationHours`; otherwise the fallback is 24 hours.
+The former configuration MinMembers, MaxMembers and Version values no longer
+control the DB provider. PolicyVersion is a deterministic fingerprint of period
+ID and effective DB team limits; unrelated period edits and invitation expiry
+settings do not change it.
+
+Full Hybrid support (ProjectMode, PrimaryMajor, per-major quotas and participating
+department decisions; SRS BR-45/47/49/55/56) remains deferred. The fingerprint is
+not a persisted submission snapshot: historical policy and academic-scope
+snapshots required by BR-35 also remain deferred. Milestone template management
+and immutable rubric versions retain their separately agreed scopes. This
+Foundation integration introduces no schema migration.

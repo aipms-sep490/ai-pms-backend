@@ -113,4 +113,22 @@ public sealed class TeamRulesTests
         Assert.True(TeamRules.IsInvitationExpired(now, now));
         Assert.False(TeamRules.IsInvitationExpired(now.AddSeconds(1), now));
     }
+
+    [Fact]
+    public void Interdisciplinary_policy_in_foundation_fails_closed_with_unsupported_hybrid()
+    {
+        var policy = new TeamFormationPolicy(2, 4, 24, "v2", MinDistinctMajors: 2);
+        Assert.True(policy.IsValid);
+
+        // In Foundation scope, MinDistinctMajors > 1 fails closed
+        var errors = TeamRules.EligibilityErrors(
+            [Student(1, 10, true), Student(2, 20)], policy, 1);
+        Assert.Contains("UNSUPPORTED_HYBRID_POLICY", errors);
+    }
+
+    [Theory]
+    [InlineData(2, 4, 0)]
+    [InlineData(2, 4, 5)]
+    public void Min_distinct_majors_must_be_positive_and_not_exceed_max_members(int min, int max, int majors) =>
+        Assert.False(new TeamFormationPolicy(min, max, 24, "v1", majors).IsValid);
 }
