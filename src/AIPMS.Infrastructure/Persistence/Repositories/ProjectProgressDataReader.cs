@@ -11,6 +11,11 @@ namespace AIPMS.Infrastructure.Persistence.Repositories;
 
 public sealed class ProjectProgressDataReader(AipmsDbContext context) : IProjectProgressDataReader
 {
+    public Task<bool> ProjectExistsAsync(
+        long projectId,
+        CancellationToken cancellationToken) =>
+        context.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, cancellationToken);
+
     public async Task<ProjectProgressFacts?> GetProjectProgressFactsAsync(
         long projectId,
         CancellationToken cancellationToken)

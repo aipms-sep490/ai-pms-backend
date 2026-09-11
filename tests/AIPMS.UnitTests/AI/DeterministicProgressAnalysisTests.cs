@@ -147,4 +147,168 @@ public sealed class DeterministicProgressAnalysisTests
         Assert.Equal(run1.Factors.Count, run2.Factors.Count);
         Assert.Equal(run1.Recommendations.Count, run2.Recommendations.Count);
     }
+
+    [Fact]
+    public void Analyze_HighBlockedTasks_TriggersBlockedRuleAndCriticalRisk()
+    {
+        var service = new RuleBasedProgressAnalysisService();
+        var facts = new ProjectProgressFacts(
+            ProjectId: 101,
+            ProjectStatus: "ACTIVE",
+            TeamId: 1,
+            TeamMemberCount: 4,
+            Milestones: new List<MilestoneFact>
+            {
+                new(1, "M1", "IN_PROGRESS", DateOnly.FromDateTime(FixedNow), DateOnly.FromDateTime(FixedNow.AddDays(10)), 1)
+            },
+            Tasks: new List<TaskFact>
+            {
+                new(1, 1, "Blocked 1", "BLOCKED", "HIGH", FixedNow, FixedNow.AddDays(5), null, 1),
+                new(2, 1, "Blocked 2", "BLOCKED", "HIGH", FixedNow, FixedNow.AddDays(5), null, 1),
+                new(3, 1, "Active 3", "TODO", "NORMAL", FixedNow, FixedNow.AddDays(5), null, 1)
+            },
+            ProgressReports: Array.Empty<ProgressReportFact>(),
+            Meetings: Array.Empty<MeetingFact>());
+
+        var result = service.Analyze(facts, FixedNow);
+
+        Assert.Equal("CRITICAL", result.RiskLevel);
+        Assert.Contains(result.Factors, f => f.Code == "BLOCKED_TASKS");
+        Assert.Contains(result.Recommendations, r => r.Contains("supervisor"));
+    }
+
+    [Fact]
+    public void Analyze_MilestoneNearDueWithPendingDeliverables_TriggersNearDueRule()
+    {
+        var service = new RuleBasedProgressAnalysisService();
+        var facts = new ProjectProgressFacts(
+            ProjectId: 101,
+            ProjectStatus: "ACTIVE",
+            TeamId: 1,
+            TeamMemberCount: 4,
+            Milestones: new List<MilestoneFact>
+            {
+                new(1, "Near Due M1", "IN_PROGRESS", DateOnly.FromDateTime(FixedNow.AddDays(-7)), DateOnly.FromDateTime(FixedNow.AddDays(3)), 1)
+            },
+            Tasks: new List<TaskFact>
+            {
+                new(1, 1, "Task 1", "IN_PROGRESS", "NORMAL", FixedNow, FixedNow.AddDays(2), null, 1)
+            },
+            ProgressReports: Array.Empty<ProgressReportFact>(),
+            Meetings: Array.Empty<MeetingFact>());
+
+        var result = service.Analyze(facts, FixedNow);
+
+        Assert.Equal(1, result.FeatureSnapshot.MilestoneNearDueCount);
+        Assert.Contains(result.Factors, f => f.Code == "MILESTONE_DUE_SOON_LOW_COMPLETION");
+        Assert.Contains(result.Recommendations, r => r.Contains("Expedite"));
+    }
+
+    [Fact]
+    public void Analyze_MissingProgressReports_TriggersMissingReportRule()
+    {
+        var service = new RuleBasedProgressAnalysisService();
+        var facts = new ProjectProgressFacts(
+            ProjectId: 101,
+            ProjectStatus: "ACTIVE",
+            TeamId: 1,
+            TeamMemberCount: 4,
+            Milestones: new List<MilestoneFact>
+            {
+                new(1, "M1", "COMPLETED", DateOnly.FromDateTime(FixedNow.AddDays(-20)), DateOnly.FromDateTime(FixedNow.AddDays(-10)), 1)
+            },
+            Tasks: new List<TaskFact>
+            {
+                new(1, 1, "Task 1", "DONE", "NORMAL", FixedNow.AddDays(-20), FixedNow.AddDays(-10), FixedNow.AddDays(-12), 1)
+            },
+            ProgressReports: new List<ProgressReportFact>
+            {
+                new(1, "PERIODIC", DateOnly.FromDateTime(FixedNow.AddDays(-14)), DateOnly.FromDateTime(FixedNow.AddDays(-7)), "DRAFT", null)
+            },
+            Meetings: Array.Empty<MeetingFact>());
+
+        var result = service.Analyze(facts, FixedNow);
+
+        Assert.Equal(1, result.FeatureSnapshot.MissingReportCount);
+        Assert.Contains(result.Factors, f => f.Code == "MISSING_PROGRESS_REPORT");
+        Assert.Contains(result.Recommendations, r => r.Contains("overdue progress reports"));
+    }
+
+    [Fact]
+    public void Analyze_UnassignedActiveTasks_TriggersUnassignedRule()
+    {
+        var service = new RuleBasedProgressAnalysisService();
+        var facts = new ProjectProgressFacts(
+            ProjectId: 101,
+            ProjectStatus: "ACTIVE",
+            TeamId: 1,
+            TeamMemberCount: 4,
+            Milestones: new List<MilestoneFact>
+            {
+                new(1, "M1", "COMPLETED", DateOnly.FromDateTime(FixedNow.AddDays(-10)), DateOnly.FromDateTime(FixedNow.AddDays(-1)), 1)
+            },
+            Tasks: new List<TaskFact>
+            {
+                new(1, 1, "Unassigned 1", "TODO", "NORMAL", FixedNow, FixedNow.AddDays(5), null, 0),
+                new(2, 1, "Assigned 2", "TODO", "NORMAL", FixedNow, FixedNow.AddDays(5), null, 1)
+            },
+            ProgressReports: Array.Empty<ProgressReportFact>(),
+            Meetings: Array.Empty<MeetingFact>());
+
+        var result = service.Analyze(facts, FixedNow);
+
+        Assert.Equal(0.5, result.FeatureSnapshot.UnassignedTaskRatio);
+        Assert.Contains(result.Factors, f => f.Code == "UNASSIGNED_TASKS");
+    }
+
+    [Fact]
+    public void Analyze_ContributionVariance_MarkedNullPendingBE13()
+    {
+        var service = new RuleBasedProgressAnalysisService();
+        var facts = new ProjectProgressFacts(
+            ProjectId: 101,
+            ProjectStatus: "ACTIVE",
+            TeamId: 1,
+            TeamMemberCount: 4,
+            Milestones: new List<MilestoneFact>
+            {
+                new(1, "M1", "COMPLETED", DateOnly.FromDateTime(FixedNow.AddDays(-10)), DateOnly.FromDateTime(FixedNow.AddDays(-1)), 1)
+            },
+            Tasks: new List<TaskFact>
+            {
+                new(1, 1, "Task 1", "DONE", "NORMAL", FixedNow.AddDays(-10), FixedNow.AddDays(-1), FixedNow.AddDays(-2), 1)
+            },
+            ProgressReports: Array.Empty<ProgressReportFact>(),
+            Meetings: Array.Empty<MeetingFact>());
+
+        var result = service.Analyze(facts, FixedNow);
+
+        Assert.Null(result.FeatureSnapshot.ContributionVariance);
+        Assert.Contains("ContributionVariance", result.Limitations);
+    }
+
+    [Fact]
+    public void Analyze_MissingMeetings_SetsZeroCountWithoutFailure()
+    {
+        var service = new RuleBasedProgressAnalysisService();
+        var facts = new ProjectProgressFacts(
+            ProjectId: 101,
+            ProjectStatus: "ACTIVE",
+            TeamId: 1,
+            TeamMemberCount: 4,
+            Milestones: new List<MilestoneFact>
+            {
+                new(1, "M1", "COMPLETED", DateOnly.FromDateTime(FixedNow.AddDays(-10)), DateOnly.FromDateTime(FixedNow.AddDays(-1)), 1)
+            },
+            Tasks: new List<TaskFact>
+            {
+                new(1, 1, "Task 1", "DONE", "NORMAL", FixedNow.AddDays(-10), FixedNow.AddDays(-1), FixedNow.AddDays(-2), 1)
+            },
+            ProgressReports: Array.Empty<ProgressReportFact>(),
+            Meetings: Array.Empty<MeetingFact>());
+
+        var result = service.Analyze(facts, FixedNow);
+
+        Assert.Equal(0, result.FeatureSnapshot.MeetingFrequencyCount);
+    }
 }

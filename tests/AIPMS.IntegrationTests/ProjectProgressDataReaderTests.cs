@@ -25,4 +25,15 @@ public class ProjectProgressDataReaderTests : IClassFixture<DbFixture>
 
         Assert.Null(facts);
     }
+
+    [Fact]
+    public async Task ProjectExistsAsync_NonexistentProject_ReturnsFalse()
+    {
+        using var context = _fixture.CreateContext();
+        var reader = new ProjectProgressDataReader(context);
+
+        var exists = await reader.ProjectExistsAsync(999999, CancellationToken.None);
+
+        Assert.False(exists);
+    }
 }

@@ -54,7 +54,7 @@ public sealed class GetProjectProgressAnalysisQueryHandlerTests
     [Fact]
     public async Task Handle_NonexistentProject_ThrowsNotFoundException()
     {
-        var dataReader = new StubProjectProgressDataReader { Facts = null };
+        var dataReader = new StubProjectProgressDataReader { ProjectExists = false, Facts = null };
         var aiService = new RuleBasedProgressAnalysisService();
         var accessService = new StubProjectAccessService { CanAccess = true };
         var currentUser = new TestCurrentUser(10, AppRoles.Student);
@@ -87,7 +87,7 @@ public sealed class GetProjectProgressAnalysisQueryHandlerTests
             ProgressReports: Array.Empty<ProgressReportFact>(),
             Meetings: Array.Empty<MeetingFact>());
 
-        var dataReader = new StubProjectProgressDataReader { Facts = facts };
+        var dataReader = new StubProjectProgressDataReader { ProjectExists = true, Facts = facts };
         var aiService = new RuleBasedProgressAnalysisService();
         var accessService = new StubProjectAccessService { CanAccess = true };
         var currentUser = new TestCurrentUser(10, AppRoles.Student);
@@ -105,21 +105,62 @@ public sealed class GetProjectProgressAnalysisQueryHandlerTests
         Assert.Equal("SUFFICIENT", result.DataStatus);
         Assert.Equal("PROVISIONAL_RULE_BASELINE_1.0", result.RuleVersion);
     }
-}
 
+    [Fact]
+    public async Task Handle_CancellationTokenForwarded_CancelsOperation()
+    {
+        var dataReader = new StubProjectProgressDataReader { ProjectExists = true };
+        var aiService = new RuleBasedProgressAnalysisService();
+        var accessService = new StubProjectAccessService { CanAccess = true };
+        var currentUser = new TestCurrentUser(10, AppRoles.Student);
+        var timeProvider = new FakeTimeProvider(FixedNow);
+
+        var handler = new GetProjectProgressAnalysisQueryHandler(
+            dataReader, aiService, accessService, currentUser, timeProvider);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            handler.Handle(new GetProjectProgressAnalysisQuery(101), cts.Token));
+    }
+
+    [Fact]
+    public void Query_Contract_AcceptsOnlyProjectId()
+    {
+        var query = new GetProjectProgressAnalysisQuery(101);
+        Assert.Equal(101, query.ProjectId);
+        var propertyNames = typeof(GetProjectProgressAnalysisQuery).GetProperties().Select(p => p.Name).ToList();
+        Assert.Single(propertyNames);
+        Assert.Equal("ProjectId", propertyNames[0]);
+    }
+}
 
 internal sealed class StubProjectProgressDataReader : IProjectProgressDataReader
 {
+    public bool ProjectExists { get; set; } = true;
     public ProjectProgressFacts? Facts { get; set; }
 
-    public Task<ProjectProgressFacts?> GetProjectProgressFactsAsync(long projectId, CancellationToken cancellationToken) =>
-        Task.FromResult(Facts);
+    public Task<bool> ProjectExistsAsync(long projectId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(ProjectExists);
+    }
+
+    public Task<ProjectProgressFacts?> GetProjectProgressFactsAsync(long projectId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Facts);
+    }
 }
 
 internal sealed class StubProjectAccessService : AIPMS.Application.Abstractions.Security.IProjectAccessService
 {
     public bool CanAccess { get; set; } = true;
 
-    public Task<bool> CanAccessAsync(long userId, long projectId, CancellationToken cancellationToken) =>
-        Task.FromResult(CanAccess);
+    public Task<bool> CanAccessAsync(long userId, long projectId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(CanAccess);
+    }
 }

@@ -32,7 +32,13 @@ public sealed class GetProjectProgressAnalysisQueryHandler(
 
         var actorUserId = currentUser.UserId.Value;
 
-        // Resource Access Check (Prevent IDOR)
+        // 1. Verify project existence (Nonexistent project -> 404)
+        if (!await dataReader.ProjectExistsAsync(request.ProjectId, cancellationToken))
+        {
+            throw new NotFoundException("Project", request.ProjectId);
+        }
+
+        // 2. Resource Access Check (User outside project scope -> 403)
         if (!await projectAccessService.CanAccessAsync(actorUserId, request.ProjectId, cancellationToken))
         {
             throw new ForbiddenException("You do not have access to this project's analysis.");

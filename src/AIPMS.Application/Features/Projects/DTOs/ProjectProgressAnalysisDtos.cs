@@ -19,7 +19,11 @@ public sealed record ProjectProgressAnalysisDto(
     string RuleVersion,
     string FeatureVersion,
     string ModelVersion,
-    string? Limitations);
+    string? Limitations)
+{
+    public string Trend => TrendStatus;
+    public IReadOnlyList<RiskFactorDto> Reasons => Factors;
+}
 
 public sealed record ProgressSummaryDto(
     int TotalMilestones,
