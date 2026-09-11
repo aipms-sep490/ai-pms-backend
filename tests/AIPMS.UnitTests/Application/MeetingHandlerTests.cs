@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -366,6 +366,17 @@ public sealed class MeetingHandlerTests
         var command = new AddMeetingFeedbackCommand(5, new AddMeetingFeedbackRequest("Feedback"));
 
         await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CancelledMeeting_Feedback_409()
+    {
+        repository.SupervisorAssignmentId = 100;
+        repository.CurrentStatus = "CANCELLED";
+        var handler = new AddMeetingFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var command = new AddMeetingFeedbackCommand(5, new AddMeetingFeedbackRequest("Feedback"));
+
+        await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(command, CancellationToken.None));
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -61,7 +61,7 @@ public sealed class ProgressReportHandlerTests
         {
             LastToken = ct;
             Report = new ProgressReportDto(10, projectId, submittedBy, "Author", reportType, periodStart, periodEnd,
-                summary, completedWork, plannedWork, issuesAndRisks, "DRAFT", null, false, now, now);
+                summary, completedWork, plannedWork, issuesAndRisks, "DRAFT", null, null, now, now);
             return Task.FromResult(Report);
         }
 
@@ -76,8 +76,7 @@ public sealed class ProgressReportHandlerTests
         public Task<ProgressReportDto> SubmitAsync(long id, long actorId, DateTime now, CancellationToken ct)
         {
             LastToken = ct;
-            var isLate = Report != null && now.Date > Report.PeriodEnd.ToDateTime(TimeOnly.MinValue).Date;
-            Report = Report! with { Status = "SUBMITTED", SubmittedBy = actorId, SubmittedAt = now, IsLate = isLate, UpdatedAt = now };
+            Report = Report! with { Status = "SUBMITTED", SubmittedBy = actorId, SubmittedAt = now, IsLate = null, UpdatedAt = now };
             return Task.FromResult(Report);
         }
 
@@ -285,29 +284,31 @@ public sealed class ProgressReportHandlerTests
     }
 
     [Fact]
-    public async Task SubmitReport_OnTime_IsLateFalse()
+    public async Task SubmitReport_WhenReportingPolicyAbsent_DoesNotFabricateDeadlineOrLateFromPeriodEnd()
     {
         var futureEnd = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
         repository.Report = new ProgressReportDto(10, 1, 1, "Author", "WEEKLY", futureEnd.AddDays(-7), futureEnd,
-            "Summary", null, null, null, "DRAFT", null, false, DateTime.UtcNow, DateTime.UtcNow);
+            "Summary", null, null, null, "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
 
         var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
         var result = await handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None);
 
-        Assert.False(result.IsLate);
+        Assert.Equal("SUBMITTED", result.Status);
+        Assert.Null(result.IsLate);
     }
 
     [Fact]
-    public async Task SubmitReport_Late_BlockOrFlagPerPolicy()
+    public async Task SubmitReport_PastPeriodEnd_DoesNotFabricateLateWithoutPolicy()
     {
         var pastEnd = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-5));
         repository.Report = new ProgressReportDto(10, 1, 1, "Author", "WEEKLY", pastEnd.AddDays(-7), pastEnd,
-            "Summary", null, null, null, "DRAFT", null, false, DateTime.UtcNow, DateTime.UtcNow);
+            "Summary", null, null, null, "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
 
         var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
         var result = await handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None);
 
-        Assert.True(result.IsLate);
+        Assert.Equal("SUBMITTED", result.Status);
+        Assert.Null(result.IsLate);
     }
 
     [Fact]
@@ -365,5 +366,30 @@ public sealed class ProgressReportHandlerTests
 
         await handler.Handle(new GetProgressReportByIdQuery(10), cts.Token);
         Assert.Equal(cts.Token, repository.LastToken);
+    }
+
+    [Fact]
+    public void ProgressReportMapper_WhenEntitySubmittedAfterPeriodEnd_DoesNotFabricateLateStatus()
+    {
+        var entity = new AIPMS.Infrastructure.Persistence.Generated.Models.ProgressReport
+        {
+            Id = 1,
+            ProjectId = 10,
+            SubmittedBy = 5,
+            ReportType = "WEEKLY",
+            PeriodStart = new DateOnly(2026, 9, 1),
+            PeriodEnd = new DateOnly(2026, 9, 7),
+            Summary = "Summary",
+            Status = "SUBMITTED",
+            SubmittedAt = new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        var dto = AIPMS.Infrastructure.Persistence.Mappers.ProgressReportMapper.ToDto(entity);
+        var detailDto = AIPMS.Infrastructure.Persistence.Mappers.ProgressReportMapper.ToDetailDto(entity);
+
+        Assert.Null(dto.IsLate);
+        Assert.Null(detailDto.IsLate);
     }
 }

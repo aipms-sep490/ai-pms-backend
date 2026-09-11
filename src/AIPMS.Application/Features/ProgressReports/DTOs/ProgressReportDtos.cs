@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace AIPMS.Application.Features.ProgressReports.DTOs;
@@ -17,7 +17,7 @@ public sealed record ProgressReportDto(
     string? IssuesAndRisks,
     string Status,
     DateTime? SubmittedAt,
-    bool IsLate,
+    bool? IsLate,
     DateTime CreatedAt,
     DateTime UpdatedAt);
 
@@ -35,7 +35,7 @@ public sealed record ProgressReportDetailDto(
     string? IssuesAndRisks,
     string Status,
     DateTime? SubmittedAt,
-    bool IsLate,
+    bool? IsLate,
     DateTime CreatedAt,
     DateTime UpdatedAt,
     IReadOnlyList<ProgressReportFeedbackDto> Feedbacks);

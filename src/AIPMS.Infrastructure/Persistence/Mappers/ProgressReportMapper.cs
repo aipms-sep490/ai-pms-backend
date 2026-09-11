@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using AIPMS.Application.Features.ProgressReports.DTOs;
 using ReportEntity = AIPMS.Infrastructure.Persistence.Generated.Models.ProgressReport;
@@ -10,8 +10,9 @@ internal static class ProgressReportMapper
 {
     public static ProgressReportDto ToDto(this ReportEntity report)
     {
-        var isLate = report.SubmittedAt.HasValue &&
-            report.SubmittedAt.Value.Date > report.PeriodEnd.ToDateTime(TimeOnly.MinValue).Date;
+        // PeriodEnd is not submission deadline. Authoritative reporting cadence/schedule policy
+        // is deferred/unsupported in canonical schema; late status is not fabricated from PeriodEnd.
+        bool? isLate = null;
 
         return new ProgressReportDto(
             report.Id,
@@ -34,8 +35,9 @@ internal static class ProgressReportMapper
 
     public static ProgressReportDetailDto ToDetailDto(this ReportEntity report)
     {
-        var isLate = report.SubmittedAt.HasValue &&
-            report.SubmittedAt.Value.Date > report.PeriodEnd.ToDateTime(TimeOnly.MinValue).Date;
+        // PeriodEnd is not submission deadline. Authoritative reporting cadence/schedule policy
+        // is deferred/unsupported in canonical schema; late status is not fabricated from PeriodEnd.
+        bool? isLate = null;
 
         var feedbacks = report.SupervisorFeedbacks
             .OrderBy(f => f.CreatedAt)

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Meetings.Abstractions;
 using AIPMS.Application.Features.Meetings.DTOs;
@@ -229,11 +230,11 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
             foreach (var att in attendances)
             {
                 var participant = meeting.MeetingParticipants.FirstOrDefault(p => p.UserId == att.UserId);
-                if (participant != null)
-                {
-                    participant.AttendanceStatus = att.AttendanceStatus;
-                    participant.UpdatedAt = now;
-                }
+                if (participant == null)
+                    throw new ConflictException($"User {att.UserId} is not a participant of meeting {id}.");
+
+                participant.AttendanceStatus = att.AttendanceStatus;
+                participant.UpdatedAt = now;
             }
         }
 

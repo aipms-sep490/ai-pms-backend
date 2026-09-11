@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -32,6 +32,10 @@ public sealed class AddMeetingFeedbackCommandHandler(
         var assignmentId = await repository.GetActiveSupervisorAssignmentIdAsync(projectId, actorId, cancellationToken);
         if (!assignmentId.HasValue)
             throw new ForbiddenException("Only the active assigned supervisor can provide feedback.");
+
+        var status = await repository.GetStatusAsync(command.Id, cancellationToken);
+        if (status == "CANCELLED")
+            throw new ConflictException("Cannot provide feedback on a cancelled meeting.");
 
         var now = clock.GetUtcNow().UtcDateTime;
         var feedback = await repository.AddFeedbackAsync(
