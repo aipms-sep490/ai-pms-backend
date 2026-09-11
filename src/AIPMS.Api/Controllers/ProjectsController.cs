@@ -192,8 +192,6 @@ public sealed class ProjectsController(ISender sender) : ControllerBase
         Ok(await sender.Send(new GetProjectStatusHistoryQuery(id), cancellationToken));
 
     [HttpGet("{id:long}/progress-analysis")]
-    [HttpGet("{id:long}/ai/progress-analysis")]
-    [HttpGet("/api/projects/{id:long}/progress-analysis")]
     [ProducesResponseType<ProjectProgressAnalysisDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]

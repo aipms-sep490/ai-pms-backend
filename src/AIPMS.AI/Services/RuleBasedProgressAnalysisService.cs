@@ -17,8 +17,10 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
 
     public ProjectProgressAnalysisDto Analyze(
         ProjectProgressFacts facts,
-        DateTime analysisTimeUtc)
+        DateTime analysisTimeUtc,
+        System.Threading.CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(facts);
 
         var totalMilestones = facts.Milestones.Count;
@@ -72,7 +74,7 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
                 UnassignedTaskRatio: null,
                 ContributionVariance: null);
 
-            return new ProjectProgressAnalysisDto(
+            return ProjectProgressAnalysisDtoMapper.ToDto(
                 facts.ProjectId,
                 analysisTimeUtc,
                 analysisTimeUtc,
@@ -90,6 +92,8 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
                 RuleBaselineConfig.ModelVersion,
                 "Insufficient task and milestone data to perform a reliable risk assessment.");
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Calculate Feature Ratios
         var overdueTaskRatio = totalActiveTasks == 0 ? 0.0 : Math.Round((double)overdueTaskCount / totalActiveTasks, 4);
@@ -128,12 +132,12 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
                      && m.DueDate.Value <= nearDueThresholdDate);
 
         var pastReports = facts.ProgressReports.Where(pr => pr.PeriodEnd < todayDate).ToList();
-        var missingReportCount = pastReports.Count(pr => pr.SubmittedAt == null || pr.Status.Equals("DRAFT", StringComparison.OrdinalIgnoreCase));
+        var unsubmittedDraftCount = pastReports.Count(pr => pr.SubmittedAt == null || pr.Status.Equals("DRAFT", StringComparison.OrdinalIgnoreCase));
         var lateReports = pastReports.Where(pr => pr.SubmittedAt.HasValue && DateOnly.FromDateTime(pr.SubmittedAt.Value) > pr.PeriodEnd).ToList();
         double? reportDelayDays = lateReports.Count > 0
             ? Math.Round(lateReports.Average(pr => (double)(DateOnly.FromDateTime(pr.SubmittedAt!.Value).DayNumber - pr.PeriodEnd.DayNumber)), 2)
             : (pastReports.Count > 0 ? 0.0 : null);
-        int? missingReportCountFeature = pastReports.Count > 0 ? missingReportCount : null;
+        int? missingReportCountFeature = pastReports.Count > 0 ? unsubmittedDraftCount : null;
 
         var meetingLookbackCutoff = analysisTimeUtc.AddDays(-RuleBaselineConfig.MeetingLookbackDays);
         var meetingFrequencyCount = facts.Meetings
@@ -166,14 +170,14 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
         if (riskScore >= RuleBaselineConfig.CriticalRiskScoreThreshold
             || overdueTaskRatio >= RuleBaselineConfig.CriticalOverdueRatioThreshold
             || blockedTaskRatio >= RuleBaselineConfig.CriticalBlockedRatioThreshold
-            || missingReportCount > 1)
+            || unsubmittedDraftCount > 1)
         {
             riskLevel = "CRITICAL";
         }
         else if (riskScore >= RuleBaselineConfig.HighRiskScoreThreshold
                  || overdueTaskRatio >= RuleBaselineConfig.HighOverdueRatioThreshold
                  || blockedTaskRatio >= RuleBaselineConfig.HighBlockedRatioThreshold
-                 || missingReportCount == 1)
+                 || unsubmittedDraftCount == 1)
         {
             riskLevel = "HIGH";
         }
@@ -263,16 +267,26 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
             recommendations.Add("Accelerate key deliverable reviews to complete pending milestone targets.");
         }
 
-        if (missingReportCount > 0)
+        if (unsubmittedDraftCount > 0)
         {
-            var severity = missingReportCount > 1 ? "CRITICAL" : "HIGH";
+            var severity = unsubmittedDraftCount > 1 ? "CRITICAL" : "HIGH";
             factors.Add(new RiskFactorDto(
-                "MISSING_PROGRESS_REPORT",
+                "UNSUBMITTED_PROGRESS_REPORT",
                 "MissingReportCount",
-                missingReportCount,
+                unsubmittedDraftCount,
                 severity,
-                $"{missingReportCount} periodic progress report(s) are missing or unsubmitted for past reporting periods."));
-            recommendations.Add("Submit all overdue progress reports for supervisor review.");
+                $"{unsubmittedDraftCount} periodic progress report draft(s) remain unsubmitted past period end date."));
+            recommendations.Add("Finalize and submit overdue draft progress report(s) for supervisor review.");
+        }
+        else if (lateReports.Count > 0)
+        {
+            factors.Add(new RiskFactorDto(
+                "LATE_PROGRESS_REPORT_SUBMISSION",
+                "ReportSubmissionDelayDays",
+                reportDelayDays ?? 0.0,
+                "MEDIUM",
+                $"{lateReports.Count} periodic progress report(s) were submitted after the period end deadline."));
+            recommendations.Add("Ensure future periodic progress reports are submitted before the period ends.");
         }
 
         if (recommendations.Count == 0)
@@ -285,9 +299,9 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
         var confidence = Math.Round((double)nonNullFeatureCount / 11.0, 2);
         var limitationsNote = pastReports.Count > 0
             ? "ContributionVariance is marked INSUFFICIENT_DATA pending BE-13."
-            : "Progress report schedule and ContributionVariance are marked INSUFFICIENT_DATA pending schedule configuration and BE-13.";
+            : "Progress report schedule is not configured (INSUFFICIENT_DATA). ContributionVariance is marked INSUFFICIENT_DATA pending BE-13.";
 
-        return new ProjectProgressAnalysisDto(
+        return ProjectProgressAnalysisDtoMapper.ToDto(
             facts.ProjectId,
             analysisTimeUtc,
             analysisTimeUtc,

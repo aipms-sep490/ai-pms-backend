@@ -205,7 +205,7 @@ public sealed class DeterministicProgressAnalysisTests
     }
 
     [Fact]
-    public void Analyze_MissingProgressReports_TriggersMissingReportRule()
+    public void Analyze_UnsubmittedDraftReport_TriggersUnsubmittedReportRule()
     {
         var service = new RuleBasedProgressAnalysisService();
         var facts = new ProjectProgressFacts(
@@ -230,8 +230,65 @@ public sealed class DeterministicProgressAnalysisTests
         var result = service.Analyze(facts, FixedNow);
 
         Assert.Equal(1, result.FeatureSnapshot.MissingReportCount);
-        Assert.Contains(result.Factors, f => f.Code == "MISSING_PROGRESS_REPORT");
-        Assert.Contains(result.Recommendations, r => r.Contains("overdue progress reports"));
+        Assert.Contains(result.Factors, f => f.Code == "UNSUBMITTED_PROGRESS_REPORT");
+        Assert.Contains(result.Recommendations, r => r.Contains("overdue draft progress report"));
+    }
+
+    [Fact]
+    public void Analyze_SubmittedLateReport_TriggersLateReportFactor()
+    {
+        var service = new RuleBasedProgressAnalysisService();
+        var facts = new ProjectProgressFacts(
+            ProjectId: 101,
+            ProjectStatus: "ACTIVE",
+            TeamId: 1,
+            TeamMemberCount: 4,
+            Milestones: new List<MilestoneFact>
+            {
+                new(1, "M1", "COMPLETED", DateOnly.FromDateTime(FixedNow.AddDays(-20)), DateOnly.FromDateTime(FixedNow.AddDays(-10)), 1)
+            },
+            Tasks: new List<TaskFact>
+            {
+                new(1, 1, "Task 1", "DONE", "NORMAL", FixedNow.AddDays(-20), FixedNow.AddDays(-10), FixedNow.AddDays(-12), 1)
+            },
+            ProgressReports: new List<ProgressReportFact>
+            {
+                new(1, "PERIODIC", DateOnly.FromDateTime(FixedNow.AddDays(-20)), DateOnly.FromDateTime(FixedNow.AddDays(-14)), "SUBMITTED", FixedNow.AddDays(-10))
+            },
+            Meetings: Array.Empty<MeetingFact>());
+
+        var result = service.Analyze(facts, FixedNow);
+
+        Assert.Equal(4.0, result.FeatureSnapshot.ReportSubmissionDelayDays);
+        Assert.Contains(result.Factors, f => f.Code == "LATE_PROGRESS_REPORT_SUBMISSION");
+        Assert.Contains(result.Recommendations, r => r.Contains("future periodic progress reports"));
+    }
+
+    [Fact]
+    public void Analyze_NoConfiguredReportingSchedule_SetsInsufficientData()
+    {
+        var service = new RuleBasedProgressAnalysisService();
+        var facts = new ProjectProgressFacts(
+            ProjectId: 101,
+            ProjectStatus: "ACTIVE",
+            TeamId: 1,
+            TeamMemberCount: 4,
+            Milestones: new List<MilestoneFact>
+            {
+                new(1, "M1", "COMPLETED", DateOnly.FromDateTime(FixedNow.AddDays(-20)), DateOnly.FromDateTime(FixedNow.AddDays(-10)), 1)
+            },
+            Tasks: new List<TaskFact>
+            {
+                new(1, 1, "Task 1", "DONE", "NORMAL", FixedNow.AddDays(-20), FixedNow.AddDays(-10), FixedNow.AddDays(-12), 1)
+            },
+            ProgressReports: Array.Empty<ProgressReportFact>(),
+            Meetings: Array.Empty<MeetingFact>());
+
+        var result = service.Analyze(facts, FixedNow);
+
+        Assert.Null(result.FeatureSnapshot.MissingReportCount);
+        Assert.Null(result.FeatureSnapshot.ReportSubmissionDelayDays);
+        Assert.Contains("Progress report schedule is not configured (INSUFFICIENT_DATA)", result.Limitations);
     }
 
     [Fact]

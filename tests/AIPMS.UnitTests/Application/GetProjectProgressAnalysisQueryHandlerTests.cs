@@ -7,6 +7,7 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Projects.Abstractions;
+using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Projects.Models;
 using AIPMS.Application.Features.Projects.Queries;
 using Xunit;
@@ -126,6 +127,25 @@ public sealed class GetProjectProgressAnalysisQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_ForwardsCancellationToken_ToReaderAndAiService()
+    {
+        var facts = new ProjectProgressFacts(101, "ACTIVE", 1, 4, Array.Empty<MilestoneFact>(), Array.Empty<TaskFact>(), Array.Empty<ProgressReportFact>(), Array.Empty<MeetingFact>());
+        var dataReader = new RecordingProjectProgressDataReader { ProjectExists = true, Facts = facts };
+        var aiSpy = new RecordingProgressAnalysisService();
+        var accessService = new StubProjectAccessService { CanAccess = true };
+        var currentUser = new TestCurrentUser(10, AppRoles.Student);
+        var timeProvider = new FakeTimeProvider(FixedNow);
+
+        var handler = new GetProjectProgressAnalysisQueryHandler(dataReader, aiSpy, accessService, currentUser, timeProvider);
+
+        using var cts = new CancellationTokenSource();
+        await handler.Handle(new GetProjectProgressAnalysisQuery(101), cts.Token);
+
+        Assert.Equal(cts.Token, dataReader.LastToken);
+        Assert.Equal(cts.Token, aiSpy.LastToken);
+    }
+
+    [Fact]
     public void Query_Contract_AcceptsOnlyProjectId()
     {
         var query = new GetProjectProgressAnalysisQuery(101);
@@ -133,6 +153,58 @@ public sealed class GetProjectProgressAnalysisQueryHandlerTests
         var propertyNames = typeof(GetProjectProgressAnalysisQuery).GetProperties().Select(p => p.Name).ToList();
         Assert.Single(propertyNames);
         Assert.Equal("ProjectId", propertyNames[0]);
+    }
+}
+
+internal sealed class RecordingProgressAnalysisService : AIPMS.Application.Abstractions.AI.IProgressAnalysisService
+{
+    public CancellationToken LastToken { get; private set; }
+
+    public ProjectProgressAnalysisDto Analyze(
+        ProjectProgressFacts facts,
+        DateTime analysisTimeUtc,
+        CancellationToken cancellationToken = default)
+    {
+        LastToken = cancellationToken;
+        return new ProjectProgressAnalysisDto(
+            facts.ProjectId,
+            analysisTimeUtc,
+            analysisTimeUtc,
+            "INSUFFICIENT_DATA",
+            "INSUFFICIENT_DATA",
+            null,
+            0.0,
+            "INSUFFICIENT_DATA",
+            new ProgressSummaryDto(0, 0, 0, 0, 0, 0, 0, 0.0),
+            new FeatureSnapshotDto(null, null, null, null, null, null, null, null, 0, null, null),
+            Array.Empty<RiskFactorDto>(),
+            Array.Empty<string>(),
+            "V1",
+            "V1",
+            "RULE",
+            null);
+    }
+
+    public AIPMS.Application.Abstractions.AI.ProgressAnalysisResult Analyze(AIPMS.Application.Abstractions.AI.ProgressAnalysisInput input) =>
+        new("LOW", 0m, 0m, Array.Empty<string>());
+}
+
+internal sealed class RecordingProjectProgressDataReader : IProjectProgressDataReader
+{
+    public bool ProjectExists { get; set; } = true;
+    public ProjectProgressFacts? Facts { get; set; }
+    public CancellationToken LastToken { get; private set; }
+
+    public Task<bool> ProjectExistsAsync(long projectId, CancellationToken cancellationToken)
+    {
+        LastToken = cancellationToken;
+        return Task.FromResult(ProjectExists);
+    }
+
+    public Task<ProjectProgressFacts?> GetProjectProgressFactsAsync(long projectId, CancellationToken cancellationToken)
+    {
+        LastToken = cancellationToken;
+        return Task.FromResult(Facts);
     }
 }
 

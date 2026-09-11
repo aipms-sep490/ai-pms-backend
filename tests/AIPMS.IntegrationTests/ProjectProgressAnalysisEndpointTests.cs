@@ -65,7 +65,7 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
 
         var client = _factory.CreateAuthenticatedClient(10, "student@aipms.test", "Student", AppRoles.Student);
 
-        var response = await client.GetAsync($"api/v1/projects/{projectId}/ai/progress-analysis");
+        var response = await client.GetAsync($"api/v1/projects/{projectId}/progress-analysis");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -94,7 +94,7 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
 
         var client = _factory.CreateAuthenticatedClient(99, "other@aipms.test", "Other", AppRoles.Student);
 
-        var response = await client.GetAsync($"api/v1/projects/{projectId}/ai/progress-analysis");
+        var response = await client.GetAsync($"api/v1/projects/{projectId}/progress-analysis");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -108,13 +108,13 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
 
         var client = _factory.CreateAuthenticatedClient(10, "student@aipms.test", "Student", AppRoles.Student);
 
-        var response = await client.GetAsync($"api/v1/projects/{projectId}/ai/progress-analysis");
+        var response = await client.GetAsync($"api/v1/projects/{projectId}/progress-analysis");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
-    public async Task GetProgressAnalysis_DirectApiProjectsRoute_Succeeds()
+    public async Task GetProgressAnalysis_CanonicalRoute_ReturnsCompleteSchema()
     {
         var projectId = 103L;
         _factory.ProjectAccessService.CanAccess = true;
@@ -136,7 +136,7 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
 
         var client = _factory.CreateAuthenticatedClient(10, "student@aipms.test", "Student", AppRoles.Student);
 
-        var response = await client.GetAsync($"/api/projects/{projectId}/progress-analysis");
+        var response = await client.GetAsync($"api/v1/projects/{projectId}/progress-analysis");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 

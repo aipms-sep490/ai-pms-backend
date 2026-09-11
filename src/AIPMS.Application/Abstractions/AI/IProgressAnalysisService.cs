@@ -9,7 +9,8 @@ public interface IProgressAnalysisService
 {
     ProjectProgressAnalysisDto Analyze(
         ProjectProgressFacts facts,
-        DateTime analysisTimeUtc);
+        DateTime analysisTimeUtc,
+        System.Threading.CancellationToken cancellationToken = default);
 
     ProgressAnalysisResult Analyze(ProgressAnalysisInput input);
 }

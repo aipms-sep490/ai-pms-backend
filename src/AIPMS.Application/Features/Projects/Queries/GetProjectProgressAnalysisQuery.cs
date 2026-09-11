@@ -52,7 +52,7 @@ public sealed class GetProjectProgressAnalysisQueryHandler(
             ?? throw new NotFoundException("Project", request.ProjectId);
 
         // Perform Pure Deterministic Rule Analysis
-        var analysisResult = aiService.Analyze(facts, analysisTimeUtc);
+        var analysisResult = aiService.Analyze(facts, analysisTimeUtc, cancellationToken);
 
         return analysisResult;
     }
