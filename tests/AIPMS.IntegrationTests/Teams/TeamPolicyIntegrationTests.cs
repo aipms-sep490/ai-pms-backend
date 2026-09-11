@@ -416,22 +416,36 @@ public sealed class TeamPolicyIntegrationTests(TeamDatabaseFixture database) : I
         var team = await CreateAsync(client0, s.SemesterId, "VERA");
         var versionA = team.Eligibility.PolicyVersion;
         Assert.NotNull(versionA);
-        Assert.StartsWith($"v-{s.PeriodId}-2-4-1-", versionA);
+        Assert.Equal($"v-{s.PeriodId}-2-4-1", versionA);
         Assert.NotEqual("test-v1", versionA);
 
-        // Mutate DB policy
+        // Mutate an UNRELATED ProjectPeriod field (e.g. Name, MaxProjectsPerSupervisor, UpdatedAt) while team policy stays identical
+        await using (var context = database.CreateContext())
+        {
+            var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
+            p!.Name = "Unrelated Period Name Changed";
+            p.MaxProjectsPerSupervisor = 10;
+            p.UpdatedAt = new DateTime(2026, 9, 11, 12, 0, 0, DateTimeKind.Utc);
+            await context.SaveChangesAsync();
+        }
+
+        var teamUnrelated = await BodyAsync<TeamDto>(await client0.GetAsync($"/api/v1/teams/{team.Id}"));
+        var versionAfterUnrelated = teamUnrelated.Eligibility.PolicyVersion;
+        Assert.Equal(versionA, versionAfterUnrelated); // Unrelated mutation does NOT alter effective team policy version
+
+        // Mutate DB team policy (MaxTeamSize)
         await using (var context = database.CreateContext())
         {
             var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
             p!.MaxTeamSize = 5;
-            p.UpdatedAt = new DateTime(2026, 9, 11, 11, 0, 0, DateTimeKind.Utc);
+            p.UpdatedAt = new DateTime(2026, 9, 11, 13, 0, 0, DateTimeKind.Utc);
             await context.SaveChangesAsync();
         }
 
         var teamUpdated = await BodyAsync<TeamDto>(await client0.GetAsync($"/api/v1/teams/{team.Id}"));
         var versionB = teamUpdated.Eligibility.PolicyVersion;
         Assert.NotNull(versionB);
-        Assert.StartsWith($"v-{s.PeriodId}-2-5-1-", versionB);
+        Assert.Equal($"v-{s.PeriodId}-2-5-1", versionB);
         Assert.NotEqual(versionA, versionB);
 
         // Read again with unchanged DB policy -> version is stable and same

@@ -23,8 +23,7 @@ internal sealed class DatabaseTeamFormationPolicyProvider(
             {
                 p.MinTeamSize,
                 p.MaxTeamSize,
-                p.MinDistinctMajors,
-                p.UpdatedAt
+                p.MinDistinctMajors
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -39,7 +38,7 @@ internal sealed class DatabaseTeamFormationPolicyProvider(
         var minDistinctMajors = period.MinDistinctMajors ?? 1;
 
         var invitationHours = ResolveInvitationHours(registrationPeriodId);
-        var version = ResolveVersion(registrationPeriodId, minMembers, maxMembers, minDistinctMajors, period.UpdatedAt);
+        var version = ResolveVersion(registrationPeriodId, minMembers, maxMembers, minDistinctMajors);
 
         var policy = new TeamFormationPolicy(
             minMembers,
@@ -64,12 +63,14 @@ internal sealed class DatabaseTeamFormationPolicyProvider(
     }
 
     private static string ResolveVersion(
-        long registrationPeriodId, int minMembers, int maxMembers, int minDistinctMajors, DateTime updatedAt)
+        long registrationPeriodId, int minMembers, int maxMembers, int minDistinctMajors)
     {
-        // Deterministic BE-12 effective policy fingerprint.
-        // Derived strictly from effective DB policy values and UpdatedAt to ensure any policy mutation produces a distinct version.
+        // Deterministic BE-12 effective team policy fingerprint.
+        // Derived strictly from effective DB team policy values (ProjectPeriodId, MinTeamSize, MaxTeamSize, MinDistinctMajors)
+        // so that identical team policy values produce identical versions, and mutations to unrelated ProjectPeriod fields
+        // (dates, status, supervisor capacity, rubric, etc.) do not spuriously change the Team PolicyVersion.
         // Configured labels (e.g. TeamFormation:Periods:{id}:Version) are NOT used to override, preventing stale version masking.
         // InvitationHours is Teams-owned and excluded to keep BE-12 policy versioning isolated to BE-12 owned attributes.
-        return $"v-{registrationPeriodId}-{minMembers}-{maxMembers}-{minDistinctMajors}-{updatedAt:yyyyMMddHHmmssfff}";
+        return $"v-{registrationPeriodId}-{minMembers}-{maxMembers}-{minDistinctMajors}";
     }
 }
