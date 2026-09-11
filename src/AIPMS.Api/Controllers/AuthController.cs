@@ -1,11 +1,6 @@
-using AIPMS.Application.Features.Auth.Commands.ChangePassword;
-using AIPMS.Application.Features.Auth.Commands.ForgotPassword;
-using AIPMS.Application.Features.Auth.Commands.Login;
-using AIPMS.Application.Features.Auth.Commands.Logout;
-using AIPMS.Application.Features.Auth.Commands.RefreshToken;
-using AIPMS.Application.Features.Auth.Commands.ResetPassword;
+using AIPMS.Application.Features.Auth.Commands;
 using AIPMS.Application.Features.Auth.DTOs;
-using AIPMS.Application.Features.Auth.Queries.GetCurrentUser;
+using AIPMS.Application.Features.Auth.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

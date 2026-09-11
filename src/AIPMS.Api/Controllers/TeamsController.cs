@@ -1,5 +1,7 @@
 using AIPMS.Application.Common.Models;
-using AIPMS.Application.Features.Teams;
+using AIPMS.Application.Features.Teams.Commands;
+using AIPMS.Application.Features.Teams.DTOs;
+using AIPMS.Application.Features.Teams.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -39,11 +41,11 @@ public sealed class TeamsController(ISender sender) : ControllerBase
         Ok(await sender.Send(new RefreshTeamEligibilityCommand(teamId), ct));
 
     [HttpPost("{teamId:long}/invitations")]
-    public async Task<ActionResult<TeamInvitationData>> Invite(long teamId, InviteTeamMemberRequest request, CancellationToken ct) =>
+    public async Task<ActionResult<TeamInvitationDto>> Invite(long teamId, InviteTeamMemberRequest request, CancellationToken ct) =>
         Ok(await sender.Send(new InviteTeamMemberCommand(teamId, request.InvitedUserId, request.Message), ct));
 
     [HttpGet("invitations")]
-    public async Task<ActionResult<PagedResult<TeamInvitationData>>> Invitations(
+    public async Task<ActionResult<PagedResult<TeamInvitationDto>>> Invitations(
         [FromQuery] long? teamId = null, [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20, CancellationToken ct = default) =>
         Ok(await sender.Send(new GetTeamInvitationsQuery(teamId, page, pageSize), ct));

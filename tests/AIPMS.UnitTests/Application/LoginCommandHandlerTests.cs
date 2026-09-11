@@ -2,7 +2,7 @@ using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Auth.Abstractions;
-using AIPMS.Application.Features.Auth.Commands.Login;
+using AIPMS.Application.Features.Auth.Commands;
 using AIPMS.Application.Features.Auth.Models;
 
 namespace AIPMS.UnitTests.Application;

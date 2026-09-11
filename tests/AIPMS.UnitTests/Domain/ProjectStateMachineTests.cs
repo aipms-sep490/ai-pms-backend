@@ -1,5 +1,4 @@
-using AIPMS.Domain.Entities;
-using AIPMS.Domain.Enums;
+using AIPMS.Domain.Projects;
 using AIPMS.Domain.Exceptions;
 
 namespace AIPMS.UnitTests.Domain;

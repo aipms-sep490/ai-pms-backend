@@ -3,15 +3,16 @@ using System.Linq.Expressions;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
-using AIPMS.Application.Features.Teams;
+using AIPMS.Application.Features.Teams.Abstractions;
+using AIPMS.Application.Features.Teams.Models;
 using AIPMS.Domain.Teams;
 using AIPMS.Infrastructure.Persistence.Generated;
-using User = AIPMS.Infrastructure.Persistence.Generated.Models.User;
-using Team = AIPMS.Infrastructure.Persistence.Generated.Models.Team;
-using TeamMember = AIPMS.Infrastructure.Persistence.Generated.Models.TeamMember;
-using TeamInvitation = AIPMS.Infrastructure.Persistence.Generated.Models.TeamInvitation;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Team = AIPMS.Infrastructure.Persistence.Generated.Models.Team;
+using TeamInvitation = AIPMS.Infrastructure.Persistence.Generated.Models.TeamInvitation;
+using TeamMember = AIPMS.Infrastructure.Persistence.Generated.Models.TeamMember;
+using User = AIPMS.Infrastructure.Persistence.Generated.Models.User;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 

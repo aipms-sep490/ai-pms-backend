@@ -1,5 +1,5 @@
 using AIPMS.Application.Abstractions.AI;
-using AIPMS.Application.Features.ProgressReports.Commands.AnalyzeProgress;
+using AIPMS.Application.Features.ProgressReports.Commands;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
