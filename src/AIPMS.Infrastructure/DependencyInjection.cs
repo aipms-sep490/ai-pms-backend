@@ -8,7 +8,9 @@ using AIPMS.Infrastructure.Storage;
 using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.AccountSecurity.Abstractions;
 using AIPMS.Application.Features.Auth.Abstractions;
+using AIPMS.Application.Features.Meetings.Abstractions;
 using AIPMS.Application.Features.Milestones.Abstractions;
+using AIPMS.Application.Features.ProgressReports.Abstractions;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Semesters.Abstractions;
 using AIPMS.Application.Features.Supervisors.Abstractions;
@@ -161,6 +163,8 @@ public static class DependencyInjection
         services.AddScoped<ISemesterRepository, SemesterRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
+        services.AddScoped<IProgressReportRepository, ProgressReportRepository>();
+        services.AddScoped<IMeetingRepository, MeetingRepository>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, ConfiguredTeamFormationPolicyProvider>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
