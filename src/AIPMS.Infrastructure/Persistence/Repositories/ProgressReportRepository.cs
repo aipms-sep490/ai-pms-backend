@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -176,37 +176,6 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         entity.SubmittedBy = actorId;
         entity.SubmittedAt = now;
         entity.UpdatedAt = now;
-
-        // In-app notification for active assigned supervisors
-        var reviewers = await context.SupervisorAssignments
-            .AsNoTracking()
-            .Where(a => a.ProjectId == entity.ProjectId && a.EndedAt == null)
-            .Select(a => a.SupervisorProfile.UserId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-
-        if (reviewers.Count > 0)
-        {
-            var notification = new Notification
-            {
-                CreatedBy = actorId,
-                NotificationType = "PROGRESS_REPORT_SUBMITTED",
-                Title = "Progress report submitted",
-                Content = $"A new {entity.ReportType} progress report for project #{entity.ProjectId} has been submitted.",
-                RelatedEntityType = "PROGRESS_REPORT",
-                RelatedEntityId = entity.Id,
-                CreatedAt = now,
-                UpdatedAt = now,
-                NotificationRecipients = reviewers.Select(u => new NotificationRecipient
-                {
-                    UserId = u,
-                    IsRead = false,
-                    CreatedAt = now,
-                    UpdatedAt = now
-                }).ToList()
-            };
-            context.Notifications.Add(notification);
-        }
 
         await context.SaveChangesAsync(cancellationToken);
         return (await GetByIdAsync(id, cancellationToken))!;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Models;
@@ -70,6 +70,9 @@ public sealed class MeetingsController(ISender sender) : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Cancels a scheduled meeting, transitioning its status to CANCELLED.
+    /// </summary>
     [HttpPost("{id:long}/cancel")]
     [ProducesResponseType<MeetingDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<MeetingDto>> Cancel(
@@ -80,6 +83,10 @@ public sealed class MeetingsController(ISender sender) : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Soft-cancels a scheduled meeting by transitioning its status to CANCELLED to preserve history.
+    /// Does not physically remove records from the database.
+    /// </summary>
     [HttpDelete("{id:long}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Delete(

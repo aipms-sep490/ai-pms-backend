@@ -137,30 +137,6 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
             });
         }
 
-        var notifyUsers = allParticipants.Where(u => u != createdBy).ToList();
-        if (notifyUsers.Count > 0)
-        {
-            var notification = new Notification
-            {
-                CreatedBy = createdBy,
-                NotificationType = "MEETING_SCHEDULED",
-                Title = "Meeting scheduled",
-                Content = $"You have been invited to a meeting: {title}.",
-                RelatedEntityType = "MEETING",
-                RelatedEntityId = meeting.Id,
-                CreatedAt = now,
-                UpdatedAt = now,
-                NotificationRecipients = notifyUsers.Select(u => new NotificationRecipient
-                {
-                    UserId = u,
-                    IsRead = false,
-                    CreatedAt = now,
-                    UpdatedAt = now
-                }).ToList()
-            };
-            context.Notifications.Add(notification);
-        }
-
         await context.SaveChangesAsync(cancellationToken);
         return (await GetByIdAsync(meeting.Id, cancellationToken))!;
     }
