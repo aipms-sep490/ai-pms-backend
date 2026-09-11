@@ -13,7 +13,7 @@ using AIPMS.Domain.Teams;
 
 namespace AIPMS.UnitTests.Application.Teams;
 
-public sealed class TeamHandlerTests
+public sealed partial class TeamHandlerTests
 {
     private static readonly DateTime Now = new(2026, 9, 7, 8, 0, 0, DateTimeKind.Utc);
 
@@ -337,11 +337,13 @@ public sealed class TeamHandlerTests
         public FakeActor Actor { get; } = new();
         public FakePolicies Policies { get; } = new();
         public FakeAudit Audit { get; }
+        public RecordingPublisher Events { get; }
         public TeamWorkflow Workflow { get; }
         public Harness()
         {
             Audit = new FakeAudit(Repository);
-            Workflow = new TeamWorkflow(Repository, Policies, Actor, Audit, new Clock());
+            Events = new RecordingPublisher(() => Assert.True(Repository.InTransaction));
+            Workflow = new TeamWorkflow(Repository, Policies, Actor, Audit, new Clock(), Events);
         }
         public void Invite(long userId) => Repository.Invitations[1] =
             new(1, 1, userId, 1, "PENDING", null, Now.AddHours(1), null, Now);

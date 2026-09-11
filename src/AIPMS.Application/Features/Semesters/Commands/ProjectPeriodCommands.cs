@@ -72,7 +72,7 @@ public sealed class CreateProjectPeriodCommandHandler(
         if (request.MilestoneTemplateId.HasValue)
         {
             throw new ConflictException(
-                "Milestone template module/schema is currently unavailable (DEFERRED).");
+                "Milestone Template module is not available yet for this Project Period (DEFERRED).");
         }
 
         if (request.RubricId.HasValue)
@@ -272,7 +272,7 @@ public sealed class UpdateProjectPeriodCommandHandler(
         if (request.MilestoneTemplateId.HasValue)
         {
             throw new ConflictException(
-                "Milestone template module/schema is currently unavailable (DEFERRED).");
+                "Milestone Template module is not available yet for this Project Period (DEFERRED).");
         }
 
         if (request.RubricId.HasValue && request.RubricId.Value != existing.RubricId)

@@ -8,12 +8,14 @@ using AIPMS.Application.Features.Teams.Commands;
 using AIPMS.Application.Features.Teams.DTOs;
 using AIPMS.Application.Features.Teams.Models;
 using AIPMS.Domain.Teams;
+using AIPMS.Application.Features.Notifications.Events;
+using MediatR;
 
 namespace AIPMS.Application.Features.Teams.Services;
 
 public sealed class TeamWorkflow(
     ITeamRepository repository, ITeamFormationPolicyProvider policies,
-    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock)
+    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock, IPublisher events)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -38,6 +40,15 @@ public sealed class TeamWorkflow(
                 : "Only active team members can view this team.");
     }
 
+    public const string UnsupportedHybridPolicyMessage =
+        "Interdisciplinary team formation requires Hybrid policy configuration (ProjectMode / PrimaryMajor / major quotas / department scope), which is not supported in the current Foundation scope.";
+
+    private static void EnsureFoundationPolicySupported(TeamFormationPolicy policy)
+    {
+        if (policy.MinDistinctMajors > 1)
+            throw new ConflictException(UnsupportedHybridPolicyMessage);
+    }
+
     private async Task<(TeamRegistrationWindow Window, TeamFormationPolicy Policy)> ContextAsync(
         long semesterId, CancellationToken ct)
     {
@@ -46,6 +57,7 @@ public sealed class TeamWorkflow(
         var policy = await policies.GetAsync(window.PeriodId, ct);
         if (policy is null || !policy.IsValid)
             throw new ConflictException("Team formation policy is not configured for this registration period (BE-12).");
+        EnsureFoundationPolicySupported(policy);
         return (window, policy);
     }
 
@@ -77,6 +89,7 @@ public sealed class TeamWorkflow(
         var policy = window is null ? null : await policies.GetAsync(window.PeriodId, ct);
         if (window is null) reasons.Add("REGISTRATION_WINDOW_UNAVAILABLE");
         if (policy is null || !policy.IsValid) reasons.Add("TEAM_POLICY_UNCONFIGURED");
+        if (policy is not null && policy.MinDistinctMajors > 1) reasons.Add("UNSUPPORTED_HYBRID_POLICY");
         if (team.Status is not ("FORMING" or "ELIGIBLE")
             || team.ProjectStatuses.Any(TeamRules.ProjectLocksRoster)) reasons.Add("ROSTER_LOCKED");
         var locked = reasons.Count > 0;
@@ -85,7 +98,7 @@ public sealed class TeamWorkflow(
         return new TeamDto(team.Id, team.SemesterId, team.Code, team.Name, team.Description,
             team.Status, team.Members.Select(member => member.ToDto()).ToArray(),
             new TeamEligibilityDto(reasons.Count == 0, locked,
-                window?.PeriodId, policy?.Version, reasons));
+                window?.PeriodId, policy?.Version, reasons.Distinct().ToArray()));
     }
 
     private async Task<TeamDto> SaveEligibilityAsync(long teamId, CancellationToken ct)
@@ -123,13 +136,16 @@ public sealed class TeamWorkflow(
         return await MapAsync(team, ct);
     }
 
-    private static void RequireSameMajorAsLeader(TeamSnapshot team, TeamParticipant student, long organizationId)
+    private static void RequireSameMajorAsLeader(
+        TeamSnapshot team, TeamParticipant student, long organizationId, TeamFormationPolicy? policy = null)
     {
         var leaders = team.Members.Where(m => m.IsLeader).ToArray();
         if (leaders.Length != 1)
             throw new ConflictException("The team must have exactly one active leader.");
         var leader = leaders[0];
         RequireEligibleStudent(leader, organizationId);
+        if (policy is not null)
+            EnsureFoundationPolicySupported(policy);
         if (!TeamRules.HasSameMajor(student, leader)
             || team.Members.Any(m => !TeamRules.HasSameMajor(m, leader)))
             throw new ConflictException("All team members must belong to the same major as the team leader.");
@@ -201,6 +217,19 @@ public sealed class TeamWorkflow(
             return result;
         }, ct);
 
+    public async Task<TeamInvitationCandidateScope> GetInvitationCandidateScopeAsync(long teamId, CancellationToken ct)
+    {
+        var actor = await ActorAsync(ct);
+        var team = await TeamAsync(teamId, ct);
+        RequireMember(team, actor.UserId, true);
+        var (window, policy) = await MutableAsync(team, ct);
+        RequireEligibleStudent(actor, window.OrganizationId);
+        RequireSameMajorAsLeader(team, actor, window.OrganizationId, policy);
+        if (team.Members.Count >= policy.MaxMembers)
+            throw new ConflictException("The team has reached its member limit.");
+        return new(team.Id, team.SemesterId, actor.MajorId!.Value, window.OrganizationId, Now);
+    }
+
     public Task<TeamInvitationDto> InviteAsync(InviteTeamMemberCommand request, CancellationToken ct) =>
         repository.InTransactionAsync(async token =>
         {
@@ -211,7 +240,7 @@ public sealed class TeamWorkflow(
             var invited = await repository.GetStudentAsync(request.InvitedUserId, token)
                 ?? throw new NotFoundException("Student", request.InvitedUserId);
             RequireEligibleStudent(invited, window.OrganizationId);
-            RequireSameMajorAsLeader(team, invited, window.OrganizationId);
+            RequireSameMajorAsLeader(team, invited, window.OrganizationId, policy);
             await RequireNoTeamAsync(team.SemesterId, invited.UserId, token);
             if (team.Members.Count >= policy.MaxMembers)
                 throw new ConflictException("The team has reached its member limit.");
@@ -227,6 +256,8 @@ public sealed class TeamWorkflow(
             if (expiry > window.EndAt) expiry = window.EndAt;
             var result = await repository.InviteAsync(team.Id, invited.UserId, actor.UserId,
                 request.Message?.Trim(), expiry, now, token);
+            await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.TeamInvitationSent,
+                result.Id, actor.UserId, now), token);
             await AuditAsync("TEAM_INVITED", team.Id, actor.UserId, invited.UserId, token);
             return result.ToDto();
         }, ct);
@@ -239,7 +270,7 @@ public sealed class TeamWorkflow(
             var team = await TeamAsync(invitation.TeamId, token);
             var (window, policy) = await MutableAsync(team, token);
             RequireEligibleStudent(actor, window.OrganizationId);
-            RequireSameMajorAsLeader(team, actor, window.OrganizationId);
+            RequireSameMajorAsLeader(team, actor, window.OrganizationId, policy);
             await RequireNoTeamAsync(team.SemesterId, actor.UserId, token);
             if (team.Members.Count >= policy.MaxMembers)
                 throw new ConflictException("The team has reached its member limit.");
@@ -247,6 +278,8 @@ public sealed class TeamWorkflow(
             await repository.AddMemberAsync(team.Id, team.SemesterId, actor.UserId, false, now, token);
             await repository.RespondAsync(invitation.Id, "ACCEPTED", now, token);
             var result = await SaveEligibilityAsync(team.Id, token);
+            await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.TeamInvitationAccepted,
+                invitation.Id, actor.UserId, now), token);
             await AuditAsync("TEAM_INVITATION_ACCEPTED", team.Id, actor.UserId, invitation.Id, token);
             return result;
         }, ct);
@@ -267,7 +300,10 @@ public sealed class TeamWorkflow(
         {
             var actor = await ActorAsync(token);
             var invitation = await OwnInvitationAsync(invitationId, actor.UserId, token);
-            await repository.RespondAsync(invitation.Id, "REJECTED", Now, token);
+            var now = Now;
+            await repository.RespondAsync(invitation.Id, "REJECTED", now, token);
+            await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.TeamInvitationRejected,
+                invitation.Id, actor.UserId, now), token);
             await AuditAsync("TEAM_INVITATION_REJECTED", invitation.TeamId, actor.UserId, invitation.Id, token);
             return true;
         }, ct);
@@ -281,7 +317,10 @@ public sealed class TeamWorkflow(
             RequireMember(await TeamAsync(invitation.TeamId, token), actor.UserId, true);
             if (invitation.Status != "PENDING" || TeamRules.IsInvitationExpired(invitation.ExpiresAt, Now))
                 throw new ConflictException("The invitation is expired or has already been processed.");
-            await repository.RespondAsync(invitationId, "CANCELLED", Now, token);
+            var now = Now;
+            await repository.RespondAsync(invitationId, "CANCELLED", now, token);
+            await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.TeamInvitationCancelled,
+                invitationId, actor.UserId, now), token);
             await AuditAsync("TEAM_INVITATION_CANCELLED", invitation.TeamId, actor.UserId, invitationId, token);
             return true;
         }, ct);
@@ -311,11 +350,11 @@ public sealed class TeamWorkflow(
             var actor = await ActorAsync(token);
             var team = await TeamAsync(request.TeamId, token);
             RequireMember(team, actor.UserId, true);
-            var (window, _) = await MutableAsync(team, token);
+            var (window, policy) = await MutableAsync(team, token);
             var member = team.Members.SingleOrDefault(m => m.UserId == request.NewLeaderUserId)
                 ?? throw new ConflictException("The new leader must be an active member of this team.");
             RequireEligibleStudent(member, window.OrganizationId);
-            RequireSameMajorAsLeader(team, member, window.OrganizationId);
+            RequireSameMajorAsLeader(team, member, window.OrganizationId, policy);
             if (member.UserId == actor.UserId)
                 throw new ConflictException("This student is already the leader.");
             await repository.TransferLeaderAsync(team.Id, actor.UserId, member.UserId, Now, token);

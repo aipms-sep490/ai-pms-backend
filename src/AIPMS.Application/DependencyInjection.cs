@@ -1,4 +1,6 @@
 using AIPMS.Application.Common.Behaviors;
+using AIPMS.Application.Features.Evaluations.Services;
+using AIPMS.Application.Features.Notifications.Services;
 using AIPMS.Application.Features.Deliverables.Services;
 using AIPMS.Application.Features.Academic.Services;
 using AIPMS.Application.Features.AccountSecurity.Services;
@@ -26,6 +28,9 @@ public static class DependencyInjection
 
         services.AddValidatorsFromAssembly(applicationAssembly, ServiceLifetime.Transient);
         services.AddScoped<AcademicAccessService>();
+        services.AddScoped<RubricWorkflow>();
+        services.AddScoped<EvaluationDraftWorkflow>();
+        services.AddScoped<NotificationInboxService>();
         services.AddScoped<AccountSecurityAccessService>();
         services.AddScoped<SemesterAccessService>();
         services.AddScoped<SupervisorAccessService>();

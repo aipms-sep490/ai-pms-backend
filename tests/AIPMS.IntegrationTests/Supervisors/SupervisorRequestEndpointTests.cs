@@ -12,7 +12,7 @@ using Task = System.Threading.Tasks.Task;
 
 namespace AIPMS.IntegrationTests.Supervisors;
 
-public sealed class SupervisorRequestEndpointTests(SupervisorDatabaseFixture database) : IClassFixture<SupervisorDatabaseFixture>
+public sealed partial class SupervisorRequestEndpointTests(SupervisorDatabaseFixture database) : IClassFixture<SupervisorDatabaseFixture>
 {
     private static readonly DateTime Now = new(2026, 9, 11, 10, 0, 0, DateTimeKind.Utc);
     private sealed class Clock : TimeProvider
@@ -229,6 +229,7 @@ public sealed class SupervisorRequestEndpointTests(SupervisorDatabaseFixture dat
         await using var db = database.CreateContext();
         Assert.Equal(1, await db.SupervisorAssignments.CountAsync(a => a.ProjectId == p.Id));
         Assert.Equal(1, await db.AuditLogs.CountAsync(a => a.Action == "SUPERVISOR_REQUEST_ACCEPTED" && a.EntityId == request.Id.ToString()));
+        Assert.Equal(1, await db.Notifications.CountAsync(n => n.NotificationType == "SUPERVISOR_REQUEST_ACCEPTED" && n.RelatedEntityId == request.Id));
     }
 
     [Fact]
@@ -286,6 +287,7 @@ public sealed class SupervisorRequestEndpointTests(SupervisorDatabaseFixture dat
         Assert.Equal(1, await db.SupervisorRequests.CountAsync(r => r.ProjectId == p.Id));
         var request = await db.SupervisorRequests.SingleAsync(r => r.ProjectId == p.Id);
         Assert.Equal(1, await db.AuditLogs.CountAsync(a => a.Action == "SUPERVISOR_REQUEST_SENT" && a.EntityId == request.Id.ToString()));
+        Assert.Equal(1, await db.Notifications.CountAsync(n => n.NotificationType == "SUPERVISOR_REQUEST_SENT" && n.RelatedEntityId == request.Id));
     }
 
     [Theory]

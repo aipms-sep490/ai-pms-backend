@@ -2091,6 +2091,373 @@ public class ProjectPeriodSqlTests
         Assert.Contains("is inactive, or does not belong to this semester", ex.Message);
     }
 
+    [Fact]
+    public async Task CreateProjectPeriod_NullMilestoneTemplate_Allows()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var semester = await CreateTestSemesterAsync(context, "NULLTMPL");
+        var repo = new SemesterRepository(context);
+        var handler = new CreateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new CreateProjectPeriodCommand(
+            semester.Id, "PER_NL_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Null Template Period",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            MilestoneTemplateId: null);
+
+        var result = await handler.Handle(cmd, CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.Null(result.MilestoneTemplateId);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_NullMilestoneTemplate_Allows()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var semester = await CreateTestSemesterAsync(context, "UPDNLTMPL");
+        var repo = new SemesterRepository(context);
+
+        var period = await repo.CreateProjectPeriodAsync(
+            semester.Id, "PER_UNL_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Initial Period",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            3, 5, 1, 5, null, null, DateTime.UtcNow);
+
+        var handler = new UpdateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new UpdateProjectPeriodCommand(
+            period.Id, period.Code, "Updated Name", period.PeriodType, period.StartAt, period.EndAt,
+            MilestoneTemplateId: null);
+
+        var result = await handler.Handle(cmd, CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.Null(result.MilestoneTemplateId);
+    }
+
+    [Fact]
+    public async Task CreateProjectPeriod_NonNullMilestoneTemplate_WhenModuleUnavailable_ReturnsConflict()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var semester = await CreateTestSemesterAsync(context, "NONNLTMPL");
+        var repo = new SemesterRepository(context);
+        var handler = new CreateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new CreateProjectPeriodCommand(
+            semester.Id, "PER_NNL_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Nonnull Template Period",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            MilestoneTemplateId: 99);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
+        Assert.Contains("Milestone Template module is not available yet", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_NonNullMilestoneTemplate_WhenModuleUnavailable_ReturnsConflict()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var semester = await CreateTestSemesterAsync(context, "UPDNNLTMPL");
+        var repo = new SemesterRepository(context);
+
+        var period = await repo.CreateProjectPeriodAsync(
+            semester.Id, "PER_UNN_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Initial Period",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            3, 5, 1, 5, null, null, DateTime.UtcNow);
+
+        var handler = new UpdateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new UpdateProjectPeriodCommand(
+            period.Id, period.Code, "Updated Name", period.PeriodType, period.StartAt, period.EndAt,
+            MilestoneTemplateId: 99);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
+        Assert.Contains("Milestone Template module is not available yet", ex.Message);
+    }
+
+    [Fact]
+    public async Task Rubric_NotFound_Rejects()
+    {
+        using var context = _fixture.CreateContext();
+        var semester = await CreateTestSemesterAsync(context, "RUBNOTFND");
+        var repo = new SemesterRepository(context);
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var handler = new CreateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new CreateProjectPeriodCommand(
+            semester.Id, "PER_RNF_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Rubric Not Found",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            RubricId: 999999999);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
+        Assert.Contains("Rubric with ID 999999999 does not exist", ex.Message);
+    }
+
+    [Fact]
+    public async Task Rubric_Inactive_Rejects()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var semester = await CreateTestSemesterAsync(context, "RUBINACT");
+        var repo = new SemesterRepository(context);
+
+        var inactiveRubric = new Rubric
+        {
+            DepartmentId = null,
+            AcademicSemesterId = semester.Id,
+            Code = "RUB_INACT_SELF_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(),
+            Name = "Rubric Self Inactive",
+            IsActive = false,
+            CreatedBy = student1Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Rubrics.Add(inactiveRubric);
+        await context.SaveChangesAsync();
+
+        var handler = new CreateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new CreateProjectPeriodCommand(
+            semester.Id, "PER_RIA_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Inactive Rubric Period",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            RubricId: inactiveRubric.Id);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
+        Assert.Contains("is inactive", ex.Message);
+    }
+
+    [Fact]
+    public async Task Rubric_WrongSemester_Rejects()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var semesterA = await CreateTestSemesterAsync(context, "RUBSEM_A");
+        var semesterB = await CreateTestSemesterAsync(context, "RUBSEM_B");
+        var repo = new SemesterRepository(context);
+
+        var rubricSemB = new Rubric
+        {
+            DepartmentId = null,
+            AcademicSemesterId = semesterB.Id,
+            Code = "RUB_SEMB_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(),
+            Name = "Rubric Semester B",
+            IsActive = true,
+            CreatedBy = student1Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Rubrics.Add(rubricSemB);
+        await context.SaveChangesAsync();
+
+        var handler = new CreateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new CreateProjectPeriodCommand(
+            semesterA.Id, "PER_RWS_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Wrong Semester Rubric",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            RubricId: rubricSemB.Id);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
+        Assert.Contains("does not belong to this semester", ex.Message);
+    }
+
+    [Fact]
+    public async Task Rubric_ValidScope_Succeeds()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var semester = await CreateTestSemesterAsync(context, "RUBVALSCP");
+        var repo = new SemesterRepository(context);
+
+        var validRubric = new Rubric
+        {
+            DepartmentId = null,
+            AcademicSemesterId = semester.Id,
+            Code = "RUB_VALSCP_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(),
+            Name = "Rubric Valid Scope",
+            IsActive = true,
+            CreatedBy = student1Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Rubrics.Add(validRubric);
+        await context.SaveChangesAsync();
+
+        var handler = new CreateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new CreateProjectPeriodCommand(
+            semester.Id, "PER_RVS_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Valid Scope Rubric",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            RubricId: validRubric.Id);
+
+        var result = await handler.Handle(cmd, CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.Equal(validRubric.Id, result.RubricId);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_Rubric_NotFound_Rejects()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var semester = await CreateTestSemesterAsync(context, "UPDRUBNF");
+        var repo = new SemesterRepository(context);
+
+        var period = await repo.CreateProjectPeriodAsync(
+            semester.Id, "PER_URN_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Initial Period",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            3, 5, 1, 5, null, null, DateTime.UtcNow);
+
+        var handler = new UpdateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new UpdateProjectPeriodCommand(
+            period.Id, period.Code, "Updated Name", period.PeriodType, period.StartAt, period.EndAt,
+            RubricId: 999999999);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
+        Assert.Contains("Rubric with ID 999999999 does not exist", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_Rubric_Inactive_Rejects()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var semester = await CreateTestSemesterAsync(context, "UPDRUBIA");
+        var repo = new SemesterRepository(context);
+
+        var inactiveRubric = new Rubric
+        {
+            DepartmentId = null,
+            AcademicSemesterId = semester.Id,
+            Code = "RUB_UPDINACT_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(),
+            Name = "Rubric Upd Inactive",
+            IsActive = false,
+            CreatedBy = student1Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Rubrics.Add(inactiveRubric);
+        await context.SaveChangesAsync();
+
+        var period = await repo.CreateProjectPeriodAsync(
+            semester.Id, "PER_URIA_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Initial Period",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            3, 5, 1, 5, null, null, DateTime.UtcNow);
+
+        var handler = new UpdateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new UpdateProjectPeriodCommand(
+            period.Id, period.Code, "Updated Name", period.PeriodType, period.StartAt, period.EndAt,
+            RubricId: inactiveRubric.Id);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
+        Assert.Contains("is inactive", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_Rubric_ValidScope_Succeeds()
+    {
+        using var context = _fixture.CreateContext();
+        var student1Id = await context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var semester = await CreateTestSemesterAsync(context, "UPDRUBVAL");
+        var repo = new SemesterRepository(context);
+
+        var validRubric = new Rubric
+        {
+            DepartmentId = null,
+            AcademicSemesterId = semester.Id,
+            Code = "RUB_UPDVAL_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(),
+            Name = "Rubric Upd Valid",
+            IsActive = true,
+            CreatedBy = student1Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Rubrics.Add(validRubric);
+        await context.SaveChangesAsync();
+
+        var period = await repo.CreateProjectPeriodAsync(
+            semester.Id, "PER_URV_" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(), "Initial Period",
+            "REGISTRATION",
+            new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            3, 5, 1, 5, null, null, DateTime.UtcNow);
+
+        var handler = new UpdateProjectPeriodCommandHandler(
+            repo,
+            new SemesterAccessService(new StubCurrentUser { UserId = student1Id, Roles = new[] { "ADMIN" } }),
+            new DatabaseAuditTrail(context, new StubRequestContext { ActorUserId = student1Id }, TimeProvider.System),
+            TimeProvider.System);
+
+        var cmd = new UpdateProjectPeriodCommand(
+            period.Id, period.Code, "Updated Name", period.PeriodType, period.StartAt, period.EndAt,
+            RubricId: validRubric.Id);
+
+        var result = await handler.Handle(cmd, CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.Equal(validRubric.Id, result.RubricId);
+    }
+
     private class SpGetAppLockInterceptor : DbCommandInterceptor
     {
         private readonly TaskCompletionSource<bool> _appLockAboutToExecuteTcs;

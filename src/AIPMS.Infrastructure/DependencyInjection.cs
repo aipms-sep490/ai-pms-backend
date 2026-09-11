@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Email;
 using AIPMS.Application.Abstractions.Security;
@@ -11,6 +12,7 @@ using AIPMS.Application.Features.Auth.Abstractions;
 using AIPMS.Application.Features.Meetings.Abstractions;
 using AIPMS.Application.Features.Milestones.Abstractions;
 using AIPMS.Application.Features.ProgressReports.Abstractions;
+using AIPMS.Application.Features.Notifications.Abstractions;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Semesters.Abstractions;
 using AIPMS.Application.Features.Supervisors.Abstractions;
@@ -161,12 +163,18 @@ public static class DependencyInjection
         services.AddSingleton<IFileStorage, LocalFileStorage>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();
+        services.AddScoped<IRubricRepository, RubricRepository>();
+        services.AddScoped<IEvaluationDraftRepository, EvaluationDraftRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
+        services.AddScoped<INotificationInboxRepository, NotificationInboxRepository>();
+        services.AddScoped<IWorkflowNotificationWriter, WorkflowNotificationWriter>();
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<IProgressReportRepository, ProgressReportRepository>();
         services.AddScoped<IMeetingRepository, MeetingRepository>();
+        services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
-        services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, ConfiguredTeamFormationPolicyProvider>();
+        services.AddScoped<ITeamInvitationCandidateReader, TeamInvitationCandidateReader>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, DatabaseTeamFormationPolicyProvider>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
         services.AddScoped<IPasswordResetNotifier, SmtpPasswordResetNotifier>();
 

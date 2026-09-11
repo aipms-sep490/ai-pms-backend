@@ -7,12 +7,15 @@ using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Application.Features.Supervisors.DTOs;
 using AIPMS.Application.Features.Supervisors.Models;
 using AIPMS.Domain.Supervisors;
+using AIPMS.Application.Features.Notifications.Events;
+using MediatR;
 
 namespace AIPMS.Application.Features.Supervisors.Services;
 
 public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repository,
     ISupervisorCandidateRepository candidates, ISupervisorProfileRepository profiles,
-    SupervisorAccessService access, IProjectAccessService projectAccess, IAuditTrail audit, TimeProvider clock)
+    SupervisorAccessService access, IProjectAccessService projectAccess, IAuditTrail audit, TimeProvider clock,
+    IPublisher events)
 {
     public Task<SupervisorRequestDto> SendAsync(long projectId, long profileId, string? message, CancellationToken ct) =>
         repository.InTransactionAsync(async token =>
@@ -25,6 +28,8 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             if (await repository.HasPendingAsync(projectId, profileId, token))
                 throw new ConflictException("A pending request already exists for this project and supervisor.");
             var request = await repository.CreateAsync(projectId, profileId, actor.UserId, message?.Trim(), now, token);
+            await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.SupervisorRequestSent,
+                request.Id, actor.UserId, now), token);
             await AuditAsync("SUPERVISOR_REQUEST_SENT", actor.UserId, null, request, token);
             return request.ToDto();
         }, ct);
@@ -38,7 +43,10 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             await RequireLeaderAsync(actor, request.ProjectId, token);
             if (request.Status == "CANCELLED") return request.ToDto();
             RequirePending(request);
-            var result = await repository.RespondAsync(request.Id, "CANCELLED", null, clock.GetUtcNow().UtcDateTime, token);
+            var now = clock.GetUtcNow().UtcDateTime;
+            var result = await repository.RespondAsync(request.Id, "CANCELLED", null, now, token);
+            await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.SupervisorRequestCancelled,
+                request.Id, actor.UserId, now), token);
             await AuditAsync("SUPERVISOR_REQUEST_CANCELLED", actor.UserId, request, result, token);
             return result.ToDto();
         }, ct);
@@ -74,10 +82,14 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
                 foreach (var other in await repository.GetOtherPendingAsync(request.ProjectId, request.Id, token))
                 {
                     var cancelled = await repository.RespondAsync(other.Id, "CANCELLED", null, now, token);
+                    await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.SupervisorRequestCancelled,
+                        other.Id, actor.UserId, now), token);
                     await AuditAsync("SUPERVISOR_REQUEST_CANCELLED", actor.UserId, other, cancelled, token, request.Id);
                 }
             }
             var result = await repository.RespondAsync(request.Id, status, message?.Trim(), now, token);
+            await events.Publish(new WorkflowNotificationEvent(accept ? WorkflowNotificationKind.SupervisorRequestAccepted
+                : WorkflowNotificationKind.SupervisorRequestRejected, request.Id, actor.UserId, now), token);
             await AuditAsync(accept ? "SUPERVISOR_REQUEST_ACCEPTED" : "SUPERVISOR_REQUEST_REJECTED",
                 actor.UserId, request, result, token);
             if (accept)

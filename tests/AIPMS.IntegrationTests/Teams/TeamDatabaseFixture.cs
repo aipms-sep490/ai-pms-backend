@@ -55,7 +55,8 @@ public sealed class TeamDatabaseFixture : IAsyncLifetime
         var period = new ProjectPeriod
         {
             Code = "REG", Name = "Registration", AcademicSemester = semester, Status = "ACTIVE",
-            PeriodType = "REGISTRATION", StartAt = Now.AddDays(-1), EndAt = Now.AddDays(7)
+            PeriodType = "REGISTRATION", StartAt = Now.AddDays(-1), EndAt = Now.AddDays(7),
+            MinTeamSize = 2, MaxTeamSize = 3, MinDistinctMajors = 1
         };
         context.ProjectPeriods.Add(period);
         // Four SE students support capacity/race tests; two IS students support the second single-major flow.

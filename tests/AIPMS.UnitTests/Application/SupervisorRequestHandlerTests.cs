@@ -54,7 +54,8 @@ public sealed class SupervisorRequestHandlerTests
     {
         var profiles = new ProfileRepository(role);
         return new(requests, new CandidateRepository(), profiles,
-            new SupervisorAccessService(new Actor(userId), profiles), new ProjectAccess(), new Audit(), TimeProvider.System);
+            new SupervisorAccessService(new Actor(userId), profiles), new ProjectAccess(), new Audit(), TimeProvider.System,
+            new RecordingPublisher(() => Assert.Fail("Replays and rejected operations must not publish notifications.")));
     }
 
     private sealed class Actor(long userId) : ICurrentUser

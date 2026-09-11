@@ -144,7 +144,12 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
             if (change == "deadline") (await db.Deliverables.FindAsync(d.Id))!.DueAt = Now;
             if (change == "period") (await db.ProjectPeriods.FindAsync(s.PeriodId))!.Status = "CLOSED";
             if (change is "archived" or "completed") (await db.Projects.FindAsync(s.ProjectId))!.Status = change.ToUpperInvariant();
-            if (change == "membership") (await db.TeamMembers.SingleAsync(m => m.TeamId == s.TeamId && m.UserId == s.Accounts.Student)).LeftAt = Now;
+            if (change == "membership")
+            {
+                var memberEntry = await db.TeamMembers.SingleAsync(m => m.TeamId == s.TeamId && m.UserId == s.Accounts.Student);
+                memberEntry.JoinedAt = Now.AddDays(-1);
+                memberEntry.LeftAt = Now;
+            }
             if (change == "role") db.UserRoles.RemoveRange(await db.UserRoles.Where(r => r.UserId == s.Accounts.Student).ToListAsync());
             await db.SaveChangesAsync();
         }
@@ -429,8 +434,8 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
         await db.SaveChangesAsync();
         var p = new M.Project { Code = Guid.NewGuid().ToString("N"), Title = "Project", Status = "ACTIVE", CreatedBy = s.Student,
             Team = new() { Code = Guid.NewGuid().ToString("N"), Name = "Team", AcademicSemesterId = semester.Id, CreatedBy = s.Student,
-                Status = "ELIGIBLE", TeamMembers = [new() { AcademicSemesterId = semester.Id, UserId = s.Student, IsLeader = true },
-                    new() { AcademicSemesterId = semester.Id, UserId = member.Id }] },
+                Status = "ELIGIBLE", TeamMembers = [new() { AcademicSemesterId = semester.Id, UserId = s.Student, IsLeader = true, JoinedAt = Now.AddDays(-1) },
+                    new() { AcademicSemesterId = semester.Id, UserId = member.Id, JoinedAt = Now.AddDays(-1) }] },
             ProjectMajors = [new() { Major = new() { DepartmentId = s.DepartmentId, Code = Guid.NewGuid().ToString("N"), Name = "SE", IsActive = true } }] };
         db.Projects.Add(p);
         var period = new M.ProjectPeriod { AcademicSemesterId = semester.Id, Code = "EXEC", Name = "Execution", PeriodType = "EXECUTION", Status = "ACTIVE", StartAt = Now.AddDays(-1), EndAt = Now.AddDays(1) };
