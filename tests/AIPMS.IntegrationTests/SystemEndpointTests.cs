@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using AIPMS.Api.Controllers;
 using AIPMS.Application.Abstractions.AI;
 using AIPMS.Application.Features.Auth.DTOs;
-using AIPMS.Application.Features.ProgressReports.Commands.AnalyzeProgress;
+using AIPMS.Application.Features.ProgressReports.Commands;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AIPMS.IntegrationTests;

@@ -21,112 +21,32 @@ namespace AIPMS.IntegrationTests;
 
 public class DbFixture : IAsyncLifetime
 {
-    private MsSqlContainer? _msSqlContainer;
+    private readonly IsolatedSqlDatabase database = new();
     private DbContextOptions<AipmsDbContext> _options = null!;
-    public string ConnectionString { get; private set; } = null!;
+    public string ConnectionString => database.ConnectionString;
 
-    public AipmsDbContext CreateContext()
-    {
-        return new AipmsDbContext(_options);
-    }
+    public AipmsDbContext CreateContext() => new(_options);
 
     public async Task InitializeAsync()
     {
-        var isCI = Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true";
-
-        if (isCI)
+        var source = Environment.GetEnvironmentVariable("AIPMS_TEST_SQL_CONNECTION");
+        if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" && string.IsNullOrWhiteSpace(source))
+            throw new InvalidOperationException("CI environment detected but AIPMS_TEST_SQL_CONNECTION is missing.");
+        await database.StartAsync(source);
+        try
         {
-            var testConnectionString = Environment.GetEnvironmentVariable("AIPMS_TEST_SQL_CONNECTION");
-            if (string.IsNullOrWhiteSpace(testConnectionString))
-            {
-                throw new InvalidOperationException("CI environment detected but AIPMS_TEST_SQL_CONNECTION is missing.");
-            }
-            ConnectionString = testConnectionString;
+            _options = new DbContextOptionsBuilder<AipmsDbContext>().UseSqlServer(ConnectionString).Options;
+            await using var context = CreateContext();
+            await SeedMinimumTestDataAsync(context);
         }
-        else
+        catch
         {
-            // Local runs must ALWAYS use Testcontainers SQL Server
-            _msSqlContainer = new MsSqlBuilder()
-                .WithImage("mcr.microsoft.com/mssql/server:2022-latest")
-                .Build();
-            await _msSqlContainer.StartAsync();
-            ConnectionString = _msSqlContainer.GetConnectionString();
-        }
-
-        var builder = new SqlConnectionStringBuilder(ConnectionString);
-        builder.InitialCatalog = "master";
-        var masterConnectionString = builder.ConnectionString;
-
-        // SQL Server Readiness check / Retry logic
-        var retries = 10;
-        var connected = false;
-        while (retries > 0 && !connected)
-        {
-            try
-            {
-                await using var testConnection = new SqlConnection(masterConnectionString);
-                await testConnection.OpenAsync();
-                connected = true;
-            }
-            catch (SqlException)
-            {
-                retries--;
-                if (retries == 0) throw;
-                await Task.Delay(2000);
-            }
-        }
-
-        await using (var master = new SqlConnection(masterConnectionString))
-        {
-            await master.OpenAsync();
-            await using var cmd = master.CreateCommand();
-            cmd.CommandText = """
-                IF DB_ID(N'AI_PMS') IS NULL
-                BEGIN
-                    CREATE DATABASE [AI_PMS];
-                END
-                """;
-            await cmd.ExecuteNonQueryAsync();
-        }
-
-        // Target InitialCatalog AI_PMS
-        builder.InitialCatalog = "AI_PMS";
-        ConnectionString = builder.ConnectionString;
-
-        _options = new DbContextOptionsBuilder<AipmsDbContext>()
-            .UseSqlServer(ConnectionString)
-            .Options;
-
-        var schemaPath = Path.Combine(AppContext.BaseDirectory, "../../../../../db/schema.sql");
-        if (!File.Exists(schemaPath))
-        {
-            schemaPath = Path.Combine(AppContext.BaseDirectory, "../../../../db/schema.sql");
-        }
-        var schemaSql = await File.ReadAllTextAsync(schemaPath);
-        var batches = Regex.Split(schemaSql, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase);
-
-        await using var connection = new SqlConnection(ConnectionString);
-        await connection.OpenAsync();
-        foreach (var batch in batches)
-        {
-            if (string.IsNullOrWhiteSpace(batch)) continue;
-            await using var command = new SqlCommand(batch, connection);
-            await command.ExecuteNonQueryAsync();
-        }
-
-        using (var seedContext = CreateContext())
-        {
-            await SeedMinimumTestDataAsync(seedContext);
+            await database.DisposeAsync();
+            throw;
         }
     }
 
-    public async Task DisposeAsync()
-    {
-        if (_msSqlContainer is not null)
-        {
-            await _msSqlContainer.DisposeAsync();
-        }
-    }
+    public async Task DisposeAsync() => await database.DisposeAsync();
 
     private async Task SeedMinimumTestDataAsync(AipmsDbContext Context)
     {

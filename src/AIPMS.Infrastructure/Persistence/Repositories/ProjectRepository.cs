@@ -164,7 +164,7 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
                       && pp.PeriodType == "REGISTRATION"
                       && pp.Status == "ACTIVE"
                       && pp.StartAt <= currentUtc
-                      && pp.EndAt >= currentUtc)
+                      && pp.EndAt > currentUtc)
             .ToListAsync(cancellationToken);
 
         if (periods.Count == 0)
@@ -188,7 +188,7 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
                       && tm.LeftAt == null 
                       && tm.IsLeader == true
                       && tm.Team.AcademicSemesterId == semesterId 
-                      && tm.Team.Status == "ELIGIBLE")
+                      && (tm.Team.Status == "FORMING" || tm.Team.Status == "ELIGIBLE"))
             .Select(static tm => tm.TeamId)
             .Take(2)
             .ToListAsync(cancellationToken);
@@ -225,7 +225,9 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
         IReadOnlyList<string> keywords,
         CancellationToken cancellationToken)
     {
-        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
         try
         {
             var utcNow = DateTime.UtcNow;
@@ -271,7 +273,7 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
             }
 
             await context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
             return (await GetByIdAsync(project.Id, cancellationToken))!;
         }
@@ -280,12 +282,12 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
                   && (sqlException.Number == 2601 || sqlException.Number == 2627)
                   && sqlException.Message.Contains("uq_projects_active_team"))
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
             throw new ConflictException("The team already has an active or unfinished project proposal.");
         }
         catch
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
             throw;
         }
     }
@@ -386,7 +388,9 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
         string? reason,
         CancellationToken cancellationToken)
     {
-        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
         try
         {
             var project = await context.Projects
@@ -429,18 +433,18 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
             context.ProjectStatusHistories.Add(history);
 
             await context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
             return (await GetByIdAsync(projectId, cancellationToken))!;
         }
         catch (DbUpdateConcurrencyException)
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
             throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
         }
         catch
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
             throw;
         }
     }
@@ -477,7 +481,7 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
             && pp.PeriodType == "REGISTRATION" 
             && pp.Status == "ACTIVE" 
             && pp.StartAt <= currentUtc 
-            && pp.EndAt >= currentUtc, 
+            && pp.EndAt > currentUtc,
             cancellationToken);
 
     public Task<long?> GetSemesterIdByTeamIdAsync(
@@ -500,13 +504,6 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
 
         return count == majorIds.Distinct().Count();
     }
-
-    public Task<bool> IsTeamEligibleAsync(
-        long teamId,
-        CancellationToken cancellationToken) =>
-        context.Teams
-            .AsNoTracking()
-            .AnyAsync(t => t.Id == teamId && t.Status == "ELIGIBLE", cancellationToken);
 
     public Task<bool> ProjectBelongsToTeamAsync(
         long projectId,

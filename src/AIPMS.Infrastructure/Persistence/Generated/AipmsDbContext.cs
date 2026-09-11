@@ -1025,12 +1025,26 @@ public partial class AipmsDbContext : DbContext
             entity.Property(e => e.EndAt)
                 .HasPrecision(0)
                 .HasColumnName("end_at");
+            entity.Property(e => e.MaxProjectsPerSupervisor)
+                .HasDefaultValue(5)
+                .HasColumnName("max_projects_per_supervisor");
+            entity.Property(e => e.MaxTeamSize)
+                .HasDefaultValue(5)
+                .HasColumnName("max_team_size");
+            entity.Property(e => e.MilestoneTemplateId).HasColumnName("milestone_template_id");
+            entity.Property(e => e.MinDistinctMajors)
+                .HasDefaultValue(1)
+                .HasColumnName("min_distinct_majors");
+            entity.Property(e => e.MinTeamSize)
+                .HasDefaultValue(3)
+                .HasColumnName("min_team_size");
             entity.Property(e => e.Name)
                 .HasMaxLength(255)
                 .HasColumnName("name");
             entity.Property(e => e.PeriodType)
                 .HasMaxLength(50)
                 .HasColumnName("period_type");
+            entity.Property(e => e.RubricId).HasColumnName("rubric_id");
             entity.Property(e => e.StartAt)
                 .HasPrecision(0)
                 .HasColumnName("start_at");
@@ -1047,6 +1061,10 @@ public partial class AipmsDbContext : DbContext
                 .HasForeignKey(d => d.AcademicSemesterId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_project_periods_semester");
+
+            entity.HasOne(d => d.Rubric).WithMany(p => p.ProjectPeriods)
+                .HasForeignKey(d => d.RubricId)
+                .HasConstraintName("fk_project_periods_rubric");
         });
 
         modelBuilder.Entity<ProjectStatusHistory>(entity =>

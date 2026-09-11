@@ -142,8 +142,8 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
 
         var isSupervisor = await context.SupervisorAssignments
             .AsNoTracking()
-            .AnyAsync(sa => sa.ProjectId == projectId 
-                         && sa.SupervisorProfile.UserId == userId 
+            .AnyAsync(sa => sa.ProjectId == projectId
+                         && sa.SupervisorProfile.UserId == userId
                          && sa.EndedAt == null, cancellationToken);
 
         return isSupervisor;

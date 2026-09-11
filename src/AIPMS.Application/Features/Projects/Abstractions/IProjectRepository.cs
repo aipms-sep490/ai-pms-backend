@@ -91,10 +91,6 @@ public interface IProjectRepository
         IEnumerable<long> majorIds,
         CancellationToken cancellationToken);
 
-    Task<bool> IsTeamEligibleAsync(
-        long teamId,
-        CancellationToken cancellationToken);
-
     Task<bool> ProjectBelongsToTeamAsync(
         long projectId,
         long teamId,

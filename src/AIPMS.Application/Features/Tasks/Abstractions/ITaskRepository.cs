@@ -91,7 +91,7 @@ public interface ITaskRepository
         long taskId,
         long projectId,
         CancellationToken cancellationToken);
-        
+
     Task<bool> MilestoneBelongsToProjectAsync(
         long milestoneId,
         long projectId,
@@ -108,7 +108,7 @@ public interface ITaskRepository
         CancellationToken cancellationToken);
 
     Task<long?> GetParentTaskIdAsync(long taskId, CancellationToken cancellationToken);
-    
+
     Task<IEnumerable<long>> GetDependsOnTaskIdsAsync(long taskId, CancellationToken cancellationToken);
 
     Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(

@@ -1,23 +1,32 @@
+using System.Runtime.CompilerServices;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Email;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.AccountSecurity.Abstractions;
 using AIPMS.Application.Features.Auth.Abstractions;
-using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Milestones.Abstractions;
+using AIPMS.Application.Features.Projects.Abstractions;
+using AIPMS.Application.Features.Semesters.Abstractions;
+using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Application.Features.Tasks.Abstractions;
+using AIPMS.Application.Features.Teams.Abstractions;
 using AIPMS.Infrastructure.Email;
 using AIPMS.Infrastructure.Identity;
 using AIPMS.Infrastructure.Identity.Configuration;
 using AIPMS.Infrastructure.Persistence.Configuration;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Repositories;
-using AIPMS.Infrastructure.Services;
+using AIPMS.Infrastructure.Services.Auditing;
+using AIPMS.Infrastructure.Services.Projects;
+using AIPMS.Infrastructure.Services.Teams;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+
+[assembly: InternalsVisibleTo("AIPMS.UnitTests")]
+[assembly: InternalsVisibleTo("AIPMS.IntegrationTests")]
 
 namespace AIPMS.Infrastructure;
 
@@ -139,10 +148,17 @@ public static class DependencyInjection
         services.AddScoped<IProjectAccessService, ProjectAccessService>();
         services.AddScoped<IProjectExecutionGuard, ProjectExecutionGuard>();
         services.AddScoped<IAcademicStructureRepository, AcademicStructureRepository>();
+        services.AddScoped<Application.Features.Supervisors.Abstractions.ISupervisorProfileRepository, SupervisorProfileRepository>();
+        services.AddScoped<ISupervisorCandidateRepository, SupervisorCandidateRepository>();
+        services.AddScoped<ISupervisorRequestRepository, SupervisorRequestRepository>();
+        services.AddScoped<ISupervisorAssignmentRepository, SupervisorAssignmentRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<ISemesterRepository, SemesterRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, ConfiguredTeamFormationPolicyProvider>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
         services.AddScoped<IPasswordResetNotifier, SmtpPasswordResetNotifier>();
 
