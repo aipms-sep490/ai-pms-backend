@@ -532,6 +532,167 @@ public sealed class ProjectPeriodHandlerTests
                 CancellationToken.None));
     }
 
+    // ── Milestone Template Foundation Contract Tests ─────────────────────────
+
+    [Fact]
+    public async Task CreateProjectPeriod_NullMilestoneTemplate_Allows()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 1);
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var audit = new RecordingAuditTrail();
+        var handler = new CreateProjectPeriodCommandHandler(repo, access, audit, TimeProvider.System);
+
+        var result = await handler.Handle(
+            new CreateProjectPeriodCommand(
+                1, "REG-NULL-TMPL", "Reg Null Tmpl", "REGISTRATION", StartAt, EndAt,
+                MilestoneTemplateId: null),
+            CancellationToken.None);
+
+        Assert.Null(result.MilestoneTemplateId);
+        Assert.Equal("REG-NULL-TMPL", result.Code);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_NullMilestoneTemplate_Allows()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 1);
+        repo.AddDraftPeriod(semesterId: 1, id: 10);
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new UpdateProjectPeriodCommandHandler(repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        var result = await handler.Handle(
+            new UpdateProjectPeriodCommand(
+                10, "UPD-NULL-TMPL", "Upd Null Tmpl", "EXECUTION", StartAt, EndAt,
+                MilestoneTemplateId: null),
+            CancellationToken.None);
+
+        Assert.Null(result.MilestoneTemplateId);
+        Assert.Equal("UPD-NULL-TMPL", result.Code);
+    }
+
+    [Fact]
+    public async Task CreateProjectPeriod_NonNullMilestoneTemplate_WhenModuleUnavailable_ReturnsConflict()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 1);
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new CreateProjectPeriodCommandHandler(repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            handler.Handle(
+                new CreateProjectPeriodCommand(
+                    1, "REG-NONNULL", "Reg Nonnull", "REGISTRATION", StartAt, EndAt,
+                    MilestoneTemplateId: 42),
+                CancellationToken.None));
+
+        Assert.Contains("Milestone Template module is not available yet", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_NonNullMilestoneTemplate_WhenModuleUnavailable_ReturnsConflict()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 1);
+        repo.AddDraftPeriod(semesterId: 1, id: 10);
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new UpdateProjectPeriodCommandHandler(repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            handler.Handle(
+                new UpdateProjectPeriodCommand(
+                    10, "UPD-NONNULL", "Upd Nonnull", "EXECUTION", StartAt, EndAt,
+                    MilestoneTemplateId: 42),
+                CancellationToken.None));
+
+        Assert.Contains("Milestone Template module is not available yet", ex.Message);
+    }
+
+    // ── Rubric Unit Tests ───────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Rubric_NotFound_Rejects()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 1);
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new CreateProjectPeriodCommandHandler(repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            handler.Handle(
+                new CreateProjectPeriodCommand(
+                    1, "REG-NO-RUB", "Reg No Rub", "REGISTRATION", StartAt, EndAt,
+                    RubricId: 999999),
+                CancellationToken.None));
+
+        Assert.Contains("Rubric with ID 999999 does not exist", ex.Message);
+    }
+
+    [Fact]
+    public async Task Rubric_ValidScope_Succeeds()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 1);
+        repo.UsableRubricIds.Add(777);
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new CreateProjectPeriodCommandHandler(repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        var result = await handler.Handle(
+            new CreateProjectPeriodCommand(
+                1, "REG-VALID-RUB", "Reg Valid Rub", "REGISTRATION", StartAt, EndAt,
+                RubricId: 777),
+            CancellationToken.None);
+
+        Assert.Equal(777, result.RubricId);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_Rubric_NotFound_Rejects()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 1);
+        repo.AddDraftPeriod(semesterId: 1, id: 10);
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new UpdateProjectPeriodCommandHandler(repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            handler.Handle(
+                new UpdateProjectPeriodCommand(
+                    10, "UPD-NO-RUB", "Upd No Rub", "EXECUTION", StartAt, EndAt,
+                    RubricId: 999999),
+                CancellationToken.None));
+
+        Assert.Contains("Rubric with ID 999999 does not exist", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_Rubric_ValidScope_Succeeds()
+    {
+        var repo = new StubSemesterRepository();
+        repo.AddDraftSemester(id: 1);
+        repo.AddDraftPeriod(semesterId: 1, id: 10);
+        repo.UsableRubricIds.Add(888);
+        var currentUser = new TestCurrentUser(1, AppRoles.Admin);
+        var access = new SemesterAccessService(currentUser);
+        var handler = new UpdateProjectPeriodCommandHandler(repo, access, new RecordingAuditTrail(), TimeProvider.System);
+
+        var result = await handler.Handle(
+            new UpdateProjectPeriodCommand(
+                10, "UPD-VALID-RUB", "Upd Valid Rub", "EXECUTION", StartAt, EndAt,
+                RubricId: 888),
+            CancellationToken.None);
+
+        Assert.Equal(888, result.RubricId);
+    }
+
     // ── SetProjectPeriodStatus ────────────────────────────────────────────────
 
     [Theory]
