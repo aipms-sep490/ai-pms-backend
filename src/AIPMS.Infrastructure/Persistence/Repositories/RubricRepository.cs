@@ -81,8 +81,9 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
     private async Task Lock(long id, CancellationToken ct)
     {
         if (context.Database.CurrentTransaction is null) throw new InvalidOperationException("Rubric mutation requires a transaction.");
-        await context.Rubrics.FromSqlInterpolated($"SELECT * FROM dbo.rubrics WITH (XLOCK, HOLDLOCK) WHERE id = {id}")
-            .AsNoTracking().SingleAsync(ct);
+        var row = await context.Rubrics.FromSqlInterpolated($"SELECT * FROM dbo.rubrics WITH (XLOCK, HOLDLOCK) WHERE id = {id}")
+            .AsNoTracking().SingleOrDefaultAsync(ct);
+        if (row is null) throw new NotFoundException("Rubric", id);
     }
 
     private async Task<RubricRecord> Read(long id, CancellationToken ct)

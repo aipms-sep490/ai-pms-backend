@@ -1,4 +1,5 @@
 using System.Net;
+using System.Data.Common;
 using System.Net.Http.Json;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Common.Models;
@@ -7,8 +8,10 @@ using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.Semesters.Abstractions;
 using AIPMS.Infrastructure.Persistence.Models;
+using AIPMS.Infrastructure.Persistence.Generated;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -242,6 +245,27 @@ public sealed class RubricEndpointTests(RubricDatabaseFixture database) : IClass
     }
 
     [Fact]
+    public async Task Delete_between_visibility_check_and_lock_returns_not_found_instead_of_server_error()
+    {
+        var s = await database.Seed();
+        using var app = new RubricFactory(database);
+        using var staff = app.CreateAuthenticatedClient(s.Users.Staff);
+        var draft = await Create(staff, s);
+        var gate = new PauseBeforeRubricLock();
+        using var pausedApp = new RubricFactory(database, interceptor: gate);
+        using var pausedStaff = pausedApp.CreateAuthenticatedClient(s.Users.Staff);
+        var path = $"/api/v1/rubrics/{draft.Id}?concurrencyToken={draft.ConcurrencyToken}";
+        var pendingDelete = pausedStaff.DeleteAsync(path);
+        try
+        {
+            await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Equal(HttpStatusCode.NoContent, (await staff.DeleteAsync(path)).StatusCode);
+        }
+        finally { gate.Resume.TrySetResult(); }
+        Assert.Equal(HttpStatusCode.NotFound, (await pendingDelete).StatusCode);
+    }
+
+    [Fact]
     public async Task An_existing_reference_protects_even_a_draft_and_new_versions_do_not_rebind_periods()
     {
         var s = await database.Seed();
@@ -332,13 +356,36 @@ public sealed class RubricEndpointTests(RubricDatabaseFixture database) : IClass
     }
 }
 
-internal sealed class RubricFactory(RubricDatabaseFixture database, bool failAudit = false) : AipmsWebApplicationFactory
+internal sealed class PauseBeforeRubricLock : DbCommandInterceptor
+{
+    public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Resume { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
+        CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+    {
+        if (command.CommandText.Contains("XLOCK, HOLDLOCK", StringComparison.Ordinal))
+        {
+            Reached.TrySetResult();
+            await Resume.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+        }
+        return result;
+    }
+}
+
+internal sealed class RubricFactory(RubricDatabaseFixture database, bool failAudit = false,
+    DbCommandInterceptor? interceptor = null) : AipmsWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(
             new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = database.ConnectionString }));
+        if (interceptor is not null) builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<DbContextOptions<AipmsDbContext>>();
+            services.AddDbContext<AipmsDbContext>(options => options.UseSqlServer(database.ConnectionString).AddInterceptors(interceptor));
+        });
         if (failAudit) builder.ConfigureServices(services =>
         {
             services.RemoveAll<IAuditTrail>();
