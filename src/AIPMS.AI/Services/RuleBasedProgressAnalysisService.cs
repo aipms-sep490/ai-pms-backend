@@ -147,9 +147,12 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
             }
         }
 
-        // P2 FIX #2 & #3: Milestone deadlines exclude CANCELLED milestones and require due date evidence
+        // Completed work contributes to completion rate, not outstanding deadline coverage.
         var todayDate = DateOnly.FromDateTime(analysisTimeUtc);
-        var nonCancelledWithDueDate = nonCancelledMilestones
+        var outstandingMilestones = nonCancelledMilestones
+            .Where(static m => !m.Status.Equals("COMPLETED", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var outstandingWithDueDate = outstandingMilestones
             .Where(static m => m.DueDate.HasValue)
             .ToList();
 
@@ -157,11 +160,15 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
         int? milestoneNearDueCount = null;
         var overdueMilestonesList = new List<MilestoneFact>();
 
-        if (nonCancelledMilestonesCount > 0 && nonCancelledWithDueDate.Count > 0)
+        if (nonCancelledMilestonesCount > 0 && outstandingMilestones.Count == 0)
         {
-            overdueMilestonesList = nonCancelledWithDueDate
-                .Where(m => !m.Status.Equals("COMPLETED", StringComparison.OrdinalIgnoreCase)
-                         && m.DueDate!.Value < todayDate)
+            milestoneDelayDays = 0.0;
+            milestoneNearDueCount = 0;
+        }
+        else if (outstandingWithDueDate.Count > 0)
+        {
+            overdueMilestonesList = outstandingWithDueDate
+                .Where(m => m.DueDate!.Value < todayDate)
                 .ToList();
 
             if (overdueMilestonesList.Count > 0)
@@ -176,9 +183,8 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
             }
 
             var nearDueThresholdDate = todayDate.AddDays(RuleBaselineConfig.MilestoneNearDueThresholdDays);
-            milestoneNearDueCount = nonCancelledWithDueDate
-                .Count(m => !m.Status.Equals("COMPLETED", StringComparison.OrdinalIgnoreCase)
-                         && m.DueDate!.Value >= todayDate
+            milestoneNearDueCount = outstandingWithDueDate
+                .Count(m => m.DueDate!.Value >= todayDate
                          && m.DueDate!.Value <= nearDueThresholdDate);
         }
 
@@ -217,14 +223,19 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
             unassignedTaskCount,
             progressPercentage);
 
-        // Feature availability tracking across all 11 defined feature slots
-        int availableFeatureCount = 0;
-        if (overdueTaskRatio.HasValue) availableFeatureCount++;
-        if (averageTaskDelayDays.HasValue) availableFeatureCount++;
+        // Deadline slots contribute only the fraction of outstanding work with dates.
+        var taskDeadlineCoverage = totalActiveTasks == 0
+            ? 1.0 : (double)activeTasksWithDueAt.Count / totalActiveTasks;
+        var milestoneDeadlineCoverage = outstandingMilestones.Count == 0
+            ? (nonCancelledMilestonesCount > 0 ? 1.0 : 0.0)
+            : (double)outstandingWithDueDate.Count / outstandingMilestones.Count;
+        double availableFeatureCount = 0;
+        if (overdueTaskRatio.HasValue) availableFeatureCount += taskDeadlineCoverage;
+        if (averageTaskDelayDays.HasValue) availableFeatureCount += taskDeadlineCoverage;
         if (blockedTaskRatio.HasValue) availableFeatureCount++;
         if (milestoneCompletionRate.HasValue) availableFeatureCount++;
-        if (milestoneDelayDays.HasValue) availableFeatureCount++;
-        if (milestoneNearDueCount.HasValue) availableFeatureCount++;
+        if (milestoneDelayDays.HasValue) availableFeatureCount += milestoneDeadlineCoverage;
+        if (milestoneNearDueCount.HasValue) availableFeatureCount += milestoneDeadlineCoverage;
         if (reportDelayDays.HasValue) availableFeatureCount++;
         if (missingReportCountFeature.HasValue) availableFeatureCount++;
         if (featureSnapshot.MeetingFrequencyCount.HasValue) availableFeatureCount++;
@@ -248,13 +259,13 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
             }
         }
 
-        if (nonCancelledMilestonesCount > 0)
+        if (outstandingMilestones.Count > 0)
         {
-            if (nonCancelledWithDueDate.Count == 0)
+            if (outstandingWithDueDate.Count == 0)
             {
                 limitationsList.Add("Milestones do not have due dates; milestone deadline features were not evaluated.");
             }
-            else if (nonCancelledWithDueDate.Count < nonCancelledMilestonesCount)
+            else if (outstandingWithDueDate.Count < outstandingMilestones.Count)
             {
                 limitationsList.Add("Some milestones do not have due dates; milestone deadline features reflect partial evidence.");
             }
@@ -269,11 +280,9 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
 
         var limitationsNote = string.Join(" ", limitationsList);
 
-        // DataStatus is SUFFICIENT only when enough evidence exists:
-        // non-cancelled milestones exist, deadline evidence is not completely absent, and at least 6 features available
+        // Partial deadlines can explain observed factors, but cannot establish overall safety.
         bool hasSufficientDeadlineEvidence =
-            (totalActiveTasks == 0 || activeTasksWithDueAt.Count > 0) &&
-            (nonCancelledMilestonesCount == 0 || nonCancelledWithDueDate.Count > 0);
+            taskDeadlineCoverage == 1.0 && milestoneDeadlineCoverage == 1.0;
 
         bool isDataSufficient = nonCancelledMilestonesCount > 0
                              && hasSufficientDeadlineEvidence
