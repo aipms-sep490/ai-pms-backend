@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Email;
 using AIPMS.Application.Abstractions.Security;
@@ -160,6 +161,7 @@ public static class DependencyInjection
         services.AddSingleton<IFileStorage, LocalFileStorage>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();
+        services.AddScoped<IRubricRepository, RubricRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<INotificationInboxRepository, NotificationInboxRepository>();
         services.AddScoped<IWorkflowNotificationWriter, WorkflowNotificationWriter>();
