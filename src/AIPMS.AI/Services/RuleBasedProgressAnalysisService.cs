@@ -24,7 +24,12 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
         ArgumentNullException.ThrowIfNull(facts);
 
         var totalMilestones = facts.Milestones.Count;
-        var completedMilestones = facts.Milestones.Count(static m => m.Status.Equals("COMPLETED", StringComparison.OrdinalIgnoreCase));
+        var nonCancelledMilestones = facts.Milestones
+            .Where(static m => !m.Status.Equals("CANCELLED", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var nonCancelledMilestonesCount = nonCancelledMilestones.Count;
+        var completedMilestones = nonCancelledMilestones
+            .Count(static m => m.Status.Equals("COMPLETED", StringComparison.OrdinalIgnoreCase));
 
         var totalTasks = facts.Tasks.Count;
         var doneTasks = facts.Tasks.Count(static t => t.Status.Equals("DONE", StringComparison.OrdinalIgnoreCase));
@@ -32,11 +37,6 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
 
         var activeTasks = facts.Tasks.Where(t => ActiveTaskStatuses.Contains(t.Status)).ToList();
         var totalActiveTasks = activeTasks.Count;
-
-        var overdueTasksList = activeTasks
-            .Where(t => t.DueAt.HasValue && t.DueAt.Value < analysisTimeUtc)
-            .ToList();
-        var overdueTaskCount = overdueTasksList.Count;
 
         var unassignedTasksList = activeTasks
             .Where(static t => t.AssigneeCount == 0)
@@ -48,19 +48,19 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
             ? 0.0
             : Math.Round((doneTasks * 100.0) / totalTasks, 2);
 
-        var progressSummary = new ProgressSummaryDto(
-            totalMilestones,
-            completedMilestones,
-            totalTasks,
-            doneTasks,
-            blockedTasks,
-            overdueTaskCount,
-            unassignedTaskCount,
-            progressPercentage);
-
-        // Check Data Sufficiency
+        // Check Minimum Record Sufficiency
         if (totalTasks == 0 || totalMilestones == 0)
         {
+            var emptySummary = new ProgressSummaryDto(
+                totalMilestones,
+                completedMilestones,
+                totalTasks,
+                doneTasks,
+                blockedTasks,
+                0,
+                unassignedTaskCount,
+                progressPercentage);
+
             var emptyFeatureSnapshot = new FeatureSnapshotDto(
                 OverdueTaskRatio: null,
                 AverageTaskDelayDays: null,
@@ -83,7 +83,7 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
                 null,
                 0.0,
                 "INSUFFICIENT_DATA",
-                progressSummary,
+                emptySummary,
                 emptyFeatureSnapshot,
                 Array.Empty<RiskFactorDto>(),
                 new[] { "Add milestones, tasks, and deadlines before requesting a progress risk analysis." },
@@ -95,49 +95,98 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Calculate Feature Ratios
-        var overdueTaskRatio = totalActiveTasks == 0 ? 0.0 : Math.Round((double)overdueTaskCount / totalActiveTasks, 4);
-        var blockedTaskRatio = totalActiveTasks == 0 ? 0.0 : Math.Round((double)blockedTasks / totalActiveTasks, 4);
-        var unassignedTaskRatio = totalActiveTasks == 0 ? 0.0 : Math.Round((double)unassignedTaskCount / totalActiveTasks, 4);
-        var milestoneCompletionRate = totalMilestones == 0 ? 0.0 : Math.Round((double)completedMilestones / totalMilestones, 4);
-
-        double averageTaskDelayDays = 0.0;
-        if (overdueTaskCount > 0)
+        // P2 FIX #2: Milestone Completion Rate denominator excludes CANCELLED milestones
+        double? milestoneCompletionRate = null;
+        if (nonCancelledMilestonesCount > 0)
         {
-            var totalDelay = overdueTasksList
-                .Sum(t => Math.Max(0.0, (analysisTimeUtc - t.DueAt!.Value).TotalDays));
-            averageTaskDelayDays = Math.Round(totalDelay / overdueTaskCount, 2);
+            milestoneCompletionRate = Math.Round((double)completedMilestones / nonCancelledMilestonesCount, 4);
         }
 
+        // Status-based task ratios
+        double? blockedTaskRatio;
+        double? unassignedTaskRatio;
+        if (totalActiveTasks > 0)
+        {
+            blockedTaskRatio = Math.Round((double)blockedTasks / totalActiveTasks, 4);
+            unassignedTaskRatio = Math.Round((double)unassignedTaskCount / totalActiveTasks, 4);
+        }
+        else
+        {
+            blockedTaskRatio = 0.0;
+            unassignedTaskRatio = 0.0;
+        }
+
+        // P2 FIX #3: Deadline-based task features require actual due date evidence
+        var activeTasksWithDueAt = activeTasks.Where(static t => t.DueAt.HasValue).ToList();
+        double? overdueTaskRatio = null;
+        double? averageTaskDelayDays = null;
+        var overdueTasksList = new List<TaskFact>();
+
+        if (totalActiveTasks == 0)
+        {
+            overdueTaskRatio = 0.0;
+            averageTaskDelayDays = 0.0;
+        }
+        else if (activeTasksWithDueAt.Count > 0)
+        {
+            overdueTasksList = activeTasksWithDueAt
+                .Where(t => t.DueAt!.Value < analysisTimeUtc)
+                .ToList();
+            var overdueTaskCount = overdueTasksList.Count;
+            overdueTaskRatio = Math.Round((double)overdueTaskCount / activeTasksWithDueAt.Count, 4);
+
+            if (overdueTaskCount > 0)
+            {
+                var totalDelay = overdueTasksList
+                    .Sum(t => Math.Max(0.0, (analysisTimeUtc - t.DueAt!.Value).TotalDays));
+                averageTaskDelayDays = Math.Round(totalDelay / overdueTaskCount, 2);
+            }
+            else
+            {
+                averageTaskDelayDays = 0.0;
+            }
+        }
+
+        // P2 FIX #2 & #3: Milestone deadlines exclude CANCELLED milestones and require due date evidence
         var todayDate = DateOnly.FromDateTime(analysisTimeUtc);
-        var overdueMilestonesList = facts.Milestones
-            .Where(m => !m.Status.Equals("COMPLETED", StringComparison.OrdinalIgnoreCase)
-                     && m.DueDate.HasValue
-                     && m.DueDate.Value < todayDate)
+        var nonCancelledWithDueDate = nonCancelledMilestones
+            .Where(static m => m.DueDate.HasValue)
             .ToList();
 
-        double milestoneDelayDays = 0.0;
-        if (overdueMilestonesList.Count > 0)
+        double? milestoneDelayDays = null;
+        int? milestoneNearDueCount = null;
+        var overdueMilestonesList = new List<MilestoneFact>();
+
+        if (nonCancelledMilestonesCount > 0 && nonCancelledWithDueDate.Count > 0)
         {
-            var totalMilestoneDelay = overdueMilestonesList
-                .Sum(m => Math.Max(0.0, (todayDate.DayNumber - m.DueDate!.Value.DayNumber)));
-            milestoneDelayDays = Math.Round((double)totalMilestoneDelay / overdueMilestonesList.Count, 2);
+            overdueMilestonesList = nonCancelledWithDueDate
+                .Where(m => !m.Status.Equals("COMPLETED", StringComparison.OrdinalIgnoreCase)
+                         && m.DueDate!.Value < todayDate)
+                .ToList();
+
+            if (overdueMilestonesList.Count > 0)
+            {
+                var totalMilestoneDelay = overdueMilestonesList
+                    .Sum(m => Math.Max(0, todayDate.DayNumber - m.DueDate!.Value.DayNumber));
+                milestoneDelayDays = Math.Round((double)totalMilestoneDelay / overdueMilestonesList.Count, 2);
+            }
+            else
+            {
+                milestoneDelayDays = 0.0;
+            }
+
+            var nearDueThresholdDate = todayDate.AddDays(RuleBaselineConfig.MilestoneNearDueThresholdDays);
+            milestoneNearDueCount = nonCancelledWithDueDate
+                .Count(m => !m.Status.Equals("COMPLETED", StringComparison.OrdinalIgnoreCase)
+                         && m.DueDate!.Value >= todayDate
+                         && m.DueDate!.Value <= nearDueThresholdDate);
         }
 
-        var nearDueThresholdDate = todayDate.AddDays(RuleBaselineConfig.MilestoneNearDueThresholdDays);
-        var milestoneNearDueCount = facts.Milestones
-            .Count(m => !m.Status.Equals("COMPLETED", StringComparison.OrdinalIgnoreCase)
-                     && m.DueDate.HasValue
-                     && m.DueDate.Value >= todayDate
-                     && m.DueDate.Value <= nearDueThresholdDate);
-
-        var pastReports = facts.ProgressReports.Where(pr => pr.PeriodEnd < todayDate).ToList();
-        var unsubmittedDraftCount = pastReports.Count(pr => pr.SubmittedAt == null || pr.Status.Equals("DRAFT", StringComparison.OrdinalIgnoreCase));
-        var lateReports = pastReports.Where(pr => pr.SubmittedAt.HasValue && DateOnly.FromDateTime(pr.SubmittedAt.Value) > pr.PeriodEnd).ToList();
-        double? reportDelayDays = lateReports.Count > 0
-            ? Math.Round(lateReports.Average(pr => (double)(DateOnly.FromDateTime(pr.SubmittedAt!.Value).DayNumber - pr.PeriodEnd.DayNumber)), 2)
-            : (pastReports.Count > 0 ? 0.0 : null);
-        int? missingReportCountFeature = pastReports.Count > 0 ? unsubmittedDraftCount : null;
+        // P2 FIX #1: Authoritative reporting schedule / deadline policy is unavailable in BE-03A.
+        // PeriodEnd is only an interval boundary and NOT a submission deadline.
+        // MissingReportCount and ReportSubmissionDelayDays remain null to avoid false signals.
+        double? reportDelayDays = null;
+        int? missingReportCountFeature = null;
 
         var meetingLookbackCutoff = analysisTimeUtc.AddDays(-RuleBaselineConfig.MeetingLookbackDays);
         var meetingFrequencyCount = facts.Meetings
@@ -154,158 +203,232 @@ public sealed class RuleBasedProgressAnalysisService : IProgressAnalysisService
             milestoneNearDueCount,
             ReportSubmissionDelayDays: reportDelayDays,
             MissingReportCount: missingReportCountFeature,
-            meetingFrequencyCount,
-            unassignedTaskRatio,
+            MeetingFrequencyCount: meetingFrequencyCount,
+            UnassignedTaskRatio: unassignedTaskRatio,
             ContributionVariance: null);
 
-        // Compute Weighted Risk Score (0 - 100)
-        var rawScore = (overdueTaskRatio * RuleBaselineConfig.OverdueWeight)
-                     + (blockedTaskRatio * RuleBaselineConfig.BlockedWeight)
-                     + ((1.0 - milestoneCompletionRate) * RuleBaselineConfig.MilestoneWeight)
-                     + (unassignedTaskRatio * RuleBaselineConfig.UnassignedWeight);
-        var riskScore = Math.Round(rawScore, 1);
+        var progressSummary = new ProgressSummaryDto(
+            totalMilestones,
+            completedMilestones,
+            totalTasks,
+            doneTasks,
+            blockedTasks,
+            overdueTasksList.Count,
+            unassignedTaskCount,
+            progressPercentage);
 
-        // Determine Risk Level
-        string riskLevel;
-        if (riskScore >= RuleBaselineConfig.CriticalRiskScoreThreshold
-            || overdueTaskRatio >= RuleBaselineConfig.CriticalOverdueRatioThreshold
-            || blockedTaskRatio >= RuleBaselineConfig.CriticalBlockedRatioThreshold
-            || unsubmittedDraftCount > 1)
+        // Feature availability tracking across all 11 defined feature slots
+        int availableFeatureCount = 0;
+        if (overdueTaskRatio.HasValue) availableFeatureCount++;
+        if (averageTaskDelayDays.HasValue) availableFeatureCount++;
+        if (blockedTaskRatio.HasValue) availableFeatureCount++;
+        if (milestoneCompletionRate.HasValue) availableFeatureCount++;
+        if (milestoneDelayDays.HasValue) availableFeatureCount++;
+        if (milestoneNearDueCount.HasValue) availableFeatureCount++;
+        if (reportDelayDays.HasValue) availableFeatureCount++;
+        if (missingReportCountFeature.HasValue) availableFeatureCount++;
+        if (featureSnapshot.MeetingFrequencyCount.HasValue) availableFeatureCount++;
+        if (unassignedTaskRatio.HasValue) availableFeatureCount++;
+        if (featureSnapshot.ContributionVariance.HasValue) availableFeatureCount++;
+
+        var confidence = Math.Round((double)availableFeatureCount / 11.0, 2);
+
+        // Limitations explanation
+        var limitationsList = new List<string>();
+
+        if (totalActiveTasks > 0)
         {
-            riskLevel = "CRITICAL";
+            if (activeTasksWithDueAt.Count == 0)
+            {
+                limitationsList.Add("Active tasks do not have due dates; deadline-based delay features were not evaluated.");
+            }
+            else if (activeTasksWithDueAt.Count < totalActiveTasks)
+            {
+                limitationsList.Add("Some active tasks do not have due dates; deadline-based delay features reflect partial evidence.");
+            }
         }
-        else if (riskScore >= RuleBaselineConfig.HighRiskScoreThreshold
-                 || overdueTaskRatio >= RuleBaselineConfig.HighOverdueRatioThreshold
-                 || blockedTaskRatio >= RuleBaselineConfig.HighBlockedRatioThreshold
-                 || unsubmittedDraftCount == 1)
+
+        if (nonCancelledMilestonesCount > 0)
         {
-            riskLevel = "HIGH";
+            if (nonCancelledWithDueDate.Count == 0)
+            {
+                limitationsList.Add("Milestones do not have due dates; milestone deadline features were not evaluated.");
+            }
+            else if (nonCancelledWithDueDate.Count < nonCancelledMilestonesCount)
+            {
+                limitationsList.Add("Some milestones do not have due dates; milestone deadline features reflect partial evidence.");
+            }
         }
-        else if (riskScore >= RuleBaselineConfig.MediumRiskScoreThreshold
-                 || overdueTaskRatio >= RuleBaselineConfig.MediumOverdueRatioThreshold
-                 || milestoneCompletionRate < RuleBaselineConfig.MediumMilestoneCompletionThreshold
-                 || unassignedTaskRatio >= 0.25)
+        else if (totalMilestones > 0 && nonCancelledMilestonesCount == 0)
         {
-            riskLevel = "MEDIUM";
+            limitationsList.Add("All milestones are CANCELLED; milestone completion and deadline features are unavailable.");
         }
-        else
-        {
-            riskLevel = "LOW";
-        }
+
+        limitationsList.Add("Progress report schedule policy is unavailable (INSUFFICIENT_DATA); missing/late report features were not evaluated.");
+        limitationsList.Add("ContributionVariance is marked INSUFFICIENT_DATA pending BE-13.");
+
+        var limitationsNote = string.Join(" ", limitationsList);
+
+        // DataStatus is SUFFICIENT only when enough evidence exists:
+        // non-cancelled milestones exist, deadline evidence is not completely absent, and at least 6 features available
+        bool hasSufficientDeadlineEvidence =
+            (totalActiveTasks == 0 || activeTasksWithDueAt.Count > 0) &&
+            (nonCancelledMilestonesCount == 0 || nonCancelledWithDueDate.Count > 0);
+
+        bool isDataSufficient = nonCancelledMilestonesCount > 0
+                             && hasSufficientDeadlineEvidence
+                             && availableFeatureCount >= 6;
+
+        var dataStatus = isDataSufficient ? "SUFFICIENT" : "INSUFFICIENT_DATA";
 
         // Generate Explainable Factors & Mapped Recommendations
         var factors = new List<RiskFactorDto>();
         var recommendations = new List<string>();
 
-        if (overdueTaskRatio >= RuleBaselineConfig.MediumOverdueRatioThreshold)
+        if (overdueTaskRatio.HasValue && overdueTaskRatio.Value >= RuleBaselineConfig.MediumOverdueRatioThreshold)
         {
-            var severity = overdueTaskRatio >= RuleBaselineConfig.CriticalOverdueRatioThreshold
+            var severity = overdueTaskRatio.Value >= RuleBaselineConfig.CriticalOverdueRatioThreshold
                 ? "CRITICAL"
-                : (overdueTaskRatio >= RuleBaselineConfig.HighOverdueRatioThreshold ? "HIGH" : "MEDIUM");
+                : (overdueTaskRatio.Value >= RuleBaselineConfig.HighOverdueRatioThreshold ? "HIGH" : "MEDIUM");
             factors.Add(new RiskFactorDto(
                 "OVERDUE_TASKS",
                 "OverdueTaskRatio",
-                overdueTaskRatio,
+                overdueTaskRatio.Value,
                 severity,
-                $"{Math.Round(overdueTaskRatio * 100, 1)}% of active tasks have missed their due date."));
+                $"{Math.Round(overdueTaskRatio.Value * 100, 1)}% of evaluated active tasks have missed their due date."));
             recommendations.Add("Review overdue tasks and assign recovery owners in the upcoming sprint.");
         }
 
-        if (blockedTaskRatio >= 0.15)
+        if (blockedTaskRatio.HasValue && blockedTaskRatio.Value >= 0.15)
         {
-            var severity = blockedTaskRatio >= RuleBaselineConfig.CriticalBlockedRatioThreshold
+            var severity = blockedTaskRatio.Value >= RuleBaselineConfig.CriticalBlockedRatioThreshold
                 ? "CRITICAL"
-                : (blockedTaskRatio >= RuleBaselineConfig.HighBlockedRatioThreshold ? "HIGH" : "MEDIUM");
+                : (blockedTaskRatio.Value >= RuleBaselineConfig.HighBlockedRatioThreshold ? "HIGH" : "MEDIUM");
             factors.Add(new RiskFactorDto(
                 "BLOCKED_TASKS",
                 "BlockedTaskRatio",
-                blockedTaskRatio,
+                blockedTaskRatio.Value,
                 severity,
-                $"{Math.Round(blockedTaskRatio * 100, 1)}% of active tasks are currently in BLOCKED status."));
+                $"{Math.Round(blockedTaskRatio.Value * 100, 1)}% of active tasks are currently in BLOCKED status."));
             recommendations.Add("Escalate technical dependencies and blockers with the assigned supervisor.");
         }
 
-        if (unassignedTaskRatio >= 0.15)
+        if (unassignedTaskRatio.HasValue && unassignedTaskRatio.Value >= 0.15)
         {
             factors.Add(new RiskFactorDto(
                 "UNASSIGNED_TASKS",
                 "UnassignedTaskRatio",
-                unassignedTaskRatio,
+                unassignedTaskRatio.Value,
                 "MEDIUM",
-                $"{Math.Round(unassignedTaskRatio * 100, 1)}% of active tasks do not have an assigned owner."));
+                $"{Math.Round(unassignedTaskRatio.Value * 100, 1)}% of active tasks do not have an assigned owner."));
             recommendations.Add("Assign team members to unassigned backlog tasks.");
         }
 
-        if (overdueMilestonesList.Count > 0)
+        if (milestoneDelayDays.HasValue && overdueMilestonesList.Count > 0)
         {
             factors.Add(new RiskFactorDto(
                 "MILESTONE_OVERDUE",
                 "MilestoneDelayDays",
-                milestoneDelayDays,
+                milestoneDelayDays.Value,
                 "HIGH",
                 $"{overdueMilestonesList.Count} milestone(s) are overdue past their deadline."));
             recommendations.Add("Re-plan current milestone deliverables against project deadlines.");
         }
-        else if (milestoneNearDueCount > 0 && milestoneCompletionRate < 1.0)
+        else if (milestoneNearDueCount.HasValue && milestoneNearDueCount.Value > 0 && milestoneCompletionRate.HasValue && milestoneCompletionRate.Value < 1.0)
         {
             factors.Add(new RiskFactorDto(
                 "MILESTONE_DUE_SOON_LOW_COMPLETION",
                 "MilestoneNearDueCount",
-                milestoneNearDueCount,
-                milestoneCompletionRate < 0.5 ? "HIGH" : "MEDIUM",
-                $"{milestoneNearDueCount} upcoming milestone(s) are due within {RuleBaselineConfig.MilestoneNearDueThresholdDays} days while completion rate is {Math.Round(milestoneCompletionRate * 100, 1)}%."));
+                milestoneNearDueCount.Value,
+                milestoneCompletionRate.Value < 0.5 ? "HIGH" : "MEDIUM",
+                $"{milestoneNearDueCount.Value} upcoming milestone(s) are due within {RuleBaselineConfig.MilestoneNearDueThresholdDays} days while completion rate is {Math.Round(milestoneCompletionRate.Value * 100, 1)}%."));
             recommendations.Add("Expedite remaining deliverables for upcoming milestone due dates.");
         }
-        else if (milestoneCompletionRate < RuleBaselineConfig.MediumMilestoneCompletionThreshold && totalMilestones > 0)
+        else if (isDataSufficient && milestoneCompletionRate.HasValue && milestoneCompletionRate.Value < RuleBaselineConfig.MediumMilestoneCompletionThreshold && nonCancelledMilestonesCount > 0)
         {
             factors.Add(new RiskFactorDto(
                 "MILESTONE_PROGRESS_SLOW",
                 "MilestoneCompletionRate",
-                milestoneCompletionRate,
+                milestoneCompletionRate.Value,
                 "MEDIUM",
-                $"Milestone completion rate is currently at {Math.Round(milestoneCompletionRate * 100, 1)}%."));
+                $"Milestone completion rate is currently at {Math.Round(milestoneCompletionRate.Value * 100, 1)}%."));
             recommendations.Add("Accelerate key deliverable reviews to complete pending milestone targets.");
-        }
-
-        if (unsubmittedDraftCount > 0)
-        {
-            var severity = unsubmittedDraftCount > 1 ? "CRITICAL" : "HIGH";
-            factors.Add(new RiskFactorDto(
-                "UNSUBMITTED_PROGRESS_REPORT",
-                "MissingReportCount",
-                unsubmittedDraftCount,
-                severity,
-                $"{unsubmittedDraftCount} periodic progress report draft(s) remain unsubmitted past period end date."));
-            recommendations.Add("Finalize and submit overdue draft progress report(s) for supervisor review.");
-        }
-        else if (lateReports.Count > 0)
-        {
-            factors.Add(new RiskFactorDto(
-                "LATE_PROGRESS_REPORT_SUBMISSION",
-                "ReportSubmissionDelayDays",
-                reportDelayDays ?? 0.0,
-                "MEDIUM",
-                $"{lateReports.Count} periodic progress report(s) were submitted after the period end deadline."));
-            recommendations.Add("Ensure future periodic progress reports are submitted before the period ends.");
         }
 
         if (recommendations.Count == 0)
         {
-            recommendations.Add("Continue monitoring task execution according to current plan.");
+            if (dataStatus.Equals("INSUFFICIENT_DATA", StringComparison.OrdinalIgnoreCase))
+            {
+                recommendations.Add("Add milestones, tasks, and deadlines before requesting a progress risk analysis.");
+            }
+            else
+            {
+                recommendations.Add("Continue monitoring task execution according to current plan.");
+            }
         }
 
-        // Data Quality / Confidence metric (8 non-null core features + reports / 11)
-        var nonNullFeatureCount = 8 + (reportDelayDays.HasValue ? 1 : 0) + (missingReportCountFeature.HasValue ? 1 : 0);
-        var confidence = Math.Round((double)nonNullFeatureCount / 11.0, 2);
-        var limitationsNote = pastReports.Count > 0
-            ? "ContributionVariance is marked INSUFFICIENT_DATA pending BE-13."
-            : "Progress report schedule is not configured (INSUFFICIENT_DATA). ContributionVariance is marked INSUFFICIENT_DATA pending BE-13.";
+        // Determine Risk Score & Risk Level ignoring unavailable features
+        double? riskScore = null;
+        string riskLevel;
+
+        if (!isDataSufficient)
+        {
+            // Unavailable features must not be treated as healthy zero.
+            // Check if strong real signals are observed despite partial/insufficient data.
+            if (blockedTaskRatio.HasValue && blockedTaskRatio.Value >= RuleBaselineConfig.CriticalBlockedRatioThreshold)
+            {
+                riskLevel = "CRITICAL";
+                riskScore = 80.0;
+            }
+            else if (blockedTaskRatio.HasValue && blockedTaskRatio.Value >= RuleBaselineConfig.HighBlockedRatioThreshold)
+            {
+                riskLevel = "HIGH";
+                riskScore = 55.0;
+            }
+            else
+            {
+                riskLevel = "INSUFFICIENT_DATA";
+                riskScore = null;
+            }
+        }
+        else
+        {
+            var rawScore = ((overdueTaskRatio ?? 0.0) * RuleBaselineConfig.OverdueWeight)
+                         + ((blockedTaskRatio ?? 0.0) * RuleBaselineConfig.BlockedWeight)
+                         + ((1.0 - (milestoneCompletionRate ?? 0.0)) * RuleBaselineConfig.MilestoneWeight)
+                         + ((unassignedTaskRatio ?? 0.0) * RuleBaselineConfig.UnassignedWeight);
+            riskScore = Math.Round(rawScore, 1);
+
+            if (riskScore >= RuleBaselineConfig.CriticalRiskScoreThreshold
+                || (overdueTaskRatio.HasValue && overdueTaskRatio.Value >= RuleBaselineConfig.CriticalOverdueRatioThreshold)
+                || (blockedTaskRatio.HasValue && blockedTaskRatio.Value >= RuleBaselineConfig.CriticalBlockedRatioThreshold))
+            {
+                riskLevel = "CRITICAL";
+            }
+            else if (riskScore >= RuleBaselineConfig.HighRiskScoreThreshold
+                     || (overdueTaskRatio.HasValue && overdueTaskRatio.Value >= RuleBaselineConfig.HighOverdueRatioThreshold)
+                     || (blockedTaskRatio.HasValue && blockedTaskRatio.Value >= RuleBaselineConfig.HighBlockedRatioThreshold))
+            {
+                riskLevel = "HIGH";
+            }
+            else if (riskScore >= RuleBaselineConfig.MediumRiskScoreThreshold
+                     || (overdueTaskRatio.HasValue && overdueTaskRatio.Value >= RuleBaselineConfig.MediumOverdueRatioThreshold)
+                     || (milestoneCompletionRate.HasValue && milestoneCompletionRate.Value < RuleBaselineConfig.MediumMilestoneCompletionThreshold)
+                     || (unassignedTaskRatio.HasValue && unassignedTaskRatio.Value >= 0.25))
+            {
+                riskLevel = "MEDIUM";
+            }
+            else
+            {
+                riskLevel = "LOW";
+            }
+        }
 
         return ProjectProgressAnalysisDtoMapper.ToDto(
             facts.ProjectId,
             analysisTimeUtc,
             analysisTimeUtc,
-            "SUFFICIENT",
+            dataStatus,
             riskLevel,
             riskScore,
             confidence,
