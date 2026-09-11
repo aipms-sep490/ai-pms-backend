@@ -1,0 +1,95 @@
+using System.Threading.Tasks;
+using AIPMS.Application.Common.Security;
+using AIPMS.Application.Features.Notifications.Abstractions;
+using AIPMS.Application.Features.Notifications.Events;
+using AIPMS.Infrastructure.Persistence.Generated;
+using Microsoft.EntityFrameworkCore;
+using M = AIPMS.Infrastructure.Persistence.Generated.Models;
+
+namespace AIPMS.Infrastructure.Persistence.Repositories;
+
+internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWorkflowNotificationWriter
+{
+    public async Task WriteAsync(WorkflowNotificationEvent notification, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (context.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Workflow notifications require the source transaction.");
+        var (entityType, status, type, title) = Describe(notification.Kind);
+        long teamId;
+        long? targetUser = null;
+        string role;
+        long? projectId = null;
+
+        // A source-row lock serializes duplicate event handling; inbox and transition commit together.
+        if (entityType == "TEAM_INVITATION")
+        {
+            var source = await context.TeamInvitations.FromSqlInterpolated(
+                $"SELECT * FROM dbo.team_invitations WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
+                .AsNoTracking().SingleOrDefaultAsync(ct);
+            if (source is null || source.Status != status) return;
+            teamId = source.TeamId;
+            if (status is "PENDING" or "CANCELLED") targetUser = source.InvitedUserId;
+            role = AppRoles.Student;
+        }
+        else
+        {
+            var source = await context.SupervisorRequests.FromSqlInterpolated(
+                $"SELECT * FROM dbo.supervisor_requests WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
+                .AsNoTracking().SingleOrDefaultAsync(ct);
+            if (source is null || source.Status != status) return;
+            projectId = source.ProjectId;
+            teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
+            if (status is "PENDING" or "CANCELLED")
+                targetUser = await context.SupervisorProfiles.Where(p => p.Id == source.SupervisorProfileId)
+                    .Select(p => p.UserId).SingleAsync(ct);
+            role = targetUser.HasValue ? AppRoles.Lecturer : AppRoles.Student;
+        }
+
+        if (await context.Notifications.AnyAsync(n => n.RelatedEntityType == entityType
+            && n.RelatedEntityId == notification.SourceId && n.NotificationType == type, ct)) return;
+
+        var organizationId = await context.Teams.Where(t => t.Id == teamId)
+            .Select(t => t.AcademicSemester.OrganizationId).SingleAsync(ct);
+        var recipients = context.Users.Where(u => u.Id != notification.ActorId && u.Status == "ACTIVE"
+            && u.UserRoleUsers.Any(r => r.Role.Code == role)
+            && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
+            && u.Department.OrganizationId == organizationId);
+        if (targetUser.HasValue)
+            recipients = recipients.Where(u => u.Id == targetUser.Value);
+        else
+            recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.IsLeader && m.LeftAt == null));
+        if (projectId.HasValue && role == AppRoles.Lecturer)
+            recipients = recipients.Where(u => context.ProjectMajors.Any(m => m.ProjectId == projectId.Value
+                && m.Major.IsActive && m.Major.DepartmentId == u.DepartmentId));
+        var ids = await recipients.Select(u => u.Id).Distinct().ToListAsync(ct);
+        if (ids.Count == 0) return;
+
+        // No user-supplied messages or project details are copied into the inbox.
+        context.Notifications.Add(new M.Notification
+        {
+            CreatedBy = notification.ActorId, NotificationType = type, Title = title, Content = title + ".",
+            RelatedEntityType = entityType, RelatedEntityId = notification.SourceId,
+            CreatedAt = notification.OccurredAt, UpdatedAt = notification.OccurredAt,
+            NotificationRecipients = ids.Select(id => new M.NotificationRecipient
+            {
+                UserId = id, CreatedAt = notification.OccurredAt, UpdatedAt = notification.OccurredAt,
+                DeliveredAt = notification.OccurredAt
+            }).ToArray()
+        });
+        await context.SaveChangesAsync(ct);
+    }
+
+    private static (string Entity, string Status, string Type, string Title) Describe(WorkflowNotificationKind kind) => kind switch
+    {
+        WorkflowNotificationKind.TeamInvitationSent => ("TEAM_INVITATION", "PENDING", "TEAM_INVITATION_SENT", "You received a team invitation"),
+        WorkflowNotificationKind.TeamInvitationAccepted => ("TEAM_INVITATION", "ACCEPTED", "TEAM_INVITATION_ACCEPTED", "A student accepted your team's invitation"),
+        WorkflowNotificationKind.TeamInvitationRejected => ("TEAM_INVITATION", "REJECTED", "TEAM_INVITATION_REJECTED", "A student declined your team's invitation"),
+        WorkflowNotificationKind.TeamInvitationCancelled => ("TEAM_INVITATION", "CANCELLED", "TEAM_INVITATION_CANCELLED", "A team invitation was cancelled"),
+        WorkflowNotificationKind.SupervisorRequestSent => ("SUPERVISOR_REQUEST", "PENDING", "SUPERVISOR_REQUEST_SENT", "You received a supervision request"),
+        WorkflowNotificationKind.SupervisorRequestAccepted => ("SUPERVISOR_REQUEST", "ACCEPTED", "SUPERVISOR_REQUEST_ACCEPTED", "Your project's supervision request was accepted"),
+        WorkflowNotificationKind.SupervisorRequestRejected => ("SUPERVISOR_REQUEST", "REJECTED", "SUPERVISOR_REQUEST_REJECTED", "Your project's supervision request was declined"),
+        WorkflowNotificationKind.SupervisorRequestCancelled => ("SUPERVISOR_REQUEST", "CANCELLED", "SUPERVISOR_REQUEST_CANCELLED", "A supervision request was cancelled"),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind))
+    };
+}

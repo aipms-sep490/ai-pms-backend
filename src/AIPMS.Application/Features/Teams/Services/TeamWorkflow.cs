@@ -8,12 +8,14 @@ using AIPMS.Application.Features.Teams.Commands;
 using AIPMS.Application.Features.Teams.DTOs;
 using AIPMS.Application.Features.Teams.Models;
 using AIPMS.Domain.Teams;
+using AIPMS.Application.Features.Notifications.Events;
+using MediatR;
 
 namespace AIPMS.Application.Features.Teams.Services;
 
 public sealed class TeamWorkflow(
     ITeamRepository repository, ITeamFormationPolicyProvider policies,
-    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock)
+    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock, IPublisher events)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -254,6 +256,8 @@ public sealed class TeamWorkflow(
             if (expiry > window.EndAt) expiry = window.EndAt;
             var result = await repository.InviteAsync(team.Id, invited.UserId, actor.UserId,
                 request.Message?.Trim(), expiry, now, token);
+            await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.TeamInvitationSent,
+                result.Id, actor.UserId, now), token);
             await AuditAsync("TEAM_INVITED", team.Id, actor.UserId, invited.UserId, token);
             return result.ToDto();
         }, ct);
@@ -274,6 +278,8 @@ public sealed class TeamWorkflow(
             await repository.AddMemberAsync(team.Id, team.SemesterId, actor.UserId, false, now, token);
             await repository.RespondAsync(invitation.Id, "ACCEPTED", now, token);
             var result = await SaveEligibilityAsync(team.Id, token);
+            await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.TeamInvitationAccepted,
+                invitation.Id, actor.UserId, now), token);
             await AuditAsync("TEAM_INVITATION_ACCEPTED", team.Id, actor.UserId, invitation.Id, token);
             return result;
         }, ct);
@@ -294,7 +300,10 @@ public sealed class TeamWorkflow(
         {
             var actor = await ActorAsync(token);
             var invitation = await OwnInvitationAsync(invitationId, actor.UserId, token);
-            await repository.RespondAsync(invitation.Id, "REJECTED", Now, token);
+            var now = Now;
+            await repository.RespondAsync(invitation.Id, "REJECTED", now, token);
+            await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.TeamInvitationRejected,
+                invitation.Id, actor.UserId, now), token);
             await AuditAsync("TEAM_INVITATION_REJECTED", invitation.TeamId, actor.UserId, invitation.Id, token);
             return true;
         }, ct);
@@ -308,7 +317,10 @@ public sealed class TeamWorkflow(
             RequireMember(await TeamAsync(invitation.TeamId, token), actor.UserId, true);
             if (invitation.Status != "PENDING" || TeamRules.IsInvitationExpired(invitation.ExpiresAt, Now))
                 throw new ConflictException("The invitation is expired or has already been processed.");
-            await repository.RespondAsync(invitationId, "CANCELLED", Now, token);
+            var now = Now;
+            await repository.RespondAsync(invitationId, "CANCELLED", now, token);
+            await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.TeamInvitationCancelled,
+                invitationId, actor.UserId, now), token);
             await AuditAsync("TEAM_INVITATION_CANCELLED", invitation.TeamId, actor.UserId, invitationId, token);
             return true;
         }, ct);

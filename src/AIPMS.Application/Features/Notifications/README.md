@@ -57,8 +57,9 @@ targets. Opening the target must use its normal resource authorization. An old
 notification does not grant current project access. No recipient lists or private
 storage paths are exposed.
 
-This slice reads existing notifications/notification_recipients and adds no
-creation API, schema change or external delivery. Existing producers remain in
-place. Domain event integration, recipient resolution, deduplication, reminders,
-email/push and additional workflow events belong to the next slice; issue #8 is
-not fully complete after this inbox implementation.
+This inbox reads notifications/notification_recipients and adds no public
+creation API, schema change or external delivery. Teams and Supervisors now
+publish transactional application events; see [EVENTS.md](EVENTS.md) for types,
+recipients and duplicate handling. Existing Deliverables producers remain in
+place. Additional workflow events, reminders and email/push remain separate work;
+issue #8 is not fully complete.
