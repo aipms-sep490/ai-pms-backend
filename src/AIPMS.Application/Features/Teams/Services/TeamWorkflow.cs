@@ -38,6 +38,15 @@ public sealed class TeamWorkflow(
                 : "Only active team members can view this team.");
     }
 
+    public const string UnsupportedHybridPolicyMessage =
+        "Interdisciplinary team formation requires Hybrid policy configuration (ProjectMode / PrimaryMajor / major quotas / department scope), which is not supported in the current Foundation scope.";
+
+    private static void EnsureFoundationPolicySupported(TeamFormationPolicy policy)
+    {
+        if (policy.MinDistinctMajors > 1)
+            throw new ConflictException(UnsupportedHybridPolicyMessage);
+    }
+
     private async Task<(TeamRegistrationWindow Window, TeamFormationPolicy Policy)> ContextAsync(
         long semesterId, CancellationToken ct)
     {
@@ -46,6 +55,7 @@ public sealed class TeamWorkflow(
         var policy = await policies.GetAsync(window.PeriodId, ct);
         if (policy is null || !policy.IsValid)
             throw new ConflictException("Team formation policy is not configured for this registration period (BE-12).");
+        EnsureFoundationPolicySupported(policy);
         return (window, policy);
     }
 
@@ -77,6 +87,7 @@ public sealed class TeamWorkflow(
         var policy = window is null ? null : await policies.GetAsync(window.PeriodId, ct);
         if (window is null) reasons.Add("REGISTRATION_WINDOW_UNAVAILABLE");
         if (policy is null || !policy.IsValid) reasons.Add("TEAM_POLICY_UNCONFIGURED");
+        if (policy is not null && policy.MinDistinctMajors > 1) reasons.Add("UNSUPPORTED_HYBRID_POLICY");
         if (team.Status is not ("FORMING" or "ELIGIBLE")
             || team.ProjectStatuses.Any(TeamRules.ProjectLocksRoster)) reasons.Add("ROSTER_LOCKED");
         var locked = reasons.Count > 0;
@@ -85,7 +96,7 @@ public sealed class TeamWorkflow(
         return new TeamDto(team.Id, team.SemesterId, team.Code, team.Name, team.Description,
             team.Status, team.Members.Select(member => member.ToDto()).ToArray(),
             new TeamEligibilityDto(reasons.Count == 0, locked,
-                window?.PeriodId, policy?.Version, reasons));
+                window?.PeriodId, policy?.Version, reasons.Distinct().ToArray()));
     }
 
     private async Task<TeamDto> SaveEligibilityAsync(long teamId, CancellationToken ct)
@@ -124,15 +135,17 @@ public sealed class TeamWorkflow(
     }
 
     private static void RequireSameMajorAsLeader(
-        TeamSnapshot team, TeamParticipant student, long organizationId, TeamFormationPolicy policy)
+        TeamSnapshot team, TeamParticipant student, long organizationId, TeamFormationPolicy? policy = null)
     {
         var leaders = team.Members.Where(m => m.IsLeader).ToArray();
         if (leaders.Length != 1)
             throw new ConflictException("The team must have exactly one active leader.");
         var leader = leaders[0];
         RequireEligibleStudent(leader, organizationId);
-        if (policy.MinDistinctMajors <= 1 && (!TeamRules.HasSameMajor(student, leader)
-            || team.Members.Any(m => !TeamRules.HasSameMajor(m, leader))))
+        if (policy is not null)
+            EnsureFoundationPolicySupported(policy);
+        if (!TeamRules.HasSameMajor(student, leader)
+            || team.Members.Any(m => !TeamRules.HasSameMajor(m, leader)))
             throw new ConflictException("All team members must belong to the same major as the team leader.");
     }
 

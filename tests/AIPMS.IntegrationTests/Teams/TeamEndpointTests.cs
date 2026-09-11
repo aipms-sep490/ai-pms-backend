@@ -49,7 +49,8 @@ public sealed partial class TeamEndpointTests(TeamDatabaseFixture database) : IC
         team = await BodyAsync<TeamDto>(await AcceptAsync(b, invite.Id));
         Assert.Equal("ELIGIBLE", team.Status);
         Assert.True(team.Eligibility.CanRegister);
-        Assert.Equal("test-v1", team.Eligibility.PolicyVersion);
+        Assert.StartsWith($"v-{s.PeriodId}-", team.Eligibility.PolicyVersion);
+        Assert.NotEqual("test-v1", team.Eligibility.PolicyVersion);
         team = await BodyAsync<TeamDto>(await a.PostAsJsonAsync($"/api/v1/teams/{team.Id}/leader",
             new { newLeaderUserId = s.Students[1] }));
         Assert.Equal(s.Students[1], Assert.Single(team.Members, m => m.IsLeader).UserId);

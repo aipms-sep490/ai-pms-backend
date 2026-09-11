@@ -39,7 +39,7 @@ internal sealed class DatabaseTeamFormationPolicyProvider(
         var minDistinctMajors = period.MinDistinctMajors ?? 1;
 
         var invitationHours = ResolveInvitationHours(registrationPeriodId);
-        var version = ResolveVersion(registrationPeriodId, period.UpdatedAt);
+        var version = ResolveVersion(registrationPeriodId, minMembers, maxMembers, minDistinctMajors, period.UpdatedAt);
 
         var policy = new TeamFormationPolicy(
             minMembers,
@@ -63,11 +63,13 @@ internal sealed class DatabaseTeamFormationPolicyProvider(
         return 24;
     }
 
-    private string ResolveVersion(long registrationPeriodId, DateTime updatedAt)
+    private static string ResolveVersion(
+        long registrationPeriodId, int minMembers, int maxMembers, int minDistinctMajors, DateTime updatedAt)
     {
-        var configuredVersion = configuration[$"TeamFormation:Periods:{registrationPeriodId}:Version"];
-        return !string.IsNullOrWhiteSpace(configuredVersion)
-            ? configuredVersion
-            : updatedAt.ToString("O");
+        // Deterministic BE-12 effective policy fingerprint.
+        // Derived strictly from effective DB policy values and UpdatedAt to ensure any policy mutation produces a distinct version.
+        // Configured labels (e.g. TeamFormation:Periods:{id}:Version) are NOT used to override, preventing stale version masking.
+        // InvitationHours is Teams-owned and excluded to keep BE-12 policy versioning isolated to BE-12 owned attributes.
+        return $"v-{registrationPeriodId}-{minMembers}-{maxMembers}-{minDistinctMajors}-{updatedAt:yyyyMMddHHmmssfff}";
     }
 }

@@ -210,7 +210,7 @@ public sealed class TeamPolicyIntegrationTests(TeamDatabaseFixture database) : I
     }
 
     [Fact]
-    public async Task Eligibility_WhenDistinctMajorsBelowDbMinimum_IsFalse()
+    public async Task MinDistinctMajors_GreaterThanOne_CreateTeam_Returns409UnsupportedHybrid()
     {
         var s = await database.SeedAsync();
         await using (var context = database.CreateContext())
@@ -224,22 +224,16 @@ public sealed class TeamPolicyIntegrationTests(TeamDatabaseFixture database) : I
 
         using var app = new TeamTestFactory(database, s);
         using var client0 = app.CreateAuthenticatedClient(s.Students[0]);
-        using var client1 = app.CreateAuthenticatedClient(s.Students[1]);
 
-        // Both Student 0 and Student 1 are SE major (same major)
-        var team = await CreateAsync(client0, s.SemesterId, "MAJORS2");
-        var invite = await InviteAsync(client0, team.Id, s.Students[1]);
-        team = await BodyAsync<TeamDto>(await AcceptAsync(client1, invite.Id));
-
-        // Team has 2 members, but distinct majors = 1 < MinDistinctMajors (2)
-        Assert.Equal("FORMING", team.Status);
-        Assert.False(team.Eligibility.CanRegister);
-        Assert.Contains("TOO_FEW_DISTINCT_MAJORS", team.Eligibility.Reasons);
-        Assert.DoesNotContain("TEAM_MUST_BE_SINGLE_MAJOR", team.Eligibility.Reasons);
+        var response = await client0.PostAsJsonAsync("/api/v1/teams",
+            new { academicSemesterId = s.SemesterId, code = "HYBRIDFAIL", name = "Hybrid Team", description = "Test" });
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Interdisciplinary team formation requires Hybrid policy configuration", body);
     }
 
     [Fact]
-    public async Task Eligibility_WhenDbPolicySatisfied_IsTrue()
+    public async Task MinDistinctMajors_GreaterThanOne_Invite_Returns409UnsupportedHybrid()
     {
         var s = await database.SeedAsync();
         await using (var context = database.CreateContext())
@@ -247,26 +241,31 @@ public sealed class TeamPolicyIntegrationTests(TeamDatabaseFixture database) : I
             var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
             p!.MinTeamSize = 2;
             p.MaxTeamSize = 4;
-            p.MinDistinctMajors = 2;
+            p.MinDistinctMajors = 1;
             await context.SaveChangesAsync();
         }
 
         using var app = new TeamTestFactory(database, s);
-        using var client0 = app.CreateAuthenticatedClient(s.Students[0]); // SE major
-        using var client4 = app.CreateAuthenticatedClient(s.Students[4]); // IS major
+        using var client0 = app.CreateAuthenticatedClient(s.Students[0]);
+        var team = await CreateAsync(client0, s.SemesterId, "INVITEHYB");
 
-        var team = await CreateAsync(client0, s.SemesterId, "SATISFIED");
-        var invite = await InviteAsync(client0, team.Id, s.Students[4]);
-        team = await BodyAsync<TeamDto>(await AcceptAsync(client4, invite.Id));
+        // Mutate DB policy to MinDistinctMajors = 2
+        await using (var context = database.CreateContext())
+        {
+            var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
+            p!.MinDistinctMajors = 2;
+            await context.SaveChangesAsync();
+        }
 
-        // 2 members with 2 distinct majors -> satisfies MinTeamSize = 2 and MinDistinctMajors = 2
-        Assert.Equal("ELIGIBLE", team.Status);
-        Assert.True(team.Eligibility.CanRegister);
-        Assert.Empty(team.Eligibility.Reasons);
+        var response = await client0.PostAsJsonAsync($"/api/v1/teams/{team.Id}/invitations",
+            new { invitedUserId = s.Students[1], message = "Join" });
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Interdisciplinary team formation requires Hybrid policy configuration", body);
     }
 
     [Fact]
-    public async Task PolicyChange_IsObservedBySubsequentTeamValidation()
+    public async Task MinDistinctMajors_GreaterThanOne_Accept_Returns409UnsupportedHybrid()
     {
         var s = await database.SeedAsync();
         await using (var context = database.CreateContext())
@@ -281,32 +280,25 @@ public sealed class TeamPolicyIntegrationTests(TeamDatabaseFixture database) : I
         using var app = new TeamTestFactory(database, s);
         using var client0 = app.CreateAuthenticatedClient(s.Students[0]);
         using var client1 = app.CreateAuthenticatedClient(s.Students[1]);
-
-        var team = await CreateAsync(client0, s.SemesterId, "OBSERVE");
+        var team = await CreateAsync(client0, s.SemesterId, "ACCEPTHYB");
         var invite = await InviteAsync(client0, team.Id, s.Students[1]);
-        team = await BodyAsync<TeamDto>(await AcceptAsync(client1, invite.Id));
-        Assert.Equal("ELIGIBLE", team.Status);
-        Assert.True(team.Eligibility.CanRegister);
 
-        // Directly change DB policy: increase MinTeamSize to 3
+        // Mutate DB policy to MinDistinctMajors = 2 before accept
         await using (var context = database.CreateContext())
         {
             var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
-            p!.MinTeamSize = 3;
+            p!.MinDistinctMajors = 2;
             await context.SaveChangesAsync();
         }
 
-        // Refresh eligibility -> immediately observes the updated DB policy
-        var refreshResponse = await client0.PostAsync($"/api/v1/teams/{team.Id}/eligibility/refresh", null);
-        var refreshed = await BodyAsync<TeamDto>(refreshResponse);
-
-        Assert.Equal("FORMING", refreshed.Status);
-        Assert.False(refreshed.Eligibility.CanRegister);
-        Assert.Contains("TOO_FEW_MEMBERS", refreshed.Eligibility.Reasons);
+        var response = await AcceptAsync(client1, invite.Id);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Interdisciplinary team formation requires Hybrid policy configuration", body);
     }
 
     [Fact]
-    public async Task MinDistinctMajors_GreaterThanOne_AllowsCrossMajorInvitationAndAcceptance()
+    public async Task MinDistinctMajors_GreaterThanOne_EligibilityOrRegistration_Returns409UnsupportedHybrid()
     {
         var s = await database.SeedAsync();
         await using (var context = database.CreateContext())
@@ -314,22 +306,136 @@ public sealed class TeamPolicyIntegrationTests(TeamDatabaseFixture database) : I
             var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
             p!.MinTeamSize = 2;
             p.MaxTeamSize = 4;
-            p.MinDistinctMajors = 2;
+            p.MinDistinctMajors = 1;
             await context.SaveChangesAsync();
         }
 
         using var app = new TeamTestFactory(database, s);
-        using var client0 = app.CreateAuthenticatedClient(s.Students[0]); // SE
-        using var client4 = app.CreateAuthenticatedClient(s.Students[4]); // IS
+        using var client0 = app.CreateAuthenticatedClient(s.Students[0]);
+        using var client1 = app.CreateAuthenticatedClient(s.Students[1]);
+        var team = await CreateAsync(client0, s.SemesterId, "ELIGREF");
+        var invite = await InviteAsync(client0, team.Id, s.Students[1]);
+        await BodyAsync<TeamDto>(await AcceptAsync(client1, invite.Id));
 
-        var team = await CreateAsync(client0, s.SemesterId, "CROSS");
+        // Mutate DB policy to MinDistinctMajors = 2
+        await using (var context = database.CreateContext())
+        {
+            var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
+            p!.MinDistinctMajors = 2;
+            await context.SaveChangesAsync();
+        }
 
-        // Inviting across majors is allowed when MinDistinctMajors > 1
-        var invite = await InviteAsync(client0, team.Id, s.Students[4]);
-        Assert.Equal(s.Students[4], invite.InvitedUserId);
+        var refreshResponse = await client0.PostAsync($"/api/v1/teams/{team.Id}/eligibility/refresh", null);
+        Assert.Equal(HttpStatusCode.Conflict, refreshResponse.StatusCode);
+        var body = await refreshResponse.Content.ReadAsStringAsync();
+        Assert.Contains("Interdisciplinary team formation requires Hybrid policy configuration", body);
+    }
 
-        // Accepting across majors is allowed
-        var acceptResponse = await AcceptAsync(client4, invite.Id);
-        Assert.Equal(HttpStatusCode.OK, acceptResponse.StatusCode);
+    [Fact]
+    public async Task SingleMajor_DifferentMajorCandidate_IsRejected()
+    {
+        var s = await database.SeedAsync();
+        await using (var context = database.CreateContext())
+        {
+            var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
+            p!.MinTeamSize = 2;
+            p.MaxTeamSize = 4;
+            p.MinDistinctMajors = 1;
+            await context.SaveChangesAsync();
+        }
+
+        using var app = new TeamTestFactory(database, s);
+        using var client0 = app.CreateAuthenticatedClient(s.Students[0]); // SE major
+
+        var team = await CreateAsync(client0, s.SemesterId, "DIFFMAJ");
+        // Try to invite Student 4 (IS major)
+        var response = await client0.PostAsJsonAsync($"/api/v1/teams/{team.Id}/invitations",
+            new { invitedUserId = s.Students[4], message = "Join cross major" });
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("All team members must belong to the same major", body);
+    }
+
+    [Fact]
+    public async Task SingleMajor_EligibilityRequiresSameMajor()
+    {
+        var s = await database.SeedAsync();
+        await using (var context = database.CreateContext())
+        {
+            var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
+            p!.MinTeamSize = 2;
+            p.MaxTeamSize = 4;
+            p.MinDistinctMajors = 1;
+            await context.SaveChangesAsync();
+        }
+
+        using var app = new TeamTestFactory(database, s);
+        using var client0 = app.CreateAuthenticatedClient(s.Students[0]);
+        var team = await CreateAsync(client0, s.SemesterId, "SMELIG");
+
+        // Directly insert a different major member into DB
+        await using (var context = database.CreateContext())
+        {
+            var member = new TeamMember
+            {
+                TeamId = team.Id,
+                AcademicSemesterId = s.SemesterId,
+                UserId = s.Students[4], // IS major
+                IsLeader = false,
+                JoinedAt = DateTime.UtcNow.AddDays(-1)
+            };
+            context.TeamMembers.Add(member);
+            await context.SaveChangesAsync();
+        }
+
+        // Fetch team
+        var getResponse = await client0.GetAsync($"/api/v1/teams/{team.Id}");
+        var currentTeam = await BodyAsync<TeamDto>(getResponse);
+
+        Assert.False(currentTeam.Eligibility.CanRegister);
+        Assert.Contains("TEAM_MUST_BE_SINGLE_MAJOR", currentTeam.Eligibility.Reasons);
+    }
+
+    [Fact]
+    public async Task PolicyVersion_ChangesWhenDbPolicyChanges_IgnoringStaleConfig()
+    {
+        var s = await database.SeedAsync();
+        await using (var context = database.CreateContext())
+        {
+            var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
+            p!.MinTeamSize = 2;
+            p.MaxTeamSize = 4;
+            p.MinDistinctMajors = 1;
+            p.UpdatedAt = new DateTime(2026, 9, 11, 10, 0, 0, DateTimeKind.Utc);
+            await context.SaveChangesAsync();
+        }
+
+        using var app = new TeamTestFactory(database, s);
+        using var client0 = app.CreateAuthenticatedClient(s.Students[0]);
+
+        var team = await CreateAsync(client0, s.SemesterId, "VERA");
+        var versionA = team.Eligibility.PolicyVersion;
+        Assert.NotNull(versionA);
+        Assert.StartsWith($"v-{s.PeriodId}-2-4-1-", versionA);
+        Assert.NotEqual("test-v1", versionA);
+
+        // Mutate DB policy
+        await using (var context = database.CreateContext())
+        {
+            var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
+            p!.MaxTeamSize = 5;
+            p.UpdatedAt = new DateTime(2026, 9, 11, 11, 0, 0, DateTimeKind.Utc);
+            await context.SaveChangesAsync();
+        }
+
+        var teamUpdated = await BodyAsync<TeamDto>(await client0.GetAsync($"/api/v1/teams/{team.Id}"));
+        var versionB = teamUpdated.Eligibility.PolicyVersion;
+        Assert.NotNull(versionB);
+        Assert.StartsWith($"v-{s.PeriodId}-2-5-1-", versionB);
+        Assert.NotEqual(versionA, versionB);
+
+        // Read again with unchanged DB policy -> version is stable and same
+        var teamUnchanged = await BodyAsync<TeamDto>(await client0.GetAsync($"/api/v1/teams/{team.Id}"));
+        Assert.Equal(versionB, teamUnchanged.Eligibility.PolicyVersion);
     }
 }

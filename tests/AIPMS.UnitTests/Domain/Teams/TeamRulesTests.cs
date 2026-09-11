@@ -115,21 +115,15 @@ public sealed class TeamRulesTests
     }
 
     [Fact]
-    public void Interdisciplinary_policy_requires_minimum_distinct_majors()
+    public void Interdisciplinary_policy_in_foundation_fails_closed_with_unsupported_hybrid()
     {
         var policy = new TeamFormationPolicy(2, 4, 24, "v2", MinDistinctMajors: 2);
         Assert.True(policy.IsValid);
 
-        // Same major -> TOO_FEW_DISTINCT_MAJORS
-        var sameMajorErrors = TeamRules.EligibilityErrors(
-            [Student(1, 10, true), Student(2, 10)], policy, 1);
-        Assert.Contains("TOO_FEW_DISTINCT_MAJORS", sameMajorErrors);
-        Assert.DoesNotContain("TEAM_MUST_BE_SINGLE_MAJOR", sameMajorErrors);
-
-        // Distinct majors -> valid / empty errors
-        var distinctMajorErrors = TeamRules.EligibilityErrors(
+        // In Foundation scope, MinDistinctMajors > 1 fails closed
+        var errors = TeamRules.EligibilityErrors(
             [Student(1, 10, true), Student(2, 20)], policy, 1);
-        Assert.Empty(distinctMajorErrors);
+        Assert.Contains("UNSUPPORTED_HYBRID_POLICY", errors);
     }
 
     [Theory]
