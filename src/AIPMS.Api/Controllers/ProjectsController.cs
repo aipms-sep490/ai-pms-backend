@@ -190,4 +190,14 @@ public sealed class ProjectsController(ISender sender) : ControllerBase
         long id,
         CancellationToken cancellationToken) =>
         Ok(await sender.Send(new GetProjectStatusHistoryQuery(id), cancellationToken));
+
+    [HttpGet("{id:long}/progress-analysis")]
+    [ProducesResponseType<ProjectProgressAnalysisDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ProjectProgressAnalysisDto>> GetProgressAnalysis(
+        long id,
+        CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new GetProjectProgressAnalysisQuery(id), cancellationToken));
 }
