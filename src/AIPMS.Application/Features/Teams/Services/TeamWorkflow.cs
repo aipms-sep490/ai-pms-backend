@@ -215,6 +215,19 @@ public sealed class TeamWorkflow(
             return result;
         }, ct);
 
+    public async Task<TeamInvitationCandidateScope> GetInvitationCandidateScopeAsync(long teamId, CancellationToken ct)
+    {
+        var actor = await ActorAsync(ct);
+        var team = await TeamAsync(teamId, ct);
+        RequireMember(team, actor.UserId, true);
+        var (window, policy) = await MutableAsync(team, ct);
+        RequireEligibleStudent(actor, window.OrganizationId);
+        RequireSameMajorAsLeader(team, actor, window.OrganizationId, policy);
+        if (team.Members.Count >= policy.MaxMembers)
+            throw new ConflictException("The team has reached its member limit.");
+        return new(team.Id, team.SemesterId, actor.MajorId!.Value, window.OrganizationId, Now);
+    }
+
     public Task<TeamInvitationDto> InviteAsync(InviteTeamMemberCommand request, CancellationToken ct) =>
         repository.InTransactionAsync(async token =>
         {
