@@ -1,4 +1,5 @@
 using AIPMS.Application.Common.Behaviors;
+using AIPMS.Application.Features.Notifications.Services;
 using AIPMS.Application.Features.Deliverables.Services;
 using AIPMS.Application.Features.Academic.Services;
 using AIPMS.Application.Features.AccountSecurity.Services;
@@ -26,6 +27,7 @@ public static class DependencyInjection
 
         services.AddValidatorsFromAssembly(applicationAssembly, ServiceLifetime.Transient);
         services.AddScoped<AcademicAccessService>();
+        services.AddScoped<NotificationInboxService>();
         services.AddScoped<AccountSecurityAccessService>();
         services.AddScoped<SemesterAccessService>();
         services.AddScoped<SupervisorAccessService>();
