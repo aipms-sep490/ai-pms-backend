@@ -162,6 +162,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();
         services.AddScoped<IRubricRepository, RubricRepository>();
+        services.AddScoped<IEvaluationDraftRepository, EvaluationDraftRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<INotificationInboxRepository, NotificationInboxRepository>();
         services.AddScoped<IWorkflowNotificationWriter, WorkflowNotificationWriter>();

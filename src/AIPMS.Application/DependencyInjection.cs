@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddValidatorsFromAssembly(applicationAssembly, ServiceLifetime.Transient);
         services.AddScoped<AcademicAccessService>();
         services.AddScoped<RubricWorkflow>();
+        services.AddScoped<EvaluationDraftWorkflow>();
         services.AddScoped<NotificationInboxService>();
         services.AddScoped<AccountSecurityAccessService>();
         services.AddScoped<SemesterAccessService>();
