@@ -13,7 +13,7 @@ using AIPMS.Domain.Teams;
 
 namespace AIPMS.UnitTests.Application.Teams;
 
-public sealed class TeamHandlerTests
+public sealed partial class TeamHandlerTests
 {
     private static readonly DateTime Now = new(2026, 9, 7, 8, 0, 0, DateTimeKind.Utc);
 
