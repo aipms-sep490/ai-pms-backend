@@ -452,4 +452,63 @@ public sealed class TeamPolicyIntegrationTests(TeamDatabaseFixture database) : I
         var teamUnchanged = await BodyAsync<TeamDto>(await client0.GetAsync($"/api/v1/teams/{team.Id}"));
         Assert.Equal(versionB, teamUnchanged.Eligibility.PolicyVersion);
     }
+
+    [Fact]
+    public async Task CandidateSearch_WhenMinDistinctMajorsGreaterThanOne_Returns409UnsupportedHybrid()
+    {
+        var s = await database.SeedAsync();
+        await using (var context = database.CreateContext())
+        {
+            var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
+            p!.MinTeamSize = 2;
+            p.MaxTeamSize = 4;
+            p.MinDistinctMajors = 1;
+            await context.SaveChangesAsync();
+        }
+
+        using var app = new TeamTestFactory(database, s);
+        using var client0 = app.CreateAuthenticatedClient(s.Students[0]);
+        var team = await CreateAsync(client0, s.SemesterId, "CANDHYB");
+
+        // Mutate DB policy to MinDistinctMajors = 2 (Hybrid)
+        await using (var context = database.CreateContext())
+        {
+            var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
+            p!.MinDistinctMajors = 2;
+            await context.SaveChangesAsync();
+        }
+
+        var response = await client0.GetAsync($"/api/v1/teams/{team.Id}/invitation-candidates");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Interdisciplinary team formation requires Hybrid policy configuration", body);
+    }
+
+    [Fact]
+    public async Task CandidateSearch_WhenTeamAtDbMaxTeamSize_Returns409()
+    {
+        var s = await database.SeedAsync();
+        await using (var context = database.CreateContext())
+        {
+            var p = await context.ProjectPeriods.FindAsync(s.PeriodId);
+            p!.MinTeamSize = 2;
+            p.MaxTeamSize = 2; // Max size is 2
+            p.MinDistinctMajors = 1;
+            await context.SaveChangesAsync();
+        }
+
+        using var app = new TeamTestFactory(database, s);
+        using var client0 = app.CreateAuthenticatedClient(s.Students[0]);
+        using var client1 = app.CreateAuthenticatedClient(s.Students[1]);
+
+        var team = await CreateAsync(client0, s.SemesterId, "MAXCAND");
+        var invite = await InviteAsync(client0, team.Id, s.Students[1]);
+        await BodyAsync<TeamDto>(await AcceptAsync(client1, invite.Id));
+
+        // Team now has 2 members (at MaxTeamSize = 2)
+        var response = await client0.GetAsync($"/api/v1/teams/{team.Id}/invitation-candidates");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("The team has reached its member limit.", body);
+    }
 }
