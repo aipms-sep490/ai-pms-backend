@@ -281,6 +281,68 @@ public sealed class SemesterEndpointTests
     }
 
     [Fact]
+    public async Task CreateProjectPeriod_NullMilestoneTemplate_ReturnsCreated()
+    {
+        using var client = _factory.CreateAuthenticatedClient(1001, roles: AppRoles.Admin);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/academic/project-periods",
+            new CreateProjectPeriodRequest(
+                1, "FS-NULL-TMPL", "Null Template",
+                "FINAL_SUBMISSION",
+                new DateTime(2027, 1, 15, 0, 0, 0, DateTimeKind.Utc),
+                new DateTime(2027, 1, 20, 0, 0, 0, DateTimeKind.Utc),
+                MilestoneTemplateId: null));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<ProjectPeriodDto>();
+        Assert.NotNull(result);
+        Assert.Null(result.MilestoneTemplateId);
+    }
+
+    [Fact]
+    public async Task CreateProjectPeriod_NonNullMilestoneTemplate_ReturnsConflictProblemDetails()
+    {
+        using var client = _factory.CreateAuthenticatedClient(1001, roles: AppRoles.Admin);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/academic/project-periods",
+            new CreateProjectPeriodRequest(
+                1, "EXE-NONNULL", "Nonnull Template",
+                "EXECUTION",
+                new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc),
+                new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                MilestoneTemplateId: 55));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.NotNull(problem);
+        Assert.Equal(409, problem.Status);
+        Assert.Contains("Milestone Template module is not available yet", problem.Detail);
+    }
+
+    [Fact]
+    public async Task UpdateProjectPeriod_NonNullMilestoneTemplate_ReturnsConflictProblemDetails()
+    {
+        using var client = _factory.CreateAuthenticatedClient(1001, roles: AppRoles.Admin);
+
+        var response = await client.PutAsJsonAsync(
+            "/api/v1/academic/project-periods/1",
+            new UpdateProjectPeriodRequest(
+                "REG-01", "Updated Period",
+                "REGISTRATION",
+                new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+                MilestoneTemplateId: 55));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.NotNull(problem);
+        Assert.Equal(409, problem.Status);
+        Assert.Contains("Milestone Template module is not available yet", problem.Detail);
+    }
+
+    [Fact]
     public async Task CreateProjectPeriod_Student_ReturnsForbidden()
     {
         using var client = _factory.CreateAuthenticatedClient(4001, roles: AppRoles.Student);
