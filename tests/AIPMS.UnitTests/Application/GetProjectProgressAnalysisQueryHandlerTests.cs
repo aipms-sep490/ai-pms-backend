@@ -107,14 +107,6 @@ public sealed class GetProjectProgressAnalysisQueryHandlerTests
     }
 }
 
-internal sealed class UnauthenticatedTestCurrentUser : ICurrentUser
-{
-    public bool IsAuthenticated => false;
-    public long? UserId => null;
-    public string? Email => null;
-    public string? FullName => null;
-    public IReadOnlyCollection<string> Roles => Array.Empty<string>();
-}
 
 internal sealed class StubProjectProgressDataReader : IProjectProgressDataReader
 {
