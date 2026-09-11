@@ -2,6 +2,9 @@ using System.Runtime.CompilerServices;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Email;
 using AIPMS.Application.Abstractions.Security;
+using AIPMS.Application.Abstractions.Storage;
+using AIPMS.Application.Features.Deliverables.Abstractions;
+using AIPMS.Infrastructure.Storage;
 using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.AccountSecurity.Abstractions;
 using AIPMS.Application.Features.Auth.Abstractions;
@@ -152,13 +155,16 @@ public static class DependencyInjection
         services.AddScoped<ISupervisorCandidateRepository, SupervisorCandidateRepository>();
         services.AddScoped<ISupervisorRequestRepository, SupervisorRequestRepository>();
         services.AddScoped<ISupervisorAssignmentRepository, SupervisorAssignmentRepository>();
+        services.AddScoped<IDeliverableRepository, DeliverableRepository>();
+        services.AddSingleton<IFileStorage, LocalFileStorage>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
-        services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, ConfiguredTeamFormationPolicyProvider>();
+        services.AddScoped<ITeamInvitationCandidateReader, TeamInvitationCandidateReader>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, DatabaseTeamFormationPolicyProvider>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
         services.AddScoped<IPasswordResetNotifier, SmtpPasswordResetNotifier>();
 

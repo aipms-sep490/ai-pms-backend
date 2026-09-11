@@ -40,6 +40,18 @@ public sealed class TeamsController(ISender sender) : ControllerBase
     public async Task<ActionResult<TeamDto>> RefreshEligibility(long teamId, CancellationToken ct) =>
         Ok(await sender.Send(new RefreshTeamEligibilityCommand(teamId), ct));
 
+    [HttpGet("{teamId:long}/invitation-candidates")]
+    [ProducesResponseType<PagedResult<TeamInvitationCandidateDto>>(200)]
+    [ProducesResponseType<ProblemDetails>(400)]
+    [ProducesResponseType<ProblemDetails>(401)]
+    [ProducesResponseType<ProblemDetails>(403)]
+    [ProducesResponseType<ProblemDetails>(404)]
+    [ProducesResponseType<ProblemDetails>(409)]
+    public async Task<ActionResult<PagedResult<TeamInvitationCandidateDto>>> InvitationCandidates(long teamId,
+        [FromQuery] string? search = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        CancellationToken ct = default) =>
+        Ok(await sender.Send(new GetTeamInvitationCandidatesQuery(teamId, search, page, pageSize), ct));
+
     [HttpPost("{teamId:long}/invitations")]
     public async Task<ActionResult<TeamInvitationDto>> Invite(long teamId, InviteTeamMemberRequest request, CancellationToken ct) =>
         Ok(await sender.Send(new InviteTeamMemberCommand(teamId, request.InvitedUserId, request.Message), ct));

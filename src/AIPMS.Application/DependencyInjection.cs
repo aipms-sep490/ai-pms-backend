@@ -1,4 +1,5 @@
 using AIPMS.Application.Common.Behaviors;
+using AIPMS.Application.Features.Deliverables.Services;
 using AIPMS.Application.Features.Academic.Services;
 using AIPMS.Application.Features.AccountSecurity.Services;
 using AIPMS.Application.Features.Semesters.Services;
@@ -30,6 +31,7 @@ public static class DependencyInjection
         services.AddScoped<SupervisorAccessService>();
         services.AddScoped<SupervisorRequestWorkflow>();
         services.AddScoped<SupervisorAssignmentWorkflow>();
+        services.AddScoped<DeliverableWorkflow>();
         services.AddScoped<TeamWorkflow>();
         services.AddScoped<ITeamRegistrationGuard, TeamRegistrationGuard>();
 
