@@ -265,21 +265,37 @@ public sealed partial class TeamEndpointTests(TeamDatabaseFixture database) : IC
 }
 
 internal sealed class TeamTestFactory(TeamDatabaseFixture database, TeamScenario scenario,
-    int maxMembers = 3, bool configured = true, bool failAudit = false,
-    int minMembers = 2, string? failAuditAction = null,
+    int? maxMembers = null, bool configured = true, bool failAudit = false,
+    int? minMembers = null, string? failAuditAction = null,
     Action<IServiceCollection>? customizeServices = null) : AipmsWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
+        using (var context = database.CreateContext())
+        {
+            var period = context.ProjectPeriods.Find(scenario.PeriodId);
+            if (period != null)
+            {
+                if (configured)
+                {
+                    period.MinTeamSize = minMembers ?? (period.MinTeamSize ?? 2);
+                    period.MaxTeamSize = maxMembers ?? (period.MaxTeamSize ?? 3);
+                }
+                else
+                {
+                    period.MinTeamSize = null;
+                    period.MaxTeamSize = null;
+                }
+                context.SaveChanges();
+            }
+        }
         builder.ConfigureAppConfiguration((_, config) =>
         {
             var values = new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = database.ConnectionString };
             if (configured)
             {
                 var prefix = $"TeamFormation:Periods:{scenario.PeriodId}:";
-                values[prefix + "MinMembers"] = minMembers.ToString();
-                values[prefix + "MaxMembers"] = maxMembers.ToString();
                 values[prefix + "InvitationHours"] = "24";
                 values[prefix + "Version"] = "test-v1";
             }

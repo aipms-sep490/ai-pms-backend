@@ -113,4 +113,28 @@ public sealed class TeamRulesTests
         Assert.True(TeamRules.IsInvitationExpired(now, now));
         Assert.False(TeamRules.IsInvitationExpired(now.AddSeconds(1), now));
     }
+
+    [Fact]
+    public void Interdisciplinary_policy_requires_minimum_distinct_majors()
+    {
+        var policy = new TeamFormationPolicy(2, 4, 24, "v2", MinDistinctMajors: 2);
+        Assert.True(policy.IsValid);
+
+        // Same major -> TOO_FEW_DISTINCT_MAJORS
+        var sameMajorErrors = TeamRules.EligibilityErrors(
+            [Student(1, 10, true), Student(2, 10)], policy, 1);
+        Assert.Contains("TOO_FEW_DISTINCT_MAJORS", sameMajorErrors);
+        Assert.DoesNotContain("TEAM_MUST_BE_SINGLE_MAJOR", sameMajorErrors);
+
+        // Distinct majors -> valid / empty errors
+        var distinctMajorErrors = TeamRules.EligibilityErrors(
+            [Student(1, 10, true), Student(2, 20)], policy, 1);
+        Assert.Empty(distinctMajorErrors);
+    }
+
+    [Theory]
+    [InlineData(2, 4, 0)]
+    [InlineData(2, 4, 5)]
+    public void Min_distinct_majors_must_be_positive_and_not_exceed_max_members(int min, int max, int majors) =>
+        Assert.False(new TeamFormationPolicy(min, max, 24, "v1", majors).IsValid);
 }

@@ -123,15 +123,16 @@ public sealed class TeamWorkflow(
         return await MapAsync(team, ct);
     }
 
-    private static void RequireSameMajorAsLeader(TeamSnapshot team, TeamParticipant student, long organizationId)
+    private static void RequireSameMajorAsLeader(
+        TeamSnapshot team, TeamParticipant student, long organizationId, TeamFormationPolicy policy)
     {
         var leaders = team.Members.Where(m => m.IsLeader).ToArray();
         if (leaders.Length != 1)
             throw new ConflictException("The team must have exactly one active leader.");
         var leader = leaders[0];
         RequireEligibleStudent(leader, organizationId);
-        if (!TeamRules.HasSameMajor(student, leader)
-            || team.Members.Any(m => !TeamRules.HasSameMajor(m, leader)))
+        if (policy.MinDistinctMajors <= 1 && (!TeamRules.HasSameMajor(student, leader)
+            || team.Members.Any(m => !TeamRules.HasSameMajor(m, leader))))
             throw new ConflictException("All team members must belong to the same major as the team leader.");
     }
 
@@ -211,7 +212,7 @@ public sealed class TeamWorkflow(
             var invited = await repository.GetStudentAsync(request.InvitedUserId, token)
                 ?? throw new NotFoundException("Student", request.InvitedUserId);
             RequireEligibleStudent(invited, window.OrganizationId);
-            RequireSameMajorAsLeader(team, invited, window.OrganizationId);
+            RequireSameMajorAsLeader(team, invited, window.OrganizationId, policy);
             await RequireNoTeamAsync(team.SemesterId, invited.UserId, token);
             if (team.Members.Count >= policy.MaxMembers)
                 throw new ConflictException("The team has reached its member limit.");
@@ -239,7 +240,7 @@ public sealed class TeamWorkflow(
             var team = await TeamAsync(invitation.TeamId, token);
             var (window, policy) = await MutableAsync(team, token);
             RequireEligibleStudent(actor, window.OrganizationId);
-            RequireSameMajorAsLeader(team, actor, window.OrganizationId);
+            RequireSameMajorAsLeader(team, actor, window.OrganizationId, policy);
             await RequireNoTeamAsync(team.SemesterId, actor.UserId, token);
             if (team.Members.Count >= policy.MaxMembers)
                 throw new ConflictException("The team has reached its member limit.");
@@ -311,11 +312,11 @@ public sealed class TeamWorkflow(
             var actor = await ActorAsync(token);
             var team = await TeamAsync(request.TeamId, token);
             RequireMember(team, actor.UserId, true);
-            var (window, _) = await MutableAsync(team, token);
+            var (window, policy) = await MutableAsync(team, token);
             var member = team.Members.SingleOrDefault(m => m.UserId == request.NewLeaderUserId)
                 ?? throw new ConflictException("The new leader must be an active member of this team.");
             RequireEligibleStudent(member, window.OrganizationId);
-            RequireSameMajorAsLeader(team, member, window.OrganizationId);
+            RequireSameMajorAsLeader(team, member, window.OrganizationId, policy);
             if (member.UserId == actor.UserId)
                 throw new ConflictException("This student is already the leader.");
             await repository.TransferLeaderAsync(team.Id, actor.UserId, member.UserId, Now, token);
