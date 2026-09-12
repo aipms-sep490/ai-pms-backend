@@ -15,7 +15,11 @@ public sealed record EvaluationDraftDto(long Id, long AssignmentId, long Project
     long RubricId, string RubricName, long RootRubricId, int RubricVersion, string EvaluationType, string Status, string? Comments, decimal? TotalScore,
     decimal ScoreScale, string CalculationRule, IReadOnlyList<long> MissingCriterionIds,
     IReadOnlyList<long> MissingRequiredCriterionIds, string ConcurrencyToken, DateTime CreatedAt,
-    DateTime UpdatedAt, IReadOnlyList<EvaluationScoreDto> Scores);
+    DateTime UpdatedAt, IReadOnlyList<EvaluationScoreDto> Scores, EvaluationFinalizationDto? Finalization = null);
+
+public sealed record EvaluationEvidenceDto(long FinalSubmissionId, long ProjectPeriodId, DateTime SubmittedAt,
+    int ArtifactCount, int FileCount, IReadOnlyList<long> DeliverableVersionIds);
+public sealed record EvaluationFinalizationDto(long FinalizedBy, DateTime FinalizedAt, EvaluationEvidenceDto Evidence);
 
 public static class EvaluationDraftDtoMapper
 {
@@ -31,7 +35,11 @@ public static class EvaluationDraftDtoMapper
         e.Scores.Where(c => c.IsRequired && !c.Score.HasValue).Select(c => c.RubricCriterionId).ToArray(),
         e.ConcurrencyToken, Utc(e.CreatedAt), Utc(e.UpdatedAt),
         e.Scores.Select(c => new EvaluationScoreDto(c.RubricCriterionId, c.Name, c.Description, c.WeightPercent,
-            c.MaxScore, c.SortOrder, c.IsRequired, c.Score, c.Comments)).ToArray());
+            c.MaxScore, c.SortOrder, c.IsRequired, c.Score, c.Comments)).ToArray(),
+        e.Finalization is null ? null : new(e.Finalization.FinalizedBy, Utc(e.Finalization.FinalizedAt),
+            new(e.Finalization.Evidence.FinalSubmissionId, e.Finalization.Evidence.ProjectPeriodId,
+                Utc(e.Finalization.Evidence.SubmittedAt), e.Finalization.Evidence.ArtifactCount,
+                e.Finalization.Evidence.FileCount, e.Finalization.Evidence.DeliverableVersionIds)));
 
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
 }

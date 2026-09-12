@@ -63,4 +63,9 @@ public sealed class EvaluationDraftsController(ISender sender) : ControllerBase
     public async Task<ActionResult<PagedResult<EvaluationDraftDto>>> List(long projectId,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) =>
         Ok(await sender.Send(new GetProjectEvaluationsQuery(projectId, page, pageSize), ct));
+
+    [HttpPost("api/v1/evaluations/{id:long}/finalize")]
+    [ProducesResponseType<EvaluationDraftDto>(200)]
+    public async Task<ActionResult<EvaluationDraftDto>> FinalizeEvaluation(long id, FinalizeEvaluationRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new FinalizeEvaluationCommand(id, request), ct));
 }

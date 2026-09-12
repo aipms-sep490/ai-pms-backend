@@ -17,6 +17,7 @@ do not construct notifications. Existing Deliverables producers are unchanged.
 | SUPERVISOR_REQUEST_REJECTED | Current project team leader | SUPERVISOR_REQUEST / request ID |
 | SUPERVISOR_REQUEST_CANCELLED | Requested lecturer | SUPERVISOR_REQUEST / request ID |
 | FINAL_SUBMISSION_LOCKED | Active staff in project major departments and semester organization | PROJECT / project ID (navigate to final-submission route) |
+| EVALUATION_FINALIZED | Active staff in assignment department and project/organization scope | EVALUATION / evaluation ID |
 
 Automatic cancellation of competing supervision requests after acceptance uses
 the same cancellation event. Expiration reminders and project approval events
@@ -54,6 +55,9 @@ access and an old link may no longer be accessible.
 
 No external email/push is sent. Notification tables need no new migration;
 the final-submission producer requires the BE-16 locked-package migration.
+The evaluation-finalized producer requires the evaluation_finalizations migration;
+score status/total, immutable snapshot, audit and notification share one transaction.
+Repeated finalization events are deduplicated by their source evaluation lock.
 Final package/source, project state, audit and staff inbox share one transaction.
 The final-submission source row lock deduplicates replay of its event; one package
 per project makes PROJECT/project ID plus notification type a stable inbox key.

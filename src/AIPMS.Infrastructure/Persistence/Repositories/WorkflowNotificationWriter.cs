@@ -22,6 +22,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         string role;
         long? projectId = null;
         var finalSubmission = entityType == "FINAL_SUBMISSION";
+        var departmentEvent = finalSubmission || entityType == "EVALUATION";
 
         // A source-row lock serializes duplicate event handling; inbox and transition commit together.
         if (finalSubmission)
@@ -30,6 +31,17 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
                 $"SELECT * FROM dbo.final_submissions WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
                 .AsNoTracking().SingleOrDefaultAsync(ct);
             if (source is null) return;
+            projectId = source.ProjectId;
+            teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
+            role = AppRoles.DepartmentStaff;
+        }
+        else if (entityType == "EVALUATION")
+        {
+            var source = await context.Evaluations.FromSqlInterpolated(
+                $"SELECT * FROM dbo.evaluations WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
+                .AsNoTracking().SingleOrDefaultAsync(ct);
+            if (source is null || source.Status != "FINALIZED"
+                || !await context.Set<EvaluationFinalization>().AnyAsync(f => f.EvaluationId == source.Id, ct)) return;
             projectId = source.ProjectId;
             teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
             role = AppRoles.DepartmentStaff;
@@ -72,11 +84,14 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             && u.Department.OrganizationId == organizationId);
         if (targetUser.HasValue)
             recipients = recipients.Where(u => u.Id == targetUser.Value);
-        else if (!finalSubmission)
+        else if (!departmentEvent)
             recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.IsLeader && m.LeftAt == null));
-        if (finalSubmission)
+        if (departmentEvent)
             recipients = recipients.Where(u => context.ProjectMajors.Any(m => m.ProjectId == projectId
                 && m.Major.IsActive && m.Major.DepartmentId == u.DepartmentId));
+        if (entityType == "EVALUATION")
+            recipients = recipients.Where(u => context.Set<EvaluationDraftState>().Any(s => s.EvaluationId == notification.SourceId
+                && context.Set<EvaluationAssignment>().Any(a => a.Id == s.AssignmentId && a.DepartmentId == u.DepartmentId)));
         if (projectId.HasValue && role == AppRoles.Lecturer)
             recipients = recipients.Where(u => context.ProjectMajors.Any(m => m.ProjectId == projectId.Value
                 && m.Major.IsActive && m.Major.DepartmentId == u.DepartmentId));
@@ -100,6 +115,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
 
     private static (string Entity, string Status, string Type, string Title) Describe(WorkflowNotificationKind kind) => kind switch
     {
+        WorkflowNotificationKind.EvaluationFinalized => ("EVALUATION", "FINALIZED", "EVALUATION_FINALIZED", "An evaluator finalized a project evaluation"),
         WorkflowNotificationKind.FinalSubmissionLocked => ("FINAL_SUBMISSION", "LOCKED", "FINAL_SUBMISSION_LOCKED", "A project submitted its final package"),
         WorkflowNotificationKind.TeamInvitationSent => ("TEAM_INVITATION", "PENDING", "TEAM_INVITATION_SENT", "You received a team invitation"),
         WorkflowNotificationKind.TeamInvitationAccepted => ("TEAM_INVITATION", "ACCEPTED", "TEAM_INVITATION_ACCEPTED", "A student accepted your team's invitation"),

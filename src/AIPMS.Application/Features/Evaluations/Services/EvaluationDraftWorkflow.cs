@@ -5,11 +5,13 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
+using AIPMS.Application.Features.FinalSubmissions.Abstractions;
+using MediatR;
 
 namespace AIPMS.Application.Features.Evaluations.Services;
 
-public sealed class EvaluationDraftWorkflow(IEvaluationDraftRepository repository, IRubricRepository rubrics,
-    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock)
+public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository repository, IRubricRepository rubrics,
+    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock, IFinalSubmissionRepository submissions, IPublisher publisher)
 {
     private async Task<EvaluationActor> Actor(CancellationToken ct)
     {
