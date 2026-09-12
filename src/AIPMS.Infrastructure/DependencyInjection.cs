@@ -11,7 +11,9 @@ using AIPMS.Infrastructure.Storage;
 using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.AccountSecurity.Abstractions;
 using AIPMS.Application.Features.Auth.Abstractions;
+using AIPMS.Application.Features.Meetings.Abstractions;
 using AIPMS.Application.Features.Milestones.Abstractions;
+using AIPMS.Application.Features.ProgressReports.Abstractions;
 using AIPMS.Application.Features.Notifications.Abstractions;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Semesters.Abstractions;
@@ -172,6 +174,8 @@ public static class DependencyInjection
         services.AddScoped<INotificationInboxRepository, NotificationInboxRepository>();
         services.AddScoped<IWorkflowNotificationWriter, WorkflowNotificationWriter>();
         services.AddScoped<ITaskRepository, TaskRepository>();
+        services.AddScoped<IProgressReportRepository, ProgressReportRepository>();
+        services.AddScoped<IMeetingRepository, MeetingRepository>();
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
         services.AddScoped<ITeamInvitationCandidateReader, TeamInvitationCandidateReader>();
