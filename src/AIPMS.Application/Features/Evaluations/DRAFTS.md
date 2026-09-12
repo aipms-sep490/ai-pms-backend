@@ -11,7 +11,7 @@ BE-16 now supplies this precondition: new assignments and creation/saving of dra
 scores require a nonempty locked package as well as FINAL_SUBMISSION and a valid
 evaluation window. This supersedes the temporary status-only scope accepted on
 2026-09-11. Legacy projects without a package return 409; existing grades/history
-are not rewritten. Finalization remains unavailable.
+are not rewritten. Per-evaluator finalization is documented in [FINALIZATION.md](FINALIZATION.md).
 
 | Requirement | Implemented boundary |
 | --- | --- |
@@ -24,10 +24,10 @@ are not rewritten. Finalization remains unavailable.
 | Deterministic preview | Weighted decimal calculation on scale 10; one final rounding away from zero to 2 decimals; no client-provided total |
 | Missing criteria | Draft can be incomplete; missing scores return null total and missing/all-required ID lists; no implicit zeros or weight redistribution |
 | Save draft | Full score-set replacement plus comments, concurrency token and transactionally persisted audit |
-| Finalize/publication/AI | No finalize, publish-result or AI score-write API in this slice |
+| Finalize/publication/AI | Finalize through the explicit confirmation route; no publish-result or AI score-write API |
 
 Assignment notifications (SRS 3.16.4 step 5), evaluator discovery UI/lookups,
-evidence-summary, finalize notifications, committee/common/
+full cross-module evidence-summary, committee/common/
 major-specific/individual assignments and per-student results remain separate.
 Existing SUPERVISOR and LECTURER types are supported; COMMITTEE/FINAL type requests
 are rejected until their assignment/lifecycle rules are implemented. Issue #14 is
@@ -96,7 +96,8 @@ Use decimal arithmetic, stable criterion-ID summation order and no intermediate
 rounding. Example: 9/10 at 60% plus 16/20 at 40% gives 8.60/10. Zero is a score,
 not missing data. Total stays null whenever any criterion lacks a score, including
 optional criteria: this avoids silently deciding how unscored optional weights
-affect a final result. Future finalize must explicitly settle that rule.
+affect a final result. The user confirmed that finalization requires every weighted
+criterion to have an explicit score; see FINALIZATION.md.
 
 Create/save requires project FINAL_SUBMISSION; active organization, departments
 and majors; active semester with current UTC date inside its dates; the assigned
@@ -143,7 +144,6 @@ uniqueness/FK/concurrency conflicts map to 409, allowing reload/retry. Read endp
 also use a consistent transaction so score content and token cannot come from
 different writes. Score changes and any later audit failure roll back together.
 
-Future finalize must use the same project/evaluation transaction discipline,
-revalidate assignment/window/required criteria/final package, calculate totals
-server-side and protect the result. This slice rejects edits when persisted state
-is SUBMITTED/FINALIZED, but does not implement the finalization endpoint itself.
+Finalize uses the same transaction discipline, revalidates assignment/window/all
+weighted criteria/final package and recomputes the total. See FINALIZATION.md for
+the additional additive migration and immutable snapshot/read contract.

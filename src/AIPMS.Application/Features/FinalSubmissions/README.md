@@ -115,8 +115,9 @@ audit snapshots. Unknown/unselected file IDs return 404.
 BE-09 new assignments and creation/saving of draft grades now require a nonempty
 locked package as well as state/window/rubric/scope rules. Legacy status-only
 projects return 409; no fake packages/backfill. Existing grade history remains
-readable under existing permissions. Finalize/publication and evaluator assignment
-notifications remain separate BE-09 work.
+readable under existing permissions. BE-09 per-evaluator finalization is described
+in ../Evaluations/FINALIZATION.md; result publication and evaluator-assignment
+notifications remain separate work.
 
 ## Deployment and tests
 

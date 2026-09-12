@@ -14,4 +14,9 @@ public sealed record EvaluationAssignmentRecord(long Id, long ProjectId, long Ev
     DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken);
 public sealed record EvaluationDraftRecord(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
     long RubricId, string RubricName, long RootRubricId, int RubricVersion, string EvaluationType, string Status, string? Comments, decimal? TotalScore,
-    string ConcurrencyToken, DateTime CreatedAt, DateTime UpdatedAt, IReadOnlyList<EvaluationScoreRecord> Scores);
+    string ConcurrencyToken, DateTime CreatedAt, DateTime UpdatedAt, IReadOnlyList<EvaluationScoreRecord> Scores,
+    EvaluationFinalizationRecord? Finalization = null);
+
+public sealed record EvaluationEvidenceRecord(long FinalSubmissionId, long ProjectPeriodId, DateTime SubmittedAt,
+    int ArtifactCount, int FileCount, IReadOnlyList<long> DeliverableVersionIds);
+public sealed record EvaluationFinalizationRecord(long FinalizedBy, DateTime FinalizedAt, EvaluationEvidenceRecord Evidence);

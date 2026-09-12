@@ -17,7 +17,7 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.IntegrationTests.Evaluations;
 
-public sealed class EvaluationDraftEndpointTests(EvaluationDraftDatabaseFixture database) : IClassFixture<EvaluationDraftDatabaseFixture>
+public sealed partial class EvaluationDraftEndpointTests(EvaluationDraftDatabaseFixture database) : IClassFixture<EvaluationDraftDatabaseFixture>
 {
     [Fact]
     public async Task Status_alone_without_locked_package_cannot_assign_evaluator()
@@ -494,7 +494,7 @@ internal sealed class PauseBeforeEvaluationRead : DbCommandInterceptor
     }
 }
 
-internal sealed class EvaluationFactory(EvaluationDraftDatabaseFixture database, bool failAudit = false,
+internal class EvaluationFactory(EvaluationDraftDatabaseFixture database, bool failAudit = false,
     DbCommandInterceptor? interceptor = null) : AipmsWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)

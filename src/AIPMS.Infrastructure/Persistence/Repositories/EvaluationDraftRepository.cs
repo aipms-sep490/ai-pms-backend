@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
@@ -154,6 +155,13 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         var row = await db.Evaluations.AsNoTracking().Include(e => e.Rubric).Include(e => e.EvaluationDetails)
             .SingleOrDefaultAsync(e => e.Id == id, ct);
         if (row is null) return null;
+        var finalization = await db.Set<EvaluationFinalization>().AsNoTracking().SingleOrDefaultAsync(f => f.EvaluationId == id, ct);
+        if (finalization is not null)
+        {
+            // Read the protected scoring snapshot, not mutable criterion labels or live score rows.
+            return JsonSerializer.Deserialize<EvaluationDraftRecord>(finalization.SnapshotJson)
+                ?? throw new ConflictException("The finalized evaluation snapshot is unavailable.");
+        }
         var assignment = await db.Set<EvaluationAssignment>().AsNoTracking().SingleAsync(a => a.Id == state.AssignmentId, ct);
         var rubricVersion = await db.Set<RubricVersion>().AsNoTracking().SingleOrDefaultAsync(v => v.RubricId == row.RubricId, ct)
             ?? throw new ConflictException("The evaluation rubric has no protected version metadata.");
@@ -218,6 +226,28 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         state.ConcurrencyToken = Guid.NewGuid();
         await db.SaveChangesAsync(ct);
         return (await GetDraftAsync(id, ct))!;
+    }
+
+    public async Task<EvaluationDraftRecord> FinalizeAsync(EvaluationDraftRecord draft, EvaluationEvidenceRecord evidence,
+        long actorId, DateTime now, CancellationToken ct)
+    {
+        if (db.Database.CurrentTransaction is null) throw new InvalidOperationException("Finalization requires a project transaction.");
+        var row = await db.Evaluations.SingleAsync(e => e.Id == draft.Id, ct);
+        var state = await db.Set<EvaluationDraftState>().SingleAsync(e => e.EvaluationId == draft.Id, ct);
+        if (row.Status != "DRAFT" || state.ConcurrencyToken != Guid.Parse(draft.ConcurrencyToken)
+            || await db.Set<EvaluationFinalization>().AnyAsync(f => f.EvaluationId == draft.Id, ct))
+            throw new ConflictException("The evaluation changed or is already finalized.");
+        row.Status = "FINALIZED";
+        row.TotalScore = draft.TotalScore;
+        row.EvaluatedAt = now;
+        row.UpdatedAt = now;
+        state.ConcurrencyToken = Guid.NewGuid();
+        var snapshot = draft with { Status = "FINALIZED", UpdatedAt = now, ConcurrencyToken = state.ConcurrencyToken.ToString("N"),
+            Finalization = new(actorId, now, evidence) };
+        db.Set<EvaluationFinalization>().Add(new() { EvaluationId = draft.Id, FinalSubmissionId = evidence.FinalSubmissionId,
+            FinalizedBy = actorId, FinalizedAt = now, SnapshotJson = JsonSerializer.Serialize(snapshot) });
+        await db.SaveChangesAsync(ct);
+        return snapshot;
     }
 
     public async Task<PagedResult<EvaluationDraftRecord>> ListDraftsAsync(long projectId, EvaluationActor actor, int page, int pageSize, CancellationToken ct)

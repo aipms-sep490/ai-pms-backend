@@ -19,6 +19,7 @@ public interface IEvaluationDraftRepository
     Task<PagedResult<EvaluationAssignmentRecord>> ListAssignmentsAsync(long? projectId, EvaluationActor actor,
         string? status, int page, int pageSize, CancellationToken ct);
     Task<EvaluationDraftRecord?> GetDraftAsync(long id, CancellationToken ct);
+    Task<EvaluationDraftRecord> FinalizeAsync(EvaluationDraftRecord draft, EvaluationEvidenceRecord evidence, long actorId, DateTime now, CancellationToken ct);
     Task<EvaluationDraftRecord?> FindDraftAsync(long assignmentId, CancellationToken ct);
     Task<EvaluationDraftRecord> CreateDraftAsync(EvaluationAssignmentRecord assignment, DateTime now, CancellationToken ct);
     Task<EvaluationDraftRecord> SaveAsync(long id, IReadOnlyList<EvaluationScoreInput> scores,
