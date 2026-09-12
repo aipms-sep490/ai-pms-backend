@@ -10,7 +10,7 @@ using AIPMS.Application.Features.Supervisors.Abstractions;
 
 namespace AIPMS.Application.Features.FinalSubmissions.Services;
 
-public sealed class FinalSubmissionDraftWorkflow(IFinalSubmissionDraftRepository repository,
+public sealed class FinalSubmissionDraftWorkflow(IFinalSubmissionDraftRepository repository, IFinalSubmissionRepository submissions,
     ISupervisorProfileRepository accounts, ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock)
 {
     private long ActorId => currentUser.IsAuthenticated && currentUser.UserId is long id
@@ -27,27 +27,6 @@ public sealed class FinalSubmissionDraftWorkflow(IFinalSubmissionDraftRepository
         return project;
     }
 
-    private async Task<IReadOnlyList<string>> Blockers(FinalDraftProject project, FinalDraftPeriod? period, DateTime now, CancellationToken ct, int? openCount = null)
-    {
-        var result = new List<string>();
-        if (!project.IsLeader) result.Add("LEADER_REQUIRED");
-        if (project.Status != "ACTIVE") result.Add("PROJECT_NOT_ACTIVE");
-        if (!project.AcademicScopeActive) result.Add("ACADEMIC_SCOPE_INACTIVE");
-        if (period is null || period.SemesterId != project.SemesterId || period.Type != "FINAL_SUBMISSION")
-            result.Add("FINAL_SUBMISSION_PERIOD_REQUIRED");
-        else
-        {
-            if (!period.SemesterOpen) result.Add("SEMESTER_CLOSED");
-            if (period.Status != "ACTIVE") result.Add("PERIOD_INACTIVE");
-            if (now < period.StartAt) result.Add("WINDOW_NOT_STARTED");
-            if (now >= period.EndAt) result.Add("WINDOW_CLOSED");
-            if (period.StartAt <= now && now < period.EndAt
-                && (openCount ?? await repository.CountOpenPeriodsAsync(project.SemesterId, now, ct)) != 1)
-                result.Add("AMBIGUOUS_FINAL_SUBMISSION_WINDOW");
-        }
-        return result;
-    }
-
     public Task<FinalSubmissionDraftDto> Get(long projectId, CancellationToken ct) => repository.InTransactionAsync(async () =>
     {
         var project = await Authorize(projectId, ActorId, ct);
@@ -62,10 +41,12 @@ public sealed class FinalSubmissionDraftWorkflow(IFinalSubmissionDraftRepository
             var now = clock.GetUtcNow().UtcDateTime;
             var periods = await repository.GetPeriodsAsync(project.SemesterId, now, page, size, ct);
             var openCount = await repository.CountOpenPeriodsAsync(project.SemesterId, now, ct);
+            var locked = await submissions.GetAsync(projectId, ct) is not null;
             var items = new List<FinalSubmissionPeriodOptionDto>();
             foreach (var period in periods.Items)
             {
-                var blockers = await Blockers(project, period, now, ct, openCount);
+                var blockers = (await FinalSubmissionRules.Blockers(repository, project, period, now, ct, openCount)).ToList();
+                if (locked) blockers.Add("ALREADY_SUBMITTED");
                 items.Add(new(period.Id, period.Name, period.Status, period.StartAt, period.EndAt, blockers.Count == 0, blockers));
             }
             return new PagedResult<FinalSubmissionPeriodOptionDto>(items, page, size, periods.TotalCount);
@@ -85,6 +66,7 @@ public sealed class FinalSubmissionDraftWorkflow(IFinalSubmissionDraftRepository
         await repository.LockProjectAsync(projectId, ct);
         var project = await Authorize(projectId, actor, ct);
         if (!project.IsLeader) throw new ForbiddenException("Only the current student leader can prepare the final package.");
+        if (await submissions.GetAsync(projectId, ct) is not null) throw new ConflictException("The final package is already locked.");
         var before = await repository.GetAsync(projectId, ct);
         if (expectedToken is null && before is not null) throw new ConflictException("A final-submission draft already exists for this project.");
         if (expectedToken is not null)
@@ -102,7 +84,7 @@ public sealed class FinalSubmissionDraftWorkflow(IFinalSubmissionDraftRepository
             throw new ConflictException("Selected versions must be submitted or accepted and have valid BE-08 file metadata.");
         var now = clock.GetUtcNow().UtcDateTime;
         var period = await repository.GetPeriodAsync(periodId, now, ct);
-        var blockers = await Blockers(project, period, now, ct);
+        var blockers = await FinalSubmissionRules.Blockers(repository, project, period, now, ct);
         if (blockers.Count != 0) throw new ConflictException(string.Join(", ", blockers));
         var saved = await repository.SaveAsync(projectId, periodId, notes?.Trim(), versionIds, actor, now, ct);
         await audit.RecordAsync(new(actor, before is null ? "FINAL_SUBMISSION_DRAFT_CREATED" : "FINAL_SUBMISSION_DRAFT_UPDATED",
@@ -120,6 +102,9 @@ public sealed class FinalSubmissionDraftWorkflow(IFinalSubmissionDraftRepository
         var versions = await repository.GetVersionsAsync(project.Id, draft.VersionIds, ct);
         if (versions.Count != draft.VersionIds.Count)
             throw new ConflictException("Draft version references no longer belong to this project.");
-        return draft.ToDto(period, await Blockers(project, period, now, ct), versions);
+        var blockers = (await FinalSubmissionRules.Blockers(repository, project, period, now, ct)).ToList();
+        var locked = await submissions.GetAsync(project.Id, ct) is not null;
+        if (locked) blockers.Add("ALREADY_SUBMITTED");
+        return draft.ToDto(period, blockers, versions) with { IsLocked = locked, Status = locked ? "LOCKED" : "DRAFT" };
     }
 }

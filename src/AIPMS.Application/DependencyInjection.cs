@@ -32,6 +32,7 @@ public static class DependencyInjection
         services.AddScoped<RubricWorkflow>();
         services.AddScoped<EvaluationDraftWorkflow>();
         services.AddScoped<FinalSubmissionDraftWorkflow>();
+        services.AddScoped<FinalSubmissionWorkflow>();
         services.AddScoped<NotificationInboxService>();
         services.AddScoped<AccountSecurityAccessService>();
         services.AddScoped<SemesterAccessService>();

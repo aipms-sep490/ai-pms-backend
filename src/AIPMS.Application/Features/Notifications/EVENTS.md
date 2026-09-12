@@ -1,4 +1,4 @@
-# Teams and Supervisors notification events
+# Teams, Supervisors and final-submission notification events
 
 WorkflowNotificationEvent is an internal synchronous application event published
 through MediatR after a successful persisted transition, inside its existing SQL
@@ -16,6 +16,7 @@ do not construct notifications. Existing Deliverables producers are unchanged.
 | SUPERVISOR_REQUEST_ACCEPTED | Current project team leader | SUPERVISOR_REQUEST / request ID |
 | SUPERVISOR_REQUEST_REJECTED | Current project team leader | SUPERVISOR_REQUEST / request ID |
 | SUPERVISOR_REQUEST_CANCELLED | Requested lecturer | SUPERVISOR_REQUEST / request ID |
+| FINAL_SUBMISSION_LOCKED | Active staff in project major departments and semester organization | PROJECT / project ID (navigate to final-submission route) |
 
 Automatic cancellation of competing supervision requests after acceptance uses
 the same cancellation event. Expiration reminders and project approval events
@@ -51,6 +52,10 @@ to the authorized team invitation or supervisor request view/list. Reauthorize
 every subsequent resource read/action; a notification does not grant resource
 access and an old link may no longer be accessible.
 
-No external email/push is sent. No database migration or shared-server SQL is
-required. Project approval/revision, report feedback, reminders and external
+No external email/push is sent. Notification tables need no new migration;
+the final-submission producer requires the BE-16 locked-package migration.
+Final package/source, project state, audit and staff inbox share one transaction.
+The final-submission source row lock deduplicates replay of its event; one package
+per project makes PROJECT/project ID plus notification type a stable inbox key.
+Project approval/revision, report feedback, reminders and external
 delivery remain separate work; issue #8 is not fully Done.

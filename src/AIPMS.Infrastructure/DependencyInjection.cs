@@ -160,6 +160,7 @@ public static class DependencyInjection
         services.AddScoped<ISupervisorAssignmentRepository, SupervisorAssignmentRepository>();
         services.AddScoped<IDeliverableRepository, DeliverableRepository>();
         services.AddScoped<IFinalSubmissionDraftRepository, FinalSubmissionDraftRepository>();
+        services.AddScoped<IFinalSubmissionRepository, FinalSubmissionRepository>();
         services.AddSingleton<IFileStorage, LocalFileStorage>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();

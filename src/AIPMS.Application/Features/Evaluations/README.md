@@ -2,7 +2,7 @@
 
 This module implements the rubric foundation and the agreed draft-evaluation slice
 for BE-09 / issue #14. See [DRAFTS.md](DRAFTS.md) for evaluator assignment,
-draft scores, preview calculation and the explicitly deferred BE-16 prerequisite.
+draft scores, preview calculation and the integrated BE-16 locked-package prerequisite.
 Finalize and result publication are not implemented here.
 
 ## Requirements cross-check
