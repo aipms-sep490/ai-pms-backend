@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.ProgressReports.Abstractions;
 using AIPMS.Application.Features.ProgressReports.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Mappers;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
@@ -136,7 +138,14 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         };
 
         context.ProgressReports.Add(entity);
-        await context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            throw new ConflictException("A progress report for this project, type, and period already exists.");
+        }
 
         return (await GetByIdAsync(entity.Id, cancellationToken))!;
     }
@@ -150,16 +159,30 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         DateTime now,
         CancellationToken cancellationToken)
     {
-        var entity = await context.ProgressReports
-            .FirstAsync(r => r.Id == id, cancellationToken);
+        var affected = await context.ProgressReports
+            .Where(r => r.Id == id && r.Status == "DRAFT")
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.Summary, summary)
+                .SetProperty(r => r.CompletedWork, completedWork)
+                .SetProperty(r => r.PlannedWork, plannedWork)
+                .SetProperty(r => r.IssuesAndRisks, issuesAndRisks)
+                .SetProperty(r => r.UpdatedAt, now),
+                cancellationToken);
 
-        entity.Summary = summary;
-        entity.CompletedWork = completedWork;
-        entity.PlannedWork = plannedWork;
-        entity.IssuesAndRisks = issuesAndRisks;
-        entity.UpdatedAt = now;
+        if (affected == 0)
+        {
+            var currentStatus = await context.ProgressReports
+                .AsNoTracking()
+                .Where(r => r.Id == id)
+                .Select(r => r.Status)
+                .FirstOrDefaultAsync(cancellationToken);
 
-        await context.SaveChangesAsync(cancellationToken);
+            if (currentStatus is null)
+                throw new NotFoundException("ProgressReport", id);
+
+            throw new ConflictException("Submitted or reviewed progress reports cannot be modified.");
+        }
+
         return (await GetByIdAsync(id, cancellationToken))!;
     }
 
@@ -169,8 +192,30 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         DateTime now,
         CancellationToken cancellationToken)
     {
+        await using var tx = await context.Database.BeginTransactionAsync(cancellationToken);
+
         var entity = await context.ProgressReports
-            .FirstAsync(r => r.Id == id, cancellationToken);
+            .FromSqlInterpolated($"SELECT * FROM dbo.progress_reports WITH (UPDLOCK, ROWLOCK) WHERE id = {id}")
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (entity is null)
+            throw new NotFoundException("ProgressReport", id);
+
+        if (entity.Status != "DRAFT")
+            throw new ConflictException("Progress report is already submitted.");
+
+        var errors = new Dictionary<string, string[]>();
+        if (string.IsNullOrWhiteSpace(entity.Summary))
+            errors["summary"] = new[] { "Summary is required to submit a progress report." };
+        if (string.IsNullOrWhiteSpace(entity.CompletedWork))
+            errors["completedWork"] = new[] { "Completed work is required to submit a progress report." };
+        if (string.IsNullOrWhiteSpace(entity.PlannedWork))
+            errors["plannedWork"] = new[] { "Planned work is required to submit a progress report." };
+        if (string.IsNullOrWhiteSpace(entity.IssuesAndRisks))
+            errors["issuesAndRisks"] = new[] { "Issues and risks is required to submit a progress report." };
+
+        if (errors.Count > 0)
+            throw new ValidationException(errors);
 
         entity.Status = "SUBMITTED";
         entity.SubmittedBy = actorId;
@@ -178,6 +223,8 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         entity.UpdatedAt = now;
 
         await context.SaveChangesAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+
         return (await GetByIdAsync(id, cancellationToken))!;
     }
 
@@ -251,6 +298,15 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             .AnyAsync(m => m.UserId == userId && m.IsLeader && m.LeftAt == null, cancellationToken);
     }
 
+    public async Task<bool> IsActiveTeamMemberAsync(long projectId, long userId, CancellationToken cancellationToken)
+    {
+        return await context.Projects
+            .AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .SelectMany(p => p.Team.TeamMembers)
+            .AnyAsync(m => m.UserId == userId && m.LeftAt == null, cancellationToken);
+    }
+
     public async Task<long?> GetActiveSupervisorAssignmentIdAsync(long projectId, long supervisorUserId, CancellationToken cancellationToken)
     {
         return await context.SupervisorAssignments
@@ -261,4 +317,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             .Select(a => (long?)a.Id)
             .FirstOrDefaultAsync(cancellationToken);
     }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex) =>
+        ex.InnerException is SqlException { Number: 2601 or 2627 };
 }

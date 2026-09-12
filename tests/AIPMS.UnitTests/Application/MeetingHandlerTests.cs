@@ -80,7 +80,9 @@ public sealed class MeetingHandlerTests
             long id, string? meetingNotes, string? status, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now, CancellationToken ct)
         {
             LastToken = ct;
-            Meeting = Meeting! with { MeetingNotes = meetingNotes, Status = status ?? Meeting.Status, UpdatedAt = now };
+            if (Meeting != null && Meeting.Status == "CANCELLED")
+                throw new ConflictException("Cancelled meetings cannot be modified.");
+            Meeting = Meeting! with { MeetingNotes = meetingNotes, UpdatedAt = now };
             return Task.FromResult(Meeting);
         }
 
@@ -330,7 +332,7 @@ public sealed class MeetingHandlerTests
 
         var result = await handler.Handle(command, CancellationToken.None);
         Assert.Equal("Minutes: discussed architecture", result.MeetingNotes);
-        Assert.Equal("COMPLETED", result.Status);
+        Assert.Equal("SCHEDULED", result.Status); // Notes update does not mutate lifecycle status!
     }
 
     [Fact]
@@ -390,4 +392,52 @@ public sealed class MeetingHandlerTests
         await handler.Handle(new GetMeetingByIdQuery(5), cts.Token);
         Assert.Equal(cts.Token, repository.LastToken);
     }
+
+    #region Finding 3: Meeting Terminal State Tests
+
+    [Fact]
+    public async Task CancelledMeeting_NotesCannotReopen()
+    {
+        repository.CurrentStatus = "CANCELLED";
+        repository.Meeting = new MeetingDto(5, 1, "Cancelled Title", null, null, DateTime.UtcNow, null, null, null,
+            "CANCELLED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new UpdateMeetingNotesCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var command = new UpdateMeetingNotesCommand(5, new UpdateMeetingNotesRequest("Notes", "SCHEDULED", null));
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(command, CancellationToken.None));
+        Assert.Equal("Cancelled meetings cannot be modified.", ex.Message);
+    }
+
+    [Fact]
+    public async Task CompletedMeeting_NotesCannotReopen()
+    {
+        repository.CurrentStatus = "COMPLETED";
+        repository.Meeting = new MeetingDto(5, 1, "Completed Title", null, null, DateTime.UtcNow, null, null, null,
+            "COMPLETED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new UpdateMeetingNotesCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var command = new UpdateMeetingNotesCommand(5, new UpdateMeetingNotesRequest("Finalized notes", "SCHEDULED", null));
+
+        var result = await handler.Handle(command, CancellationToken.None);
+        Assert.Equal("COMPLETED", result.Status); // Persisted status remains COMPLETED!
+        Assert.Equal("Finalized notes", result.MeetingNotes);
+    }
+
+    [Fact]
+    public async Task NotesUpdate_DoesNotChangeStatus()
+    {
+        repository.CurrentStatus = "SCHEDULED";
+        repository.Meeting = new MeetingDto(5, 1, "Scheduled Title", null, null, DateTime.UtcNow, null, null, null,
+            "SCHEDULED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new UpdateMeetingNotesCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var command = new UpdateMeetingNotesCommand(5, new UpdateMeetingNotesRequest("Discussion notes", "COMPLETED", null));
+
+        var result = await handler.Handle(command, CancellationToken.None);
+        Assert.Equal("SCHEDULED", result.Status); // Notes update does not mutate lifecycle status!
+        Assert.Equal("Discussion notes", result.MeetingNotes);
+    }
+
+    #endregion
 }

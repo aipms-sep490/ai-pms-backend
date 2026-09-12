@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -36,6 +36,10 @@ public sealed class UpdateMeetingNotesCommandHandler(
 
         if (!currentUser.Roles.Contains(AppRoles.Admin) && !await repository.CanManageMeetingAsync(command.Id, actorId, cancellationToken))
             throw new ForbiddenException("Only the meeting organizer, team leader, or assigned supervisor can update meeting notes.");
+
+        var status = await repository.GetStatusAsync(command.Id, cancellationToken);
+        if (status == "CANCELLED")
+            throw new ConflictException("Cancelled meetings cannot be modified.");
 
         var now = clock.GetUtcNow().UtcDateTime;
         var result = await repository.UpdateNotesAsync(

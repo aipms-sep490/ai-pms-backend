@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http.Json;
@@ -198,6 +198,86 @@ public sealed class MeetingEndpointTests(SupervisorDatabaseFixture database) : I
         // 7. Update on cancelled meeting -> 409 Conflict
         var postCancelUpdate = await leaderClient.PutAsJsonAsync($"/api/v1/meetings/{created.Id}", updateRequest);
         Assert.Equal(HttpStatusCode.Conflict, postCancelUpdate.StatusCode);
+
+        // 8. Update notes on cancelled meeting -> 409 Conflict
+        var postCancelNotes = await leaderClient.PutAsJsonAsync($"/api/v1/meetings/{created.Id}/notes", notesRequest);
+        Assert.Equal(HttpStatusCode.Conflict, postCancelNotes.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateNotes_CancelledMeeting_Returns409()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+
+        var createRequest = new CreateMeetingRequest(
+            "Sprint Retrospective",
+            "Retrospective agenda",
+            Now.AddDays(1),
+            Now.AddDays(1).AddHours(1),
+            "Room C201",
+            null,
+            new[] { s.MemberId });
+
+        var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/meetings", createRequest);
+        var created = await createResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(created);
+
+        // Cancel meeting
+        var cancelResponse = await leaderClient.PostAsync($"/api/v1/meetings/{created.Id}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+
+        // Attempt to update notes on CANCELLED meeting -> 409 Conflict
+        var notesRequest = new UpdateMeetingNotesRequest(
+            "Trying to add notes to cancelled meeting",
+            "SCHEDULED",
+            null);
+        var notesResponse = await leaderClient.PutAsJsonAsync($"/api/v1/meetings/{created.Id}/notes", notesRequest);
+        Assert.Equal(HttpStatusCode.Conflict, notesResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateNotes_CompletedMeeting_CannotReopenToScheduled_AndNotesArePreserved()
+    {
+        var s = await SeedAsync();
+        long meetingId;
+        await using (var db = database.CreateContext())
+        {
+            var meeting = new M.Meeting
+            {
+                ProjectId = s.ProjectId,
+                CreatedBy = s.Accounts.Student,
+                Title = "Already Completed Meeting",
+                Status = "COMPLETED",
+                StartAt = Now.AddDays(-2),
+                EndAt = Now.AddDays(-2).AddHours(1),
+                CreatedAt = Now.AddDays(-3),
+                UpdatedAt = Now.AddDays(-2),
+                MeetingParticipants =
+                [
+                    new() { UserId = s.Accounts.Student, AttendanceStatus = "ATTENDED", CreatedAt = Now.AddDays(-3), UpdatedAt = Now.AddDays(-2) }
+                ]
+            };
+            db.Meetings.Add(meeting);
+            await db.SaveChangesAsync();
+            meetingId = meeting.Id;
+        }
+
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+
+        var notesRequest = new UpdateMeetingNotesRequest(
+            "Final meeting summary notes.",
+            "SCHEDULED", // Attempt to reopen
+            new[] { new ParticipantAttendanceUpdate(s.Accounts.Student, "ATTENDED") });
+
+        var notesResponse = await leaderClient.PutAsJsonAsync($"/api/v1/meetings/{meetingId}/notes", notesRequest);
+        Assert.Equal(HttpStatusCode.OK, notesResponse.StatusCode);
+        var updated = await notesResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(updated);
+        Assert.Equal("COMPLETED", updated.Status); // Status must remain COMPLETED, NOT SCHEDULED
+        Assert.Equal("Final meeting summary notes.", updated.MeetingNotes);
     }
 
     [Fact]

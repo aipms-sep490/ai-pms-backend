@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -34,6 +34,9 @@ public sealed class CreateProgressReportCommandHandler(
 
         if (!await projectAccess.CanAccessAsync(actorId, projectId, cancellationToken))
             throw new ForbiddenException("You cannot access this project's progress reports.");
+
+        if (!await repository.IsActiveTeamMemberAsync(projectId, actorId, cancellationToken))
+            throw new ForbiddenException("Only active team members can create progress report drafts.");
 
         if (await repository.ExistsForPeriodAsync(projectId, command.Request.ReportType, command.Request.PeriodStart, command.Request.PeriodEnd, null, cancellationToken))
             throw new ConflictException("A progress report for this project, type, and period already exists.");

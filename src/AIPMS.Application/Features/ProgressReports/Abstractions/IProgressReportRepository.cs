@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Models;
@@ -72,6 +72,8 @@ public interface IProgressReportRepository
     Task<bool> ProjectExistsAsync(long projectId, CancellationToken cancellationToken);
 
     Task<bool> IsTeamLeaderAsync(long projectId, long userId, CancellationToken cancellationToken);
+
+    Task<bool> IsActiveTeamMemberAsync(long projectId, long userId, CancellationToken cancellationToken);
 
     Task<long?> GetActiveSupervisorAssignmentIdAsync(long projectId, long supervisorUserId, CancellationToken cancellationToken);
 }

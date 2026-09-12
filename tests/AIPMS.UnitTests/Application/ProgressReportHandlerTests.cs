@@ -73,9 +73,27 @@ public sealed class ProgressReportHandlerTests
             return Task.FromResult(Report);
         }
 
+        public bool IsActiveMember { get; set; } = true;
+
         public Task<ProgressReportDto> SubmitAsync(long id, long actorId, DateTime now, CancellationToken ct)
         {
             LastToken = ct;
+            if (Report == null) throw new NotFoundException("ProgressReport", id);
+            if (Report.Status != "DRAFT") throw new ConflictException("Progress report is already submitted.");
+
+            var errors = new Dictionary<string, string[]>();
+            if (string.IsNullOrWhiteSpace(Report.Summary))
+                errors["summary"] = new[] { "Summary is required to submit a progress report." };
+            if (string.IsNullOrWhiteSpace(Report.CompletedWork))
+                errors["completedWork"] = new[] { "Completed work is required to submit a progress report." };
+            if (string.IsNullOrWhiteSpace(Report.PlannedWork))
+                errors["plannedWork"] = new[] { "Planned work is required to submit a progress report." };
+            if (string.IsNullOrWhiteSpace(Report.IssuesAndRisks))
+                errors["issuesAndRisks"] = new[] { "Issues and risks is required to submit a progress report." };
+
+            if (errors.Count > 0)
+                throw new ValidationException(errors);
+
             Report = Report! with { Status = "SUBMITTED", SubmittedBy = actorId, SubmittedAt = now, IsLate = null, UpdatedAt = now };
             return Task.FromResult(Report);
         }
@@ -98,6 +116,9 @@ public sealed class ProgressReportHandlerTests
 
         public Task<bool> IsTeamLeaderAsync(long projectId, long userId, CancellationToken ct) =>
             Task.FromResult(IsLeader);
+
+        public Task<bool> IsActiveTeamMemberAsync(long projectId, long userId, CancellationToken ct) =>
+            Task.FromResult(IsActiveMember);
 
         public Task<long?> GetActiveSupervisorAssignmentIdAsync(long projectId, long supervisorUserId, CancellationToken ct) =>
             Task.FromResult(SupervisorAssignmentId);
@@ -251,7 +272,7 @@ public sealed class ProgressReportHandlerTests
     public async Task SubmitReport_Leader_Succeeds()
     {
         repository.Report = new ProgressReportDto(10, 1, 1, "Author", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
-            "Draft Content", null, null, null, "DRAFT", null, false, DateTime.UtcNow, DateTime.UtcNow);
+            "Draft Content", "Completed task 1", "Planned task 2", "No issues", "DRAFT", null, false, DateTime.UtcNow, DateTime.UtcNow);
 
         var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
         var command = new SubmitProgressReportCommand(10);
@@ -288,7 +309,7 @@ public sealed class ProgressReportHandlerTests
     {
         var futureEnd = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(2));
         repository.Report = new ProgressReportDto(10, 1, 1, "Author", "WEEKLY", futureEnd.AddDays(-7), futureEnd,
-            "Summary", null, null, null, "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
+            "Summary", "Completed work", "Planned work", "No risks", "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
 
         var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
         var result = await handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None);
@@ -302,7 +323,7 @@ public sealed class ProgressReportHandlerTests
     {
         var pastEnd = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-5));
         repository.Report = new ProgressReportDto(10, 1, 1, "Author", "WEEKLY", pastEnd.AddDays(-7), pastEnd,
-            "Summary", null, null, null, "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
+            "Summary", "Completed work", "Planned work", "No risks", "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
 
         var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
         var result = await handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None);
@@ -392,4 +413,183 @@ public sealed class ProgressReportHandlerTests
         Assert.Null(dto.IsLate);
         Assert.Null(detailDto.IsLate);
     }
+
+    #region Finding 2: Authorization Tests
+
+    [Fact]
+    public async Task Staff_CreateDraft_403()
+    {
+        repository.IsActiveMember = false;
+        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var command = new CreateProgressReportCommand(1, new CreateProgressReportRequest(
+            "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", null, null, null));
+
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
+        Assert.Equal("Only active team members can create progress report drafts.", ex.Message);
+    }
+
+    [Fact]
+    public async Task Staff_UpdateDraft_403()
+    {
+        repository.IsActiveMember = false;
+        var handler = new UpdateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var command = new UpdateProgressReportCommand(10, new UpdateProgressReportRequest("Updated Summary", null, null, null));
+
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
+        Assert.Equal("Only active team members can update progress report drafts.", ex.Message);
+    }
+
+    [Fact]
+    public async Task Supervisor_CreateDraft_403()
+    {
+        repository.IsActiveMember = false;
+        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var command = new CreateProgressReportCommand(1, new CreateProgressReportRequest(
+            "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", null, null, null));
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Supervisor_UpdateDraft_403()
+    {
+        repository.IsActiveMember = false;
+        var handler = new UpdateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var command = new UpdateProgressReportCommand(10, new UpdateProgressReportRequest("Updated Summary", null, null, null));
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ActiveMember_CreateUpdate_OK()
+    {
+        repository.IsActiveMember = true;
+        var createHandler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var created = await createHandler.Handle(new CreateProgressReportCommand(1, new CreateProgressReportRequest(
+            "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Member Summary", null, null, null)), CancellationToken.None);
+        Assert.Equal("DRAFT", created.Status);
+
+        var updateHandler = new UpdateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var updated = await updateHandler.Handle(new UpdateProgressReportCommand(created.Id, new UpdateProgressReportRequest("Member New Summary", "Part 1", null, null)), CancellationToken.None);
+        Assert.Equal("Member New Summary", updated.Summary);
+    }
+
+    [Fact]
+    public async Task Leader_Submit_OK()
+    {
+        repository.IsLeader = true;
+        repository.Report = new ProgressReportDto(10, 1, 1, "Leader", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
+            "Summary", "Completed work", "Planned work", "No risks", "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var result = await handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None);
+
+        Assert.Equal("SUBMITTED", result.Status);
+    }
+
+    [Fact]
+    public async Task FormerMember_CreateUpdate_403()
+    {
+        repository.IsActiveMember = false; // LeftAt != null
+        var createHandler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        await Assert.ThrowsAsync<ForbiddenException>(() => createHandler.Handle(new CreateProgressReportCommand(1, new CreateProgressReportRequest(
+            "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Former Summary", null, null, null)), CancellationToken.None));
+
+        var updateHandler = new UpdateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        await Assert.ThrowsAsync<ForbiddenException>(() => updateHandler.Handle(new UpdateProgressReportCommand(10, new UpdateProgressReportRequest("Former New Summary", null, null, null)), CancellationToken.None));
+    }
+
+    #endregion
+
+    #region Finding 5: Completeness Tests
+
+    [Fact]
+    public async Task IncompleteDraft_CanBeSaved()
+    {
+        repository.IsActiveMember = true;
+        var createHandler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var created = await createHandler.Handle(new CreateProgressReportCommand(1, new CreateProgressReportRequest(
+            "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary Only", null, null, null)), CancellationToken.None);
+
+        Assert.Equal("DRAFT", created.Status);
+        Assert.Null(created.CompletedWork);
+        Assert.Null(created.PlannedWork);
+        Assert.Null(created.IssuesAndRisks);
+    }
+
+    [Fact]
+    public async Task Submit_MissingCompletedWork_Rejected()
+    {
+        repository.IsLeader = true;
+        repository.Report = new ProgressReportDto(10, 1, 1, "Leader", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
+            "Summary", null, "Planned work", "No risks", "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None));
+        Assert.Contains("completedWork", ex.Errors.Keys);
+    }
+
+    [Fact]
+    public async Task Submit_MissingPlannedWork_Rejected()
+    {
+        repository.IsLeader = true;
+        repository.Report = new ProgressReportDto(10, 1, 1, "Leader", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
+            "Summary", "Completed work", null, "No risks", "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None));
+        Assert.Contains("plannedWork", ex.Errors.Keys);
+    }
+
+    [Fact]
+    public async Task Submit_MissingIssuesAndRisks_Rejected()
+    {
+        repository.IsLeader = true;
+        repository.Report = new ProgressReportDto(10, 1, 1, "Leader", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
+            "Summary", "Completed work", "Planned work", null, "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None));
+        Assert.Contains("issuesAndRisks", ex.Errors.Keys);
+    }
+
+    [Fact]
+    public async Task Submit_WhitespaceRequiredField_Rejected()
+    {
+        repository.IsLeader = true;
+        repository.Report = new ProgressReportDto(10, 1, 1, "Leader", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
+            "Summary", "   ", "Planned work", "No risks", "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None));
+        Assert.Contains("completedWork", ex.Errors.Keys);
+    }
+
+    [Fact]
+    public async Task Submit_WhenSummaryMissing_Rejected()
+    {
+        repository.IsLeader = true;
+        repository.Report = new ProgressReportDto(10, 1, 1, "Leader", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
+            "   ", "Completed work", "Planned work", "No risks", "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None));
+        Assert.Contains("summary", ex.Errors.Keys);
+    }
+
+    [Fact]
+    public async Task Submit_WhenRequiredContentComplete_Succeeds()
+    {
+        repository.IsLeader = true;
+        repository.Report = new ProgressReportDto(10, 1, 1, "Leader", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
+            "Complete Summary", "Completed work", "Planned work", "Risks identified", "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new SubmitProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var result = await handler.Handle(new SubmitProgressReportCommand(10), CancellationToken.None);
+
+        Assert.Equal("SUBMITTED", result.Status);
+        Assert.NotNull(result.SubmittedAt);
+    }
+
+    #endregion
 }

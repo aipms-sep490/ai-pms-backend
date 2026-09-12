@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http.Json;
@@ -253,4 +253,174 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
         Assert.Equal(2, paged.TotalCount);
         Assert.Equal(2, paged.Items.Count);
     }
+
+    #region Finding 2: Authorization Integration Tests
+
+    [Fact]
+    public async Task Staff_CannotCreateOrUpdateProgressReportDraft_403()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+        using var staffClient = app.CreateAuthenticatedClient(s.Accounts.Staff, roles: [AppRoles.DepartmentStaff]);
+
+        // Staff attempts create draft -> 403
+        var createRequest = new CreateProgressReportRequest("WEEKLY", DateOnly.FromDateTime(Now.AddDays(-7)), DateOnly.FromDateTime(Now), "Staff Draft", null, null, null);
+        var createResponse = await staffClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, createResponse.StatusCode);
+
+        // Leader creates draft
+        var leaderCreate = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
+        Assert.Equal(HttpStatusCode.Created, leaderCreate.StatusCode);
+        var created = await leaderCreate.Content.ReadFromJsonAsync<ProgressReportDto>();
+
+        // Staff attempts update draft -> 403
+        var updateRequest = new UpdateProgressReportRequest("Staff Updated Summary", null, null, null);
+        var updateResponse = await staffClient.PutAsJsonAsync($"/api/v1/progress-reports/{created!.Id}", updateRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, updateResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Supervisor_CannotCreateOrUpdateProgressReportDraft_403()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+        using var supervisorClient = app.CreateAuthenticatedClient(s.Accounts.Lecturer, roles: [AppRoles.Lecturer]);
+
+        // Supervisor attempts create draft -> 403
+        var createRequest = new CreateProgressReportRequest("WEEKLY", DateOnly.FromDateTime(Now.AddDays(-7)), DateOnly.FromDateTime(Now), "Supervisor Draft", null, null, null);
+        var createResponse = await supervisorClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, createResponse.StatusCode);
+
+        // Leader creates draft
+        var leaderCreate = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
+        Assert.Equal(HttpStatusCode.Created, leaderCreate.StatusCode);
+        var created = await leaderCreate.Content.ReadFromJsonAsync<ProgressReportDto>();
+
+        // Supervisor attempts update draft -> 403
+        var updateRequest = new UpdateProgressReportRequest("Supervisor Updated Summary", null, null, null);
+        var updateResponse = await supervisorClient.PutAsJsonAsync($"/api/v1/progress-reports/{created!.Id}", updateRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, updateResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task FormerMember_CannotCreateOrUpdateDraft_403()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+
+        long formerStudentId;
+        await using (var db = database.CreateContext())
+        {
+            var studentRole = await db.Roles.SingleAsync(r => r.Code == AppRoles.Student);
+            var formerUser = new M.User
+            {
+                DepartmentId = s.Accounts.DepartmentId,
+                Email = $"{Guid.NewGuid():N}@test.local",
+                FullName = "Former Member",
+                PasswordHash = "unused",
+                Status = "ACTIVE",
+                UserRoleUsers = [new() { RoleId = studentRole.Id }]
+            };
+            db.Users.Add(formerUser);
+            await db.SaveChangesAsync();
+            formerStudentId = formerUser.Id;
+
+            var team = await db.Teams.FindAsync(s.TeamId);
+            var tm = new M.TeamMember
+            {
+                TeamId = s.TeamId,
+                AcademicSemesterId = team!.AcademicSemesterId,
+                UserId = formerUser.Id,
+                IsLeader = false,
+                JoinedAt = Now.AddDays(-30),
+                LeftAt = Now.AddDays(-5),
+                CreatedAt = Now.AddDays(-30),
+                UpdatedAt = Now.AddDays(-5)
+            };
+            db.TeamMembers.Add(tm);
+            await db.SaveChangesAsync();
+        }
+
+        using var formerClient = app.CreateAuthenticatedClient(formerStudentId, roles: [AppRoles.Student]);
+
+        // Former member attempts create draft -> 403
+        var createRequest = new CreateProgressReportRequest("WEEKLY", DateOnly.FromDateTime(Now.AddDays(-7)), DateOnly.FromDateTime(Now), "Former Draft", null, null, null);
+        var createResponse = await formerClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, createResponse.StatusCode);
+
+        // Leader creates draft
+        var leaderCreate = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
+        var created = await leaderCreate.Content.ReadFromJsonAsync<ProgressReportDto>();
+
+        // Former member attempts update draft -> 403
+        var updateResponse = await formerClient.PutAsJsonAsync($"/api/v1/progress-reports/{created!.Id}", new UpdateProgressReportRequest("Hacked", null, null, null));
+        Assert.Equal(HttpStatusCode.Forbidden, updateResponse.StatusCode);
+    }
+
+    #endregion
+
+    #region Finding 5: Completeness Integration Tests
+
+    [Fact]
+    public async Task IncompleteDraft_CanBeCreatedAndUpdated()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var memberClient = app.CreateAuthenticatedClient(s.MemberId, roles: [AppRoles.Student]);
+
+        // Member creates draft with only Summary (partial content)
+        var createRequest = new CreateProgressReportRequest(
+            "WEEKLY", DateOnly.FromDateTime(Now.AddDays(-7)), DateOnly.FromDateTime(Now), "Partial Draft", null, null, null);
+        var createResponse = await memberClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var created = await createResponse.Content.ReadFromJsonAsync<ProgressReportDto>();
+        Assert.NotNull(created);
+        Assert.Equal("DRAFT", created.Status);
+        Assert.Null(created.CompletedWork);
+
+        // Member updates draft with only Summary
+        var updateResponse = await memberClient.PutAsJsonAsync(
+            $"/api/v1/progress-reports/{created.Id}", new UpdateProgressReportRequest("Updated Partial", null, null, null));
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Submit_IncompleteDraft_Returns400BadRequest()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+
+        // Create draft with only Summary
+        var createRequest = new CreateProgressReportRequest(
+            "WEEKLY", DateOnly.FromDateTime(Now.AddDays(-7)), DateOnly.FromDateTime(Now), "Incomplete Draft", null, null, null);
+        var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
+        var created = await createResponse.Content.ReadFromJsonAsync<ProgressReportDto>();
+
+        // Attempt submit incomplete draft -> 400 Bad Request
+        var submitResponse = await leaderClient.PostAsync($"/api/v1/progress-reports/{created!.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.BadRequest, submitResponse.StatusCode);
+
+        // Update with whitespace completedWork -> still 400
+        await leaderClient.PutAsJsonAsync(
+            $"/api/v1/progress-reports/{created.Id}",
+            new UpdateProgressReportRequest("Incomplete Draft", "   ", "Plan A", "Risk A"));
+        var submitResponse2 = await leaderClient.PostAsync($"/api/v1/progress-reports/{created.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.BadRequest, submitResponse2.StatusCode);
+
+        // Fill all required fields -> submit succeeds with 200 OK
+        await leaderClient.PutAsJsonAsync(
+            $"/api/v1/progress-reports/{created.Id}",
+            new UpdateProgressReportRequest("Complete Draft", "Done A", "Plan A", "Risk A"));
+        var submitSuccess = await leaderClient.PostAsync($"/api/v1/progress-reports/{created.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.OK, submitSuccess.StatusCode);
+        var submitted = await submitSuccess.Content.ReadFromJsonAsync<ProgressReportDto>();
+        Assert.Equal("SUBMITTED", submitted!.Status);
+    }
+
+    #endregion
 }

@@ -10,6 +10,7 @@ using AIPMS.Application.Features.Meetings.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Mappers;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Task = System.Threading.Tasks.Task;
 
@@ -189,17 +190,18 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
     {
         var meeting = await context.Meetings
             .Include(m => m.MeetingParticipants)
-            .FirstAsync(m => m.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(m => m.Id == id, cancellationToken)
+            ?? throw new NotFoundException("Meeting", id);
+
+        if (meeting.Status == "CANCELLED")
+            throw new ConflictException("Cancelled meetings cannot be modified.");
 
         if (meetingNotes != null)
         {
             meeting.MeetingNotes = meetingNotes;
         }
 
-        if (!string.IsNullOrWhiteSpace(status))
-        {
-            meeting.Status = status;
-        }
+        // Notes endpoint does not mutate lifecycle status; terminal states cannot reopen
 
         if (attendances != null)
         {
@@ -236,7 +238,14 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         };
 
         context.MeetingParticipants.Add(participant);
-        await context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is SqlException { Number: 2601 or 2627 })
+        {
+            throw new ConflictException("User is already a participant in this meeting.");
+        }
 
         var reloaded = await context.MeetingParticipants
             .AsNoTracking()
