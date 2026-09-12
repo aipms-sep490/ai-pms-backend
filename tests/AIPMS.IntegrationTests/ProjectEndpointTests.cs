@@ -233,6 +233,52 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         Assert.NotNull(result);
         Assert.True(result.PageSize == 5);
     }
+
+    [Fact]
+    public async Task Archive_requires_completed_project_staff_scope_and_current_token()
+    {
+        _factory.ProjectRepository.Projects.Clear();
+        _factory.ProjectRepository.StatusHistories.Clear();
+        _factory.ProjectRepository.ProjectDeptIds.Clear();
+        _factory.ProjectRepository.ProjectDeptIds.Add(100);
+        const long projectId = 77;
+        const long staffId = 1003;
+        var project = new ProjectDto(projectId, 1, "Team", "PRJ-77", "Finished", null, null, "COMPLETED",
+            DateTime.UtcNow.AddDays(-1), null, null, DateTime.UtcNow.AddHours(-1), 1001, "Student",
+            DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddHours(-1), null, null, "dG9rZW4=", [], []);
+        _factory.ProjectRepository.Projects[projectId] = project;
+        _factory.AcademicRepository.Scopes[staffId] = new AcademicUserScope(1, 100);
+        using var staff = _factory.CreateAuthenticatedClient(staffId, roles: [AppRoles.DepartmentStaff]);
+        var response = await staff.PostAsJsonAsync($"api/v1/projects/{projectId}/archive",
+            new ArchiveProjectRequest(project.ConcurrencyToken, "Lifecycle closed"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var archived = await response.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.Equal("ARCHIVED", archived!.Status);
+        Assert.Equal("ARCHIVED", _factory.ProjectRepository.Projects[projectId].Status);
+        Assert.Equal("Lifecycle closed", _factory.ProjectRepository.StatusHistories[projectId].Single().Reason);
+
+        using var student = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync($"api/v1/projects/{projectId}/archive",
+            new ArchiveProjectRequest(archived.ConcurrencyToken, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"api/v1/projects/{projectId}/archive",
+            new ArchiveProjectRequest(project.ConcurrencyToken, null))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Archive_rejects_non_completed_project()
+    {
+        _factory.ProjectRepository.Projects.Clear();
+        _factory.ProjectRepository.ProjectDeptIds.Clear();
+        _factory.ProjectRepository.ProjectDeptIds.Add(100);
+        var project = new ProjectDto(78, 1, "Team", "PRJ-78", "In progress", null, null, "ACTIVE",
+            DateTime.UtcNow, null, null, null, 1001, "Student", DateTime.UtcNow, DateTime.UtcNow,
+            null, null, "dG9rZW4=", [], []);
+        _factory.ProjectRepository.Projects[project.Id] = project;
+        _factory.AcademicRepository.Scopes[1003] = new AcademicUserScope(1, 100);
+        using var staff = _factory.CreateAuthenticatedClient(1003, roles: [AppRoles.DepartmentStaff]);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"api/v1/projects/{project.Id}/archive",
+            new ArchiveProjectRequest(project.ConcurrencyToken, null))).StatusCode);
+    }
 }
 
 public sealed class NoOpAuditTrail : IAuditTrail
