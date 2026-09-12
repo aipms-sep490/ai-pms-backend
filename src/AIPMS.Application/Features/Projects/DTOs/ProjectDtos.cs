@@ -92,3 +92,5 @@ public sealed record SubmitProjectRequest(
 public sealed record ProjectReviewRequest(
     string ConcurrencyToken,
     string? Reason);
+
+public sealed record ArchiveProjectRequest(string ConcurrencyToken, string? Reason);

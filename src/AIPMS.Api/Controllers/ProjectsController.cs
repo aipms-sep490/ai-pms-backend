@@ -184,6 +184,15 @@ public sealed class ProjectsController(ISender sender) : ControllerBase
         return Ok(await sender.Send(command, cancellationToken));
     }
 
+    [HttpPost("{id:long}/archive")]
+    [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ProjectDto>> Archive(
+        long id,
+        [FromBody] ArchiveProjectRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new ArchiveProjectCommand(id, request.ConcurrencyToken, request.Reason), cancellationToken));
+
     [HttpGet("{id}/history")]
     [ProducesResponseType<IReadOnlyList<ProjectStatusHistoryDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<ProjectStatusHistoryDto>>> GetHistory(
