@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Teams.DTOs;
+using AIPMS.Application.Features.WorkflowContext.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
@@ -63,6 +64,14 @@ public sealed class InterdisciplinaryWorkflowTests(TeamDatabaseFixture database)
     private static async System.Threading.Tasks.Task<ProjectAcademicReviewDto> Review(HttpClient client, long id) =>
         await Body<ProjectAcademicReviewDto>(await client.GetAsync($"/api/v1/projects/{id}/academic-review"));
 
+    private static async Task AssertAction(HttpClient client, long projectId, string code, bool allowed, string? reason = null)
+    {
+        var context = await Body<ProjectWorkflowActionsDto>(await client.GetAsync($"/api/v1/projects/{projectId}/actions"));
+        var action = Assert.Single(context.Actions, a => a.Code == code);
+        Assert.Equal(allowed, action.Allowed);
+        if (reason is not null) Assert.Contains(reason, action.Reasons);
+    }
+
     private static async System.Threading.Tasks.Task<ProjectAcademicReviewDto> Decide(HttpClient client, long id,
         ProjectAcademicReviewDto review, string decision = "APPROVED") =>
         await Body<ProjectAcademicReviewDto>(await client.PostAsJsonAsync($"/api/v1/projects/{id}/department-decisions",
@@ -86,19 +95,59 @@ public sealed class InterdisciplinaryWorkflowTests(TeamDatabaseFixture database)
         Assert.True(team.Eligibility.CanRegister);
         var project = await Transition(leader, await Proposal(leader, s), "submit");
         Assert.Equal("SUBMITTED", project.Status);
+        await AssertAction(lead, project.Id, "start_review", true);
+        await AssertAction(other, project.Id, "start_review", false, "LEAD_DEPARTMENT_REVIEWER_REQUIRED");
         Assert.Equal(HttpStatusCode.Conflict, (await leader.PutAsJsonAsync($"/api/v1/teams/{team.Id}/academic-scope", Scope(s, team.AcademicScope!.ConcurrencyToken))).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await member.PostAsync($"/api/v1/teams/{team.Id}/leave", null)).StatusCode);
         project = await Transition(lead, project, "start-review");
+        await AssertAction(lead, project.Id, "approve_project", false, "DEPARTMENT_APPROVALS_INCOMPLETE");
+        await AssertAction(other, project.Id, "approve_department", true);
+        await AssertAction(leader, project.Id, "approve_department", false, "DEPARTMENT_STAFF_REQUIRED");
         Assert.Equal(HttpStatusCode.Forbidden, (await other.PostAsJsonAsync($"/api/v1/projects/{project.Id}/approve", new { concurrencyToken = project.ConcurrencyToken })).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await lead.PostAsJsonAsync($"/api/v1/projects/{project.Id}/approve", new { concurrencyToken = project.ConcurrencyToken })).StatusCode);
         var review = await Review(leader, project.Id);
         Assert.Equal(2, review.LatestSubmission!.Decisions.Count);
         Assert.Equal(2, review.LatestSubmission.Evidence.Members.Count);
         review = await Decide(other, project.Id, review);
+        await AssertAction(other, project.Id, "approve_department", false, "DEPARTMENT_ALREADY_DECIDED");
+        await AssertAction(lead, project.Id, "approve_project", false, "DEPARTMENT_APPROVALS_INCOMPLETE");
         review = await Decide(lead, project.Id, review);
+        await AssertAction(lead, project.Id, "approve_project", true);
+        await AssertAction(other, project.Id, "approve_project", false, "LEAD_DEPARTMENT_REVIEWER_REQUIRED");
         project = await Transition(lead, project with { ConcurrencyToken = review.ConcurrencyToken }, "approve");
         Assert.Equal("APPROVED", project.Status);
         Assert.Equal("INTERDISCIPLINARY", project.AcademicScope!.ProjectMode);
+    }
+
+    [Fact]
+    public async Task Context_allows_admin_read_but_requires_lead_staff_role_for_configured_review()
+    {
+        var s = await SeedAsync();
+        long adminId;
+        await using (var db = database.CreateContext())
+        {
+            var role = await db.Roles.SingleOrDefaultAsync(r => r.Code == "ADMIN")
+                ?? new Role { Code = "ADMIN", Name = "Admin", IsSystemRole = true };
+            var user = new User { Email = Guid.NewGuid() + "@example.test", FullName = "Admin",
+                PasswordHash = "unused-test-hash", Status = "ACTIVE",
+                UserRoleUsers = new List<UserRole> { new() { Role = role } } };
+            db.Add(user); await db.SaveChangesAsync(); adminId = user.Id;
+        }
+        using var app = new TeamTestFactory(database, s.Team);
+        using var leader = app.CreateAuthenticatedClient(s.Team.Students[0]);
+        using var member = app.CreateAuthenticatedClient(s.Team.Students[4]);
+        using var admin = app.CreateAuthenticatedClient(adminId, roles: ["ADMIN"]);
+        using var staleStaff = app.CreateAuthenticatedClient(s.Team.Students[2], roles: ["DEPARTMENT_STAFF"]);
+        var team = await Create(leader, s);
+        var invitation = await Invite(leader, team.Id, s.Team.Students[4]);
+        await Body<TeamDto>(await member.PostAsync($"/api/v1/teams/invitations/{invitation.Id}/accept", null));
+        var project = await Transition(leader, await Proposal(leader, s), "submit");
+        await AssertAction(admin, project.Id, "view_project", true);
+        await AssertAction(admin, project.Id, "start_review", false, "LEAD_DEPARTMENT_REVIEWER_REQUIRED");
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync($"/api/v1/projects/{project.Id}/start-review",
+            new { concurrencyToken = project.ConcurrencyToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staleStaff.GetAsync($"/api/v1/projects/{project.Id}/actions")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.GetAsync($"/api/v1/teams/{team.Id}/actions")).StatusCode);
     }
 
     [Fact]
@@ -132,6 +181,9 @@ public sealed class InterdisciplinaryWorkflowTests(TeamDatabaseFixture database)
         var review = await Decide(other, project.Id, await Review(leader, project.Id), "REJECTED");
         Assert.Equal(HttpStatusCode.Conflict, (await lead.PostAsJsonAsync($"/api/v1/projects/{project.Id}/approve", new { concurrencyToken = review.ConcurrencyToken })).StatusCode);
         project = await Transition(lead, project with { ConcurrencyToken = review.ConcurrencyToken }, "revision");
+        await AssertAction(leader, project.Id, "edit_project_draft", true);
+        await AssertAction(leader, project.Id, "submit_project", false, "INVALID_PROJECT_STATE");
+        await AssertAction(leader, project.Id, "resubmit_project", true);
         project = await Body<ProjectDto>(await leader.PutAsJsonAsync($"/api/v1/projects/{project.Id}", new UpdateProjectDraftRequest(
             project.ConcurrencyToken, "Revised proposal", "Description", "Objectives", "Problem", "New output",
             [s.Team.SeMajorId, s.Team.IsMajorId], "Education", ["Dotnet"], ["Capstone"])));
@@ -295,6 +347,7 @@ public sealed class InterdisciplinaryWorkflowTests(TeamDatabaseFixture database)
         Assert.Equal(before.ConcurrencyToken, after.ConcurrencyToken);
         Assert.Equal(before.LatestSubmission!.Id, after.LatestSubmission!.Id);
         Assert.Contains(s.OtherDepartment, after.LatestSubmission.Evidence.DepartmentIds);
+        await AssertAction(other, project.Id, "approve_department", true);
         Assert.Single((await Body<PagedResult<ProjectSummaryDto>>(await other.GetAsync($"/api/v1/projects?teamId={team.Id}"))).Items);
         var queue = await Body<PagedResult<ProjectSummaryDto>>(await other.GetAsync("/api/v1/projects/review-queue"));
         Assert.Contains(queue.Items, p => p.Id == project.Id);
