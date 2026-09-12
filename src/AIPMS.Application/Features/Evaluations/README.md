@@ -2,8 +2,10 @@
 
 This module implements the rubric foundation and the agreed draft-evaluation slice
 for BE-09 / issue #14. See [DRAFTS.md](DRAFTS.md) for evaluator assignment,
-draft scores, preview calculation and the explicitly deferred BE-16 prerequisite.
-Finalize and result publication are not implemented here.
+draft scores, preview calculation and the integrated BE-16 locked-package prerequisite.
+See [FINALIZATION.md](FINALIZATION.md) for per-evaluator finalization, immutable
+score/evidence snapshots and the explicitly agreed completeness rule. Result
+publication and aggregation across evaluators remain separate work.
 
 ## Requirements cross-check
 
@@ -23,7 +25,7 @@ and the later evaluation lifecycle.
 | Existing evaluation keeps old rubric | No reassignment or mutation of old rubric/criterion IDs, including when cloning or retiring |
 | Department Staff manages rubric | Persisted active staff role and own active department/organization; active administrator may manage all scopes |
 | BR-144 score bounds | Positive max score and two-decimal precision configured here; draft score validation is documented in DRAFTS.md |
-| BR-143 and BR-145 | Draft assignment authorization and deterministic preview are documented in DRAFTS.md; finalize remains separate; no AI grading |
+| BR-143 and BR-145 | Assignment/preview in DRAFTS.md and finalization in FINALIZATION.md; deterministic human scores, no AI grading |
 
 The 100-percent publication total follows issue #14's explicit acceptance criteria;
 the SRS describes approved weight consistency. Requiring at least one required

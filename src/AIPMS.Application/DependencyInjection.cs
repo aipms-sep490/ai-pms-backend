@@ -1,5 +1,7 @@
 using AIPMS.Application.Common.Behaviors;
+using AIPMS.Application.Features.Results.Services;
 using AIPMS.Application.Features.Evaluations.Services;
+using AIPMS.Application.Features.FinalSubmissions.Services;
 using AIPMS.Application.Features.Notifications.Services;
 using AIPMS.Application.Features.Deliverables.Services;
 using AIPMS.Application.Features.Academic.Services;
@@ -30,6 +32,9 @@ public static class DependencyInjection
         services.AddScoped<AcademicAccessService>();
         services.AddScoped<RubricWorkflow>();
         services.AddScoped<EvaluationDraftWorkflow>();
+        services.AddScoped<ProjectResultWorkflow>();
+        services.AddScoped<FinalSubmissionDraftWorkflow>();
+        services.AddScoped<FinalSubmissionWorkflow>();
         services.AddScoped<NotificationInboxService>();
         services.AddScoped<AccountSecurityAccessService>();
         services.AddScoped<SemesterAccessService>();

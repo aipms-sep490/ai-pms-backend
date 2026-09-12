@@ -17,8 +17,19 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.IntegrationTests.Evaluations;
 
-public sealed class EvaluationDraftEndpointTests(EvaluationDraftDatabaseFixture database) : IClassFixture<EvaluationDraftDatabaseFixture>
+public sealed partial class EvaluationDraftEndpointTests(EvaluationDraftDatabaseFixture database) : IClassFixture<EvaluationDraftDatabaseFixture>
 {
+    [Fact]
+    public async Task Status_alone_without_locked_package_cannot_assign_evaluator()
+    {
+        var s = await database.Seed(lockedSubmission: false);
+        using var app = new EvaluationFactory(database);
+        using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
+        var response = await staff.PostAsJsonAsync(AssignUrl(s.ProjectId), new AssignEvaluatorRequest(s.Scope.Users.Lecturer, s.PeriodId, "LECTURER"));
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("locked final-submission", await response.Content.ReadAsStringAsync());
+    }
+
     private static string AssignUrl(long project) => $"/api/v1/projects/{project}/evaluation-assignments";
     private static string CreateUrl(long assignment) => $"/api/v1/evaluation-assignments/{assignment}/evaluation";
     private static string DraftUrl(long id) => $"/api/v1/evaluations/{id}";
@@ -483,7 +494,7 @@ internal sealed class PauseBeforeEvaluationRead : DbCommandInterceptor
     }
 }
 
-internal sealed class EvaluationFactory(EvaluationDraftDatabaseFixture database, bool failAudit = false,
+internal class EvaluationFactory(EvaluationDraftDatabaseFixture database, bool failAudit = false,
     DbCommandInterceptor? interceptor = null) : AipmsWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)

@@ -1,7 +1,5 @@
-using System.Text.RegularExpressions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
@@ -21,23 +19,9 @@ public sealed class EvaluationDraftDatabaseFixture : IAsyncLifetime
         catch { await rubricDatabase.DisposeAsync(); throw; }
     }
     public Task DisposeAsync() => rubricDatabase.DisposeAsync();
-    public async Task Migrate()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "db", "changes"))) directory = directory.Parent;
-        Assert.NotNull(directory);
-        var script = await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "changes", "20260911_add_evaluation_assignments_and_drafts.sql"));
-        await using var connection = new SqlConnection(ConnectionString);
-        await connection.OpenAsync();
-        foreach (var batch in Regex.Split(script, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
-        {
-            if (string.IsNullOrWhiteSpace(batch)) continue;
-            await using var command = new SqlCommand(batch, connection);
-            await command.ExecuteNonQueryAsync();
-        }
-    }
+    public Task Migrate() => FinalSubmissions.FinalSubmissionTestMigration.Apply(ConnectionString);
 
-    public async Task<EvaluationScenario> Seed()
+    public async Task<EvaluationScenario> Seed(bool lockedSubmission = true)
     {
         var s = await rubricDatabase.Seed();
         await using var db = CreateContext();
@@ -65,6 +49,27 @@ public sealed class EvaluationDraftDatabaseFixture : IAsyncLifetime
         db.ProjectPeriods.Add(period);
         db.SupervisorAssignments.Add(supervisor);
         await db.SaveChangesAsync();
+        if (lockedSubmission)
+        {
+            var finalPeriod = new M.ProjectPeriod { AcademicSemesterId = s.SemesterId, Code = Guid.NewGuid().ToString("N"),
+                Name = "Final submission", PeriodType = "FINAL_SUBMISSION", Status = "ACTIVE",
+                StartAt = Now.AddDays(-3), EndAt = Now.AddDays(-1) };
+            var version = new M.DeliverableVersion { Deliverable = new() { ProjectId = project.Id,
+                Title = "Final report", Status = "OPEN", CreatedBy = s.Users.Student }, VersionNumber = 1,
+                Status = "SUBMITTED", SubmittedBy = s.Users.Student, SubmittedAt = Now.AddDays(-2) };
+            db.ProjectPeriods.Add(finalPeriod);
+            db.DeliverableVersions.Add(version);
+            await db.SaveChangesAsync();
+            db.Set<FinalSubmission>().Add(new() { ProjectId = project.Id, ProjectPeriodId = finalPeriod.Id,
+                SubmittedBy = s.Users.Student, SubmittedAt = Now.AddDays(-2), Deadline = finalPeriod.EndAt,
+                DraftConcurrencyToken = Guid.NewGuid(), RequirementsConcurrencyToken = Guid.NewGuid(),
+                Items = [new() { DeliverableVersionId = version.Id, DeliverableId = version.DeliverableId,
+                    Title = "Final report", VersionNumber = 1, StatusAtSubmission = "SUBMITTED", WasRequired = true,
+                    FilesJson = System.Text.Json.JsonSerializer.Serialize(new[] {
+                        new AIPMS.Application.Features.FinalSubmissions.Models.FinalSnapshotFile(
+                            new(1, "DELIVERABLE_VERSION", version.Id, "report.txt", "text/plain", 4, new string('a', 64), s.Users.Student, Now.AddDays(-2)), "fixture-object") }) }] });
+            await db.SaveChangesAsync();
+        }
         db.Set<RubricVersion>().Add(new() { RubricId = rubric.Id, RootRubricId = rubric.Id, VersionNumber = 1,
             Status = "PUBLISHED", ConcurrencyToken = Guid.NewGuid() });
         await db.SaveChangesAsync();

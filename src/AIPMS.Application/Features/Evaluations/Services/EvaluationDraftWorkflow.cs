@@ -5,11 +5,15 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
+using AIPMS.Application.Features.FinalSubmissions.Abstractions;
+using AIPMS.Application.Features.Results.Abstractions;
+using MediatR;
 
 namespace AIPMS.Application.Features.Evaluations.Services;
 
-public sealed class EvaluationDraftWorkflow(IEvaluationDraftRepository repository, IRubricRepository rubrics,
-    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock)
+public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository repository, IRubricRepository rubrics,
+    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock, IFinalSubmissionRepository submissions, IPublisher publisher,
+    IProjectResultRepository results)
 {
     private async Task<EvaluationActor> Actor(CancellationToken ct)
     {
@@ -53,6 +57,8 @@ public sealed class EvaluationDraftWorkflow(IEvaluationDraftRepository repositor
     {
         if (project.Status != "FINAL_SUBMISSION" || !project.ActiveScope)
             throw new ConflictException("Draft evaluation requires a project in FINAL_SUBMISSION with active academic scope.");
+        if (!await repository.HasLockedSubmissionAsync(project.Id, ct))
+            throw new ConflictException("A locked final-submission package is required before assignment or draft scoring.");
         var period = await repository.GetPeriodAsync(periodId, clock.GetUtcNow().UtcDateTime, ct);
         if (period is null || period.SemesterId != project.SemesterId || !period.IsOpen)
             throw new ConflictException("A single active evaluation window in the project's semester is required.");
@@ -105,9 +111,12 @@ public sealed class EvaluationDraftWorkflow(IEvaluationDraftRepository repositor
         if (!Manages(actor, project, before.DepartmentId)) throw new ForbiddenException();
         await repository.LockProjectAsync(project.Id, ct);
         before = await Assignment(id, ct);
+        project = await Project(project.Id, ct);
         Current(before.ConcurrencyToken, input.ConcurrencyToken);
         if (project.Status is "COMPLETED" or "ARCHIVED") throw new ConflictException("Completed or archived projects are read-only.");
         if (before.Status == "REVOKED") return before.ToDto();
+        if (await results.IsRequiredAsync(id, ct) && await results.AnyFinalizedAsync(project.Id, ct))
+            throw new ConflictException("Required evaluators are frozen after the first finalized evaluation.");
         var draft = await repository.FindDraftAsync(id, ct);
         if (draft is not null && draft.Status != "DRAFT") throw new ConflictException("Submitted or finalized evaluations cannot be revoked through the draft workflow.");
         var result = await repository.RevokeAsync(id, input.Reason.Trim(), clock.GetUtcNow().UtcDateTime, ct);

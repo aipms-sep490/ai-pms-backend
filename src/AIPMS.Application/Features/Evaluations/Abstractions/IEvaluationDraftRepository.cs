@@ -9,6 +9,7 @@ public interface IEvaluationDraftRepository
     Task<EvaluationActor?> GetActorAsync(long id, CancellationToken ct);
     Task<EvaluationProject?> GetProjectAsync(long id, CancellationToken ct);
     Task LockProjectAsync(long id, CancellationToken ct);
+    Task<bool> HasLockedSubmissionAsync(long projectId, CancellationToken ct);
     Task<EvaluationPeriod?> GetPeriodAsync(long id, DateTime now, CancellationToken ct);
     Task<bool> IsCurrentSupervisorAsync(long projectId, long userId, CancellationToken ct);
     Task<EvaluationAssignmentRecord?> GetAssignmentAsync(long id, CancellationToken ct);
@@ -18,6 +19,7 @@ public interface IEvaluationDraftRepository
     Task<PagedResult<EvaluationAssignmentRecord>> ListAssignmentsAsync(long? projectId, EvaluationActor actor,
         string? status, int page, int pageSize, CancellationToken ct);
     Task<EvaluationDraftRecord?> GetDraftAsync(long id, CancellationToken ct);
+    Task<EvaluationDraftRecord> FinalizeAsync(EvaluationDraftRecord draft, EvaluationEvidenceRecord evidence, long actorId, DateTime now, CancellationToken ct);
     Task<EvaluationDraftRecord?> FindDraftAsync(long assignmentId, CancellationToken ct);
     Task<EvaluationDraftRecord> CreateDraftAsync(EvaluationAssignmentRecord assignment, DateTime now, CancellationToken ct);
     Task<EvaluationDraftRecord> SaveAsync(long id, IReadOnlyList<EvaluationScoreInput> scores,

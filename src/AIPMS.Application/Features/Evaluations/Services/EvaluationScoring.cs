@@ -5,6 +5,15 @@ namespace AIPMS.Application.Features.Evaluations.Services;
 
 public static class EvaluationScoring
 {
+    public static decimal FinalTotal(IReadOnlyList<EvaluationScoreRecord> criteria)
+    {
+        var preview = Preview(criteria, 10m);
+        if (preview.Total is not decimal total)
+            throw new ConflictException("Every weighted criterion needs an explicit score before finalization. Missing criteria: "
+                + string.Join(", ", preview.MissingCriterionIds));
+        return total;
+    }
+
     public static EvaluationPreview Preview(IReadOnlyList<EvaluationScoreRecord> criteria, decimal scale)
     {
         if (scale is not (10m or 100m)) throw new ArgumentOutOfRangeException(nameof(scale));

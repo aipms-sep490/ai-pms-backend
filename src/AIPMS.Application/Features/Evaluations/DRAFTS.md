@@ -7,28 +7,27 @@ Evaluations), 3.16.6 (Evaluate Project by Rubric), 3.16.7 (Submit Evaluation),
 BR-143/144/145; issue #14; Report 2's dependency-first evaluation lifecycle.
 
 The SRS requires a locked final-submission package before assigning evaluators.
-Develop currently has the FINAL_SUBMISSION project status but no BE-16 final-package
-module. The user explicitly approved the following temporary scope on 2026-09-11:
-implement assignment and drafts, require FINAL_SUBMISSION plus a valid evaluation
-window, defer verification of the locked final package to BE-16, and do not expose
-finalize. A project status is NOT evidence of a locked package. This is draft-only
-foundation, not a complete final-evaluation or SRS acceptance flow.
+BE-16 now supplies this precondition: new assignments and creation/saving of draft
+scores require a nonempty locked package as well as FINAL_SUBMISSION and a valid
+evaluation window. This supersedes the temporary status-only scope accepted on
+2026-09-11. Legacy projects without a package return 409; existing grades/history
+are not rewritten. Per-evaluator finalization is documented in [FINALIZATION.md](FINALIZATION.md).
 
 | Requirement | Implemented boundary |
 | --- | --- |
 | Staff assigns eligible evaluator | Persisted active staff in the project/assignment department, or active admin; candidate must be a persisted active lecturer in that department |
 | Supervisor when assigned evaluator role | An explicit SUPERVISOR evaluation assignment plus current primary supervision is required; supervision alone grants no grading right |
-| Verify final submission and evaluation window | FINAL_SUBMISSION and active academic scope/window enforced; locked-package verification deferred by explicit user agreement |
+| Verify final submission and evaluation window | FINAL_SUBMISSION, nonempty locked BE-16 package and active academic scope/window enforced |
 | Published rubric version | New assignments resolve the period's PUBLISHED rubric, validate its criteria, and bind immutable rubric ID, department and period |
 | Assigned list and resource access | Active eligible evaluator sees own assignments/drafts; staff sees own department, admin can read/manage; students cannot read unpublished grades |
 | Score bounds | 0 <= score <= criterion.maxScore, <=2 decimal places, only the protected rubric's criterion IDs |
 | Deterministic preview | Weighted decimal calculation on scale 10; one final rounding away from zero to 2 decimals; no client-provided total |
 | Missing criteria | Draft can be incomplete; missing scores return null total and missing/all-required ID lists; no implicit zeros or weight redistribution |
 | Save draft | Full score-set replacement plus comments, concurrency token and transactionally persisted audit |
-| Finalize/publication/AI | No finalize, publish-result or AI score-write API in this slice |
+| Finalize/publication/AI | Finalize through the explicit confirmation route; no publish-result or AI score-write API |
 
 Assignment notifications (SRS 3.16.4 step 5), evaluator discovery UI/lookups,
-evidence-summary/final-package linkage, finalize notifications, committee/common/
+full cross-module evidence-summary, committee/common/
 major-specific/individual assignments and per-student results remain separate.
 Existing SUPERVISOR and LECTURER types are supported; COMMITTEE/FINAL type requests
 are rejected until their assignment/lifecycle rules are implemented. Issue #14 is
@@ -97,7 +96,8 @@ Use decimal arithmetic, stable criterion-ID summation order and no intermediate
 rounding. Example: 9/10 at 60% plus 16/20 at 40% gives 8.60/10. Zero is a score,
 not missing data. Total stays null whenever any criterion lacks a score, including
 optional criteria: this avoids silently deciding how unscored optional weights
-affect a final result. Future finalize must explicitly settle that rule.
+affect a final result. The user confirmed that finalization requires every weighted
+criterion to have an explicit score; see FINALIZATION.md.
 
 Create/save requires project FINAL_SUBMISSION; active organization, departments
 and majors; active semester with current UTC date inside its dates; the assigned
@@ -127,6 +127,11 @@ evaluation_assignments and evaluation_draft_states. Existing evaluations/details
 and generated models are unchanged; state/assignment mapping uses context partials.
 The application never auto-migrates on startup.
 
+BE-16 integration additionally requires the draft and locked-final-submission
+migrations. Assigned evaluators read/download the immutable package through
+`/api/v1/projects/{projectId}/final-submission` and its dedicated file route;
+this does not grant general access to all BE-08 project files.
+
 No historical assignments are invented for legacy evaluations. Those records are
 preserved but excluded from these managed draft endpoints; a separate reviewed
 legacy-import/read contract is needed. Re-running migration changes no existing
@@ -139,7 +144,10 @@ uniqueness/FK/concurrency conflicts map to 409, allowing reload/retry. Read endp
 also use a consistent transaction so score content and token cannot come from
 different writes. Score changes and any later audit failure roll back together.
 
-Future finalize must use the same project/evaluation transaction discipline,
-revalidate assignment/window/required criteria/final package, calculate totals
-server-side and protect the result. This slice rejects edits when persisted state
-is SUBMITTED/FINALIZED, but does not implement the finalization endpoint itself.
+Finalize uses the same transaction discipline, revalidates assignment/window/all
+weighted criteria/final package and recomputes the total. See FINALIZATION.md for
+the additional additive migration and immutable snapshot/read contract.
+
+Result publication also requires the project-results migration. Configure the
+required evaluation list before anyone finalizes. Once frozen, required draft
+assignments cannot be revoked; see ../Results/README.md for the policy contract.

@@ -1,4 +1,4 @@
-# Teams and Supervisors notification events
+# Teams, Supervisors and final-submission notification events
 
 WorkflowNotificationEvent is an internal synchronous application event published
 through MediatR after a successful persisted transition, inside its existing SQL
@@ -16,6 +16,8 @@ do not construct notifications. Existing Deliverables producers are unchanged.
 | SUPERVISOR_REQUEST_ACCEPTED | Current project team leader | SUPERVISOR_REQUEST / request ID |
 | SUPERVISOR_REQUEST_REJECTED | Current project team leader | SUPERVISOR_REQUEST / request ID |
 | SUPERVISOR_REQUEST_CANCELLED | Requested lecturer | SUPERVISOR_REQUEST / request ID |
+| FINAL_SUBMISSION_LOCKED | Active staff in project major departments and semester organization | PROJECT / project ID (navigate to final-submission route) |
+| EVALUATION_FINALIZED | Active staff in assignment department and project/organization scope | EVALUATION / evaluation ID |
 
 Automatic cancellation of competing supervision requests after acceptance uses
 the same cancellation event. Expiration reminders and project approval events
@@ -51,6 +53,20 @@ to the authorized team invitation or supervisor request view/list. Reauthorize
 every subsequent resource read/action; a notification does not grant resource
 access and an old link may no longer be accessible.
 
-No external email/push is sent. No database migration or shared-server SQL is
-required. Project approval/revision, report feedback, reminders and external
+No external email/push is sent. Notification tables need no new migration;
+the final-submission producer requires the BE-16 locked-package migration.
+The evaluation-finalized producer requires the evaluation_finalizations migration;
+score status/total, immutable snapshot, audit and notification share one transaction.
+Repeated finalization events are deduplicated by their source evaluation lock.
+Final package/source, project state, audit and staff inbox share one transaction.
+The final-submission source row lock deduplicates replay of its event; one package
+per project makes PROJECT/project ID plus notification type a stable inbox key.
+Project approval/revision, report feedback, reminders and external
 delivery remain separate work; issue #8 is not fully Done.
+
+BE-16 result publication adds PROJECT_RESULT_PUBLISHED for all active student
+members (including nonleaders) of the project's current team, excluding the actor,
+left members, inactive users and users outside the active organization scope.
+Navigation is PROJECT/projectId. A project_result source-row lock deduplicates
+replays; publication, COMPLETED transition, audit and inbox share a transaction.
+The fixed notification text contains no score or private evaluator feedback.
