@@ -24,7 +24,7 @@ public sealed record ProjectDto(
     string? ExpectedOutput,
     string ConcurrencyToken,
     IReadOnlyList<ProjectMajorDto> Majors,
-    IReadOnlyList<ProjectTagDto> Tags);
+    IReadOnlyList<ProjectTagDto> Tags, AIPMS.Application.Features.Teams.DTOs.TeamAcademicScopeDto? AcademicScope = null);
 
 public sealed record ProjectSummaryDto(
     long Id,

@@ -9,6 +9,13 @@ namespace AIPMS.Application.Features.Projects.Abstractions;
 
 public interface IProjectRepository
 {
+    Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct);
+    Task<ProjectAcademicReviewDto> GetAcademicReviewAsync(long projectId, CancellationToken ct);
+    Task<ProjectAcademicReviewDto> RecordDepartmentDecisionAsync(long projectId, long actorId,
+        DepartmentDecisionRequest request, CancellationToken ct);
+    Task<PagedResult<ProjectSummaryDto>> GetVisibleProjectsAsync(long userId, string? status, long? teamId,
+        long? semesterId, long? majorId, string? tag, string? search, int page, int pageSize, CancellationToken ct);
+
     Task<ProjectDto?> GetByIdAsync(long id, CancellationToken cancellationToken);
     
     Task<PagedResult<ProjectSummaryDto>> GetProjectsAsync(

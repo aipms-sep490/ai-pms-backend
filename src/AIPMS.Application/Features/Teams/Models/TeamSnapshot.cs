@@ -5,4 +5,4 @@ namespace AIPMS.Application.Features.Teams.Models;
 
 public sealed record TeamSnapshot(long Id, long SemesterId, string Code, string Name,
     string? Description, string Status, IReadOnlyList<TeamParticipant> Members,
-    IReadOnlyList<string> ProjectStatuses);
+    IReadOnlyList<string> ProjectStatuses, TeamAcademicScope? AcademicScope = null);

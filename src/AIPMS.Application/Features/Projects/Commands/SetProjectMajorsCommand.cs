@@ -22,7 +22,10 @@ public sealed class SetProjectMajorsCommandHandler(
     IAuditTrail auditTrail)
     : IRequestHandler<SetProjectMajorsCommand, ProjectDto>
 {
-    public async Task<ProjectDto> Handle(
+    public Task<ProjectDto> Handle(SetProjectMajorsCommand request, CancellationToken cancellationToken) =>
+        repository.InTransactionAsync(token => HandleInTransactionAsync(request, token), cancellationToken);
+
+    private async Task<ProjectDto> HandleInTransactionAsync(
         SetProjectMajorsCommand request,
         CancellationToken cancellationToken)
     {

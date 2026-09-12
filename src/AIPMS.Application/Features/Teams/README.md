@@ -1,7 +1,8 @@
 # Teams
 
-Team formation, invitations and single-major eligibility. Interdisciplinary teams
-are not enabled by this module.
+Team formation, invitations and mode-aware eligibility. New clients configure
+SINGLE_MAJOR or INTERDISCIPLINARY through academicScope; see
+`../../../../docs/interdisciplinary-demo.md` for the complete FE contract.
 
 ## Invitation candidate search
 
@@ -14,8 +15,9 @@ The team must be FORMING/ELIGIBLE, have an unlocked roster, have capacity and ha
 an unambiguous active registration window and valid team formation policy. Missing
 or incompatible academic data (including a legacy mixed-major roster) fails closed.
 
-The server derives semester, major and organization from the authorized team and
-leader; clients cannot choose a broader search scope. Candidates must be active
+The server derives semester, allowed majors and organization from the authorized
+team scope (leader's major for legacy teams); clients cannot broaden the candidate
+query. Full per-major quotas are excluded before pagination. Candidates must be active
 students with active matching major/department/organization, consistent department
 and major links, and no current membership in that semester. Memberships in other
 semesters and ended memberships do not disqualify a candidate. Current members,
@@ -71,7 +73,7 @@ Responses use the shared ProblemDetails pipeline: 400 invalid query, 401 missing
 authentication, 403 non-leader/non-student, 404 missing team, and 409 unavailable
 window/policy, locked/full team or incompatible academic context.
 
-## BE-12 database policy (Foundation)
+## BE-12 database policy
 
 Teams uses DatabaseTeamFormationPolicyProvider to read MinTeamSize, MaxTeamSize
 and MinDistinctMajors from the applicable REGISTRATION row in project_periods.
@@ -81,9 +83,11 @@ transactional invite/accept operations recheck the current limits.
 
 Missing or invalid policy blocks operations. When both size limits are null, the
 policy is unconfigured; otherwise a null minimum defaults to 3 and a null maximum
-to 5. A null MinDistinctMajors defaults to 1. Foundation supports single-major
-teams only: MinDistinctMajors > 1 returns 409 for operations requiring a usable
-policy, while team reads expose UNSUPPORTED_HYBRID_POLICY and CanRegister=false.
+to 5. A null MinDistinctMajors defaults to 1. Explicit INTERDISCIPLINARY scope
+requires at least max(2, MinDistinctMajors) distinct mandatory majors; each quota
+must be met. Explicit SINGLE_MAJOR scope requires all members to match PrimaryMajor.
+Legacy teams without scope still fail closed when MinDistinctMajors > 1 until
+their leader configures academicScope; they never silently become interdisciplinary.
 
 Invitation expiry remains a separate Teams setting: a valid 1..720-hour value in
 `TeamFormation:Periods:{registrationPeriodId}:InvitationHours` takes precedence
@@ -93,9 +97,9 @@ control the DB provider. PolicyVersion is a deterministic fingerprint of period
 ID and effective DB team limits; unrelated period edits and invitation expiry
 settings do not change it.
 
-Full Hybrid support (ProjectMode, PrimaryMajor, per-major quotas and participating
-department decisions; SRS BR-45/47/49/55/56) remains deferred. The fingerprint is
-not a persisted submission snapshot: historical policy and academic-scope
-snapshots required by BR-35 also remain deferred. Milestone template management
-and immutable rubric versions retain their separately agreed scopes. This
-Foundation integration introduces no schema migration.
+Configured teams persist mode, primary major (single-major only), lead department,
+per-major quotas and responsibilities. Submission stores policy, roster and scope
+evidence per review round. Required department decisions gate lead-department
+approval. Apply `db/changes/20260912_add_interdisciplinary_projects.sql` before
+deploying this version. Published topic selection and per-period allowed-mode/source
+switches remain separate work; this slice enables both modes for explicit scopes.
