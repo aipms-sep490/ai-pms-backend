@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -40,18 +40,23 @@ public sealed class CancelMeetingCommandHandler(
             throw new ConflictException("Cannot cancel a meeting that is already completed or cancelled.");
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var result = await repository.CancelAsync(command.Id, now, cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "MEETING_CANCELLED",
-            "MEETING",
-            result.Id,
-            new Dictionary<string, object?>
+        var result = await repository.CancelAsync(
+            command.Id,
+            now,
+            async cancelled =>
             {
-                ["projectId"] = projectId,
-                ["status"] = result.Status
-            }), cancellationToken);
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "MEETING_CANCELLED",
+                    "MEETING",
+                    cancelled.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["status"] = cancelled.Status
+                    }), cancellationToken);
+            },
+            cancellationToken);
 
         return result;
     }

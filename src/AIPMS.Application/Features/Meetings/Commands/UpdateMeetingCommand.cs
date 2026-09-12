@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -51,18 +51,20 @@ public sealed class UpdateMeetingCommandHandler(
             command.Request.Location,
             command.Request.OnlineUrl,
             now,
-            cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "MEETING_UPDATED",
-            "MEETING",
-            result.Id,
-            new Dictionary<string, object?>
+            async updated =>
             {
-                ["projectId"] = projectId,
-                ["title"] = result.Title
-            }), cancellationToken);
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "MEETING_UPDATED",
+                    "MEETING",
+                    updated.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["title"] = updated.Title
+                    }), cancellationToken);
+            },
+            cancellationToken);
 
         return result;
     }

@@ -4,13 +4,16 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Net.Http.Json;
 using AIPMS.Application.Abstractions.Auditing;
+using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Meetings.DTOs;
 using AIPMS.Application.Features.ProgressReports.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Repositories;
+using AIPMS.Infrastructure.Services.Auditing;
 using AIPMS.IntegrationTests.Supervisors;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -572,10 +575,48 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
 
     #endregion
 
-    #region Finding 3: Submit + Audit Atomicity & Rollback Tests
+    #region Finding 3: Submit & Meeting Mutation + Audit Atomicity & Rollback Tests
+
+    public sealed class ConfigurableAuditState
+    {
+        public bool FailOnMeetingCompleted { get; set; }
+        public bool FailOnMeetingCancelled { get; set; }
+        public bool FailOnProgressReportSubmitted { get; set; }
+    }
+
+    private sealed class ConfigurableAuditTrail(
+        AipmsDbContext context,
+        IRequestContext requestContext,
+        TimeProvider timeProvider,
+        ConfigurableAuditState state) : IAuditTrail
+    {
+        private readonly DatabaseAuditTrail _inner = new(context, requestContext, timeProvider);
+
+        public Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken = default)
+        {
+            if (entry.Action == "MEETING_COMPLETED" && state.FailOnMeetingCompleted)
+            {
+                throw new InvalidOperationException("Simulated audit failure on MEETING_COMPLETED inside atomic transaction.");
+            }
+
+            if (entry.Action == "MEETING_CANCELLED" && state.FailOnMeetingCancelled)
+            {
+                throw new InvalidOperationException("Simulated audit failure on MEETING_CANCELLED inside atomic transaction.");
+            }
+
+            if (entry.Action == "PROGRESS_REPORT_SUBMITTED" && state.FailOnProgressReportSubmitted)
+            {
+                throw new InvalidOperationException("Simulated audit failure on PROGRESS_REPORT_SUBMITTED inside atomic transaction.");
+            }
+
+            return _inner.RecordAsync(entry, cancellationToken);
+        }
+    }
 
     private sealed class FaultyAuditFactory(SupervisorDatabaseFixture database) : AipmsWebApplicationFactory
     {
+        public ConfigurableAuditState AuditState { get; } = new();
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
@@ -585,16 +626,9 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
             }));
             builder.ConfigureServices(services =>
             {
-                services.AddScoped<IAuditTrail, ThrowingAuditTrail>();
+                services.AddSingleton(AuditState);
+                services.AddScoped<IAuditTrail, ConfigurableAuditTrail>();
             });
-        }
-    }
-
-    private sealed class ThrowingAuditTrail : IAuditTrail
-    {
-        public Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken = default)
-        {
-            throw new InvalidOperationException("Simulated audit failure inside atomic transaction.");
         }
     }
 
@@ -628,6 +662,7 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         }
 
         using var app = new FaultyAuditFactory(database);
+        app.AuditState.FailOnProgressReportSubmitted = true;
         using var leaderClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.Student]);
 
         // Submit via HTTP API with faulty audit trail
@@ -652,6 +687,143 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
                 .AsNoTracking()
                 .CountAsync(a => a.EntityId == reportId.ToString() && a.Action == "PROGRESS_REPORT_SUBMITTED");
             Assert.Equal(0, auditCount);
+        }
+    }
+
+    [Fact]
+    public async Task CompleteMeeting_WhenAuditFails_RollsBackToScheduled_AndCanRetry()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Sprint Review Meeting",
+                Agenda = "Review sprint deliverables",
+                Location = "Room 301",
+                StartAt = Now.AddDays(2),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+        }
+
+        using var app = new FaultyAuditFactory(database);
+        app.AuditState.FailOnMeetingCompleted = true;
+        using var leaderClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.Student]);
+
+        // 1. Call complete endpoint with failing audit trail
+        var failResponse = await leaderClient.PostAsync($"/api/v1/meetings/{meetingId}/complete", null);
+        Assert.Equal(HttpStatusCode.InternalServerError, failResponse.StatusCode);
+
+        // 2. Open / reload via FRESH DbContext to verify atomic rollback
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.Meetings.AsNoTracking().SingleAsync(m => m.Id == meetingId);
+            Assert.Equal("SCHEDULED", persisted.Status);
+            Assert.Equal("Sprint Review Meeting", persisted.Title);
+            Assert.Equal("Review sprint deliverables", persisted.Agenda);
+            Assert.Equal("Room 301", persisted.Location);
+
+            var auditCount = await verifyDb.AuditLogs
+                .AsNoTracking()
+                .CountAsync(a => a.EntityId == meetingId.ToString() && a.Action == "MEETING_COMPLETED");
+            Assert.Equal(0, auditCount);
+        }
+
+        // 3. Disable audit failure and retry
+        app.AuditState.FailOnMeetingCompleted = false;
+        var retryResponse = await leaderClient.PostAsync($"/api/v1/meetings/{meetingId}/complete", null);
+        Assert.Equal(HttpStatusCode.OK, retryResponse.StatusCode);
+
+        var completedDto = await retryResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(completedDto);
+        Assert.Equal("COMPLETED", completedDto.Status);
+
+        // 4. Verify DB state after retry: Status is COMPLETED and exactly ONE audit row exists
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.Meetings.AsNoTracking().SingleAsync(m => m.Id == meetingId);
+            Assert.Equal("COMPLETED", persisted.Status);
+
+            var auditCount = await verifyDb.AuditLogs
+                .AsNoTracking()
+                .CountAsync(a => a.EntityId == meetingId.ToString() && a.Action == "MEETING_COMPLETED");
+            Assert.Equal(1, auditCount);
+        }
+    }
+
+    [Fact]
+    public async Task CancelMeeting_WhenAuditFails_RollsBackState_AndCanRetry()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Standup To Cancel",
+                Agenda = "Daily sync",
+                StartAt = Now.AddDays(1),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+        }
+
+        using var app = new FaultyAuditFactory(database);
+        app.AuditState.FailOnMeetingCancelled = true;
+        using var leaderClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.Student]);
+
+        // 1. Call cancel endpoint with failing audit trail
+        var failResponse = await leaderClient.PostAsync($"/api/v1/meetings/{meetingId}/cancel", null);
+        Assert.Equal(HttpStatusCode.InternalServerError, failResponse.StatusCode);
+
+        // 2. Open / reload via FRESH DbContext to verify atomic rollback
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.Meetings.AsNoTracking().SingleAsync(m => m.Id == meetingId);
+            Assert.Equal("SCHEDULED", persisted.Status);
+            Assert.Equal("Standup To Cancel", persisted.Title);
+
+            var auditCount = await verifyDb.AuditLogs
+                .AsNoTracking()
+                .CountAsync(a => a.EntityId == meetingId.ToString() && a.Action == "MEETING_CANCELLED");
+            Assert.Equal(0, auditCount);
+        }
+
+        // 3. Disable audit failure and retry
+        app.AuditState.FailOnMeetingCancelled = false;
+        var retryResponse = await leaderClient.PostAsync($"/api/v1/meetings/{meetingId}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, retryResponse.StatusCode);
+
+        var cancelledDto = await retryResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(cancelledDto);
+        Assert.Equal("CANCELLED", cancelledDto.Status);
+
+        // 4. Verify DB state after retry: Status is CANCELLED and exactly ONE audit row exists
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.Meetings.AsNoTracking().SingleAsync(m => m.Id == meetingId);
+            Assert.Equal("CANCELLED", persisted.Status);
+
+            var auditCount = await verifyDb.AuditLogs
+                .AsNoTracking()
+                .CountAsync(a => a.EntityId == meetingId.ToString() && a.Action == "MEETING_CANCELLED");
+            Assert.Equal(1, auditCount);
         }
     }
 

@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -42,17 +42,22 @@ public sealed class RemoveMeetingParticipantCommandHandler(
         if (!await repository.IsParticipantAsync(command.Id, command.UserId, cancellationToken))
             throw new NotFoundException("MeetingParticipant", command.UserId);
 
-        await repository.RemoveParticipantAsync(command.Id, command.UserId, cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "MEETING_PARTICIPANT_REMOVED",
-            "MEETING",
+        await repository.RemoveParticipantAsync(
             command.Id,
-            new Dictionary<string, object?>
+            command.UserId,
+            async () =>
             {
-                ["projectId"] = projectId,
-                ["removedUserId"] = command.UserId
-            }), cancellationToken);
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "MEETING_PARTICIPANT_REMOVED",
+                    "MEETING",
+                    command.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["removedUserId"] = command.UserId
+                    }), cancellationToken);
+            },
+            cancellationToken);
     }
 }

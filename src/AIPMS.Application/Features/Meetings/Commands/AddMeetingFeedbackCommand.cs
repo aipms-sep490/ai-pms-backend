@@ -43,19 +43,21 @@ public sealed class AddMeetingFeedbackCommandHandler(
             assignmentId.Value,
             command.Request.FeedbackText,
             now,
-            cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "MEETING_FEEDBACK_ADDED",
-            "MEETING",
-            command.Id,
-            new Dictionary<string, object?>
+            async fb =>
             {
-                ["projectId"] = projectId,
-                ["feedbackId"] = feedback.Id,
-                ["supervisorAssignmentId"] = assignmentId.Value
-            }), cancellationToken);
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "MEETING_FEEDBACK_ADDED",
+                    "MEETING",
+                    command.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["feedbackId"] = fb.Id,
+                        ["supervisorAssignmentId"] = assignmentId.Value
+                    }), cancellationToken);
+            },
+            cancellationToken);
 
         return feedback;
     }

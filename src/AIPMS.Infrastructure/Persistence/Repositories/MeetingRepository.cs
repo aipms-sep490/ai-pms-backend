@@ -88,6 +88,36 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         return new PagedResult<MeetingDto>(dtos, page, pageSize, totalCount);
     }
 
+    public Task<MeetingDto> CreateAsync(
+        long projectId, long createdBy, string title, string? agenda, DateTime startAt, DateTime? endAt,
+        string? location, string? onlineUrl, IReadOnlyList<long>? participantUserIds, DateTime now, CancellationToken cancellationToken) =>
+        CreateAsync(projectId, createdBy, title, agenda, startAt, endAt, location, onlineUrl, participantUserIds, now, onCreated: null, cancellationToken);
+
+    public Task<MeetingDto> UpdateAsync(
+        long id, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, DateTime now, CancellationToken cancellationToken) =>
+        UpdateAsync(id, title, agenda, startAt, endAt, location, onlineUrl, now, onUpdated: null, cancellationToken);
+
+    public Task<MeetingDto> CancelAsync(long id, DateTime now, CancellationToken cancellationToken) =>
+        CancelAsync(id, now, onCancelled: null, cancellationToken);
+
+    public Task<MeetingDto> CompleteAsync(long id, DateTime now, CancellationToken cancellationToken) =>
+        CompleteAsync(id, now, onCompleted: null, cancellationToken);
+
+    public Task<MeetingDto> UpdateNotesAsync(
+        long id, string? meetingNotes, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now, CancellationToken cancellationToken) =>
+        UpdateNotesAsync(id, meetingNotes, attendances, now, onNotesUpdated: null, cancellationToken);
+
+    public Task<MeetingParticipantDto> AddParticipantAsync(
+        long meetingId, long userId, string? attendanceStatus, DateTime now, CancellationToken cancellationToken) =>
+        AddParticipantAsync(meetingId, userId, attendanceStatus, now, onAdded: null, cancellationToken);
+
+    public Task RemoveParticipantAsync(long meetingId, long userId, CancellationToken cancellationToken) =>
+        RemoveParticipantAsync(meetingId, userId, onRemoved: null, cancellationToken);
+
+    public Task<MeetingFeedbackDto> AddFeedbackAsync(
+        long meetingId, long supervisorAssignmentId, string feedbackText, DateTime now, CancellationToken cancellationToken) =>
+        AddFeedbackAsync(meetingId, supervisorAssignmentId, feedbackText, now, onAdded: null, cancellationToken);
+
     public async Task<MeetingDto> CreateAsync(
         long projectId,
         long createdBy,
@@ -99,8 +129,13 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         string? onlineUrl,
         IReadOnlyList<long>? participantUserIds,
         DateTime now,
-        CancellationToken cancellationToken)
+        Func<MeetingDto, Task>? onCreated = null,
+        CancellationToken cancellationToken = default)
     {
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
         var meeting = new Meeting
         {
             ProjectId = projectId,
@@ -139,7 +174,19 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         }
 
         await context.SaveChangesAsync(cancellationToken);
-        return (await GetByIdAsync(meeting.Id, cancellationToken))!;
+        var result = (await GetByIdAsync(meeting.Id, cancellationToken))!;
+
+        if (onCreated != null)
+        {
+            await onCreated(result);
+        }
+
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
     public async Task<MeetingDto> UpdateAsync(
@@ -151,90 +198,135 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         string? location,
         string? onlineUrl,
         DateTime now,
-        CancellationToken cancellationToken)
+        Func<MeetingDto, Task>? onUpdated = null,
+        CancellationToken cancellationToken = default)
     {
-        var affected = await context.Meetings
-            .Where(m => m.Id == id && m.Status != "CANCELLED" && m.Status != "COMPLETED")
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(m => m.Title, title)
-                .SetProperty(m => m.Agenda, agenda)
-                .SetProperty(m => m.StartAt, startAt)
-                .SetProperty(m => m.EndAt, endAt)
-                .SetProperty(m => m.Location, location)
-                .SetProperty(m => m.OnlineUrl, onlineUrl)
-                .SetProperty(m => m.UpdatedAt, now),
-                cancellationToken);
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
-        if (affected == 0)
+        var meeting = await context.Meetings
+            .FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK, ROWLOCK) WHERE id = {id}")
+            .AsTracking()
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (meeting is null)
+            throw new NotFoundException("Meeting", id);
+
+        if (meeting.Status is "CANCELLED" or "COMPLETED")
+            throw new ConflictException($"Meeting cannot be updated because its status is {meeting.Status}.");
+
+        meeting.Title = title;
+        meeting.Agenda = agenda;
+        meeting.StartAt = startAt;
+        meeting.EndAt = endAt;
+        meeting.Location = location;
+        meeting.OnlineUrl = onlineUrl;
+        meeting.UpdatedAt = now;
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        var result = (await GetByIdAsync(id, cancellationToken))!;
+
+        if (onUpdated != null)
         {
-            var current = await context.Meetings
-                .AsNoTracking()
-                .Select(m => new { m.Id, m.Status })
-                .FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
-
-            if (current is null)
-                throw new NotFoundException("Meeting", id);
-
-            throw new ConflictException($"Meeting cannot be updated because its status is {current.Status}.");
+            await onUpdated(result);
         }
 
-        return (await GetByIdAsync(id, cancellationToken))!;
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
-    public async Task<MeetingDto> CancelAsync(long id, DateTime now, CancellationToken cancellationToken)
+    public async Task<MeetingDto> CancelAsync(
+        long id,
+        DateTime now,
+        Func<MeetingDto, Task>? onCancelled = null,
+        CancellationToken cancellationToken = default)
     {
-        var affected = await context.Meetings
-            .Where(m => m.Id == id && m.Status != "CANCELLED" && m.Status != "COMPLETED")
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(m => m.Status, "CANCELLED")
-                .SetProperty(m => m.UpdatedAt, now),
-                cancellationToken);
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
-        if (affected == 0)
+        var meeting = await context.Meetings
+            .FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK, ROWLOCK) WHERE id = {id}")
+            .AsTracking()
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (meeting is null)
+            throw new NotFoundException("Meeting", id);
+
+        if (meeting.Status is "COMPLETED" or "CANCELLED")
+            throw new ConflictException($"Cannot cancel a meeting that is already {meeting.Status.ToLowerInvariant()}.");
+
+        meeting.Status = "CANCELLED";
+        meeting.UpdatedAt = now;
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        var result = (await GetByIdAsync(id, cancellationToken))!;
+
+        if (onCancelled != null)
         {
-            var current = await context.Meetings
-                .AsNoTracking()
-                .Select(m => new { m.Id, m.Status })
-                .FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
-
-            if (current is null)
-                throw new NotFoundException("Meeting", id);
-
-            throw new ConflictException($"Cannot cancel a meeting that is already {current.Status.ToLowerInvariant()}.");
+            await onCancelled(result);
         }
 
-        return (await GetByIdAsync(id, cancellationToken))!;
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
-    public async Task<MeetingDto> CompleteAsync(long id, DateTime now, CancellationToken cancellationToken)
+    public async Task<MeetingDto> CompleteAsync(
+        long id,
+        DateTime now,
+        Func<MeetingDto, Task>? onCompleted = null,
+        CancellationToken cancellationToken = default)
     {
-        var affected = await context.Meetings
-            .Where(m => m.Id == id && m.Status == "SCHEDULED")
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(m => m.Status, "COMPLETED")
-                .SetProperty(m => m.UpdatedAt, now),
-                cancellationToken);
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
-        if (affected == 0)
+        var meeting = await context.Meetings
+            .FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK, ROWLOCK) WHERE id = {id}")
+            .AsTracking()
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (meeting is null)
+            throw new NotFoundException("Meeting", id);
+
+        if (meeting.Status == "COMPLETED")
+            throw new ConflictException("Meeting is already completed.");
+
+        if (meeting.Status == "CANCELLED")
+            throw new ConflictException("Cannot complete a meeting that has been cancelled.");
+
+        if (meeting.Status != "SCHEDULED")
+            throw new ConflictException($"Meeting with status '{meeting.Status}' cannot be completed.");
+
+        meeting.Status = "COMPLETED";
+        meeting.UpdatedAt = now;
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        var result = (await GetByIdAsync(id, cancellationToken))!;
+
+        if (onCompleted != null)
         {
-            var current = await context.Meetings
-                .AsNoTracking()
-                .Select(m => new { m.Id, m.Status })
-                .FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
-
-            if (current is null)
-                throw new NotFoundException("Meeting", id);
-
-            if (current.Status == "COMPLETED")
-                throw new ConflictException("Meeting is already completed.");
-
-            if (current.Status == "CANCELLED")
-                throw new ConflictException("Cannot complete a meeting that has been cancelled.");
-
-            throw new ConflictException($"Meeting with status '{current.Status}' cannot be completed.");
+            await onCompleted(result);
         }
 
-        return (await GetByIdAsync(id, cancellationToken))!;
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
     public async Task<MeetingDto> UpdateNotesAsync(
@@ -242,7 +334,8 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         string? meetingNotes,
         IReadOnlyList<ParticipantAttendanceUpdate>? attendances,
         DateTime now,
-        CancellationToken cancellationToken)
+        Func<MeetingDto, Task>? onNotesUpdated = null,
+        CancellationToken cancellationToken = default)
     {
         await using var tx = context.Database.CurrentTransaction is null
             ? await context.Database.BeginTransactionAsync(cancellationToken)
@@ -283,12 +376,19 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         meeting.UpdatedAt = now;
         await context.SaveChangesAsync(cancellationToken);
 
+        var result = (await GetByIdAsync(id, cancellationToken))!;
+
+        if (onNotesUpdated != null)
+        {
+            await onNotesUpdated(result);
+        }
+
         if (tx is not null)
         {
             await tx.CommitAsync(cancellationToken);
         }
 
-        return (await GetByIdAsync(id, cancellationToken))!;
+        return result;
     }
 
     public async Task<MeetingParticipantDto> AddParticipantAsync(
@@ -296,7 +396,8 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         long userId,
         string? attendanceStatus,
         DateTime now,
-        CancellationToken cancellationToken)
+        Func<MeetingParticipantDto, Task>? onAdded = null,
+        CancellationToken cancellationToken = default)
     {
         await using var tx = context.Database.CurrentTransaction is null
             ? await context.Database.BeginTransactionAsync(cancellationToken)
@@ -332,20 +433,31 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
             throw new ConflictException("User is already a participant in this meeting.");
         }
 
-        if (tx is not null)
-        {
-            await tx.CommitAsync(cancellationToken);
-        }
-
         var reloaded = await context.MeetingParticipants
             .AsNoTracking()
             .Include(p => p.User)
             .FirstAsync(p => p.Id == participant.Id, cancellationToken);
 
-        return reloaded.ToDto();
+        var result = reloaded.ToDto();
+
+        if (onAdded != null)
+        {
+            await onAdded(result);
+        }
+
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
-    public async Task RemoveParticipantAsync(long meetingId, long userId, CancellationToken cancellationToken)
+    public async Task RemoveParticipantAsync(
+        long meetingId,
+        long userId,
+        Func<Task>? onRemoved = null,
+        CancellationToken cancellationToken = default)
     {
         await using var tx = context.Database.CurrentTransaction is null
             ? await context.Database.BeginTransactionAsync(cancellationToken)
@@ -371,6 +483,11 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
             await context.SaveChangesAsync(cancellationToken);
         }
 
+        if (onRemoved != null)
+        {
+            await onRemoved();
+        }
+
         if (tx is not null)
         {
             await tx.CommitAsync(cancellationToken);
@@ -382,8 +499,13 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         long supervisorAssignmentId,
         string feedbackText,
         DateTime now,
-        CancellationToken cancellationToken)
+        Func<MeetingFeedbackDto, Task>? onAdded = null,
+        CancellationToken cancellationToken = default)
     {
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
         var meeting = await context.Meetings
             .FirstAsync(m => m.Id == meetingId, cancellationToken);
 
@@ -409,7 +531,19 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
                     .ThenInclude(p => p.User)
             .FirstAsync(f => f.Id == feedback.Id, cancellationToken);
 
-        return reloaded.ToMeetingFeedbackDto();
+        var result = reloaded.ToMeetingFeedbackDto();
+
+        if (onAdded != null)
+        {
+            await onAdded(result);
+        }
+
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
     public async Task<long?> GetProjectIdAsync(long meetingId, CancellationToken cancellationToken)

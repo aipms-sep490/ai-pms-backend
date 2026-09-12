@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -46,18 +46,23 @@ public sealed class CompleteMeetingCommandHandler(
             throw new ConflictException($"Meeting with status '{status}' cannot be completed.");
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var result = await repository.CompleteAsync(command.Id, now, cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "MEETING_COMPLETED",
-            "MEETING",
-            result.Id,
-            new Dictionary<string, object?>
+        var result = await repository.CompleteAsync(
+            command.Id,
+            now,
+            async completed =>
             {
-                ["projectId"] = projectId,
-                ["status"] = result.Status
-            }), cancellationToken);
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "MEETING_COMPLETED",
+                    "MEETING",
+                    completed.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["status"] = completed.Status
+                    }), cancellationToken);
+            },
+            cancellationToken);
 
         return result;
     }

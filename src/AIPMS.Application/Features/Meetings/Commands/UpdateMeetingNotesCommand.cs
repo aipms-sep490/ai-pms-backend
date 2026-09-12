@@ -47,18 +47,20 @@ public sealed class UpdateMeetingNotesCommandHandler(
             command.Request.MeetingNotes,
             command.Request.Attendances,
             now,
-            cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "MEETING_NOTES_UPDATED",
-            "MEETING",
-            result.Id,
-            new Dictionary<string, object?>
+            async updated =>
             {
-                ["projectId"] = projectId,
-                ["status"] = result.Status
-            }), cancellationToken);
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "MEETING_NOTES_UPDATED",
+                    "MEETING",
+                    updated.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["status"] = updated.Status
+                    }), cancellationToken);
+            },
+            cancellationToken);
 
         return result;
     }

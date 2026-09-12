@@ -53,68 +53,192 @@ public sealed class MeetingHandlerTests
 
         public Task<MeetingDto> CreateAsync(
             long projectId, long createdBy, string title, string? agenda, DateTime startAt, DateTime? endAt,
-            string? location, string? onlineUrl, IReadOnlyList<long>? participantUserIds, DateTime now, CancellationToken ct)
-        {
-            LastToken = ct;
-            Meeting = new MeetingDto(5, projectId, title, agenda, null, startAt, endAt, location, onlineUrl,
-                "SCHEDULED", createdBy, "Creator", participantUserIds?.Count ?? 1, now, now);
-            return Task.FromResult(Meeting);
-        }
+            string? location, string? onlineUrl, IReadOnlyList<long>? participantUserIds, DateTime now, CancellationToken cancellationToken) =>
+            CreateAsync(projectId, createdBy, title, agenda, startAt, endAt, location, onlineUrl, participantUserIds, now, onCreated: null, cancellationToken);
 
         public Task<MeetingDto> UpdateAsync(
-            long id, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, DateTime now, CancellationToken ct)
+            long id, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, DateTime now, CancellationToken cancellationToken) =>
+            UpdateAsync(id, title, agenda, startAt, endAt, location, onlineUrl, now, onUpdated: null, cancellationToken);
+
+        public Task<MeetingDto> CancelAsync(long id, DateTime now, CancellationToken cancellationToken) =>
+            CancelAsync(id, now, onCancelled: null, cancellationToken);
+
+        public Task<MeetingDto> CompleteAsync(long id, DateTime now, CancellationToken cancellationToken) =>
+            CompleteAsync(id, now, onCompleted: null, cancellationToken);
+
+        public Task<MeetingDto> UpdateNotesAsync(
+            long id, string? meetingNotes, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now, CancellationToken cancellationToken) =>
+            UpdateNotesAsync(id, meetingNotes, attendances, now, onNotesUpdated: null, cancellationToken);
+
+        public Task<MeetingParticipantDto> AddParticipantAsync(
+            long meetingId, long userId, string? attendanceStatus, DateTime now, CancellationToken cancellationToken) =>
+            AddParticipantAsync(meetingId, userId, attendanceStatus, now, onAdded: null, cancellationToken);
+
+        public Task RemoveParticipantAsync(long meetingId, long userId, CancellationToken cancellationToken) =>
+            RemoveParticipantAsync(meetingId, userId, onRemoved: null, cancellationToken);
+
+        public Task<MeetingFeedbackDto> AddFeedbackAsync(
+            long meetingId, long supervisorAssignmentId, string feedbackText, DateTime now, CancellationToken cancellationToken) =>
+            AddFeedbackAsync(meetingId, supervisorAssignmentId, feedbackText, now, onAdded: null, cancellationToken);
+
+        public async Task<MeetingDto> CreateAsync(
+            long projectId, long createdBy, string title, string? agenda, DateTime startAt, DateTime? endAt,
+            string? location, string? onlineUrl, IReadOnlyList<long>? participantUserIds, DateTime now,
+            Func<MeetingDto, Task>? onCreated = null, CancellationToken ct = default)
         {
             LastToken = ct;
-            Meeting = Meeting! with { Title = title, Agenda = agenda, StartAt = startAt, EndAt = endAt, Location = location, OnlineUrl = onlineUrl, UpdatedAt = now };
-            return Task.FromResult(Meeting);
+            var prev = Meeting;
+            var created = new MeetingDto(5, projectId, title, agenda, null, startAt, endAt, location, onlineUrl,
+                "SCHEDULED", createdBy, "Creator", participantUserIds?.Count ?? 1, now, now);
+            Meeting = created;
+            if (onCreated != null)
+            {
+                try
+                {
+                    await onCreated(created);
+                }
+                catch
+                {
+                    Meeting = prev;
+                    throw;
+                }
+            }
+            return created;
         }
 
-        public Task<MeetingDto> CancelAsync(long id, DateTime now, CancellationToken ct)
+        public async Task<MeetingDto> UpdateAsync(
+            long id, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, DateTime now,
+            Func<MeetingDto, Task>? onUpdated = null, CancellationToken ct = default)
         {
             LastToken = ct;
-            Meeting = Meeting! with { Status = "CANCELLED", UpdatedAt = now };
-            return Task.FromResult(Meeting);
+            var prev = Meeting;
+            var updated = Meeting! with { Title = title, Agenda = agenda, StartAt = startAt, EndAt = endAt, Location = location, OnlineUrl = onlineUrl, UpdatedAt = now };
+            Meeting = updated;
+            if (onUpdated != null)
+            {
+                try
+                {
+                    await onUpdated(updated);
+                }
+                catch
+                {
+                    Meeting = prev;
+                    throw;
+                }
+            }
+            return updated;
         }
 
-        public Task<MeetingDto> CompleteAsync(long id, DateTime now, CancellationToken ct)
+        public async Task<MeetingDto> CancelAsync(
+            long id, DateTime now,
+            Func<MeetingDto, Task>? onCancelled = null, CancellationToken ct = default)
+        {
+            LastToken = ct;
+            var prev = Meeting;
+            var cancelled = Meeting! with { Status = "CANCELLED", UpdatedAt = now };
+            Meeting = cancelled;
+            if (onCancelled != null)
+            {
+                try
+                {
+                    await onCancelled(cancelled);
+                }
+                catch
+                {
+                    Meeting = prev;
+                    throw;
+                }
+            }
+            return cancelled;
+        }
+
+        public async Task<MeetingDto> CompleteAsync(
+            long id, DateTime now,
+            Func<MeetingDto, Task>? onCompleted = null, CancellationToken ct = default)
         {
             LastToken = ct;
             if (Meeting != null && Meeting.Status == "COMPLETED")
                 throw new ConflictException("Meeting is already completed.");
             if (Meeting != null && Meeting.Status == "CANCELLED")
                 throw new ConflictException("Cannot complete a meeting that has been cancelled.");
-            Meeting = Meeting! with { Status = "COMPLETED", UpdatedAt = now };
-            return Task.FromResult(Meeting);
+            var prev = Meeting;
+            var completed = Meeting! with { Status = "COMPLETED", UpdatedAt = now };
+            Meeting = completed;
+            if (onCompleted != null)
+            {
+                try
+                {
+                    await onCompleted(completed);
+                }
+                catch
+                {
+                    Meeting = prev;
+                    throw;
+                }
+            }
+            return completed;
         }
 
-        public Task<MeetingDto> UpdateNotesAsync(
-            long id, string? meetingNotes, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now, CancellationToken ct)
+        public async Task<MeetingDto> UpdateNotesAsync(
+            long id, string? meetingNotes, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now,
+            Func<MeetingDto, Task>? onNotesUpdated = null, CancellationToken ct = default)
         {
             LastToken = ct;
             if (Meeting != null && Meeting.Status == "CANCELLED")
                 throw new ConflictException("Cancelled meetings cannot be modified.");
-            Meeting = Meeting! with { MeetingNotes = meetingNotes, UpdatedAt = now };
-            return Task.FromResult(Meeting);
+            var prev = Meeting;
+            var updated = Meeting! with { MeetingNotes = meetingNotes, UpdatedAt = now };
+            Meeting = updated;
+            if (onNotesUpdated != null)
+            {
+                try
+                {
+                    await onNotesUpdated(updated);
+                }
+                catch
+                {
+                    Meeting = prev;
+                    throw;
+                }
+            }
+            return updated;
         }
 
-        public Task<MeetingParticipantDto> AddParticipantAsync(
-            long meetingId, long userId, string? attendanceStatus, DateTime now, CancellationToken ct)
+        public async Task<MeetingParticipantDto> AddParticipantAsync(
+            long meetingId, long userId, string? attendanceStatus, DateTime now,
+            Func<MeetingParticipantDto, Task>? onAdded = null, CancellationToken ct = default)
         {
             LastToken = ct;
-            return Task.FromResult(new MeetingParticipantDto(1, meetingId, userId, "Name", "email@test.com", attendanceStatus, now, now));
+            var dto = new MeetingParticipantDto(1, meetingId, userId, "Name", "email@test.com", attendanceStatus, now, now);
+            if (onAdded != null)
+            {
+                await onAdded(dto);
+            }
+            return dto;
         }
 
-        public System.Threading.Tasks.Task RemoveParticipantAsync(long meetingId, long userId, CancellationToken ct)
+        public async System.Threading.Tasks.Task RemoveParticipantAsync(
+            long meetingId, long userId,
+            Func<Task>? onRemoved = null, CancellationToken ct = default)
         {
             LastToken = ct;
-            return System.Threading.Tasks.Task.CompletedTask;
+            if (onRemoved != null)
+            {
+                await onRemoved();
+            }
         }
 
-        public Task<MeetingFeedbackDto> AddFeedbackAsync(
-            long meetingId, long supervisorAssignmentId, string feedbackText, DateTime now, CancellationToken ct)
+        public async Task<MeetingFeedbackDto> AddFeedbackAsync(
+            long meetingId, long supervisorAssignmentId, string feedbackText, DateTime now,
+            Func<MeetingFeedbackDto, Task>? onAdded = null, CancellationToken ct = default)
         {
             LastToken = ct;
-            return Task.FromResult(new MeetingFeedbackDto(1, Meeting?.ProjectId ?? 1, supervisorAssignmentId, 50, "Prof", meetingId, feedbackText, now, now));
+            var dto = new MeetingFeedbackDto(1, Meeting?.ProjectId ?? 1, supervisorAssignmentId, 50, "Prof", meetingId, feedbackText, now, now);
+            if (onAdded != null)
+            {
+                await onAdded(dto);
+            }
+            return dto;
         }
 
         public Task<long?> GetProjectIdAsync(long meetingId, CancellationToken ct) =>
@@ -173,8 +297,13 @@ public sealed class MeetingHandlerTests
     private sealed class FakeAuditTrail : IAuditTrail
     {
         public List<AuditEntry> Entries { get; } = new();
+        public bool ShouldThrow { get; set; } = false;
         public Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken = default)
         {
+            if (ShouldThrow)
+            {
+                throw new InvalidOperationException("Simulated audit failure.");
+            }
             Entries.Add(entry);
             return Task.CompletedTask;
         }
@@ -489,6 +618,36 @@ public sealed class MeetingHandlerTests
 
         var handler = new CompleteMeetingCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
         await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new CompleteMeetingCommand(5), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CompleteMeeting_WhenAuditFails_RollsBackToScheduled()
+    {
+        repository.CurrentStatus = "SCHEDULED";
+        repository.Meeting = new MeetingDto(5, 1, "Sprint Review", null, null, DateTime.UtcNow, null, null, null,
+            "SCHEDULED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
+        audit.ShouldThrow = true;
+
+        var handler = new CompleteMeetingCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => handler.Handle(new CompleteMeetingCommand(5), CancellationToken.None));
+
+        Assert.Equal("SCHEDULED", repository.Meeting.Status);
+        Assert.Empty(audit.Entries);
+    }
+
+    [Fact]
+    public async Task CancelMeeting_WhenAuditFails_RollsBackToScheduled()
+    {
+        repository.CurrentStatus = "SCHEDULED";
+        repository.Meeting = new MeetingDto(5, 1, "Sprint Review", null, null, DateTime.UtcNow, null, null, null,
+            "SCHEDULED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
+        audit.ShouldThrow = true;
+
+        var handler = new CancelMeetingCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => handler.Handle(new CancelMeetingCommand(5), CancellationToken.None));
+
+        Assert.Equal("SCHEDULED", repository.Meeting.Status);
+        Assert.Empty(audit.Entries);
     }
 
     [Fact]
