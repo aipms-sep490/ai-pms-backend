@@ -53,6 +53,8 @@ public sealed class EvaluationDraftWorkflow(IEvaluationDraftRepository repositor
     {
         if (project.Status != "FINAL_SUBMISSION" || !project.ActiveScope)
             throw new ConflictException("Draft evaluation requires a project in FINAL_SUBMISSION with active academic scope.");
+        if (!await repository.HasLockedSubmissionAsync(project.Id, ct))
+            throw new ConflictException("A locked final-submission package is required before assignment or draft scoring.");
         var period = await repository.GetPeriodAsync(periodId, clock.GetUtcNow().UtcDateTime, ct);
         if (period is null || period.SemesterId != project.SemesterId || !period.IsOpen)
             throw new ConflictException("A single active evaluation window in the project's semester is required.");

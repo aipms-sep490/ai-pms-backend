@@ -14,6 +14,9 @@ namespace AIPMS.Infrastructure.Persistence.Repositories;
 
 internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluationDraftRepository
 {
+    public Task<bool> HasLockedSubmissionAsync(long projectId, CancellationToken ct) =>
+        db.Set<FinalSubmission>().AnyAsync(s => s.ProjectId == projectId && s.Items.Any(), ct);
+
     public async Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);

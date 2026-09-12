@@ -6,7 +6,8 @@ namespace AIPMS.Application.Features.Notifications.Events;
 public enum WorkflowNotificationKind
 {
     TeamInvitationSent, TeamInvitationAccepted, TeamInvitationRejected, TeamInvitationCancelled,
-    SupervisorRequestSent, SupervisorRequestAccepted, SupervisorRequestRejected, SupervisorRequestCancelled
+    SupervisorRequestSent, SupervisorRequestAccepted, SupervisorRequestRejected, SupervisorRequestCancelled,
+    FinalSubmissionLocked
 }
 
 // Published synchronously inside the source workflow's transaction, never from a controller.

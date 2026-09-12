@@ -7,18 +7,17 @@ Evaluations), 3.16.6 (Evaluate Project by Rubric), 3.16.7 (Submit Evaluation),
 BR-143/144/145; issue #14; Report 2's dependency-first evaluation lifecycle.
 
 The SRS requires a locked final-submission package before assigning evaluators.
-Develop currently has the FINAL_SUBMISSION project status but no BE-16 final-package
-module. The user explicitly approved the following temporary scope on 2026-09-11:
-implement assignment and drafts, require FINAL_SUBMISSION plus a valid evaluation
-window, defer verification of the locked final package to BE-16, and do not expose
-finalize. A project status is NOT evidence of a locked package. This is draft-only
-foundation, not a complete final-evaluation or SRS acceptance flow.
+BE-16 now supplies this precondition: new assignments and creation/saving of draft
+scores require a nonempty locked package as well as FINAL_SUBMISSION and a valid
+evaluation window. This supersedes the temporary status-only scope accepted on
+2026-09-11. Legacy projects without a package return 409; existing grades/history
+are not rewritten. Finalization remains unavailable.
 
 | Requirement | Implemented boundary |
 | --- | --- |
 | Staff assigns eligible evaluator | Persisted active staff in the project/assignment department, or active admin; candidate must be a persisted active lecturer in that department |
 | Supervisor when assigned evaluator role | An explicit SUPERVISOR evaluation assignment plus current primary supervision is required; supervision alone grants no grading right |
-| Verify final submission and evaluation window | FINAL_SUBMISSION and active academic scope/window enforced; locked-package verification deferred by explicit user agreement |
+| Verify final submission and evaluation window | FINAL_SUBMISSION, nonempty locked BE-16 package and active academic scope/window enforced |
 | Published rubric version | New assignments resolve the period's PUBLISHED rubric, validate its criteria, and bind immutable rubric ID, department and period |
 | Assigned list and resource access | Active eligible evaluator sees own assignments/drafts; staff sees own department, admin can read/manage; students cannot read unpublished grades |
 | Score bounds | 0 <= score <= criterion.maxScore, <=2 decimal places, only the protected rubric's criterion IDs |
@@ -28,7 +27,7 @@ foundation, not a complete final-evaluation or SRS acceptance flow.
 | Finalize/publication/AI | No finalize, publish-result or AI score-write API in this slice |
 
 Assignment notifications (SRS 3.16.4 step 5), evaluator discovery UI/lookups,
-evidence-summary/final-package linkage, finalize notifications, committee/common/
+evidence-summary, finalize notifications, committee/common/
 major-specific/individual assignments and per-student results remain separate.
 Existing SUPERVISOR and LECTURER types are supported; COMMITTEE/FINAL type requests
 are rejected until their assignment/lifecycle rules are implemented. Issue #14 is
@@ -126,6 +125,11 @@ and the rubric-version migration. The additive, rerunnable script creates
 evaluation_assignments and evaluation_draft_states. Existing evaluations/details
 and generated models are unchanged; state/assignment mapping uses context partials.
 The application never auto-migrates on startup.
+
+BE-16 integration additionally requires the draft and locked-final-submission
+migrations. Assigned evaluators read/download the immutable package through
+`/api/v1/projects/{projectId}/final-submission` and its dedicated file route;
+this does not grant general access to all BE-08 project files.
 
 No historical assignments are invented for legacy evaluations. Those records are
 preserved but excluded from these managed draft endpoints; a separate reviewed

@@ -21,21 +21,7 @@ public sealed class FinalSubmissionDraftDatabaseFixture : IAsyncLifetime
         catch { await database.DisposeAsync(); throw; }
     }
     public Task DisposeAsync() => database.DisposeAsync();
-    public async Task Migrate()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "db", "changes"))) directory = directory.Parent;
-        Assert.NotNull(directory);
-        var script = await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "changes", "20260912_add_final_submission_drafts.sql"));
-        await using var connection = new SqlConnection(ConnectionString);
-        await connection.OpenAsync();
-        foreach (var batch in Regex.Split(script, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
-        {
-            if (string.IsNullOrWhiteSpace(batch)) continue;
-            await using var command = new SqlCommand(batch, connection);
-            await command.ExecuteNonQueryAsync();
-        }
-    }
+    public Task Migrate() => FinalSubmissionTestMigration.Apply(ConnectionString);
 
     public async Task<FinalDraftScenario> Seed()
     {

@@ -1,114 +1,134 @@
-# BE-16 final-submission drafts (slice 1)
+# BE-16 final preparation, submission and locking
 
-Issue #21, based on SRS Report 3 sections 3.16.1-3.16.3 and BR-140/141/142.
-This slice lets the current student leader prepare selections before the official
-submission. It does not implement the complete final-submission use cases.
+Issue #21; SRS Report 3 sections 3.16.1-3.16.4 and BR-140/141/142/143.
+Result publication, completion and archive are still separate work.
 
-## Contract
+## Required artifacts: agreed project-level policy
 
-All routes require an authenticated ACTIVE persisted STUDENT account with active
-department/organization and current project team membership. Team members can
-read; only the current leader can write. Staff, admins, supervisors and evaluators
-do not gain draft access merely from their roles. Official locked-package read
-scope is a later slice (SRS 3.16.3). Old token roles never override persisted roles.
+The user selected a checklist per project on 2026-09-12. Persisted department
+staff in a project major's department (or active admin) configures 1-100 distinct
+required BE-08 deliverable IDs from that project. Reports/evidence are uploaded
+as versioned BE-08 deliverables; mutable ProgressReport/Meeting attachments are
+not selected directly. No fixed document list, name/type matching or automatic
+requirement for every deliverable is inferred. Academic staff configures the
+actual required report/evidence list.
 
-| Method | Route | Behavior |
+Configuration needs ACTIVE project, active academic scope and no locked package.
+Students/supervisors cannot remove requirements. PUT replaces the whole set:
+first creation uses null token; subsequent writes require the current GUID token
+and rotate it. Missing configuration blocks submission; empty lists are invalid.
+Restrictive foreign keys prevent deletion of configured deliverables. Changes
+are audited and a stale configuration token returns 409.
+
+## API
+
+All routes require authentication, use persisted roles, return ProblemDetails
+and disable caching. Dates are UTC. The prefix is /api/v1/projects/{projectId}.
+
+| Method | Route after prefix | Behavior |
 | --- | --- | --- |
-| GET | `/api/v1/projects/{projectId}/final-submission-periods` | Discover the project's semester FINAL_SUBMISSION windows and reasons preparation is blocked; page/pageSize, stable startAt/id descending order |
-| POST | `/api/v1/projects/{projectId}/final-submission-draft` | Create the project's single draft, 201; duplicate 409 |
-| GET | `/api/v1/projects/{projectId}/final-submission-draft` | Read selected versions and file metadata, deadline, edit permissions; absent draft 404 |
-| PUT | `/api/v1/projects/{projectId}/final-submission-draft` | Replace notes, period and the complete version selection using the current concurrency token |
+| GET | /final-submission-periods | Team discovers semester final windows; page 1-1000000/pageSize 1-100; stable startAt/id descending |
+| POST | /final-submission-draft | Current student leader creates one draft; 201, duplicate 409 |
+| GET | /final-submission-draft | Team reads live draft selections and edit blockers |
+| PUT | /final-submission-draft | Leader replaces notes, period and explicit version IDs using draft token |
+| GET | /final-submission/requirements | Authorized package readers see required definitions and configuration token |
+| PUT | /final-submission/requirements | Managed staff/admin configures required deliverable IDs |
+| GET | /final-submission/checklist | Team reads exact unmet rules, completeness, deadline and both confirmation tokens |
+| POST | /final-submission | Leader submits locked package; 201, repeated/conflicting request 409 |
+| GET | /final-submission | Authorized reader sees immutable package metadata; absent package 404 |
+| GET | /final-submission/files/{fileId}/download | Authorized reader downloads only a snapshotted file |
 
-POST body:
-
+Draft POST (PUT also requires concurrencyToken):
 ```json
-{
-  "projectPeriodId": 12,
-  "notes": "Prepared for final submission",
-  "deliverableVersionIds": [101, 203]
-}
+{"projectPeriodId":12,"notes":"Prepared for final submission","deliverableVersionIds":[101,203]}
 ```
+Empty drafts are valid; null/duplicate/nonpositive IDs, over 100 selections or
+notes over 10000 UTF-16 code units return 400. PUT removes omitted IDs. Select at
+most one version per deliverable, belonging to this project, SUBMITTED/ACCEPTED,
+with valid file metadata and exactly one file parent. Older eligible versions
+are intentionally allowed; newer uploads never replace explicit selections.
+After locking the draft returns isLocked=true and cannot be edited. Draft
+metadata stays live; use official GET for the snapshot. Staff/admin/supervisor/
+evaluator roles alone do not grant private draft access.
 
-PUT uses the same fields plus `concurrencyToken` from the latest response. A
-successful write rotates the GUID token. Empty selections are valid drafts;
-omitting a previously selected ID from PUT removes it. Null selection collections,
-duplicate/nonpositive IDs, more than 100 selections and notes over 10,000 UTF-16
-code units return 400. Invalid/stale references, periods or states return 409.
-Notes are trimmed. Period pages start at 1, maximum 1,000,000; pageSize 1-100.
-All errors use ProblemDetails and all responses disable caching. Dates are UTC.
+Requirements PUT:
+```json
+{"deliverableIds":[10,20],"concurrencyToken":null}
+```
+Submit using the tokens returned by checklist:
+```json
+{"draftConcurrencyToken":"<GUID>","requirementsConcurrencyToken":"<GUID>"}
+```
+canSubmit is true only for current student leader when all rules pass. Members
+can read completeness but receive LEADER_REQUIRED. canEdit/canPrepareDraft are
+preparation permissions, not submission readiness. Requirements definitions do
+not imply completion; checklist resolves selectedVersionId/isComplete per ID.
+Blockers include REQUIREMENTS_NOT_CONFIGURED, DRAFT_REQUIRED, EMPTY_PACKAGE,
+REQUIRED_DELIVERABLE_MISSING:{id}, VERSION_INELIGIBLE:{id},
+FILE_CONTENT_INVALID:{id}, ALREADY_SUBMITTED and period/state/authority codes.
 
-## State and time
+## State, content and concurrency
 
-Writing requires an ACTIVE project with active academic scope, an ACTIVE semester
-within its inclusive date range, and an ACTIVE FINAL_SUBMISSION period in that
-semester with `startAt <= now < endAt`. Exactly one active final window may cover
-now. Execution/evaluation periods are not substitutes and no late/grace override
-is inferred. These rules apply to draft writes as the boundary of this slice.
+Preparation/submission requires ACTIVE project and academic scope, ACTIVE
+semester within inclusive dates, and exactly one ACTIVE FINAL_SUBMISSION period
+in that semester covering startAt <= now < endAt. The draft must select that
+period. No grace/late override or automatic rebinding. Explicit draft period
+changes use the draft token. Team reads remain available after deadlines.
 
-The team can still read an existing draft after the window closes or the project
-leaves ACTIVE. `canEdit` is false and `editBlockers` explains why. Period discovery
-works before a draft exists, including upcoming/closed windows. No windows returns
-an empty list. A later valid final window can be explicitly selected on PUT using
-the current token; the prior period is retained in the audit. No automatic rebinding.
+Checklist and submit stream actual file bytes to verify size and SHA-256. Every
+selected artifact, including optional items, must pass. Missing/corrupt content
+blocks submission. BE-08 uploads must have finished under its execution/deadline
+rules. No upload/copy/provider change occurs here; keys reference BE-08's private,
+create-only version content.
 
-`canEdit` / `canPrepareDraft` describe preparation access, not final submission
-readiness. They must never enable an official Submit button: there is no submit
-endpoint in this slice and configured final checklist validation is not available.
+Serializable transactions and the BE-08 project XLOCK protect membership, roles,
+versions/files, requirements and period configuration. Both draft and checklist
+tokens must still match. Deadlock, expected uniqueness/FK and EF concurrency
+conflicts return 409; reload before retrying.
 
-## BE-08 version/file integration
+One transaction inserts final_submissions/final_submission_items, snapshots
+version/title/status/required flag and file metadata/key/hash, transitions
+ACTIVE -> FINAL_SUBMISSION, audits actor/time/context and notifies active staff
+in the project departments. Time is rechecked after storage reads and after
+persistence/audit/notification. Failure rolls everything back; repeat/concurrent
+POSTs cannot create a second package or notification.
 
-Select explicit deliverable-version IDs from the existing BE-08 deliverable and
-version-list APIs. Each selected version must belong to this project, be SUBMITTED
-or ACCEPTED, and contain files with a single version parent, a nonempty name/storage
-reference, positive size and a valid SHA-256 metadata value. Select at most one
-version per deliverable. Selecting an older eligible version is intentional: SRS
-specifies selected versions, not automatic replacement with the latest version.
+Snapshot GET reads stored metadata, never live version/title/file records. No
+normal update/delete/unlock/resubmit route exists. Draft/configuration writes
+also check the locked row even if project status changes externally. BE-08
+blocks mutations once the project leaves ACTIVE and never permits replacing
+submitted version bytes. This is application immutability; SQL and physical
+storage administrators remain privileged.
 
-The draft references versions, not public URLs, local paths or arbitrary report/
-meeting attachment IDs. BE-08 version content is immutable through its API. Files
-are displayed as safe BE-08 metadata and downloaded through the existing authorized
-`GET /api/v1/files/{id}/download`. No content upload, copy or storage-provider change
-is introduced here. Upload artifacts using BE-08 before preparing final selections;
-BE-08's own execution/deadline rules continue to apply.
+## Official access and BE-09
 
-This is not a locked snapshot. Version review status and descriptive metadata are
-read live; if a selected version is subsequently rejected, its item is returned
-with `isEligible=false`. The leader can replace/remove it, but cannot save it again
-as eligible. Newer uploads never replace the selected ID. Storage content existence
-and the complete configured checklist must be revalidated by the future submit flow.
+Readers: active student team members, managed department staff/admin, current
+primary lecturer supervisor, active assigned lecturer in project/assignment
+department. SUPERVISOR evaluator also needs current supervision. Each request
+checks current account/role/scope/membership/assignment; revoked evaluators lose
+access. Read remains possible on completed/archived projects while authorized.
 
-## Persistence and concurrency
+Evaluators use the dedicated final-package download route; general BE-08 access
+to all project files is not broadened. Storage keys never enter API responses or
+audit snapshots. Unknown/unselected file IDs return 404.
 
-Apply `db/changes/20260912_add_final_submission_drafts.sql` before deploying this
-slice. It adds only `final_submission_drafts` (unique project) and
-`final_submission_draft_items` (selected version references); it is rerunnable and
-does not backfill legacy projects, modify Generated/schema.sql or submit projects.
+BE-09 new assignments and creation/saving of draft grades now require a nonempty
+locked package as well as state/window/rubric/scope rules. Legacy status-only
+projects return 409; no fake packages/backfill. Existing grade history remains
+readable under existing permissions. Finalize/publication and evaluator assignment
+notifications remain separate BE-09 work.
 
-All operations use a serializable transaction. Writes lock the project before
-reading authorization, state or version metadata, coordinating with BE-08. Persisted
-membership/roles, academic configuration and referenced rows stay protected until
-commit. Draft creation/selection/token and audit share one transaction. Deadlocks,
-expected unique/FK conflicts and EF concurrency errors map to 409. Time is checked
-again after persistence/audit so a request crossing the deadline rolls back.
+## Deployment and tests
 
-## Traceability and remaining work
+Apply rubric/evaluation/draft migrations, then
+`db/changes/20260912_add_locked_final_submissions.sql` before deploying the API.
+The additive rerunnable script creates four requirements/submission tables;
+it does not change Generated/schema.sql, project states or historical grades.
+No startup auto-migration. This task tests SQL on owned isolated databases only;
+shared-server application belongs to the separate deployment step.
 
-- SRS 3.16.1: team scope and final-window discovery implemented; configured required
-  deliverables/reports/evidence and exact checklist completeness remain for slice 2.
-- SRS 3.16.2 / BR-141: leader-only preparation and audited draft changes implemented.
-  Official FINAL_SUBMISSION/FINAL_SUBMISSION_ITEM records, snapshot/lock,
-  ACTIVE -> FINAL_SUBMISSION and notifications remain for slice 2.
-- SRS 3.16.3 / BR-142: draft detail and private BE-08 file access implemented;
-  immutable official package and staff/supervisor/assigned-evaluator scope deferred.
-- BE-09 locked-package precondition is not connected by this slice. Existing draft
-  grading remains as previously accepted; finalize/result publication/complete/
-  archive are later work. Issue #21 remains partial.
-
-Foundation currently has no authoritative required-artifact checklist configuration.
-Do not equate all deliverables with required artifacts or invent a fixed document
-list. This contract needs to be defined before slice 2 can safely open submission.
-
-Tests cover real BE-08 upload/download and exact version retention, scope/role/leader
-changes, period boundaries and invalid configuration, rejected/foreign/missing
-versions, concurrent creates/updates, audit rollback, deadline crossing, project
-state races and rerunning the migration. SQL tests use owned isolated databases.
+SQL-backed tests exercise actual BE-08 upload/download, older-version selection,
+immutable metadata, authorization/revocation, missing/checksum-invalid files,
+missing requirements, deadline/state changes, concurrent submits/edits, rollback
+on audit/notification failure, migration rerun, and submit -> assignment -> draft
+grading. Issue #21 remains partial until results/completion/archive are implemented.

@@ -9,6 +9,7 @@ public interface IEvaluationDraftRepository
     Task<EvaluationActor?> GetActorAsync(long id, CancellationToken ct);
     Task<EvaluationProject?> GetProjectAsync(long id, CancellationToken ct);
     Task LockProjectAsync(long id, CancellationToken ct);
+    Task<bool> HasLockedSubmissionAsync(long projectId, CancellationToken ct);
     Task<EvaluationPeriod?> GetPeriodAsync(long id, DateTime now, CancellationToken ct);
     Task<bool> IsCurrentSupervisorAsync(long projectId, long userId, CancellationToken ct);
     Task<EvaluationAssignmentRecord?> GetAssignmentAsync(long id, CancellationToken ct);
