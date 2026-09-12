@@ -11,6 +11,8 @@ Folder and namespace conventions are documented in [Backend structure](docs/BACK
 FE integration for current user, academic context and registration workflow buttons
 is documented in [User workflow context](docs/user-workflow-context.md).
 
+The published topic catalogue contract is documented in [Topic catalogue](docs/topic-catalog.md).
+
 ```text
 Api -> Application -> Domain
 Api -> Infrastructure -> Application / Domain

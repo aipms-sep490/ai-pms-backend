@@ -8,6 +8,7 @@ public partial class AipmsDbContext
 {
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
+        ConfigureTopics(modelBuilder);
         ConfigureHybridProjects(modelBuilder);
         ConfigureEvaluationDrafts(modelBuilder);
         ConfigureEvaluationFinalizations(modelBuilder);

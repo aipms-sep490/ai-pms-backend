@@ -168,6 +168,8 @@ public static class DependencyInjection
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();
         services.AddScoped<IRubricRepository, RubricRepository>();
+        services.AddScoped<Application.Features.Topics.Abstractions.ITopicRepository, TopicRepository>();
+        services.AddScoped<Application.Features.Topics.Services.TopicWorkflow>();
         services.AddScoped<IEvaluationDraftRepository, EvaluationDraftRepository>();
         services.AddScoped<IProjectResultRepository, ProjectResultRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
