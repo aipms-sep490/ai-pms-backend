@@ -15,7 +15,9 @@ places with MidpointRounding.AwayFromZero. Zero is a valid explicit score.
 Each evaluator finalizes their own evaluation independently. This does not
 average/combine evaluators, determine pass/fail, publish results or transition
 the project to COMPLETED. The policy for which evaluations must be completed and
-how to aggregate them belongs to result publication and remains to be agreed.
+how to aggregate them now lives in ../Results/README.md. Staff must configure
+that policy before the first finalization. Finalization freezes its required
+assignments, weights and threshold; required assignments must remain active.
 
 ## API and authorization
 

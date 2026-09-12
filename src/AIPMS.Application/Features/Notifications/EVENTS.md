@@ -63,3 +63,10 @@ The final-submission source row lock deduplicates replay of its event; one packa
 per project makes PROJECT/project ID plus notification type a stable inbox key.
 Project approval/revision, report feedback, reminders and external
 delivery remain separate work; issue #8 is not fully Done.
+
+BE-16 result publication adds PROJECT_RESULT_PUBLISHED for all active student
+members (including nonleaders) of the project's current team, excluding the actor,
+left members, inactive users and users outside the active organization scope.
+Navigation is PROJECT/projectId. A project_result source-row lock deduplicates
+replays; publication, COMPLETED transition, audit and inbox share a transaction.
+The fixed notification text contains no score or private evaluator feedback.
