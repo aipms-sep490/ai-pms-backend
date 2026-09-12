@@ -28,13 +28,17 @@ public sealed class TeamsController(ISender sender) : ControllerBase
     public async Task<ActionResult<TeamDto>> Create(CreateTeamRequest request, CancellationToken ct)
     {
         var team = await sender.Send(new CreateTeamCommand(
-            request.AcademicSemesterId, request.Code, request.Name, request.Description), ct);
+            request.AcademicSemesterId, request.Code, request.Name, request.Description, request.AcademicScope), ct);
         return CreatedAtAction(nameof(Get), new { teamId = team.Id }, team);
     }
 
     [HttpPut("{teamId:long}")]
     public async Task<ActionResult<TeamDto>> Update(long teamId, UpdateTeamRequest request, CancellationToken ct) =>
         Ok(await sender.Send(new UpdateTeamCommand(teamId, request.Name, request.Description), ct));
+
+    [HttpPut("{teamId:long}/academic-scope")]
+    public async Task<ActionResult<TeamDto>> SetAcademicScope(long teamId, TeamAcademicScopeRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new SetTeamAcademicScopeCommand(teamId, request), ct));
 
     [HttpPost("{teamId:long}/eligibility/refresh")]
     public async Task<ActionResult<TeamDto>> RefreshEligibility(long teamId, CancellationToken ct) =>
@@ -99,7 +103,8 @@ public sealed class TeamsController(ISender sender) : ControllerBase
         Ok(await sender.Send(new TransferTeamLeaderCommand(teamId, request.NewLeaderUserId), ct));
 }
 
-public sealed record CreateTeamRequest(long AcademicSemesterId, string Code, string Name, string? Description);
+public sealed record CreateTeamRequest(long AcademicSemesterId, string Code, string Name, string? Description,
+    TeamAcademicScopeRequest? AcademicScope = null);
 public sealed record UpdateTeamRequest(string Name, string? Description);
 public sealed record InviteTeamMemberRequest(long InvitedUserId, string? Message);
 public sealed record TransferTeamLeaderRequest(long NewLeaderUserId);

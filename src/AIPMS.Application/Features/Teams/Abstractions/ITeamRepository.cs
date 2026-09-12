@@ -6,6 +6,8 @@ namespace AIPMS.Application.Features.Teams.Abstractions;
 
 public interface ITeamRepository
 {
+    Task ValidateAcademicScopeAsync(TeamAcademicScope scope, long organizationId, CancellationToken ct);
+    Task SetAcademicScopeAsync(long teamId, TeamAcademicScope scope, Guid? expectedToken, CancellationToken ct);
     Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken);
     Task<TeamSnapshot?> GetAsync(long teamId, CancellationToken cancellationToken);
     Task<long?> GetCurrentTeamIdAsync(long semesterId, long userId, CancellationToken cancellationToken);

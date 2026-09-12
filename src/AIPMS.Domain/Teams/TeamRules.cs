@@ -14,8 +14,7 @@ public sealed record TeamParticipant(
 
 public static class TeamRules
 {
-    // Single-major membership is a domain invariant in Foundation scope.
-    // Full Hybrid (ProjectMode, PrimaryMajor, per-major quotas, participating department scope, approval decisions) is deferred.
+    // Compatibility rules for teams without explicit academic scope. Configured teams use HybridTeamRules.
     public static bool HasSameMajor(TeamParticipant student, TeamParticipant leader) =>
         student.MajorId.HasValue && leader.MajorId.HasValue && student.MajorId == leader.MajorId;
 
@@ -32,9 +31,7 @@ public static class TeamRules
             return errors;
         }
 
-        // In Foundation scope, policies requiring interdisciplinary formation (MinDistinctMajors > 1)
-        // cannot be faithfully validated without full Hybrid support (ProjectMode, PrimaryMajor, per-major quotas).
-        // Foundation fails closed.
+        // Never infer interdisciplinary mode from a legacy team's roster or period alone.
         if (policy.MinDistinctMajors > 1)
         {
             errors.Add("UNSUPPORTED_HYBRID_POLICY");

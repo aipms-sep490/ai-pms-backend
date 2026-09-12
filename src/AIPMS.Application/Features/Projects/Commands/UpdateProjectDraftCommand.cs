@@ -30,7 +30,10 @@ public sealed class UpdateProjectDraftCommandHandler(
     IAuditTrail auditTrail)
     : IRequestHandler<UpdateProjectDraftCommand, ProjectDto>
 {
-    public async Task<ProjectDto> Handle(
+    public Task<ProjectDto> Handle(UpdateProjectDraftCommand request, CancellationToken cancellationToken) =>
+        repository.InTransactionAsync(token => HandleInTransactionAsync(request, token), cancellationToken);
+
+    private async Task<ProjectDto> HandleInTransactionAsync(
         UpdateProjectDraftCommand request,
         CancellationToken cancellationToken)
     {

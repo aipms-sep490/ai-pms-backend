@@ -7,6 +7,7 @@ using AIPMS.Application.Features.Teams.Abstractions;
 using AIPMS.Application.Features.Teams.Models;
 using AIPMS.Domain.Teams;
 using AIPMS.Infrastructure.Persistence.Generated;
+using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Team = AIPMS.Infrastructure.Persistence.Generated.Models.Team;
@@ -60,8 +61,53 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
         var students = await context.Users.Where(u => ids.Contains(u.Id)).Select(StudentProjection).ToListAsync(ct);
         var members = students.Select(s => s with { IsLeader = memberships.Single(m => m.UserId == s.UserId).IsLeader }).ToArray();
         var statuses = await context.Projects.Where(p => p.TeamId == teamId).Select(p => p.Status).ToListAsync(ct);
+        var configuration = await context.Set<TeamAcademicConfiguration>().AsNoTracking()
+            .Include(c => c.Requirements).SingleOrDefaultAsync(c => c.TeamId == teamId, ct);
         return new TeamSnapshot(team.Id, team.AcademicSemesterId, team.Code, team.Name,
-            team.Description, team.Status, members, statuses);
+            team.Description, team.Status, members, statuses, configuration?.ToScope());
+    }
+
+    public async Task ValidateAcademicScopeAsync(TeamAcademicScope scope, long organizationId, CancellationToken ct)
+    {
+        var ids = scope.Requirements.Select(r => r.MajorId).ToArray();
+        var majors = await context.Majors.Where(m => ids.Contains(m.Id) && m.IsActive
+            && m.Department.IsActive && m.Department.Organization.IsActive && m.Department.OrganizationId == organizationId)
+            .Select(m => new { m.Id, m.DepartmentId }).ToListAsync(ct);
+        if (majors.Count != ids.Length || !majors.Any(m => m.DepartmentId == scope.LeadDepartmentId)
+            || (scope.ProjectMode == "SINGLE_MAJOR" && majors.SingleOrDefault()?.DepartmentId != scope.LeadDepartmentId))
+            throw new ConflictException("All required majors and the lead department must be active and in the team's organization; the lead department must participate.");
+    }
+
+    public async Task SetAcademicScopeAsync(long teamId, TeamAcademicScope scope, Guid? expectedToken, CancellationToken ct)
+    {
+        var entity = await context.Set<TeamAcademicConfiguration>().Include(c => c.Requirements)
+            .SingleOrDefaultAsync(c => c.TeamId == teamId, ct);
+        if (entity?.ConcurrencyToken != expectedToken)
+            throw new ConflictException("Academic scope changed. Refresh and retry with its current concurrency token.");
+        if (entity is null)
+        {
+            entity = new TeamAcademicConfiguration { TeamId = teamId };
+            context.Add(entity);
+        }
+        entity.ProjectMode = scope.ProjectMode; entity.PrimaryMajorId = scope.PrimaryMajorId;
+        entity.LeadDepartmentId = scope.LeadDepartmentId; entity.ConcurrencyToken = Guid.NewGuid();
+        var ids = scope.Requirements.Select(r => r.MajorId).ToArray();
+        context.RemoveRange(entity.Requirements.Where(r => !ids.Contains(r.MajorId)));
+        foreach (var requirement in scope.Requirements)
+        {
+            var row = entity.Requirements.SingleOrDefault(r => r.MajorId == requirement.MajorId);
+            if (row is null)
+            {
+                row = new TeamMajorRequirement { TeamId = teamId, MajorId = requirement.MajorId };
+                entity.Requirements.Add(row);
+            }
+            row.MinMembers = requirement.MinMembers; row.MaxMembers = requirement.MaxMembers;
+            row.Responsibility = requirement.Responsibility.Trim();
+        }
+        var drafts = await context.Projects.Where(p => p.TeamId == teamId && (p.Status == "DRAFT" || p.Status == "REVISION_REQUIRED")).ToListAsync(ct);
+        foreach (var draft in drafts)
+            context.Entry(draft).Property(p => p.UpdatedAt).IsModified = true;
+        await SaveAsync(ct);
     }
 
     private static readonly Expression<Func<User, TeamParticipant>> StudentProjection = u =>

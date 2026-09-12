@@ -41,7 +41,7 @@ public sealed class TeamWorkflow(
     }
 
     public const string UnsupportedHybridPolicyMessage =
-        "Interdisciplinary team formation requires Hybrid policy configuration (ProjectMode / PrimaryMajor / major quotas / department scope), which is not supported in the current Foundation scope.";
+        "Interdisciplinary team formation requires Hybrid policy configuration (ProjectMode / PrimaryMajor / major quotas / department scope). Supply academicScope when creating the team or configure an existing editable team.";
 
     private static void EnsureFoundationPolicySupported(TeamFormationPolicy policy)
     {
@@ -50,14 +50,14 @@ public sealed class TeamWorkflow(
     }
 
     private async Task<(TeamRegistrationWindow Window, TeamFormationPolicy Policy)> ContextAsync(
-        long semesterId, CancellationToken ct)
+        long semesterId, CancellationToken ct, bool legacy = true)
     {
         var window = await repository.GetOpenWindowAsync(semesterId, Now, ct)
             ?? throw new ConflictException("No unambiguous active registration window exists in this semester.");
         var policy = await policies.GetAsync(window.PeriodId, ct);
         if (policy is null || !policy.IsValid)
             throw new ConflictException("Team formation policy is not configured for this registration period (BE-12).");
-        EnsureFoundationPolicySupported(policy);
+        if (legacy) EnsureFoundationPolicySupported(policy);
         return (window, policy);
     }
 
@@ -67,7 +67,10 @@ public sealed class TeamWorkflow(
         if (team.Status is not ("FORMING" or "ELIGIBLE")
             || team.ProjectStatuses.Any(TeamRules.ProjectLocksRoster))
             throw new ConflictException("The team roster is locked by team or project status.");
-        return await ContextAsync(team.SemesterId, ct);
+        var result = await ContextAsync(team.SemesterId, ct, team.AcademicScope is null);
+        if (team.AcademicScope is not null)
+            await repository.ValidateAcademicScopeAsync(team.AcademicScope, result.Window.OrganizationId, ct);
+        return result;
     }
 
     private static void RequireEligibleStudent(TeamParticipant student, long organizationId)
@@ -89,27 +92,56 @@ public sealed class TeamWorkflow(
         var policy = window is null ? null : await policies.GetAsync(window.PeriodId, ct);
         if (window is null) reasons.Add("REGISTRATION_WINDOW_UNAVAILABLE");
         if (policy is null || !policy.IsValid) reasons.Add("TEAM_POLICY_UNCONFIGURED");
-        if (policy is not null && policy.MinDistinctMajors > 1) reasons.Add("UNSUPPORTED_HYBRID_POLICY");
+        if (team.AcademicScope is null && policy is not null && policy.MinDistinctMajors > 1) reasons.Add("UNSUPPORTED_HYBRID_POLICY");
         if (team.Status is not ("FORMING" or "ELIGIBLE")
             || team.ProjectStatuses.Any(TeamRules.ProjectLocksRoster)) reasons.Add("ROSTER_LOCKED");
         var locked = reasons.Count > 0;
         if (window is not null && policy is { IsValid: true })
-            reasons.AddRange(TeamRules.EligibilityErrors(team.Members, policy, window.OrganizationId));
+            reasons.AddRange(EligibilityErrors(team, policy, window.OrganizationId));
         return new TeamDto(team.Id, team.SemesterId, team.Code, team.Name, team.Description,
             team.Status, team.Members.Select(member => member.ToDto()).ToArray(),
             new TeamEligibilityDto(reasons.Count == 0, locked,
-                window?.PeriodId, policy?.Version, reasons.Distinct().ToArray()));
+                window?.PeriodId, policy?.Version, reasons.Distinct().ToArray()), team.AcademicScope is null ? null : TeamAcademicScopeDto.FromScope(team.AcademicScope));
     }
 
     private async Task<TeamDto> SaveEligibilityAsync(long teamId, CancellationToken ct)
     {
         var team = await TeamAsync(teamId, ct);
         var (window, policy) = await MutableAsync(team, ct);
-        var status = TeamRules.EligibilityErrors(team.Members, policy, window.OrganizationId).Count == 0
+        var status = EligibilityErrors(team, policy, window.OrganizationId).Count == 0
             ? "ELIGIBLE" : "FORMING";
         await repository.UpdateAsync(team.Id, team.Name, team.Description, status, Now, ct);
         return await MapAsync(team with { Status = status }, ct);
     }
+
+    private static IReadOnlyList<string> EligibilityErrors(TeamSnapshot team, TeamFormationPolicy policy, long organizationId) =>
+        team.AcademicScope is null ? TeamRules.EligibilityErrors(team.Members, policy, organizationId)
+            : HybridTeamRules.EligibilityErrors(team.Members, policy, organizationId, team.AcademicScope);
+
+    private async Task SaveScopeAsync(TeamSnapshot team, TeamAcademicScopeRequest request,
+        TeamRegistrationWindow window, TeamFormationPolicy policy, CancellationToken ct)
+    {
+        var scope = request.ToScope();
+        var errors = HybridTeamRules.EligibilityErrors(team.Members, policy, window.OrganizationId, scope, false);
+        if (errors.Count != 0) throw new ConflictException(string.Join(", ", errors));
+        await repository.ValidateAcademicScopeAsync(scope, window.OrganizationId, ct);
+        await repository.SetAcademicScopeAsync(team.Id, scope, request.ConcurrencyToken, ct);
+    }
+
+    public Task<TeamDto> SetScopeAsync(SetTeamAcademicScopeCommand request, CancellationToken ct) =>
+        repository.InTransactionAsync(async token =>
+        {
+            var actor = await ActorAsync(token);
+            var team = await TeamAsync(request.TeamId, token);
+            RequireMember(team, actor.UserId, true);
+            if (team.Status is not ("FORMING" or "ELIGIBLE") || team.ProjectStatuses.Any(TeamRules.ProjectLocksRoster))
+                throw new ConflictException("Academic scope is locked by team or project status.");
+            var (window, policy) = await ContextAsync(team.SemesterId, token, false);
+            await SaveScopeAsync(team, request.Scope, window, policy, token);
+            var result = await SaveEligibilityAsync(team.Id, token);
+            await AuditAsync("TEAM_ACADEMIC_SCOPE_UPDATED", team.Id, actor.UserId, null, token);
+            return result;
+        }, ct);
 
     private async Task AuditAsync(string action, long teamId, long actorId, long? subjectId,
         CancellationToken ct)
@@ -124,6 +156,7 @@ public sealed class TeamWorkflow(
                 ["academicSemesterId"] = team.SemesterId,
                 ["registrationPeriodId"] = window?.PeriodId,
                 ["policyVersion"] = policy?.Version,
+                ["academicScope"] = team.AcademicScope,
                 ["status"] = team.Status
             }), ct);
     }
@@ -139,6 +172,13 @@ public sealed class TeamWorkflow(
     private static void RequireSameMajorAsLeader(
         TeamSnapshot team, TeamParticipant student, long organizationId, TeamFormationPolicy? policy = null)
     {
+        if (team.AcademicScope is not null && policy is not null)
+        {
+            var members = team.Members.Any(m => m.UserId == student.UserId) ? team.Members : [.. team.Members, student];
+            var errors = HybridTeamRules.EligibilityErrors(members, policy, organizationId, team.AcademicScope, false);
+            if (errors.Count != 0) throw new ConflictException(string.Join(", ", errors));
+            return;
+        }
         var leaders = team.Members.Where(m => m.IsLeader).ToArray();
         if (leaders.Length != 1)
             throw new ConflictException("The team must have exactly one active leader.");
@@ -157,7 +197,7 @@ public sealed class TeamWorkflow(
         var team = await TeamAsync(teamId, ct);
         RequireMember(team, actor.UserId, true);
         var (window, policy) = await MutableAsync(team, ct);
-        var reasons = TeamRules.EligibilityErrors(team.Members, policy, window.OrganizationId);
+        var reasons = EligibilityErrors(team, policy, window.OrganizationId);
         if (reasons.Count != 0)
             throw new ConflictException("The team is no longer eligible to register: " + string.Join(", ", reasons));
 
@@ -180,7 +220,7 @@ public sealed class TeamWorkflow(
         repository.InTransactionAsync(async token =>
         {
             var actor = await ActorAsync(token);
-            var (window, _) = await ContextAsync(request.AcademicSemesterId, token);
+            var (window, policy) = await ContextAsync(request.AcademicSemesterId, token, request.AcademicScope is null);
             RequireEligibleStudent(actor, window.OrganizationId);
             await RequireNoTeamAsync(request.AcademicSemesterId, actor.UserId, token);
             var now = Now;
@@ -188,6 +228,8 @@ public sealed class TeamWorkflow(
                 request.Code.Trim().ToUpperInvariant(), request.Name.Trim(),
                 request.Description?.Trim(), actor.UserId, now, token);
             await repository.AddMemberAsync(id, request.AcademicSemesterId, actor.UserId, true, now, token);
+            if (request.AcademicScope is not null)
+                await SaveScopeAsync(await TeamAsync(id, token), request.AcademicScope, window, policy, token);
             var result = await SaveEligibilityAsync(id, token);
             await AuditAsync("TEAM_CREATED", id, actor.UserId, actor.UserId, token);
             return result;
@@ -227,7 +269,9 @@ public sealed class TeamWorkflow(
         RequireSameMajorAsLeader(team, actor, window.OrganizationId, policy);
         if (team.Members.Count >= policy.MaxMembers)
             throw new ConflictException("The team has reached its member limit.");
-        return new(team.Id, team.SemesterId, actor.MajorId!.Value, window.OrganizationId, Now);
+        var allowedMajors = team.AcademicScope?.Requirements
+            .Where(r => team.Members.Count(m => m.MajorId == r.MajorId) < r.MaxMembers).Select(r => r.MajorId).ToArray();
+        return new(team.Id, team.SemesterId, actor.MajorId!.Value, window.OrganizationId, Now, allowedMajors);
     }
 
     public Task<TeamInvitationDto> InviteAsync(InviteTeamMemberCommand request, CancellationToken ct) =>

@@ -5,7 +5,8 @@ using MediatR;
 
 namespace AIPMS.Application.Features.Teams.Commands;
 
-public sealed record CreateTeamCommand(long AcademicSemesterId, string Code, string Name, string? Description) : IRequest<TeamDto>;
+public sealed record CreateTeamCommand(long AcademicSemesterId, string Code, string Name, string? Description,
+    TeamAcademicScopeRequest? AcademicScope = null) : IRequest<TeamDto>;
 
 public sealed class CreateTeamCommandHandler(TeamWorkflow workflow)
     : IRequestHandler<CreateTeamCommand, TeamDto>
