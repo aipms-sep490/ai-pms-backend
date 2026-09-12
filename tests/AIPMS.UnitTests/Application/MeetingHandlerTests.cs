@@ -76,8 +76,19 @@ public sealed class MeetingHandlerTests
             return Task.FromResult(Meeting);
         }
 
+        public Task<MeetingDto> CompleteAsync(long id, DateTime now, CancellationToken ct)
+        {
+            LastToken = ct;
+            if (Meeting != null && Meeting.Status == "COMPLETED")
+                throw new ConflictException("Meeting is already completed.");
+            if (Meeting != null && Meeting.Status == "CANCELLED")
+                throw new ConflictException("Cannot complete a meeting that has been cancelled.");
+            Meeting = Meeting! with { Status = "COMPLETED", UpdatedAt = now };
+            return Task.FromResult(Meeting);
+        }
+
         public Task<MeetingDto> UpdateNotesAsync(
-            long id, string? meetingNotes, string? status, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now, CancellationToken ct)
+            long id, string? meetingNotes, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now, CancellationToken ct)
         {
             LastToken = ct;
             if (Meeting != null && Meeting.Status == "CANCELLED")
@@ -328,7 +339,7 @@ public sealed class MeetingHandlerTests
 
         var handler = new UpdateMeetingNotesCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
         var command = new UpdateMeetingNotesCommand(5, new UpdateMeetingNotesRequest(
-            "Minutes: discussed architecture", "COMPLETED", new[] { new ParticipantAttendanceUpdate(2, "ATTENDED") }));
+            "Minutes: discussed architecture", new[] { new ParticipantAttendanceUpdate(2, "ATTENDED") }));
 
         var result = await handler.Handle(command, CancellationToken.None);
         Assert.Equal("Minutes: discussed architecture", result.MeetingNotes);
@@ -403,7 +414,7 @@ public sealed class MeetingHandlerTests
             "CANCELLED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
 
         var handler = new UpdateMeetingNotesCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
-        var command = new UpdateMeetingNotesCommand(5, new UpdateMeetingNotesRequest("Notes", "SCHEDULED", null));
+        var command = new UpdateMeetingNotesCommand(5, new UpdateMeetingNotesRequest("Notes", null));
 
         var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(command, CancellationToken.None));
         Assert.Equal("Cancelled meetings cannot be modified.", ex.Message);
@@ -417,7 +428,7 @@ public sealed class MeetingHandlerTests
             "COMPLETED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
 
         var handler = new UpdateMeetingNotesCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
-        var command = new UpdateMeetingNotesCommand(5, new UpdateMeetingNotesRequest("Finalized notes", "SCHEDULED", null));
+        var command = new UpdateMeetingNotesCommand(5, new UpdateMeetingNotesRequest("Finalized notes", null));
 
         var result = await handler.Handle(command, CancellationToken.None);
         Assert.Equal("COMPLETED", result.Status); // Persisted status remains COMPLETED!
@@ -432,11 +443,62 @@ public sealed class MeetingHandlerTests
             "SCHEDULED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
 
         var handler = new UpdateMeetingNotesCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
-        var command = new UpdateMeetingNotesCommand(5, new UpdateMeetingNotesRequest("Discussion notes", "COMPLETED", null));
+        var command = new UpdateMeetingNotesCommand(5, new UpdateMeetingNotesRequest("Discussion notes", null));
 
         var result = await handler.Handle(command, CancellationToken.None);
         Assert.Equal("SCHEDULED", result.Status); // Notes update does not mutate lifecycle status!
         Assert.Equal("Discussion notes", result.MeetingNotes);
+    }
+
+    #endregion
+
+    #region Finding 1: Meeting Completion Handler Tests
+
+    [Fact]
+    public async Task CompleteMeeting_ValidScheduled_TransitionsToCompleted()
+    {
+        repository.CurrentStatus = "SCHEDULED";
+        repository.Meeting = new MeetingDto(5, 1, "Sprint Review", null, null, DateTime.UtcNow, null, null, null,
+            "SCHEDULED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new CompleteMeetingCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var result = await handler.Handle(new CompleteMeetingCommand(5), CancellationToken.None);
+
+        Assert.Equal("COMPLETED", result.Status);
+        Assert.Single(audit.Entries);
+        Assert.Equal("MEETING_COMPLETED", audit.Entries[0].Action);
+    }
+
+    [Fact]
+    public async Task CompleteMeeting_AlreadyCompleted_ThrowsConflict()
+    {
+        repository.CurrentStatus = "COMPLETED";
+        repository.Meeting = new MeetingDto(5, 1, "Done Meeting", null, null, DateTime.UtcNow, null, null, null,
+            "COMPLETED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new CompleteMeetingCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new CompleteMeetingCommand(5), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CompleteMeeting_Cancelled_ThrowsConflict()
+    {
+        repository.CurrentStatus = "CANCELLED";
+        repository.Meeting = new MeetingDto(5, 1, "Cancelled Meeting", null, null, DateTime.UtcNow, null, null, null,
+            "CANCELLED", 1, "Creator", 0, DateTime.UtcNow, DateTime.UtcNow);
+
+        var handler = new CompleteMeetingCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new CompleteMeetingCommand(5), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CompleteMeeting_NonManager_ThrowsForbidden()
+    {
+        repository.CanManage = false;
+        currentUser.Roles = new[] { AppRoles.Student };
+
+        var handler = new CompleteMeetingCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(new CompleteMeetingCommand(5), CancellationToken.None));
     }
 
     #endregion

@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -40,19 +40,25 @@ public sealed class SubmitProgressReportCommandHandler(
             throw new ConflictException("Progress report is already submitted.");
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var result = await repository.SubmitAsync(command.Id, actorId, now, cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
+        var result = await repository.SubmitAsync(
+            command.Id,
             actorId,
-            "PROGRESS_REPORT_SUBMITTED",
-            "PROGRESS_REPORT",
-            result.Id,
-            new Dictionary<string, object?>
+            now,
+            async submitted =>
             {
-                ["projectId"] = projectId,
-                ["submittedAt"] = result.SubmittedAt?.ToString("o"),
-                ["isLate"] = result.IsLate
-            }), cancellationToken);
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "PROGRESS_REPORT_SUBMITTED",
+                    "PROGRESS_REPORT",
+                    submitted.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["submittedAt"] = submitted.SubmittedAt?.ToString("o"),
+                        ["isLate"] = submitted.IsLate
+                    }), cancellationToken);
+            },
+            cancellationToken);
 
         return result;
     }

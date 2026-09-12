@@ -53,17 +53,19 @@ public sealed class CancelMeetingValidator : AbstractValidator<CancelMeetingComm
     }
 }
 
+public sealed class CompleteMeetingValidator : AbstractValidator<CompleteMeetingCommand>
+{
+    public CompleteMeetingValidator()
+    {
+        RuleFor(x => x.Id).GreaterThan(0);
+    }
+}
+
 public sealed class UpdateMeetingNotesValidator : AbstractValidator<UpdateMeetingNotesCommand>
 {
     public UpdateMeetingNotesValidator()
     {
         RuleFor(x => x.Id).GreaterThan(0);
-        When(x => !string.IsNullOrEmpty(x.Request.Status), () =>
-        {
-            RuleFor(x => x.Request.Status!)
-                .Must(s => s is "SCHEDULED" or "COMPLETED" or "CANCELLED")
-                .WithMessage("Status must be SCHEDULED, COMPLETED, or CANCELLED.");
-        });
         When(x => x.Request.Attendances != null, () =>
         {
             RuleForEach(x => x.Request.Attendances).ChildRules(a =>

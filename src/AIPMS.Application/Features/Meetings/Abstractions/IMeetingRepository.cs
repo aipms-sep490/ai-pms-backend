@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -48,10 +48,11 @@ public interface IMeetingRepository
 
     Task<MeetingDto> CancelAsync(long id, DateTime now, CancellationToken cancellationToken);
 
+    Task<MeetingDto> CompleteAsync(long id, DateTime now, CancellationToken cancellationToken);
+
     Task<MeetingDto> UpdateNotesAsync(
         long id,
         string? meetingNotes,
-        string? status,
         IReadOnlyList<ParticipantAttendanceUpdate>? attendances,
         DateTime now,
         CancellationToken cancellationToken);

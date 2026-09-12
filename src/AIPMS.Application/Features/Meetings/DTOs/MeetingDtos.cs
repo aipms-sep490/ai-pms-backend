@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace AIPMS.Application.Features.Meetings.DTOs;
@@ -78,7 +78,6 @@ public sealed record UpdateMeetingRequest(
 
 public sealed record UpdateMeetingNotesRequest(
     string? MeetingNotes,
-    string? Status,
     IReadOnlyList<ParticipantAttendanceUpdate>? Attendances);
 
 public sealed record ParticipantAttendanceUpdate(

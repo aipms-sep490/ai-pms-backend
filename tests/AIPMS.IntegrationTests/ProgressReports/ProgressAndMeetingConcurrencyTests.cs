@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Meetings.DTOs;
@@ -9,7 +12,10 @@ using AIPMS.Application.Features.ProgressReports.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Repositories;
 using AIPMS.IntegrationTests.Supervisors;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
@@ -125,7 +131,7 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         await using (var submitDb = database.CreateContext())
         {
             var submitRepo = new ProgressReportRepository(submitDb);
-            var submittedDto = await submitRepo.SubmitAsync(reportId, ctx.LeaderUserId, Now.AddMinutes(5), CancellationToken.None);
+            var submittedDto = await submitRepo.SubmitAsync(reportId, ctx.LeaderUserId, Now.AddMinutes(5), cancellationToken: CancellationToken.None);
             Assert.Equal("SUBMITTED", submittedDto.Status);
         }
 
@@ -194,7 +200,7 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
             await tcs.Task;
             await using var db1 = database.CreateContext();
             var repo1 = new ProgressReportRepository(db1);
-            return await repo1.SubmitAsync(reportId, ctx.LeaderUserId, Now.AddMinutes(1), CancellationToken.None);
+            return await repo1.SubmitAsync(reportId, ctx.LeaderUserId, Now.AddMinutes(1), cancellationToken: CancellationToken.None);
         });
 
         var task2 = Task.Run(async () =>
@@ -202,7 +208,7 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
             await tcs.Task;
             await using var db2 = database.CreateContext();
             var repo2 = new ProgressReportRepository(db2);
-            return await repo2.SubmitAsync(reportId, ctx.LeaderUserId, Now.AddMinutes(1), CancellationToken.None);
+            return await repo2.SubmitAsync(reportId, ctx.LeaderUserId, Now.AddMinutes(1), cancellationToken: CancellationToken.None);
         });
 
         // Release both tasks at once
@@ -347,6 +353,305 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
                 .AsNoTracking()
                 .CountAsync(p => p.MeetingId == meetingId && p.UserId == ctx.MemberUserId);
             Assert.Equal(1, count);
+        }
+    }
+
+    #endregion
+
+    #region Finding 2: Meeting Mutation vs Cancel Race & Terminal State Protection
+
+    [Fact]
+    public async Task UpdateVsCancel_CancelWins_StaleUpdateReturns409_AndOriginalMeetingDataPreserved()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+
+        // 1. Seed SCHEDULED meeting in database
+        await using (var seedDb = database.CreateContext())
+        {
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Original Meeting Title",
+                Agenda = "Original Agenda",
+                StartAt = Now.AddDays(2),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+        }
+
+        // 2. Cancel wins: cancel commits first
+        await using (var cancelDb = database.CreateContext())
+        {
+            var cancelRepo = new MeetingRepository(cancelDb);
+            var cancelled = await cancelRepo.CancelAsync(meetingId, Now.AddMinutes(1), CancellationToken.None);
+            Assert.Equal("CANCELLED", cancelled.Status);
+        }
+
+        // 3. Stale update attempt on now-cancelled meeting MUST return 409 Conflict
+        await using (var updateDb = database.CreateContext())
+        {
+            var updateRepo = new MeetingRepository(updateDb);
+            var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+                updateRepo.UpdateAsync(
+                    meetingId,
+                    "Hacked Overwritten Title",
+                    "Hacked Agenda",
+                    Now.AddDays(5),
+                    Now.AddDays(5).AddHours(1),
+                    "Room Hack",
+                    null,
+                    Now.AddMinutes(2),
+                    CancellationToken.None));
+
+            Assert.Contains("cannot be updated", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // 4. Assert DB state: status remains CANCELLED and title/agenda NOT overwritten
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.Meetings.AsNoTracking().SingleAsync(m => m.Id == meetingId);
+            Assert.Equal("CANCELLED", persisted.Status);
+            Assert.Equal("Original Meeting Title", persisted.Title);
+            Assert.Equal("Original Agenda", persisted.Agenda);
+        }
+    }
+
+    [Fact]
+    public async Task AddParticipantVsCancel_CancelWins_StaleAddReturns409()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Sync Meeting",
+                StartAt = Now.AddDays(2),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+        }
+
+        // Cancel wins
+        await using (var cancelDb = database.CreateContext())
+        {
+            var cancelRepo = new MeetingRepository(cancelDb);
+            await cancelRepo.CancelAsync(meetingId, Now.AddMinutes(1), CancellationToken.None);
+        }
+
+        // Stale add participant attempt
+        await using (var addDb = database.CreateContext())
+        {
+            var addRepo = new MeetingRepository(addDb);
+            var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+                addRepo.AddParticipantAsync(meetingId, ctx.MemberUserId, "INVITED", Now.AddMinutes(2), CancellationToken.None));
+
+            Assert.Contains("cancelled", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Assert DB state: no participant was added
+        await using (var verifyDb = database.CreateContext())
+        {
+            var count = await verifyDb.MeetingParticipants.AsNoTracking().CountAsync(p => p.MeetingId == meetingId);
+            Assert.Equal(0, count);
+        }
+    }
+
+    [Fact]
+    public async Task RemoveParticipantVsCancel_CancelWins_StaleRemoveReturns409()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Meeting with Participant",
+                StartAt = Now.AddDays(2),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now,
+                MeetingParticipants =
+                [
+                    new() { UserId = ctx.MemberUserId, AttendanceStatus = "INVITED", CreatedAt = Now, UpdatedAt = Now }
+                ]
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+        }
+
+        // Cancel wins
+        await using (var cancelDb = database.CreateContext())
+        {
+            var cancelRepo = new MeetingRepository(cancelDb);
+            await cancelRepo.CancelAsync(meetingId, Now.AddMinutes(1), CancellationToken.None);
+        }
+
+        // Stale remove participant attempt
+        await using (var removeDb = database.CreateContext())
+        {
+            var removeRepo = new MeetingRepository(removeDb);
+            var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+                removeRepo.RemoveParticipantAsync(meetingId, ctx.MemberUserId, CancellationToken.None));
+
+            Assert.Contains("cancelled", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Assert DB state: participant was NOT removed
+        await using (var verifyDb = database.CreateContext())
+        {
+            var count = await verifyDb.MeetingParticipants.AsNoTracking().CountAsync(p => p.MeetingId == meetingId);
+            Assert.Equal(1, count);
+        }
+    }
+
+    [Fact]
+    public async Task NotesVsCancel_CancelWins_StaleNotesReturns409()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Meeting For Notes",
+                StartAt = Now.AddDays(2),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+        }
+
+        // Cancel wins
+        await using (var cancelDb = database.CreateContext())
+        {
+            var cancelRepo = new MeetingRepository(cancelDb);
+            await cancelRepo.CancelAsync(meetingId, Now.AddMinutes(1), CancellationToken.None);
+        }
+
+        // Stale notes update attempt
+        await using (var notesDb = database.CreateContext())
+        {
+            var notesRepo = new MeetingRepository(notesDb);
+            var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+                notesRepo.UpdateNotesAsync(meetingId, "Stale Notes Content", null, Now.AddMinutes(2), CancellationToken.None));
+
+            Assert.Contains("cancelled", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Assert DB state: notes not overwritten
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.Meetings.AsNoTracking().SingleAsync(m => m.Id == meetingId);
+            Assert.Null(persisted.MeetingNotes);
+        }
+    }
+
+    #endregion
+
+    #region Finding 3: Submit + Audit Atomicity & Rollback Tests
+
+    private sealed class FaultyAuditFactory(SupervisorDatabaseFixture database) : AipmsWebApplicationFactory
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = database.ConnectionString
+            }));
+            builder.ConfigureServices(services =>
+            {
+                services.AddScoped<IAuditTrail, ThrowingAuditTrail>();
+            });
+        }
+    }
+
+    private sealed class ThrowingAuditTrail : IAuditTrail
+    {
+        public Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Simulated audit failure inside atomic transaction.");
+        }
+    }
+
+    [Fact]
+    public async Task Submit_WhenAuditFails_RollsBackReportAndAuditAtomically()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long reportId;
+
+        // Seed a complete DRAFT report
+        await using (var seedDb = database.CreateContext())
+        {
+            var report = new M.ProgressReport
+            {
+                ProjectId = ctx.ProjectId,
+                SubmittedBy = ctx.LeaderUserId,
+                ReportType = "WEEKLY",
+                PeriodStart = DateOnly.FromDateTime(Now.AddDays(-14)),
+                PeriodEnd = DateOnly.FromDateTime(Now.AddDays(-7)),
+                Summary = "Original Draft Summary",
+                CompletedWork = "Completed tasks A and B",
+                PlannedWork = "Plan tasks C and D",
+                IssuesAndRisks = "Identified dependency risks",
+                Status = "DRAFT",
+                CreatedAt = Now.AddDays(-7),
+                UpdatedAt = Now.AddDays(-7)
+            };
+            seedDb.ProgressReports.Add(report);
+            await seedDb.SaveChangesAsync();
+            reportId = report.Id;
+        }
+
+        using var app = new FaultyAuditFactory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.Student]);
+
+        // Submit via HTTP API with faulty audit trail
+        var response = await leaderClient.PostAsync($"/api/v1/progress-reports/{reportId}/submit", null);
+
+        // Assert: Endpoint returned failure (500)
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+
+        // Assert DB state reloaded in fresh DbContext:
+        // Report MUST be rolled back to DRAFT, SubmittedAt MUST be null, and NO submit audit row exists
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.ProgressReports.AsNoTracking().SingleAsync(r => r.Id == reportId);
+            Assert.Equal("DRAFT", persisted.Status);
+            Assert.Null(persisted.SubmittedAt);
+            Assert.Equal("Original Draft Summary", persisted.Summary);
+            Assert.Equal("Completed tasks A and B", persisted.CompletedWork);
+            Assert.Equal("Plan tasks C and D", persisted.PlannedWork);
+            Assert.Equal("Identified dependency risks", persisted.IssuesAndRisks);
+
+            var auditCount = await verifyDb.AuditLogs
+                .AsNoTracking()
+                .CountAsync(a => a.EntityId == reportId.ToString() && a.Action == "PROGRESS_REPORT_SUBMITTED");
+            Assert.Equal(0, auditCount);
         }
     }
 

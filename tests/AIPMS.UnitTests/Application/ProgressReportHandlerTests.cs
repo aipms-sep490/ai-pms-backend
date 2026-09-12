@@ -75,7 +75,12 @@ public sealed class ProgressReportHandlerTests
 
         public bool IsActiveMember { get; set; } = true;
 
-        public Task<ProgressReportDto> SubmitAsync(long id, long actorId, DateTime now, CancellationToken ct)
+        public async Task<ProgressReportDto> SubmitAsync(
+            long id,
+            long actorId,
+            DateTime now,
+            Func<ProgressReportDto, Task>? onSubmitted = null,
+            CancellationToken ct = default)
         {
             LastToken = ct;
             if (Report == null) throw new NotFoundException("ProgressReport", id);
@@ -95,7 +100,11 @@ public sealed class ProgressReportHandlerTests
                 throw new ValidationException(errors);
 
             Report = Report! with { Status = "SUBMITTED", SubmittedBy = actorId, SubmittedAt = now, IsLate = null, UpdatedAt = now };
-            return Task.FromResult(Report);
+            if (onSubmitted != null)
+            {
+                await onSubmitted(Report);
+            }
+            return Report;
         }
 
         public Task<ProgressReportFeedbackDto> AddFeedbackAsync(long reportId, long supervisorAssignmentId, string feedbackText, DateTime now, CancellationToken ct)

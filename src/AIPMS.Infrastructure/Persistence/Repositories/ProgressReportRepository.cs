@@ -190,9 +190,12 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         long id,
         long actorId,
         DateTime now,
-        CancellationToken cancellationToken)
+        Func<ProgressReportDto, System.Threading.Tasks.Task>? onSubmitted = null,
+        CancellationToken cancellationToken = default)
     {
-        await using var tx = await context.Database.BeginTransactionAsync(cancellationToken);
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
         var entity = await context.ProgressReports
             .FromSqlInterpolated($"SELECT * FROM dbo.progress_reports WITH (UPDLOCK, ROWLOCK) WHERE id = {id}")
@@ -223,9 +226,20 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         entity.UpdatedAt = now;
 
         await context.SaveChangesAsync(cancellationToken);
-        await tx.CommitAsync(cancellationToken);
 
-        return (await GetByIdAsync(id, cancellationToken))!;
+        var result = (await GetByIdAsync(id, cancellationToken))!;
+
+        if (onSubmitted != null)
+        {
+            await onSubmitted(result);
+        }
+
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
     public async Task<ProgressReportFeedbackDto> AddFeedbackAsync(

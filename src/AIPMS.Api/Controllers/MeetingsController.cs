@@ -84,6 +84,19 @@ public sealed class MeetingsController(ISender sender) : ControllerBase
     }
 
     /// <summary>
+    /// Completes a scheduled meeting, transitioning its status to COMPLETED.
+    /// </summary>
+    [HttpPost("{id:long}/complete")]
+    [ProducesResponseType<MeetingDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<MeetingDto>> Complete(
+        long id,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new CompleteMeetingCommand(id), cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Soft-cancels a scheduled meeting by transitioning its status to CANCELLED to preserve history.
     /// Does not physically remove records from the database.
     /// </summary>

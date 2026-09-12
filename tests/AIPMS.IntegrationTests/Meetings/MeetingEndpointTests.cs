@@ -161,7 +161,6 @@ public sealed class MeetingEndpointTests(SupervisorDatabaseFixture database) : I
         // 3. Update meeting notes and mark attendance
         var notesRequest = new UpdateMeetingNotesRequest(
             "Meeting conducted. All user stories estimated.",
-            "SCHEDULED",
             new[]
             {
                 new ParticipantAttendanceUpdate(s.Accounts.Student, "ATTENDED"),
@@ -205,6 +204,161 @@ public sealed class MeetingEndpointTests(SupervisorDatabaseFixture database) : I
     }
 
     [Fact]
+    public async Task Meeting_CreateThenComplete_StatusBecomesCompleted()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+
+        var createRequest = new CreateMeetingRequest(
+            "Sprint Demo & Review",
+            "Demo deliverable version 1",
+            Now.AddDays(1),
+            Now.AddDays(1).AddHours(1),
+            "Room B102",
+            null,
+            new[] { s.MemberId });
+
+        var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/meetings", createRequest);
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var created = await createResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(created);
+        Assert.Equal("SCHEDULED", created.Status);
+
+        // Update notes
+        var notesRequest = new UpdateMeetingNotesRequest(
+            "All demo items passed QA inspection.",
+            new[] { new ParticipantAttendanceUpdate(s.Accounts.Student, "ATTENDED") });
+        var notesResponse = await leaderClient.PutAsJsonAsync($"/api/v1/meetings/{created.Id}/notes", notesRequest);
+        Assert.Equal(HttpStatusCode.OK, notesResponse.StatusCode);
+
+        // Complete meeting through API
+        var completeResponse = await leaderClient.PostAsync($"/api/v1/meetings/{created.Id}/complete", null);
+        Assert.Equal(HttpStatusCode.OK, completeResponse.StatusCode);
+        var completed = await completeResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(completed);
+        Assert.Equal("COMPLETED", completed.Status);
+
+        // GET meeting and assert persisted status
+        var getResponse = await leaderClient.GetAsync($"/api/v1/meetings/{created.Id}");
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        var reloaded = await getResponse.Content.ReadFromJsonAsync<MeetingDetailDto>();
+        Assert.NotNull(reloaded);
+        Assert.Equal("COMPLETED", reloaded.Status);
+        Assert.Equal("All demo items passed QA inspection.", reloaded.MeetingNotes);
+    }
+
+    [Fact]
+    public async Task Meeting_CompleteCancelled_Returns409()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+
+        var createRequest = new CreateMeetingRequest("Cancelled To Complete", null, Now.AddDays(1), null, null, null, null);
+        var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/meetings", createRequest);
+        var created = await createResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(created);
+
+        var cancelResponse = await leaderClient.PostAsync($"/api/v1/meetings/{created.Id}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+
+        // Attempt complete on cancelled meeting -> 409 Conflict
+        var completeResponse = await leaderClient.PostAsync($"/api/v1/meetings/{created.Id}/complete", null);
+        Assert.Equal(HttpStatusCode.Conflict, completeResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Meeting_CompleteAlreadyCompleted_Returns409()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+
+        var createRequest = new CreateMeetingRequest("Double Complete", null, Now.AddDays(1), null, null, null, null);
+        var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/meetings", createRequest);
+        var created = await createResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(created);
+
+        var complete1 = await leaderClient.PostAsync($"/api/v1/meetings/{created.Id}/complete", null);
+        Assert.Equal(HttpStatusCode.OK, complete1.StatusCode);
+
+        // Attempt complete again -> 409 Conflict
+        var complete2 = await leaderClient.PostAsync($"/api/v1/meetings/{created.Id}/complete", null);
+        Assert.Equal(HttpStatusCode.Conflict, complete2.StatusCode);
+    }
+
+    [Fact]
+    public async Task Meeting_NotesCannotReopenCompleted()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+
+        var createRequest = new CreateMeetingRequest("Complete Then Notes", null, Now.AddDays(1), null, null, null, null);
+        var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/meetings", createRequest);
+        var created = await createResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(created);
+
+        await leaderClient.PostAsync($"/api/v1/meetings/{created.Id}/complete", null);
+
+        // Update notes on completed meeting -> 200 OK, but status remains COMPLETED
+        var notesRequest = new UpdateMeetingNotesRequest("Post-meeting finalized notes.", null);
+        var notesResponse = await leaderClient.PutAsJsonAsync($"/api/v1/meetings/{created.Id}/notes", notesRequest);
+        Assert.Equal(HttpStatusCode.OK, notesResponse.StatusCode);
+        var updated = await notesResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(updated);
+        Assert.Equal("COMPLETED", updated.Status);
+        Assert.Equal("Post-meeting finalized notes.", updated.MeetingNotes);
+    }
+
+    [Fact]
+    public async Task Meeting_NotesCannotReopenCancelled()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+
+        var createRequest = new CreateMeetingRequest("Cancelled Notes Check", null, Now.AddDays(1), null, null, null, null);
+        var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/meetings", createRequest);
+        var created = await createResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(created);
+
+        await leaderClient.PostAsync($"/api/v1/meetings/{created.Id}/cancel", null);
+
+        // Update notes on cancelled meeting -> 409 Conflict
+        var notesRequest = new UpdateMeetingNotesRequest("Attempt notes on cancelled", null);
+        var notesResponse = await leaderClient.PutAsJsonAsync($"/api/v1/meetings/{created.Id}/notes", notesRequest);
+        Assert.Equal(HttpStatusCode.Conflict, notesResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Meeting_Complete_OrdinaryMemberDenied_SupervisorAllowed()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
+        using var memberClient = app.CreateAuthenticatedClient(s.MemberId, roles: [AppRoles.Student]);
+        using var supervisorClient = app.CreateAuthenticatedClient(s.Accounts.Lecturer, roles: [AppRoles.Lecturer]);
+
+        var createRequest = new CreateMeetingRequest("Permissions Meeting", null, Now.AddDays(1), null, null, null, null);
+        var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/meetings", createRequest);
+        var created = await createResponse.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(created);
+
+        // Ordinary member attempts complete -> 403 Forbidden
+        var memberComplete = await memberClient.PostAsync($"/api/v1/meetings/{created.Id}/complete", null);
+        Assert.Equal(HttpStatusCode.Forbidden, memberComplete.StatusCode);
+
+        // Assigned supervisor attempts complete -> 200 OK
+        var supervisorComplete = await supervisorClient.PostAsync($"/api/v1/meetings/{created.Id}/complete", null);
+        Assert.Equal(HttpStatusCode.OK, supervisorComplete.StatusCode);
+        var completed = await supervisorComplete.Content.ReadFromJsonAsync<MeetingDto>();
+        Assert.NotNull(completed);
+        Assert.Equal("COMPLETED", completed.Status);
+    }
+
+    [Fact]
     public async Task UpdateNotes_CancelledMeeting_Returns409()
     {
         var s = await SeedAsync();
@@ -231,7 +385,6 @@ public sealed class MeetingEndpointTests(SupervisorDatabaseFixture database) : I
         // Attempt to update notes on CANCELLED meeting -> 409 Conflict
         var notesRequest = new UpdateMeetingNotesRequest(
             "Trying to add notes to cancelled meeting",
-            "SCHEDULED",
             null);
         var notesResponse = await leaderClient.PutAsJsonAsync($"/api/v1/meetings/{created.Id}/notes", notesRequest);
         Assert.Equal(HttpStatusCode.Conflict, notesResponse.StatusCode);
@@ -269,7 +422,6 @@ public sealed class MeetingEndpointTests(SupervisorDatabaseFixture database) : I
 
         var notesRequest = new UpdateMeetingNotesRequest(
             "Final meeting summary notes.",
-            "SCHEDULED", // Attempt to reopen
             new[] { new ParticipantAttendanceUpdate(s.Accounts.Student, "ATTENDED") });
 
         var notesResponse = await leaderClient.PutAsJsonAsync($"/api/v1/meetings/{meetingId}/notes", notesRequest);

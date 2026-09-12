@@ -56,7 +56,8 @@ public interface IProgressReportRepository
         long id,
         long actorId,
         DateTime now,
-        CancellationToken cancellationToken);
+        Func<ProgressReportDto, Task>? onSubmitted = null,
+        CancellationToken cancellationToken = default);
 
     Task<ProgressReportFeedbackDto> AddFeedbackAsync(
         long reportId,
