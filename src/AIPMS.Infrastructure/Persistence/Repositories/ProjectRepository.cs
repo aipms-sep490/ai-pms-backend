@@ -14,7 +14,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-public sealed class ProjectRepository(AipmsDbContext context) : IProjectRepository
+public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvider? timeProvider = null) : IProjectRepository
 {
     private static readonly string[] ActiveStatuses = 
     [
@@ -34,10 +34,18 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
                 .ThenInclude(static pt => pt.Tag)
             .SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
 
-        return entity?.ToDto();
+        if (entity is null) return null;
+        if (entity.Status is not ("DRAFT" or "REVISION_REQUIRED"))
+        {
+            var snapshot = await LatestRegistrationAsync(entity.Id, cancellationToken);
+            if (snapshot is not null)
+                return entity.ToDto() with { AcademicScope = System.Text.Json.JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!.Scope };
+        }
+        var scope = await GetTeamScopeAsync(entity.TeamId, cancellationToken);
+        return entity.ToDto() with { AcademicScope = scope is null ? null : AIPMS.Application.Features.Teams.DTOs.TeamAcademicScopeDto.FromScope(scope) };
     }
 
-    public async Task<PagedResult<ProjectSummaryDto>> GetProjectsAsync(
+    public Task<PagedResult<ProjectSummaryDto>> GetProjectsAsync(
         string? status,
         long? teamId,
         long? semesterId,
@@ -46,7 +54,15 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
         string? search,
         int page,
         int pageSize,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        GetProjectsCoreAsync(null, status, teamId, semesterId, majorId, tag, search, page, pageSize, cancellationToken);
+
+    public Task<PagedResult<ProjectSummaryDto>> GetVisibleProjectsAsync(long userId, string? status, long? teamId,
+        long? semesterId, long? majorId, string? tag, string? search, int page, int pageSize, CancellationToken ct) =>
+        GetProjectsCoreAsync(userId, status, teamId, semesterId, majorId, tag, search, page, pageSize, ct);
+
+    private async Task<PagedResult<ProjectSummaryDto>> GetProjectsCoreAsync(long? userId, string? status, long? teamId,
+        long? semesterId, long? majorId, string? tag, string? search, int page, int pageSize, CancellationToken cancellationToken)
     {
         var query = context.Projects
             .AsNoTracking()
@@ -56,6 +72,21 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
             .Include(static p => p.ProjectTags)
                 .ThenInclude(static pt => pt.Tag)
             .AsQueryable();
+
+        if (userId is long actorId)
+        {
+            var actor = await context.Users.AsNoTracking().Where(u => u.Id == actorId && u.Status == "ACTIVE")
+                .Select(u => new { u.DepartmentId,
+                    Admin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"),
+                    Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF") && u.Department != null
+                        && u.Department.IsActive && u.Department.Organization.IsActive }).SingleOrDefaultAsync(cancellationToken);
+            if (actor is null) throw new ForbiddenException("An active account is required.");
+            var departmentProjects = DepartmentProjectIds(actor.DepartmentId);
+            if (!actor.Admin)
+                query = query.Where(p => p.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null)
+                    || context.SupervisorAssignments.Any(a => a.ProjectId == p.Id && a.EndedAt == null && a.SupervisorProfile.UserId == actorId)
+                    || (actor.Staff && departmentProjects.Contains(p.Id)));
+        }
 
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -119,7 +150,8 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
 
         if (departmentId.HasValue)
         {
-            query = query.Where(p => p.ProjectMajors.Any(pm => pm.Major.DepartmentId == departmentId.Value));
+            var departmentProjects = DepartmentProjectIds(departmentId);
+            query = query.Where(p => departmentProjects.Contains(p.Id));
         }
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -230,7 +262,8 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
             : null;
         try
         {
-            var utcNow = DateTime.UtcNow;
+            await ValidateProjectMajorsAsync(teamId, majorIds, cancellationToken);
+            var utcNow = Now;
             var project = new Project
             {
                 TeamId = teamId,
@@ -306,9 +339,11 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
         IReadOnlyList<string> keywords,
         CancellationToken cancellationToken)
     {
-        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken) : null;
         try
         {
+            await LockProjectAsync(projectId, cancellationToken);
             var project = await context.Projects
                 .Include(static p => p.ProjectMajors)
                 .Include(static p => p.ProjectTags)
@@ -321,7 +356,10 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
                 throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
             }
 
-            var utcNow = DateTime.UtcNow;
+            if (project.Status is not ("DRAFT" or "REVISION_REQUIRED"))
+                throw new ConflictException("Only an editable proposal can be updated.");
+            await ValidateProjectMajorsAsync(project.TeamId, majorIds, cancellationToken);
+            var utcNow = Now;
             project.Title = title.Trim();
             project.Description = description?.Trim();
             project.Objectives = objectives?.Trim();
@@ -355,13 +393,13 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
             }
 
             await context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
             return (await GetByIdAsync(project.Id, cancellationToken))!;
         }
         catch (DbUpdateConcurrencyException)
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
             throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
         }
         catch (DbUpdateException exception)
@@ -369,12 +407,12 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
                   && (sqlException.Number == 2601 || sqlException.Number == 2627)
                   && sqlException.Message.Contains("uq_projects_active_team"))
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
             throw new ConflictException("The team already has an active or unfinished project proposal.");
         }
         catch
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
             throw;
         }
     }
@@ -393,6 +431,7 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
             : null;
         try
         {
+            await LockProjectAsync(projectId, cancellationToken);
             var project = await context.Projects
                 .SingleOrDefaultAsync(p => p.Id == projectId, cancellationToken)
                 ?? throw new NotFoundException("Project", projectId);
@@ -403,7 +442,10 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
                 throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
             }
 
-            var utcNow = DateTime.UtcNow;
+            if (project.Status != oldStatus) throw new ConflictException("Project status changed. Refresh and retry.");
+            await ValidateAcademicReviewTransitionAsync(project, newStatus, actorUserId, cancellationToken);
+            var utcNow = Now;
+            if (newStatus == "SUBMITTED") await CaptureRegistrationAsync(project, actorUserId, utcNow, cancellationToken);
             project.Status = newStatus;
             project.UpdatedAt = utcNow;
 
@@ -517,6 +559,13 @@ public sealed class ProjectRepository(AipmsDbContext context) : IProjectReposito
         long projectId,
         CancellationToken cancellationToken)
     {
+        var status = await context.Projects.Where(p => p.Id == projectId).Select(p => p.Status).SingleOrDefaultAsync(cancellationToken);
+        if (status is not ("DRAFT" or "REVISION_REQUIRED"))
+        {
+            var snapshot = await LatestRegistrationAsync(projectId, cancellationToken);
+            if (snapshot is not null)
+                return System.Text.Json.JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!.DepartmentIds;
+        }
         var departmentIds = await context.ProjectMajors
             .AsNoTracking()
             .Where(pm => pm.ProjectId == projectId)

@@ -11,5 +11,7 @@ public sealed class CreateTeamCommandValidator : AbstractValidator<CreateTeamCom
         RuleFor(x => x.Code).NotEmpty().MaximumLength(50).Matches("^[A-Za-z0-9][A-Za-z0-9_-]*$");
         RuleFor(x => x.Name).NotEmpty().MaximumLength(255);
         RuleFor(x => x.Description).MaximumLength(1000);
+        When(x => x.AcademicScope is not null, () =>
+            RuleFor(x => x.AcademicScope!).SetValidator(new TeamAcademicScopeRequestValidator()));
     }
 }

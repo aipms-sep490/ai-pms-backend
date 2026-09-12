@@ -260,6 +260,14 @@ public sealed class ProjectTests
 
 internal sealed class StubProjectRepository : IProjectRepository
 {
+    public Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) => action(ct);
+    public Task<ProjectAcademicReviewDto> GetAcademicReviewAsync(long projectId, CancellationToken ct) => throw new NotSupportedException();
+    public Task<ProjectAcademicReviewDto> RecordDepartmentDecisionAsync(long projectId, long actorId,
+        DepartmentDecisionRequest request, CancellationToken ct) => throw new NotSupportedException();
+    public Task<PagedResult<ProjectSummaryDto>> GetVisibleProjectsAsync(long userId, string? status, long? teamId,
+        long? semesterId, long? majorId, string? tag, string? search, int page, int pageSize, CancellationToken ct) =>
+        GetProjectsAsync(status, teamId, semesterId, majorId, tag, search, page, pageSize, ct);
+
     private long _nextProjectId = 100;
     private long _nextHistoryId = 200;
 

@@ -8,6 +8,9 @@ The solution follows Clean Architecture with feature-based use cases:
 
 Folder and namespace conventions are documented in [Backend structure](docs/BACKEND_STRUCTURE.md).
 
+FE integration for current user, academic context and registration workflow buttons
+is documented in [User workflow context](docs/user-workflow-context.md).
+
 ```text
 Api -> Application -> Domain
 Api -> Infrastructure -> Application / Domain

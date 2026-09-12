@@ -3,6 +3,7 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Notifications.Abstractions;
 using AIPMS.Application.Features.Notifications.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
@@ -28,7 +29,10 @@ internal sealed class NotificationInboxRepository(AipmsDbContext context) : INot
     public Task<long> CountUnreadAsync(long userId, CancellationToken ct) =>
         context.NotificationRecipients.LongCountAsync(r => r.UserId == userId && !r.IsRead, ct);
 
-    public async Task<bool> MarkReadAsync(long userId, long notificationId, DateTime now, CancellationToken ct)
+    public Task<bool> MarkReadAsync(long userId, long notificationId, DateTime now, CancellationToken ct) =>
+        RetryDeadlockAsync(() => MarkReadCoreAsync(userId, notificationId, now, ct), ct);
+
+    private async Task<bool> MarkReadCoreAsync(long userId, long notificationId, DateTime now, CancellationToken ct)
     {
         var owned = context.NotificationRecipients.Where(r => r.UserId == userId && r.NotificationId == notificationId);
         // Conditional SQL update preserves the first read timestamp across retries and concurrent requests.
@@ -38,7 +42,28 @@ internal sealed class NotificationInboxRepository(AipmsDbContext context) : INot
     }
 
     public async Task MarkAllReadAsync(long userId, DateTime now, CancellationToken ct) =>
-        await context.NotificationRecipients.Where(r => r.UserId == userId && !r.IsRead)
+        await RetryDeadlockAsync(() => context.NotificationRecipients.Where(r => r.UserId == userId && !r.IsRead)
             .ExecuteUpdateAsync(setters => setters.SetProperty(r => r.IsRead, true)
-                .SetProperty(r => r.ReadAt, now).SetProperty(r => r.UpdatedAt, now), ct);
+                .SetProperty(r => r.ReadAt, now).SetProperty(r => r.UpdatedAt, now), ct), ct);
+
+    private async Task<T> RetryDeadlockAsync<T>(Func<Task<T>> action, CancellationToken ct)
+    {
+        // SQL rolls back the victim statement. These conditional autocommit writes are
+        // idempotent; retain the original timestamp and never retry part of an outer transaction.
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return await action(); }
+            catch (Exception exception) when (attempt < 3 && context.Database.CurrentTransaction is null && IsDeadlock(exception))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(25 * (attempt + 1) + Random.Shared.Next(25)), ct);
+            }
+        }
+    }
+
+    private static bool IsDeadlock(Exception exception)
+    {
+        for (Exception? cause = exception; cause is not null; cause = cause.InnerException)
+            if (cause is SqlException { Number: 1205 }) return true;
+        return false;
+    }
 }

@@ -49,6 +49,8 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
             var start = schema.IndexOf("SET ANSI_NULLS ON;", StringComparison.Ordinal);
             if (start < 0) throw new InvalidOperationException("Unexpected schema bootstrap.");
             schema = schema[start..];
+            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
+                "db", "changes", "20260912_add_interdisciplinary_projects.sql"), ct);
             if (Regex.IsMatch(schema, @"\bUSE\s|\b(?:CREATE|DROP|ALTER)\s+DATABASE\b", RegexOptions.IgnoreCase))
                 throw new InvalidOperationException("Schema must not switch or manage databases.");
 

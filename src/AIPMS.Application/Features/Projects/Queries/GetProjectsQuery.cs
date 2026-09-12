@@ -37,7 +37,8 @@ public sealed class GetProjectsQueryHandler(
         var page = request.Page <= 0 ? 1 : request.Page;
         var pageSize = request.PageSize <= 0 ? 10 : request.PageSize;
 
-        var result = await repository.GetProjectsAsync(
+        var result = await repository.GetVisibleProjectsAsync(
+            currentUser.UserId.Value,
             request.Status,
             request.TeamId,
             request.SemesterId,

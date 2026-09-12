@@ -381,6 +381,9 @@ public sealed partial class TeamHandlerTests
 
     private sealed class FakeTeamRepository : ITeamRepository
     {
+        public Task ValidateAcademicScopeAsync(TeamAcademicScope scope, long organizationId, CancellationToken ct) => throw new NotSupportedException();
+        public Task SetAcademicScopeAsync(long teamId, TeamAcademicScope scope, Guid? expectedToken, CancellationToken ct) => throw new NotSupportedException();
+
         public Dictionary<long, TeamParticipant> Students { get; } = new()
         {
             [1] = new(1, "Leader", 10, 1, true, false),

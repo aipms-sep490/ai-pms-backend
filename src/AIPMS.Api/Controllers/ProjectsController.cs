@@ -18,6 +18,14 @@ namespace AIPMS.Api.Controllers;
 [Route("api/v1/projects")]
 public sealed class ProjectsController(ISender sender) : ControllerBase
 {
+    [HttpGet("{id:long}/academic-review")]
+    public async Task<ActionResult<ProjectAcademicReviewDto>> AcademicReview(long id, CancellationToken ct) =>
+        Ok(await sender.Send(new GetProjectAcademicReviewQuery(id), ct));
+
+    [HttpPost("{id:long}/department-decisions")]
+    public async Task<ActionResult<ProjectAcademicReviewDto>> DepartmentDecision(long id, DepartmentDecisionRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new RecordDepartmentDecisionCommand(id, request), ct));
+
     [HttpGet("lifecycle")]
     [ProducesResponseType<ProjectLifecycleDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ProjectLifecycleDto>> GetLifecycle(CancellationToken cancellationToken) =>
