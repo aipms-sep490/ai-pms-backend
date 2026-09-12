@@ -12,6 +12,7 @@ using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Mappers;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Task = System.Threading.Tasks.Task;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
@@ -118,8 +119,27 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         string? plannedWork,
         string? issuesAndRisks,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        await CreateAsync(projectId, submittedBy, reportType, periodStart, periodEnd, summary, completedWork, plannedWork, issuesAndRisks, now, null, cancellationToken);
+
+    public async Task<ProgressReportDto> CreateAsync(
+        long projectId,
+        long submittedBy,
+        string reportType,
+        DateOnly periodStart,
+        DateOnly periodEnd,
+        string summary,
+        string? completedWork,
+        string? plannedWork,
+        string? issuesAndRisks,
+        DateTime now,
+        Func<ProgressReportDto, Task>? onCreated,
+        CancellationToken cancellationToken = default)
     {
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
         var entity = new ProgressReport
         {
             ProjectId = projectId,
@@ -147,7 +167,19 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             throw new ConflictException("A progress report for this project, type, and period already exists.");
         }
 
-        return (await GetByIdAsync(entity.Id, cancellationToken))!;
+        var result = (await GetByIdAsync(entity.Id, cancellationToken))!;
+
+        if (onCreated != null)
+        {
+            await onCreated(result);
+        }
+
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
     public async Task<ProgressReportDto> UpdateAsync(
@@ -157,40 +189,69 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         string? plannedWork,
         string? issuesAndRisks,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        await UpdateAsync(id, summary, completedWork, plannedWork, issuesAndRisks, now, null, cancellationToken);
+
+    public async Task<ProgressReportDto> UpdateAsync(
+        long id,
+        string summary,
+        string? completedWork,
+        string? plannedWork,
+        string? issuesAndRisks,
+        DateTime now,
+        Func<ProgressReportDto, Task>? onUpdated,
+        CancellationToken cancellationToken = default)
     {
-        var affected = await context.ProgressReports
-            .Where(r => r.Id == id && r.Status == "DRAFT")
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(r => r.Summary, summary)
-                .SetProperty(r => r.CompletedWork, completedWork)
-                .SetProperty(r => r.PlannedWork, plannedWork)
-                .SetProperty(r => r.IssuesAndRisks, issuesAndRisks)
-                .SetProperty(r => r.UpdatedAt, now),
-                cancellationToken);
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
-        if (affected == 0)
-        {
-            var currentStatus = await context.ProgressReports
-                .AsNoTracking()
-                .Where(r => r.Id == id)
-                .Select(r => r.Status)
-                .FirstOrDefaultAsync(cancellationToken);
+        var entity = await context.ProgressReports
+            .FromSqlInterpolated($"SELECT * FROM dbo.progress_reports WITH (UPDLOCK, ROWLOCK) WHERE id = {id}")
+            .AsTracking()
+            .FirstOrDefaultAsync(cancellationToken);
 
-            if (currentStatus is null)
-                throw new NotFoundException("ProgressReport", id);
+        if (entity is null)
+            throw new NotFoundException("ProgressReport", id);
 
+        if (entity.Status != "DRAFT")
             throw new ConflictException("Submitted or reviewed progress reports cannot be modified.");
+
+        entity.Summary = summary;
+        entity.CompletedWork = completedWork;
+        entity.PlannedWork = plannedWork;
+        entity.IssuesAndRisks = issuesAndRisks;
+        entity.UpdatedAt = now;
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        var result = (await GetByIdAsync(id, cancellationToken))!;
+
+        if (onUpdated != null)
+        {
+            await onUpdated(result);
         }
 
-        return (await GetByIdAsync(id, cancellationToken))!;
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
     public async Task<ProgressReportDto> SubmitAsync(
         long id,
         long actorId,
         DateTime now,
-        Func<ProgressReportDto, System.Threading.Tasks.Task>? onSubmitted = null,
+        CancellationToken cancellationToken) =>
+        await SubmitAsync(id, actorId, now, null, cancellationToken);
+
+    public async Task<ProgressReportDto> SubmitAsync(
+        long id,
+        long actorId,
+        DateTime now,
+        Func<ProgressReportDto, Task>? onSubmitted,
         CancellationToken cancellationToken = default)
     {
         await using var tx = context.Database.CurrentTransaction is null
@@ -247,10 +308,31 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         long supervisorAssignmentId,
         string feedbackText,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        await AddFeedbackAsync(reportId, supervisorAssignmentId, feedbackText, now, null, cancellationToken);
+
+    public async Task<ProgressReportFeedbackDto> AddFeedbackAsync(
+        long reportId,
+        long supervisorAssignmentId,
+        string feedbackText,
+        DateTime now,
+        Func<ProgressReportFeedbackDto, Task>? onAdded,
+        CancellationToken cancellationToken = default)
     {
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
         var report = await context.ProgressReports
-            .FirstAsync(r => r.Id == reportId, cancellationToken);
+            .FromSqlInterpolated($"SELECT * FROM dbo.progress_reports WITH (UPDLOCK, ROWLOCK) WHERE id = {reportId}")
+            .AsTracking()
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (report is null)
+            throw new NotFoundException("ProgressReport", reportId);
+
+        if (report.Status == "DRAFT")
+            throw new ConflictException("Cannot provide feedback on a draft progress report.");
 
         var feedback = new SupervisorFeedback
         {
@@ -275,7 +357,19 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
                     .ThenInclude(p => p.User)
             .FirstAsync(f => f.Id == feedback.Id, cancellationToken);
 
-        return reloaded.ToDto();
+        var result = reloaded.ToDto();
+
+        if (onAdded != null)
+        {
+            await onAdded(result);
+        }
+
+        if (tx is not null)
+        {
+            await tx.CommitAsync(cancellationToken);
+        }
+
+        return result;
     }
 
     public async Task<long?> GetProjectIdAsync(long reportId, CancellationToken cancellationToken)

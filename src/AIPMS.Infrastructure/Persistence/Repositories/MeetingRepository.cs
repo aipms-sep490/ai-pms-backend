@@ -507,7 +507,15 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
             : null;
 
         var meeting = await context.Meetings
-            .FirstAsync(m => m.Id == meetingId, cancellationToken);
+            .FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK, ROWLOCK) WHERE id = {meetingId}")
+            .AsTracking()
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (meeting is null)
+            throw new NotFoundException("Meeting", meetingId);
+
+        if (meeting.Status == "CANCELLED")
+            throw new ConflictException("Cannot provide feedback on a cancelled meeting.");
 
         var feedback = new SupervisorFeedback
         {

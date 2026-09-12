@@ -233,6 +233,9 @@ public sealed class MeetingHandlerTests
             Func<MeetingFeedbackDto, Task>? onAdded = null, CancellationToken ct = default)
         {
             LastToken = ct;
+            if (Meeting != null && Meeting.Status == "CANCELLED")
+                throw new ConflictException("Cannot provide feedback on a cancelled meeting.");
+
             var dto = new MeetingFeedbackDto(1, Meeting?.ProjectId ?? 1, supervisorAssignmentId, 50, "Prof", meetingId, feedbackText, now, now);
             if (onAdded != null)
             {

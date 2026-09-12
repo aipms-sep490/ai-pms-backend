@@ -33,7 +33,10 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         long TeamId,
         long LeaderUserId,
         long MemberUserId,
-        long DepartmentId);
+        long DepartmentId,
+        long SupervisorUserId,
+        long SupervisorProfileId,
+        long SupervisorAssignmentId);
 
     private async Task<TestProjectContext> SeedTestProjectAsync()
     {
@@ -96,7 +99,29 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         db.Projects.Add(project);
         await db.SaveChangesAsync();
 
-        return new TestProjectContext(project.Id, team.Id, s.Student, memberUser.Id, s.DepartmentId);
+        var request = new M.SupervisorRequest
+        {
+            ProjectId = project.Id,
+            SupervisorProfileId = s.ProfileId,
+            RequestedBy = s.Student,
+            Status = "ACCEPTED",
+            RequestedAt = Now.AddDays(-1)
+        };
+        db.SupervisorRequests.Add(request);
+        await db.SaveChangesAsync();
+
+        var assignment = new M.SupervisorAssignment
+        {
+            ProjectId = project.Id,
+            SupervisorProfileId = s.ProfileId,
+            SupervisorRequestId = request.Id,
+            IsPrimary = true,
+            AssignedAt = Now.AddDays(-1)
+        };
+        db.SupervisorAssignments.Add(assignment);
+        await db.SaveChangesAsync();
+
+        return new TestProjectContext(project.Id, team.Id, s.Student, memberUser.Id, s.DepartmentId, s.Lecturer, s.ProfileId, assignment.Id);
     }
 
     #region Finding 1: Update vs Submit Race & Concurrent Submit
@@ -582,6 +607,9 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         public bool FailOnMeetingCompleted { get; set; }
         public bool FailOnMeetingCancelled { get; set; }
         public bool FailOnProgressReportSubmitted { get; set; }
+        public bool FailOnProgressReportCreated { get; set; }
+        public bool FailOnProgressReportUpdated { get; set; }
+        public bool FailOnProgressReportFeedbackAdded { get; set; }
     }
 
     private sealed class ConfigurableAuditTrail(
@@ -607,6 +635,21 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
             if (entry.Action == "PROGRESS_REPORT_SUBMITTED" && state.FailOnProgressReportSubmitted)
             {
                 throw new InvalidOperationException("Simulated audit failure on PROGRESS_REPORT_SUBMITTED inside atomic transaction.");
+            }
+
+            if (entry.Action == "PROGRESS_REPORT_CREATED" && state.FailOnProgressReportCreated)
+            {
+                throw new InvalidOperationException("Simulated audit failure on PROGRESS_REPORT_CREATED inside atomic transaction.");
+            }
+
+            if (entry.Action == "PROGRESS_REPORT_UPDATED" && state.FailOnProgressReportUpdated)
+            {
+                throw new InvalidOperationException("Simulated audit failure on PROGRESS_REPORT_UPDATED inside atomic transaction.");
+            }
+
+            if (entry.Action == "PROGRESS_REPORT_FEEDBACK_ADDED" && state.FailOnProgressReportFeedbackAdded)
+            {
+                throw new InvalidOperationException("Simulated audit failure on PROGRESS_REPORT_FEEDBACK_ADDED inside atomic transaction.");
             }
 
             return _inner.RecordAsync(entry, cancellationToken);
@@ -824,6 +867,265 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
                 .AsNoTracking()
                 .CountAsync(a => a.EntityId == meetingId.ToString() && a.Action == "MEETING_CANCELLED");
             Assert.Equal(1, auditCount);
+        }
+    }
+
+    [Fact]
+    public async Task CreateProgressReport_WhenAuditFails_RollsBackAndCanRetry()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new FaultyAuditFactory(database);
+        app.AuditState.FailOnProgressReportCreated = true;
+        using var leaderClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.Student]);
+
+        var createReq = new CreateProgressReportRequest(
+            "WEEKLY",
+            DateOnly.FromDateTime(Now.AddDays(-7)),
+            DateOnly.FromDateTime(Now),
+            "Initial Draft Summary",
+            "Initial Done",
+            "Initial Planned",
+            "Initial Risks");
+
+        // 1. First attempt fails due to audit failure (HTTP 500)
+        var failResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/progress-reports", createReq);
+        Assert.Equal(HttpStatusCode.InternalServerError, failResponse.StatusCode);
+
+        // 2. Verify with fresh DbContext: NO report exists in DB, 0 audit rows exist
+        await using (var verifyDb = database.CreateContext())
+        {
+            var reportCount = await verifyDb.ProgressReports.AsNoTracking().CountAsync(r => r.ProjectId == ctx.ProjectId);
+            Assert.Equal(0, reportCount);
+
+            var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.Action == "PROGRESS_REPORT_CREATED");
+            Assert.Equal(0, auditCount);
+        }
+
+        // 3. Turn off failure and retry: retry succeeds (201 Created)
+        app.AuditState.FailOnProgressReportCreated = false;
+        var successResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/progress-reports", createReq);
+        Assert.Equal(HttpStatusCode.Created, successResponse.StatusCode);
+        var created = await successResponse.Content.ReadFromJsonAsync<ProgressReportDto>();
+        Assert.NotNull(created);
+        Assert.Equal("DRAFT", created.Status);
+
+        // 4. Verify with fresh DbContext: exactly 1 report and exactly 1 audit row exist
+        await using (var verifyDb = database.CreateContext())
+        {
+            var reports = await verifyDb.ProgressReports.AsNoTracking().Where(r => r.ProjectId == ctx.ProjectId).ToListAsync();
+            Assert.Single(reports);
+            Assert.Equal(created.Id, reports[0].Id);
+            Assert.Equal("DRAFT", reports[0].Status);
+
+            var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.EntityId == created.Id.ToString() && a.Action == "PROGRESS_REPORT_CREATED");
+            Assert.Equal(1, auditCount);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateProgressReport_WhenAuditFails_RollsBackContentAndCanRetry()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long reportId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            var report = new M.ProgressReport
+            {
+                ProjectId = ctx.ProjectId,
+                SubmittedBy = ctx.LeaderUserId,
+                ReportType = "WEEKLY",
+                PeriodStart = DateOnly.FromDateTime(Now.AddDays(-7)),
+                PeriodEnd = DateOnly.FromDateTime(Now),
+                Summary = "Original Draft Summary",
+                CompletedWork = "Original Work",
+                PlannedWork = "Original Plan",
+                IssuesAndRisks = "Original Risks",
+                Status = "DRAFT",
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.ProgressReports.Add(report);
+            await seedDb.SaveChangesAsync();
+            reportId = report.Id;
+        }
+
+        using var app = new FaultyAuditFactory(database);
+        app.AuditState.FailOnProgressReportUpdated = true;
+        using var leaderClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.Student]);
+
+        var updateReq = new UpdateProgressReportRequest(
+            "Mutated Draft Summary",
+            "Mutated Work",
+            "Mutated Plan",
+            "Mutated Risks");
+
+        // 1. Update attempt fails due to audit failure (HTTP 500)
+        var failResponse = await leaderClient.PutAsJsonAsync($"/api/v1/progress-reports/{reportId}", updateReq);
+        Assert.Equal(HttpStatusCode.InternalServerError, failResponse.StatusCode);
+
+        // 2. Verify with fresh DbContext: Original content is preserved, NO audit row exists
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.ProgressReports.AsNoTracking().SingleAsync(r => r.Id == reportId);
+            Assert.Equal("Original Draft Summary", persisted.Summary);
+            Assert.Equal("Original Work", persisted.CompletedWork);
+            Assert.Equal("Original Plan", persisted.PlannedWork);
+            Assert.Equal("Original Risks", persisted.IssuesAndRisks);
+
+            var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.EntityId == reportId.ToString() && a.Action == "PROGRESS_REPORT_UPDATED");
+            Assert.Equal(0, auditCount);
+        }
+
+        // 3. Turn off failure and retry: retry succeeds (200 OK)
+        app.AuditState.FailOnProgressReportUpdated = false;
+        var successResponse = await leaderClient.PutAsJsonAsync($"/api/v1/progress-reports/{reportId}", updateReq);
+        Assert.Equal(HttpStatusCode.OK, successResponse.StatusCode);
+
+        // 4. Verify with fresh DbContext: Content is updated, exactly 1 audit row exists
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.ProgressReports.AsNoTracking().SingleAsync(r => r.Id == reportId);
+            Assert.Equal("Mutated Draft Summary", persisted.Summary);
+            Assert.Equal("Mutated Work", persisted.CompletedWork);
+
+            var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.EntityId == reportId.ToString() && a.Action == "PROGRESS_REPORT_UPDATED");
+            Assert.Equal(1, auditCount);
+        }
+    }
+
+    [Fact]
+    public async Task AddProgressReportFeedback_WhenAuditFails_RollsBackStatusFeedbackAndCanRetry()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long reportId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            var report = new M.ProgressReport
+            {
+                ProjectId = ctx.ProjectId,
+                SubmittedBy = ctx.LeaderUserId,
+                ReportType = "WEEKLY",
+                PeriodStart = DateOnly.FromDateTime(Now.AddDays(-14)),
+                PeriodEnd = DateOnly.FromDateTime(Now.AddDays(-7)),
+                Summary = "Submitted Summary",
+                CompletedWork = "Completed Work",
+                PlannedWork = "Planned Work",
+                IssuesAndRisks = "Issues and Risks",
+                Status = "SUBMITTED",
+                SubmittedAt = Now.AddDays(-7),
+                CreatedAt = Now.AddDays(-7),
+                UpdatedAt = Now.AddDays(-7)
+            };
+            seedDb.ProgressReports.Add(report);
+            await seedDb.SaveChangesAsync();
+            reportId = report.Id;
+        }
+
+        using var app = new FaultyAuditFactory(database);
+        app.AuditState.FailOnProgressReportFeedbackAdded = true;
+        using var supervisorClient = app.CreateAuthenticatedClient(ctx.SupervisorUserId, roles: [AppRoles.Lecturer]);
+
+        var feedbackReq = new AddProgressReportFeedbackRequest("Excellent progress on deliverables.");
+
+        // 1. Feedback attempt fails due to audit failure (HTTP 500)
+        var failResponse = await supervisorClient.PostAsJsonAsync($"/api/v1/progress-reports/{reportId}/feedback", feedbackReq);
+        Assert.Equal(HttpStatusCode.InternalServerError, failResponse.StatusCode);
+
+        // 2. Verify with fresh DbContext: Status is still SUBMITTED (NOT REVIEWED), 0 feedback rows, 0 audit rows
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.ProgressReports.AsNoTracking().SingleAsync(r => r.Id == reportId);
+            Assert.Equal("SUBMITTED", persisted.Status);
+
+            var feedbackCount = await verifyDb.SupervisorFeedbacks.AsNoTracking().CountAsync(f => f.ProgressReportId == reportId);
+            Assert.Equal(0, feedbackCount);
+
+            var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.EntityId == reportId.ToString() && a.Action == "PROGRESS_REPORT_FEEDBACK_ADDED");
+            Assert.Equal(0, auditCount);
+        }
+
+        // 3. Turn off failure and retry: retry succeeds (201 Created)
+        app.AuditState.FailOnProgressReportFeedbackAdded = false;
+        var successResponse = await supervisorClient.PostAsJsonAsync($"/api/v1/progress-reports/{reportId}/feedback", feedbackReq);
+        Assert.Equal(HttpStatusCode.Created, successResponse.StatusCode);
+
+        // 4. Verify with fresh DbContext: Status is REVIEWED, exactly 1 feedback row, exactly 1 audit row
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.ProgressReports.AsNoTracking().SingleAsync(r => r.Id == reportId);
+            Assert.Equal("REVIEWED", persisted.Status);
+
+            var feedbackCount = await verifyDb.SupervisorFeedbacks.AsNoTracking().CountAsync(f => f.ProgressReportId == reportId);
+            Assert.Equal(1, feedbackCount);
+
+            var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.EntityId == reportId.ToString() && a.Action == "PROGRESS_REPORT_FEEDBACK_ADDED");
+            Assert.Equal(1, auditCount);
+        }
+    }
+
+    [Fact]
+    public async Task AddMeetingFeedbackVsCancel_CancelWins_StaleFeedbackReturns409_NoFeedbackOrAudit()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Meeting To Cancel Before Feedback",
+                StartAt = Now.AddDays(2),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+        }
+
+        // Cancel wins
+        await using (var cancelDb = database.CreateContext())
+        {
+            var cancelRepo = new MeetingRepository(cancelDb);
+            await cancelRepo.CancelAsync(meetingId, Now.AddMinutes(1), cancellationToken: CancellationToken.None);
+        }
+
+        // Stale feedback attempt via repository on cancelled meeting MUST return 409 Conflict
+        await using (var feedbackDb = database.CreateContext())
+        {
+            var feedbackRepo = new MeetingRepository(feedbackDb);
+            var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+                feedbackRepo.AddFeedbackAsync(meetingId, ctx.SupervisorAssignmentId, "Feedback on cancelled meeting", Now.AddMinutes(2), cancellationToken: CancellationToken.None));
+
+            Assert.Contains("cancelled", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Also verify via HTTP client to ensure HTTP layer returns 409 Conflict
+        using var app = new FaultyAuditFactory(database);
+        using var supervisorClient = app.CreateAuthenticatedClient(ctx.SupervisorUserId, roles: [AppRoles.Lecturer]);
+
+        var httpResponse = await supervisorClient.PostAsJsonAsync(
+            $"/api/v1/meetings/{meetingId}/feedback",
+            new AddMeetingFeedbackRequest("HTTP Feedback on cancelled meeting"));
+
+        Assert.Equal(HttpStatusCode.Conflict, httpResponse.StatusCode);
+
+        // Verify with fresh DbContext: 0 feedback rows for this meeting, 0 audit rows for MEETING_FEEDBACK_ADDED
+        await using (var verifyDb = database.CreateContext())
+        {
+            var meeting = await verifyDb.Meetings.AsNoTracking().SingleAsync(m => m.Id == meetingId);
+            Assert.Equal("CANCELLED", meeting.Status);
+
+            var feedbackCount = await verifyDb.SupervisorFeedbacks.AsNoTracking().CountAsync(f => f.MeetingId == meetingId);
+            Assert.Equal(0, feedbackCount);
+
+            var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.EntityId == meetingId.ToString() && a.Action == "MEETING_FEEDBACK_ADDED");
+            Assert.Equal(0, auditCount);
         }
     }
 

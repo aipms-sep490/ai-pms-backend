@@ -57,29 +57,75 @@ public sealed class ProgressReportHandlerTests
 
         public Task<ProgressReportDto> CreateAsync(
             long projectId, long submittedBy, string reportType, DateOnly periodStart, DateOnly periodEnd,
-            string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now, CancellationToken ct)
+            string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now, CancellationToken ct) =>
+            CreateAsync(projectId, submittedBy, reportType, periodStart, periodEnd, summary, completedWork, plannedWork, issuesAndRisks, now, null, ct);
+
+        public async Task<ProgressReportDto> CreateAsync(
+            long projectId, long submittedBy, string reportType, DateOnly periodStart, DateOnly periodEnd,
+            string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now,
+            Func<ProgressReportDto, Task>? onCreated, CancellationToken ct = default)
         {
             LastToken = ct;
-            Report = new ProgressReportDto(10, projectId, submittedBy, "Author", reportType, periodStart, periodEnd,
+            var prev = Report;
+            var created = new ProgressReportDto(10, projectId, submittedBy, "Author", reportType, periodStart, periodEnd,
                 summary, completedWork, plannedWork, issuesAndRisks, "DRAFT", null, null, now, now);
-            return Task.FromResult(Report);
+            Report = created;
+            if (onCreated != null)
+            {
+                try
+                {
+                    await onCreated(created);
+                }
+                catch
+                {
+                    Report = prev;
+                    throw;
+                }
+            }
+            return created;
         }
 
         public Task<ProgressReportDto> UpdateAsync(
-            long id, string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now, CancellationToken ct)
+            long id, string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now, CancellationToken ct) =>
+            UpdateAsync(id, summary, completedWork, plannedWork, issuesAndRisks, now, null, ct);
+
+        public async Task<ProgressReportDto> UpdateAsync(
+            long id, string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now,
+            Func<ProgressReportDto, Task>? onUpdated, CancellationToken ct = default)
         {
             LastToken = ct;
-            Report = Report! with { Summary = summary, CompletedWork = completedWork, PlannedWork = plannedWork, IssuesAndRisks = issuesAndRisks, UpdatedAt = now };
-            return Task.FromResult(Report);
+            var prev = Report;
+            var updated = Report! with { Summary = summary, CompletedWork = completedWork, PlannedWork = plannedWork, IssuesAndRisks = issuesAndRisks, UpdatedAt = now };
+            Report = updated;
+            if (onUpdated != null)
+            {
+                try
+                {
+                    await onUpdated(updated);
+                }
+                catch
+                {
+                    Report = prev;
+                    throw;
+                }
+            }
+            return updated;
         }
 
         public bool IsActiveMember { get; set; } = true;
+
+        public Task<ProgressReportDto> SubmitAsync(
+            long id,
+            long actorId,
+            DateTime now,
+            CancellationToken ct) =>
+            SubmitAsync(id, actorId, now, null, ct);
 
         public async Task<ProgressReportDto> SubmitAsync(
             long id,
             long actorId,
             DateTime now,
-            Func<ProgressReportDto, Task>? onSubmitted = null,
+            Func<ProgressReportDto, Task>? onSubmitted,
             CancellationToken ct = default)
         {
             LastToken = ct;
@@ -99,19 +145,47 @@ public sealed class ProgressReportHandlerTests
             if (errors.Count > 0)
                 throw new ValidationException(errors);
 
+            var prev = Report;
             Report = Report! with { Status = "SUBMITTED", SubmittedBy = actorId, SubmittedAt = now, IsLate = null, UpdatedAt = now };
             if (onSubmitted != null)
             {
-                await onSubmitted(Report);
+                try
+                {
+                    await onSubmitted(Report);
+                }
+                catch
+                {
+                    Report = prev;
+                    throw;
+                }
             }
             return Report;
         }
 
-        public Task<ProgressReportFeedbackDto> AddFeedbackAsync(long reportId, long supervisorAssignmentId, string feedbackText, DateTime now, CancellationToken ct)
+        public Task<ProgressReportFeedbackDto> AddFeedbackAsync(long reportId, long supervisorAssignmentId, string feedbackText, DateTime now, CancellationToken ct) =>
+            AddFeedbackAsync(reportId, supervisorAssignmentId, feedbackText, now, null, ct);
+
+        public async Task<ProgressReportFeedbackDto> AddFeedbackAsync(
+            long reportId, long supervisorAssignmentId, string feedbackText, DateTime now,
+            Func<ProgressReportFeedbackDto, Task>? onAdded, CancellationToken ct = default)
         {
             LastToken = ct;
+            var prev = Report;
             Report = Report! with { Status = "REVIEWED", UpdatedAt = now };
-            return Task.FromResult(new ProgressReportFeedbackDto(1, Report.ProjectId, supervisorAssignmentId, 50, "Prof", reportId, feedbackText, now, now));
+            var dto = new ProgressReportFeedbackDto(1, Report.ProjectId, supervisorAssignmentId, 50, "Prof", reportId, feedbackText, now, now);
+            if (onAdded != null)
+            {
+                try
+                {
+                    await onAdded(dto);
+                }
+                catch
+                {
+                    Report = prev;
+                    throw;
+                }
+            }
+            return dto;
         }
 
         public Task<long?> GetProjectIdAsync(long reportId, CancellationToken ct) =>
@@ -164,8 +238,15 @@ public sealed class ProgressReportHandlerTests
     private sealed class FakeAuditTrail : IAuditTrail
     {
         public List<AuditEntry> Entries { get; } = new();
+        public bool ShouldThrow { get; set; }
+
         public Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken = default)
         {
+            if (ShouldThrow)
+            {
+                throw new InvalidOperationException("Simulated audit failure.");
+            }
+
             Entries.Add(entry);
             return Task.CompletedTask;
         }
@@ -598,6 +679,54 @@ public sealed class ProgressReportHandlerTests
 
         Assert.Equal("SUBMITTED", result.Status);
         Assert.NotNull(result.SubmittedAt);
+    }
+
+    [Fact]
+    public async Task CreateReport_WhenAuditFails_RollsBack()
+    {
+        audit.ShouldThrow = true;
+        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var command = new CreateProgressReportCommand(1, new CreateProgressReportRequest(
+            "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", "Done", "Next", "None"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => handler.Handle(command, CancellationToken.None));
+
+        Assert.Null(repository.Report);
+        Assert.Empty(audit.Entries);
+    }
+
+    [Fact]
+    public async Task UpdateReport_WhenAuditFails_RollsBackContent()
+    {
+        repository.CurrentStatus = "DRAFT";
+        repository.Report = new ProgressReportDto(10, 1, 1, "Author", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
+            "Original Summary", "Original Done", "Original Next", "Original Risks", "DRAFT", null, null, DateTime.UtcNow, DateTime.UtcNow);
+
+        audit.ShouldThrow = true;
+        var handler = new UpdateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var command = new UpdateProgressReportCommand(10, new UpdateProgressReportRequest("Modified Summary", null, null, null));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => handler.Handle(command, CancellationToken.None));
+
+        Assert.Equal("Original Summary", repository.Report.Summary);
+        Assert.Empty(audit.Entries);
+    }
+
+    [Fact]
+    public async Task AddFeedback_WhenAuditFails_RollsBackStatus()
+    {
+        repository.CurrentStatus = "SUBMITTED";
+        repository.Report = new ProgressReportDto(10, 1, 1, "Author", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
+            "Summary", "Done", "Next", "Risks", "SUBMITTED", DateTime.UtcNow, false, DateTime.UtcNow, DateTime.UtcNow);
+
+        audit.ShouldThrow = true;
+        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var command = new AddProgressReportFeedbackCommand(10, new AddProgressReportFeedbackRequest("Good work."));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => handler.Handle(command, CancellationToken.None));
+
+        Assert.Equal("SUBMITTED", repository.Report.Status);
+        Assert.Empty(audit.Entries);
     }
 
     #endregion

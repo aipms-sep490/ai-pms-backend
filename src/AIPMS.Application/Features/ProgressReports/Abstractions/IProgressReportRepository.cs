@@ -43,6 +43,20 @@ public interface IProgressReportRepository
         DateTime now,
         CancellationToken cancellationToken);
 
+    Task<ProgressReportDto> CreateAsync(
+        long projectId,
+        long submittedBy,
+        string reportType,
+        DateOnly periodStart,
+        DateOnly periodEnd,
+        string summary,
+        string? completedWork,
+        string? plannedWork,
+        string? issuesAndRisks,
+        DateTime now,
+        Func<ProgressReportDto, Task>? onCreated,
+        CancellationToken cancellationToken = default);
+
     Task<ProgressReportDto> UpdateAsync(
         long id,
         string summary,
@@ -52,11 +66,27 @@ public interface IProgressReportRepository
         DateTime now,
         CancellationToken cancellationToken);
 
+    Task<ProgressReportDto> UpdateAsync(
+        long id,
+        string summary,
+        string? completedWork,
+        string? plannedWork,
+        string? issuesAndRisks,
+        DateTime now,
+        Func<ProgressReportDto, Task>? onUpdated,
+        CancellationToken cancellationToken = default);
+
     Task<ProgressReportDto> SubmitAsync(
         long id,
         long actorId,
         DateTime now,
-        Func<ProgressReportDto, Task>? onSubmitted = null,
+        CancellationToken cancellationToken);
+
+    Task<ProgressReportDto> SubmitAsync(
+        long id,
+        long actorId,
+        DateTime now,
+        Func<ProgressReportDto, Task>? onSubmitted,
         CancellationToken cancellationToken = default);
 
     Task<ProgressReportFeedbackDto> AddFeedbackAsync(
@@ -65,6 +95,14 @@ public interface IProgressReportRepository
         string feedbackText,
         DateTime now,
         CancellationToken cancellationToken);
+
+    Task<ProgressReportFeedbackDto> AddFeedbackAsync(
+        long reportId,
+        long supervisorAssignmentId,
+        string feedbackText,
+        DateTime now,
+        Func<ProgressReportFeedbackDto, Task>? onAdded,
+        CancellationToken cancellationToken = default);
 
     Task<long?> GetProjectIdAsync(long reportId, CancellationToken cancellationToken);
 

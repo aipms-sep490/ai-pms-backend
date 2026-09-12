@@ -53,20 +53,22 @@ public sealed class CreateProgressReportCommandHandler(
             command.Request.PlannedWork,
             command.Request.IssuesAndRisks,
             now,
-            cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "PROGRESS_REPORT_CREATED",
-            "PROGRESS_REPORT",
-            result.Id,
-            new Dictionary<string, object?>
+            async created =>
             {
-                ["projectId"] = projectId,
-                ["reportType"] = result.ReportType,
-                ["periodStart"] = result.PeriodStart.ToString("yyyy-MM-dd"),
-                ["periodEnd"] = result.PeriodEnd.ToString("yyyy-MM-dd")
-            }), cancellationToken);
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "PROGRESS_REPORT_CREATED",
+                    "PROGRESS_REPORT",
+                    created.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["reportType"] = created.ReportType,
+                        ["periodStart"] = created.PeriodStart.ToString("yyyy-MM-dd"),
+                        ["periodEnd"] = created.PeriodEnd.ToString("yyyy-MM-dd")
+                    }), cancellationToken);
+            },
+            cancellationToken);
 
         return result;
     }

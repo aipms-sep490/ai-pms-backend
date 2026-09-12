@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -43,19 +43,21 @@ public sealed class AddProgressReportFeedbackCommandHandler(
             assignmentId.Value,
             command.Request.FeedbackText,
             now,
-            cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "PROGRESS_REPORT_FEEDBACK_ADDED",
-            "PROGRESS_REPORT",
-            command.Id,
-            new Dictionary<string, object?>
+            async fb =>
             {
-                ["projectId"] = projectId,
-                ["feedbackId"] = feedback.Id,
-                ["supervisorAssignmentId"] = assignmentId.Value
-            }), cancellationToken);
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "PROGRESS_REPORT_FEEDBACK_ADDED",
+                    "PROGRESS_REPORT",
+                    command.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["feedbackId"] = fb.Id,
+                        ["supervisorAssignmentId"] = assignmentId.Value
+                    }), cancellationToken);
+            },
+            cancellationToken);
 
         return feedback;
     }

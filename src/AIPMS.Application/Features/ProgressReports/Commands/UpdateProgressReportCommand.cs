@@ -48,18 +48,20 @@ public sealed class UpdateProgressReportCommandHandler(
             command.Request.PlannedWork,
             command.Request.IssuesAndRisks,
             now,
-            cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "PROGRESS_REPORT_UPDATED",
-            "PROGRESS_REPORT",
-            result.Id,
-            new Dictionary<string, object?>
+            async updated =>
             {
-                ["projectId"] = projectId,
-                ["status"] = result.Status
-            }), cancellationToken);
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "PROGRESS_REPORT_UPDATED",
+                    "PROGRESS_REPORT",
+                    updated.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["status"] = updated.Status
+                    }), cancellationToken);
+            },
+            cancellationToken);
 
         return result;
     }
