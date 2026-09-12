@@ -38,8 +38,8 @@ public sealed class FinalSubmissionDraftDatabaseFixture : IAsyncLifetime
         var project = new M.Project { Code = Guid.NewGuid().ToString("N"), Title = "Final project", Status = "ACTIVE", CreatedBy = users.Student,
             Team = new M.Team { Code = Guid.NewGuid().ToString("N"), Name = "Final team", AcademicSemester = semester,
                 CreatedBy = users.Student, Status = "LOCKED", TeamMembers = [
-                    new() { UserId = users.Student, IsLeader = true, AcademicSemesterId = semester.Id },
-                    new() { User = member, IsLeader = false, AcademicSemesterId = semester.Id }] },
+                    new() { UserId = users.Student, IsLeader = true, AcademicSemesterId = semester.Id, JoinedAt = Now.AddDays(-1) },
+                    new() { User = member, IsLeader = false, AcademicSemesterId = semester.Id, JoinedAt = Now.AddDays(-1) }] },
             ProjectMajors = [new() { Major = new() { DepartmentId = users.DepartmentId, Code = Guid.NewGuid().ToString("N"), Name = "SE", IsActive = true } }] };
         var period = new M.ProjectPeriod { AcademicSemester = semester, Code = "FINAL", Name = "Final submission",
             PeriodType = "FINAL_SUBMISSION", Status = "ACTIVE", StartAt = Now.AddHours(-1), EndAt = Now.AddHours(1) };

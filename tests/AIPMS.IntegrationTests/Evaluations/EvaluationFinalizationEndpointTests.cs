@@ -22,6 +22,9 @@ public sealed partial class EvaluationDraftEndpointTests
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
         using var lecturer = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
         var assignment = await Assign(staff, s);
+        await Body<AIPMS.Application.Features.Results.DTOs.ResultPolicyDto>(await staff.PutAsJsonAsync(
+            $"/api/v1/projects/{s.ProjectId}/result-policy",
+            new AIPMS.Application.Features.Results.DTOs.ConfigureResultPolicyRequest(5m, [new(assignment.Id, 100m)], null)));
         var draft = await Create(lecturer, assignment.Id);
         return (s, assignment, await Body<EvaluationDraftDto>(await Save(lecturer, draft, s)));
     }

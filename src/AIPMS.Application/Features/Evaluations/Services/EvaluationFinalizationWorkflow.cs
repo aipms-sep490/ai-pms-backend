@@ -23,6 +23,15 @@ public sealed partial class EvaluationDraftWorkflow
         if (before.Status != "DRAFT" || before.Finalization is not null)
             throw new ConflictException("Only a draft evaluation can be finalized.");
         await Window(project, assignment.PeriodId, ct);
+        var policy = await results.PolicyAsync(project.Id, ct);
+        if (policy is null || policy.Assignments.Count == 0 || policy.Assignments.Sum(i => i.WeightPercent) != 100m)
+            throw new ConflictException("Configure the required evaluators and result weights before finalizing any evaluation.");
+        foreach (var item in policy.Assignments)
+        {
+            var required = await repository.GetAssignmentAsync(item.AssignmentId, ct);
+            if (required is null || required.ProjectId != project.Id || required.Status != "ACTIVE")
+                throw new ConflictException("The result policy contains an inactive required assignment.");
+        }
         await Rubric(before.RubricId, project, assignment.DepartmentId, false, ct);
         var package = await submissions.GetAsync(project.Id, ct)
             ?? throw new ConflictException("A locked final-submission package is required.");

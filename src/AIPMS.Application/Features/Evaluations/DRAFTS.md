@@ -147,3 +147,7 @@ different writes. Score changes and any later audit failure roll back together.
 Finalize uses the same transaction discipline, revalidates assignment/window/all
 weighted criteria/final package and recomputes the total. See FINALIZATION.md for
 the additional additive migration and immutable snapshot/read contract.
+
+Result publication also requires the project-results migration. Configure the
+required evaluation list before anyone finalizes. Once frozen, required draft
+assignments cannot be revoked; see ../Results/README.md for the policy contract.

@@ -10,6 +10,7 @@ public partial class AipmsDbContext
     {
         ConfigureEvaluationDrafts(modelBuilder);
         ConfigureEvaluationFinalizations(modelBuilder);
+        ConfigureProjectResults(modelBuilder);
         ConfigureFinalSubmissionDrafts(modelBuilder);
         ConfigureFinalSubmissions(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
