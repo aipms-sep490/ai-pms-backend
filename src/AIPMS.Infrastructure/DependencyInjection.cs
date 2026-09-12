@@ -148,6 +148,8 @@ public static class DependencyInjection
         services.AddSingleton<IAccountSecurityPolicy>(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<AccountSecuritySettings>>().Value);
         services.AddScoped<IAuthRepository, AuthRepository>();
+        services.AddScoped<AIPMS.Application.Features.WorkflowContext.Abstractions.IWorkflowContextReader,
+            Services.WorkflowContext.WorkflowContextReader>();
         services.AddScoped<IAccessTokenAccountValidator, AccessTokenAccountValidator>();
         services.AddScoped<IUserAccountRepository, AccountSecurityRepository>();
         services.AddScoped<IRolePermissionRepository, AccountSecurityRepository>();
