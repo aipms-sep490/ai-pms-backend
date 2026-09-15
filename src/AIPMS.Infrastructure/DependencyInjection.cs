@@ -166,7 +166,10 @@ public static class DependencyInjection
         services.AddScoped<IDeliverableRepository, DeliverableRepository>();
         services.AddScoped<IFinalSubmissionDraftRepository, FinalSubmissionDraftRepository>();
         services.AddScoped<IFinalSubmissionRepository, FinalSubmissionRepository>();
-        services.AddSingleton<IFileStorage, LocalFileStorage>();
+        services.AddSingleton<IFileStorage>(sp =>
+            string.Equals(sp.GetRequiredService<IConfiguration>()["FileStorage:Provider"], "GoogleDrive", StringComparison.OrdinalIgnoreCase)
+                ? new GoogleDriveFileStorage(sp.GetRequiredService<IConfiguration>())
+                : new LocalFileStorage(sp.GetRequiredService<IConfiguration>()));
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();
         services.AddScoped<IRubricRepository, RubricRepository>();

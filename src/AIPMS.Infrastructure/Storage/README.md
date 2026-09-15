@@ -39,3 +39,7 @@ window), retain every referenced object, investigate uncertain commit logs and
 back up before deleting confirmed orphans. Never sweep recent files merely because
 their database reference has not appeared yet. See the Deliverables feature README
 for the transaction and retry contract.
+
+## Google Drive provider
+
+Set `FileStorage:Provider` to `GoogleDrive` to use a private folder in the Gmail Drive account configured by OAuth. Required server-only settings are `GoogleDrive:ClientId`, `GoogleDrive:ClientSecret` and `GoogleDrive:RefreshToken`; `GoogleDrive:FolderId` is optional. The provider uses the narrow `drive.file` scope, never exposes Drive URLs or credentials, and stores the opaque application key as the Drive filename. Keep these values in environment variables or a secret store; never commit them. LocalFileStorage remains the default when the provider setting is absent.
