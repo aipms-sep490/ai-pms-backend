@@ -18,7 +18,7 @@ internal sealed class GoogleDriveFileStorage : IFileStorage
 {
     private static readonly string[] Scopes = [DriveService.Scope.DriveFile];
     private readonly DriveService drive;
-    private readonly string? folderId;
+    private string? folderId;
 
     public GoogleDriveFileStorage(IConfiguration configuration)
     {
@@ -48,7 +48,7 @@ internal sealed class GoogleDriveFileStorage : IFileStorage
     {
         ValidateKey(key);
         if (await FindIdAsync(key, ct) is not null) throw new IOException("Google Drive object already exists.");
-        var metadata = new Google.Apis.Drive.v3.Data.File { Name = key, Parents = string.IsNullOrWhiteSpace(folderId) ? null : [folderId] };
+        var metadata = new Google.Apis.Drive.v3.Data.File { Name = key, Parents = [await EnsureFolderAsync(ct)] };
         var request = drive.Files.Create(metadata, content, "application/octet-stream");
         request.Fields = "id,name";
         var result = await request.UploadAsync(ct);
@@ -87,6 +87,23 @@ internal sealed class GoogleDriveFileStorage : IFileStorage
         request.PageSize = 2;
         var files = await request.ExecuteAsync(ct);
         return files.Files?.SingleOrDefault()?.Id;
+    }
+
+    private async Task<string> EnsureFolderAsync(CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(folderId)) return folderId;
+        var request = drive.Files.List();
+        request.Q = "name = 'AI-PMS' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+        request.Fields = "files(id)";
+        request.PageSize = 2;
+        var existing = (await request.ExecuteAsync(ct)).Files?.SingleOrDefault()?.Id;
+        if (existing is not null) return folderId = existing;
+        var created = await drive.Files.Create(new Google.Apis.Drive.v3.Data.File
+        {
+            Name = "AI-PMS",
+            MimeType = "application/vnd.google-apps.folder"
+        }).ExecuteAsync(ct);
+        return folderId = created.Id ?? throw new IOException("Google Drive folder creation failed.");
     }
 
     private static string Required(IConfiguration c, string key) =>
