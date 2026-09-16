@@ -7,7 +7,7 @@ public enum WorkflowNotificationKind
 {
     TeamInvitationSent, TeamInvitationAccepted, TeamInvitationRejected, TeamInvitationCancelled,
     SupervisorRequestSent, SupervisorRequestAccepted, SupervisorRequestRejected, SupervisorRequestCancelled,
-    FinalSubmissionLocked, EvaluationFinalized, ProjectResultPublished
+    FinalSubmissionLocked, EvaluationFinalized, ProjectResultPublished, ProjectApproved
 }
 
 // Published synchronously inside the source workflow's transaction, never from a controller.
