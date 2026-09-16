@@ -12,6 +12,7 @@ using MediatR;
 namespace AIPMS.Application.Features.Contributions.Queries;
 
 public sealed record GetProjectContributionQuery(long ProjectId) : IRequest<ContributionSummaryDto>;
+public sealed record GetContributionEvidenceQuery(long ProjectId, long UserId) : IRequest<IReadOnlyList<ContributionEvidenceDto>>;
 
 public sealed class GetProjectContributionQueryHandler(IContributionRepository repository, IProjectAccessService access,
     IProjectRepository projects, ICurrentUser currentUser) : IRequestHandler<GetProjectContributionQuery, ContributionSummaryDto>
@@ -23,5 +24,17 @@ public sealed class GetProjectContributionQueryHandler(IContributionRepository r
         if (!await access.CanAccessAsync(currentUser.UserId.Value, request.ProjectId, ct)) throw new ForbiddenException("You do not have access to this project.");
         var members = await repository.GetProjectSummaryAsync(request.ProjectId, ct);
         return ContributionScoring.Summarize(members);
+    }
+}
+
+public sealed class GetContributionEvidenceQueryHandler(IContributionRepository repository, IProjectAccessService access,
+    IProjectRepository projects, ICurrentUser currentUser) : IRequestHandler<GetContributionEvidenceQuery, IReadOnlyList<ContributionEvidenceDto>>
+{
+    public async Task<IReadOnlyList<ContributionEvidenceDto>> Handle(GetContributionEvidenceQuery request, CancellationToken ct)
+    {
+        if (!currentUser.IsAuthenticated || currentUser.UserId is null) throw new UnauthorizedException();
+        if (await projects.GetByIdAsync(request.ProjectId, ct) is null) throw new NotFoundException("Project", request.ProjectId);
+        if (!await access.CanAccessAsync(currentUser.UserId.Value, request.ProjectId, ct)) throw new ForbiddenException("You do not have access to this project.");
+        return await repository.GetEvidenceAsync(request.ProjectId, request.UserId, ct);
     }
 }

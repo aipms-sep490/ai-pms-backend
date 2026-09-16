@@ -15,4 +15,8 @@ public sealed class ContributionsController(ISender sender) : ControllerBase
     [HttpGet]
     public Task<ContributionSummaryDto> Get(long projectId, CancellationToken ct) =>
         sender.Send(new GetProjectContributionQuery(projectId), ct);
+
+    [HttpGet("{userId:long}/evidence")]
+    public Task<IReadOnlyList<ContributionEvidenceDto>> Evidence(long projectId, long userId, CancellationToken ct) =>
+        sender.Send(new GetContributionEvidenceQuery(projectId, userId), ct);
 }

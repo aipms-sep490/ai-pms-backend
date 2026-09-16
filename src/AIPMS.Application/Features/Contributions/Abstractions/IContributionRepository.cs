@@ -8,4 +8,5 @@ namespace AIPMS.Application.Features.Contributions.Abstractions;
 public interface IContributionRepository
 {
     Task<IReadOnlyList<ContributionMemberDto>> GetProjectSummaryAsync(long projectId, CancellationToken ct);
+    Task<IReadOnlyList<ContributionEvidenceDto>> GetEvidenceAsync(long projectId, long userId, CancellationToken ct);
 }

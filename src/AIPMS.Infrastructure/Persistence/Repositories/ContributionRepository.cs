@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +12,20 @@ namespace AIPMS.Infrastructure.Persistence.Repositories;
 
 public sealed class ContributionRepository(AipmsDbContext context) : IContributionRepository
 {
+    public async Task<IReadOnlyList<ContributionEvidenceDto>> GetEvidenceAsync(long projectId, long userId, CancellationToken ct)
+    {
+        var evidence = new List<ContributionEvidenceDto>();
+        evidence.AddRange(await context.Tasks.Where(t => t.Milestone.ProjectId == projectId && t.TaskAssignees.Any(a => a.UserId == userId))
+            .Select(t => new ContributionEvidenceDto("TASK", t.Id, t.Title, t.UpdatedAt)).AsNoTracking().ToListAsync(ct));
+        evidence.AddRange(await context.ProgressReports.Where(r => r.ProjectId == projectId && r.SubmittedBy == userId && r.SubmittedAt != null)
+            .Select(r => new ContributionEvidenceDto("PROGRESS_REPORT", r.Id, r.ReportType, r.SubmittedAt!.Value)).AsNoTracking().ToListAsync(ct));
+        evidence.AddRange(await context.MeetingParticipants.Where(p => p.Meeting.ProjectId == projectId && p.UserId == userId && p.AttendanceStatus == "ATTENDED")
+            .Select(p => new ContributionEvidenceDto("MEETING", p.MeetingId, p.Meeting.Title, p.Meeting.UpdatedAt)).AsNoTracking().ToListAsync(ct));
+        evidence.AddRange(await context.DeliverableVersions.Where(v => v.Deliverable.ProjectId == projectId && v.SubmittedBy == userId)
+            .Select(v => new ContributionEvidenceDto("DELIVERABLE_VERSION", v.Id, v.Deliverable.Title, v.SubmittedAt)).AsNoTracking().ToListAsync(ct));
+        return evidence.OrderByDescending(e => e.OccurredAt).ThenBy(e => e.SourceType).ThenBy(e => e.SourceId).ToArray();
+    }
+
     public async Task<IReadOnlyList<ContributionMemberDto>> GetProjectSummaryAsync(long projectId, CancellationToken ct)
     {
         var members = await context.Projects.Where(p => p.Id == projectId).SelectMany(p => p.Team.TeamMembers)
