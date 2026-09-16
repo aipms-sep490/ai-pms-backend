@@ -30,8 +30,9 @@ public sealed class ContributionRepository(AipmsDbContext context) : IContributi
             var report = reports.SingleOrDefault(x => x.UserId == m.UserId)?.Count ?? 0;
             var meeting = meetings.SingleOrDefault(x => x.UserId == m.UserId)?.Count ?? 0;
             var version = versions.SingleOrDefault(x => x.UserId == m.UserId)?.Count ?? 0;
-            var score = tasks.Count + report + meeting + version;
-            return new ContributionMemberDto(m.UserId, m.Name, tasks.Count, done, report, meeting, version, score);
+            var evidence = report + meeting + version;
+            var score = tasks.Count + evidence;
+            return new ContributionMemberDto(m.UserId, m.Name, tasks.Count, done, report, meeting, version, score, evidence);
         }).ToArray();
     }
 }

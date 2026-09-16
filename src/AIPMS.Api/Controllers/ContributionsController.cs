@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Features.Contributions.DTOs;
@@ -14,6 +13,6 @@ namespace AIPMS.Api.Controllers;
 public sealed class ContributionsController(ISender sender) : ControllerBase
 {
     [HttpGet]
-    public Task<IReadOnlyList<ContributionMemberDto>> Get(long projectId, CancellationToken ct) =>
+    public Task<ContributionSummaryDto> Get(long projectId, CancellationToken ct) =>
         sender.Send(new GetProjectContributionQuery(projectId), ct);
 }

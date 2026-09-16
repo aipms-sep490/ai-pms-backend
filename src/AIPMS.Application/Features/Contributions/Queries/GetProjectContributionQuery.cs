@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Security;
@@ -10,16 +12,20 @@ using MediatR;
 
 namespace AIPMS.Application.Features.Contributions.Queries;
 
-public sealed record GetProjectContributionQuery(long ProjectId) : IRequest<IReadOnlyList<ContributionMemberDto>>;
+public sealed record GetProjectContributionQuery(long ProjectId) : IRequest<ContributionSummaryDto>;
 
 public sealed class GetProjectContributionQueryHandler(IContributionRepository repository, IProjectAccessService access,
-    IProjectRepository projects, ICurrentUser currentUser) : IRequestHandler<GetProjectContributionQuery, IReadOnlyList<ContributionMemberDto>>
+    IProjectRepository projects, ICurrentUser currentUser) : IRequestHandler<GetProjectContributionQuery, ContributionSummaryDto>
 {
-    public async Task<IReadOnlyList<ContributionMemberDto>> Handle(GetProjectContributionQuery request, CancellationToken ct)
+    public async Task<ContributionSummaryDto> Handle(GetProjectContributionQuery request, CancellationToken ct)
     {
         if (!currentUser.IsAuthenticated || currentUser.UserId is null) throw new UnauthorizedException();
         if (await projects.GetByIdAsync(request.ProjectId, ct) is null) throw new NotFoundException("Project", request.ProjectId);
         if (!await access.CanAccessAsync(currentUser.UserId.Value, request.ProjectId, ct)) throw new ForbiddenException("You do not have access to this project.");
-        return await repository.GetProjectSummaryAsync(request.ProjectId, ct);
+        var members = await repository.GetProjectSummaryAsync(request.ProjectId, ct);
+        var values = members.Select(m => m.ActivityScore).ToArray();
+        if (values.Length < 2 || values.Sum() < 3) return new("INSUFFICIENT_DATA", null, members);
+        var average = values.Average();
+        return new("SUFFICIENT", values.Select(v => Math.Pow(v - average, 2)).Average(), members);
     }
 }
