@@ -3,6 +3,9 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using AIPMS.Application.Features.Contributions.Abstractions;
 using AIPMS.Application.Features.Contributions.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
@@ -12,6 +15,26 @@ namespace AIPMS.Infrastructure.Persistence.Repositories;
 
 public sealed class ContributionRepository(AipmsDbContext context) : IContributionRepository
 {
+    public async Task<ContributionSummaryDto> RebuildSnapshotAsync(long projectId, DateTime snapshotAt, CancellationToken ct)
+    {
+        var members = await GetProjectSummaryAsync(projectId, ct);
+        var summary = AIPMS.Application.Features.Contributions.Services.ContributionScoring.Summarize(members);
+        var json = JsonSerializer.Serialize(members);
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
+        if (!await context.ContributionSnapshots.AnyAsync(s => s.ProjectId == projectId && s.SnapshotHash == hash, ct))
+        {
+            foreach (var member in members)
+                context.ContributionSnapshots.Add(new AIPMS.Infrastructure.Persistence.Models.ContributionSnapshot
+                {
+                    ProjectId = projectId, UserId = member.UserId, SnapshotAt = snapshotAt,
+                    SnapshotHash = hash, ActivityScore = member.ActivityScore, EvidenceCount = member.EvidenceCount,
+                    SnapshotJson = json
+                });
+            await context.SaveChangesAsync(ct);
+        }
+        return summary;
+    }
+
     public async Task<IReadOnlyList<ContributionEvidenceDto>> GetEvidenceAsync(long projectId, long userId, CancellationToken ct)
     {
         var evidence = new List<ContributionEvidenceDto>();

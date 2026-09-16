@@ -15,6 +15,7 @@ public partial class AipmsDbContext
         ConfigureProjectResults(modelBuilder);
         ConfigureFinalSubmissionDrafts(modelBuilder);
         ConfigureFinalSubmissions(modelBuilder);
+        ConfigureContributions(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
         {
             entity.ToTable("rubric_versions", table =>
