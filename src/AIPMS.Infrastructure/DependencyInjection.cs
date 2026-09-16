@@ -15,6 +15,7 @@ using AIPMS.Application.Features.Meetings.Abstractions;
 using AIPMS.Application.Features.Milestones.Abstractions;
 using AIPMS.Application.Features.ProgressReports.Abstractions;
 using AIPMS.Application.Features.Notifications.Abstractions;
+using AIPMS.Application.Features.Contributions.Abstractions;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Semesters.Abstractions;
 using AIPMS.Application.Features.Supervisors.Abstractions;
@@ -180,6 +181,7 @@ public static class DependencyInjection
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<INotificationInboxRepository, NotificationInboxRepository>();
         services.AddScoped<IWorkflowNotificationWriter, WorkflowNotificationWriter>();
+        services.AddScoped<IContributionRepository, ContributionRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<IProgressReportRepository, ProgressReportRepository>();
         services.AddScoped<IMeetingRepository, MeetingRepository>();
