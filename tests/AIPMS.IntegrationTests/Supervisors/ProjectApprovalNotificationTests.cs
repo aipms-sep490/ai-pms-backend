@@ -71,7 +71,11 @@ public sealed partial class SupervisorRequestEndpointTests
         var token = await PrepareApproval(p);
         await using (var db = database.CreateContext())
         {
-            if (reason == "LEFT") (await db.TeamMembers.SingleAsync(m => m.TeamId == p.TeamId && m.UserId == p.MemberId)).LeftAt = Now;
+            if (reason == "LEFT")
+            {
+                var member = await db.TeamMembers.SingleAsync(m => m.TeamId == p.TeamId && m.UserId == p.MemberId);
+                member.LeftAt = member.JoinedAt.AddSeconds(1);
+            }
             if (reason == "INACTIVE") (await db.Users.FindAsync(p.MemberId))!.Status = "INACTIVE";
             if (reason == "ROLE_REMOVED") db.UserRoles.RemoveRange(await db.UserRoles.Where(r => r.UserId == p.MemberId).ToListAsync());
             if (reason == "OUTSIDE_ORGANIZATION") (await db.Users.FindAsync(p.MemberId))!.DepartmentId = null;
