@@ -24,7 +24,7 @@ public sealed class ApproveProjectCommandHandler(
     IAcademicStructureRepository academicRepository,
     ICurrentUser currentUser,
     IAuditTrail auditTrail,
-    IPublisher? publisher = null)
+    IPublisher publisher)
     : IRequestHandler<ApproveProjectCommand, ProjectDto>
 {
     public Task<ProjectDto> Handle(ApproveProjectCommand request, CancellationToken cancellationToken) =>
@@ -100,9 +100,8 @@ public sealed class ApproveProjectCommandHandler(
                 }),
             cancellationToken);
 
-        if (publisher is not null)
-            await publisher.Publish(new WorkflowNotificationEvent(
-                WorkflowNotificationKind.ProjectApproved, updatedProject.Id, actorUserId, DateTime.UtcNow), cancellationToken);
+        await publisher.Publish(new WorkflowNotificationEvent(
+            WorkflowNotificationKind.ProjectApproved, updatedProject.Id, actorUserId, updatedProject.UpdatedAt), cancellationToken);
 
         return updatedProject;
     }

@@ -14,9 +14,12 @@ using AIPMS.Application.Features.Academic.Models;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Teams.Abstractions;
+using AIPMS.Application.Features.Notifications.Abstractions;
+using AIPMS.Application.Features.Notifications.Events;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.AspNetCore.TestHost;
 using Xunit;
 using Task = System.Threading.Tasks.Task;
 
@@ -28,11 +31,12 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
     {
         public TestProjectRepository ProjectRepository { get; } = new();
         public TestAcademicRepository AcademicRepository { get; } = new();
+        public RecordingNotifications Notifications { get; } = new();
 
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
-            builder.ConfigureServices(services =>
+            builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<IProjectRepository>();
                 services.AddSingleton<IProjectRepository>(ProjectRepository);
@@ -44,11 +48,23 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
 
                 services.RemoveAll<IAuditTrail>();
                 services.AddSingleton<IAuditTrail, NoOpAuditTrail>();
+                services.RemoveAll<IWorkflowNotificationWriter>();
+                services.AddSingleton<IWorkflowNotificationWriter>(Notifications);
             });
         }
     }
 
     private readonly ProjectWebApplicationFactory _factory;
+
+    public sealed class RecordingNotifications : IWorkflowNotificationWriter
+    {
+        public List<WorkflowNotificationEvent> Events { get; } = [];
+        public Task WriteAsync(WorkflowNotificationEvent notification, CancellationToken ct)
+        {
+            Events.Add(notification);
+            return Task.CompletedTask;
+        }
+    }
 
     // This suite tests the HTTP/project contracts using stubs; SQL-backed team
     // registration and transaction behavior is exercised in Teams integration tests.
@@ -208,6 +224,10 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         project = await approveResponse.Content.ReadFromJsonAsync<ProjectDto>();
         Assert.NotNull(project);
         Assert.Equal("APPROVED", project.Status);
+        var notification = Assert.Single(_factory.Notifications.Events.Where(e => e.SourceId == project.Id));
+        Assert.Equal(WorkflowNotificationKind.ProjectApproved, notification.Kind);
+        Assert.Equal(staffUserId, notification.ActorId);
+        Assert.Equal(project.UpdatedAt, notification.OccurredAt);
 
         // 13. Verify Status History
         var historyResponse = await leaderClient.GetAsync($"api/v1/projects/{project.Id}/history");

@@ -248,13 +248,15 @@ public sealed class ProjectTests
         academicRepo.UserScopes[11] = new AcademicUserScope(1, 100);
 
         var currentUser = new TestCurrentUser(11, AppRoles.DepartmentStaff);
-        var handler = new ApproveProjectCommandHandler(repository, academicRepo, currentUser, new RecordingAuditTrail());
+        var publisher = new RecordingPublisher();
+        var handler = new ApproveProjectCommandHandler(repository, academicRepo, currentUser, new RecordingAuditTrail(), publisher);
 
         // Call command with incorrect token "stale_token" instead of "token123"
         var command = new ApproveProjectCommand(50, "stale_token");
 
         // Act & Assert
         await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(command, CancellationToken.None));
+        Assert.Empty(publisher.Events);
     }
 }
 

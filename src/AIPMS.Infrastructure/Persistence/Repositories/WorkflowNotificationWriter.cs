@@ -27,20 +27,24 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         var departmentEvent = finalSubmission || entityType == "EVALUATION";
 
         // A source-row lock serializes duplicate event handling; inbox and transition commit together.
-        if (projectResult || projectApproved)
+        if (projectApproved)
         {
-            if (projectApproved)
-            {
-                var project = await context.Projects.FromSqlInterpolated($"SELECT * FROM dbo.projects WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}").AsNoTracking().SingleOrDefaultAsync(ct);
-                if (project is null || project.Status != "APPROVED") return;
-                projectId = project.Id; teamId = project.TeamId;
-            }
-            else
-            {
-                var source = await context.Set<ProjectResult>().FromSqlInterpolated($"SELECT * FROM dbo.project_results WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}").AsNoTracking().SingleOrDefaultAsync(ct);
-                if (source is null) return;
-                projectId = source.ProjectId; teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
-            }
+            var project = await context.Projects.FromSqlInterpolated(
+                $"SELECT * FROM dbo.projects WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
+                .AsNoTracking().SingleOrDefaultAsync(ct);
+            if (project is null || project.Status != status) return;
+            projectId = project.Id;
+            teamId = project.TeamId;
+            role = AppRoles.Student;
+        }
+        else if (projectResult)
+        {
+            var source = await context.Set<ProjectResult>().FromSqlInterpolated(
+                $"SELECT * FROM dbo.project_results WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
+                .AsNoTracking().SingleOrDefaultAsync(ct);
+            if (source is null) return;
+            projectId = source.ProjectId;
+            teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
             role = AppRoles.Student;
         }
         else if (finalSubmission)
@@ -88,9 +92,10 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             role = targetUser.HasValue ? AppRoles.Lecturer : AppRoles.Student;
         }
 
-        // Final-package routes are project-scoped, so the inbox carries the navigable project ID.
-        var relatedEntityType = finalSubmission || projectResult ? "PROJECT" : entityType;
-        var relatedEntityId = finalSubmission || projectResult ? projectId!.Value : notification.SourceId;
+        // Project-scoped routes share a navigable project ID.
+        var projectScoped = finalSubmission || projectResult || projectApproved;
+        var relatedEntityType = projectScoped ? "PROJECT" : entityType;
+        var relatedEntityId = projectScoped ? projectId!.Value : notification.SourceId;
         if (await context.Notifications.AnyAsync(n => n.RelatedEntityType == relatedEntityType
             && n.RelatedEntityId == relatedEntityId && n.NotificationType == type, ct)) return;
 
@@ -102,12 +107,10 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             && u.Department.OrganizationId == organizationId);
         if (targetUser.HasValue)
             recipients = recipients.Where(u => u.Id == targetUser.Value);
-        else if (projectResult)
+        else if (projectResult || projectApproved)
             recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.LeftAt == null));
-        else if (!departmentEvent && !projectApproved)
+        else if (!departmentEvent)
             recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.IsLeader && m.LeftAt == null));
-        else if (projectApproved)
-            recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.LeftAt == null));
         if (departmentEvent)
             recipients = recipients.Where(u => context.ProjectMajors.Any(m => m.ProjectId == projectId
                 && m.Major.IsActive && m.Major.DepartmentId == u.DepartmentId));
