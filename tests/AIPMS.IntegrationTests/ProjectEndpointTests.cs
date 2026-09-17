@@ -86,6 +86,7 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         // Reset repositories
         _factory.ProjectRepository.Projects.Clear();
         _factory.ProjectRepository.StatusHistories.Clear();
+        _factory.Notifications.Events.Clear();
         _factory.ProjectRepository.ProjectDeptIds.Clear();
         _factory.ProjectRepository.IsLeader = true;
         _factory.ProjectRepository.IsTeamEligible = true;
@@ -199,6 +200,10 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         project = await revisionResponse.Content.ReadFromJsonAsync<ProjectDto>();
         Assert.NotNull(project);
         Assert.Equal("REVISION_REQUIRED", project.Status);
+        var revisionNotice = Assert.Single(_factory.Notifications.Events.Where(e => e.SourceId == project.Id));
+        Assert.Equal(WorkflowNotificationKind.ProjectRevisionRequested, revisionNotice.Kind);
+        Assert.Equal(staffUserId, revisionNotice.ActorId);
+        Assert.Equal(project.ConcurrencyToken, revisionNotice.SourceVersion);
 
         // 10. Resubmit Project (Leader)
         var resubmitRequest = new SubmitProjectRequest(project.ConcurrencyToken);
@@ -224,8 +229,9 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         project = await approveResponse.Content.ReadFromJsonAsync<ProjectDto>();
         Assert.NotNull(project);
         Assert.Equal("APPROVED", project.Status);
-        var notification = Assert.Single(_factory.Notifications.Events.Where(e => e.SourceId == project.Id));
-        Assert.Equal(WorkflowNotificationKind.ProjectApproved, notification.Kind);
+        var projectEvents = _factory.Notifications.Events.Where(e => e.SourceId == project.Id).ToArray();
+        Assert.Equal(2, projectEvents.Length);
+        var notification = Assert.Single(projectEvents.Where(e => e.Kind == WorkflowNotificationKind.ProjectApproved));
         Assert.Equal(staffUserId, notification.ActorId);
         Assert.Equal(project.UpdatedAt, notification.OccurredAt);
 
