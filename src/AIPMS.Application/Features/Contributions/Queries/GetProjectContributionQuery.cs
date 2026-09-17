@@ -1,57 +1,25 @@
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using System;
-using AIPMS.Application.Abstractions.Security;
-using AIPMS.Application.Common.Exceptions;
-using AIPMS.Application.Features.Contributions.Abstractions;
+using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Contributions.DTOs;
 using AIPMS.Application.Features.Contributions.Services;
-using AIPMS.Application.Features.Projects.Abstractions;
 using MediatR;
 
 namespace AIPMS.Application.Features.Contributions.Queries;
 
-public sealed record GetProjectContributionQuery(long ProjectId) : IRequest<ContributionSummaryDto>;
-public sealed record GetContributionEvidenceQuery(long ProjectId, long UserId) : IRequest<IReadOnlyList<ContributionEvidenceDto>>;
-public sealed record RebuildContributionSnapshotCommand(long ProjectId) : IRequest<ContributionSummaryDto>;
+public sealed record GetProjectContributionQuery(long ProjectId, int Page = 1, int PageSize = 20, bool Snapshot = false)
+    : IRequest<ContributionSummaryDto>;
+public sealed record GetContributionEvidenceQuery(long ProjectId, long UserId, int Page = 1, int PageSize = 20,
+    string? SourceType = null) : IRequest<PagedResult<ContributionEvidenceDto>>;
 
-public sealed class GetProjectContributionQueryHandler(IContributionRepository repository, IProjectAccessService access,
-    IProjectRepository projects, ICurrentUser currentUser) : IRequestHandler<GetProjectContributionQuery, ContributionSummaryDto>
+public sealed class GetProjectContributionQueryHandler(ContributionWorkflow workflow)
+    : IRequestHandler<GetProjectContributionQuery, ContributionSummaryDto>
 {
-    public async Task<ContributionSummaryDto> Handle(GetProjectContributionQuery request, CancellationToken ct)
-    {
-        if (!currentUser.IsAuthenticated || currentUser.UserId is null) throw new UnauthorizedException();
-        if (await projects.GetByIdAsync(request.ProjectId, ct) is null) throw new NotFoundException("Project", request.ProjectId);
-        if (!await access.CanAccessAsync(currentUser.UserId.Value, request.ProjectId, ct)) throw new ForbiddenException("You do not have access to this project.");
-        var members = await repository.GetProjectSummaryAsync(request.ProjectId, ct);
-        return ContributionScoring.Summarize(members);
-    }
+    public Task<ContributionSummaryDto> Handle(GetProjectContributionQuery request, CancellationToken ct) =>
+        workflow.Summary(request.ProjectId, request.Page, request.PageSize, request.Snapshot, ct);
 }
 
-public sealed class RebuildContributionSnapshotCommandHandler(IContributionRepository repository, IProjectAccessService access,
-    IProjectRepository projects, ICurrentUser currentUser) : IRequestHandler<RebuildContributionSnapshotCommand, ContributionSummaryDto>
+public sealed class GetContributionEvidenceQueryHandler(ContributionWorkflow workflow)
+    : IRequestHandler<GetContributionEvidenceQuery, PagedResult<ContributionEvidenceDto>>
 {
-    public async Task<ContributionSummaryDto> Handle(RebuildContributionSnapshotCommand request, CancellationToken ct)
-    {
-        if (!currentUser.IsAuthenticated || currentUser.UserId is null) throw new UnauthorizedException();
-        if (!currentUser.Roles.Contains(AIPMS.Application.Common.Security.AppRoles.Admin, StringComparer.Ordinal)
-            && !currentUser.Roles.Contains(AIPMS.Application.Common.Security.AppRoles.DepartmentStaff, StringComparer.Ordinal))
-            throw new ForbiddenException("Only academic staff can rebuild contribution snapshots.");
-        if (await projects.GetByIdAsync(request.ProjectId, ct) is null) throw new NotFoundException("Project", request.ProjectId);
-        if (!await access.CanAccessAsync(currentUser.UserId.Value, request.ProjectId, ct)) throw new ForbiddenException("You do not have access to this project.");
-        return await repository.RebuildSnapshotAsync(request.ProjectId, DateTime.UtcNow, ct);
-    }
-}
-
-public sealed class GetContributionEvidenceQueryHandler(IContributionRepository repository, IProjectAccessService access,
-    IProjectRepository projects, ICurrentUser currentUser) : IRequestHandler<GetContributionEvidenceQuery, IReadOnlyList<ContributionEvidenceDto>>
-{
-    public async Task<IReadOnlyList<ContributionEvidenceDto>> Handle(GetContributionEvidenceQuery request, CancellationToken ct)
-    {
-        if (!currentUser.IsAuthenticated || currentUser.UserId is null) throw new UnauthorizedException();
-        if (await projects.GetByIdAsync(request.ProjectId, ct) is null) throw new NotFoundException("Project", request.ProjectId);
-        if (!await access.CanAccessAsync(currentUser.UserId.Value, request.ProjectId, ct)) throw new ForbiddenException("You do not have access to this project.");
-        return await repository.GetEvidenceAsync(request.ProjectId, request.UserId, ct);
-    }
+    public Task<PagedResult<ContributionEvidenceDto>> Handle(GetContributionEvidenceQuery request, CancellationToken ct) =>
+        workflow.Evidence(request.ProjectId, request.UserId, request.Page, request.PageSize, request.SourceType, ct);
 }

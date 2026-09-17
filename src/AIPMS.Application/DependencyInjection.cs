@@ -36,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<FinalSubmissionDraftWorkflow>();
         services.AddScoped<FinalSubmissionWorkflow>();
         services.AddScoped<NotificationInboxService>();
+        services.AddScoped<AIPMS.Application.Features.Contributions.Services.ContributionWorkflow>();
         services.AddScoped<AccountSecurityAccessService>();
         services.AddScoped<SemesterAccessService>();
         services.AddScoped<SupervisorAccessService>();
