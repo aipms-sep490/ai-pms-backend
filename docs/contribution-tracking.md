@@ -18,7 +18,7 @@ Rule `activity-v2` gives one credit per completed task, divided equally among it
 
 Evidence timestamps use UTC. Evidence is ordered by timestamp descending, then source type and source ID; members are ordered by user ID. A snapshot stores these evidence descriptors and all member statistics. Its hash incorporates the previous generation and the full captured payload, so changing an evidence label without changing counts creates a new generation. An unchanged replay preserves the original timestamp/hash and does not create a second audit event.
 
-The evidence response changes from an array to `{ items, page, pageSize, totalCount, totalPages, hasNextPage, hasPreviousPage }`; frontend callers must read `items`. Summary adds pagination and snapshot metadata. Apply the existing `db/changes/20260916_add_contribution_snapshots.sql` migration before use. No generated EF model or base schema change is required.
+The evidence response changes from an array to `{ items, page, pageSize, totalCount, totalPages }`; frontend callers must read `items`. Summary adds pagination and snapshot metadata. Apply the existing `db/changes/20260916_add_contribution_snapshots.sql` migration before use. No generated EF model or base schema change is required.
 
 Create the snapshot before archiving. Legacy `activity-v1` member-array snapshots remain readable; they have no frozen evidence, so archived evidence returns `409` instead of reconstructing history from live tables.
 
