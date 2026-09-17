@@ -484,7 +484,7 @@ public sealed class MeetingHandlerTests
         currentUser.Roles = new[] { AppRoles.Lecturer };
         repository.SupervisorAssignmentId = 100;
 
-        var handler = new AddMeetingFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var handler = new AddMeetingFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock, new RecordingPublisher());
         var command = new AddMeetingFeedbackCommand(5, new AddMeetingFeedbackRequest("Solid team coordination."));
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -497,7 +497,7 @@ public sealed class MeetingHandlerTests
     public async Task OtherSupervisor_FeedbackMeeting_403()
     {
         repository.SupervisorAssignmentId = null;
-        var handler = new AddMeetingFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var handler = new AddMeetingFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock, new RecordingPublisher());
         var command = new AddMeetingFeedbackCommand(5, new AddMeetingFeedbackRequest("Feedback"));
 
         await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
@@ -507,7 +507,7 @@ public sealed class MeetingHandlerTests
     public async Task EndedSupervisor_FeedbackMeeting_403()
     {
         repository.SupervisorAssignmentId = null; // Ended supervisor
-        var handler = new AddMeetingFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var handler = new AddMeetingFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock, new RecordingPublisher());
         var command = new AddMeetingFeedbackCommand(5, new AddMeetingFeedbackRequest("Feedback"));
 
         await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
@@ -518,7 +518,7 @@ public sealed class MeetingHandlerTests
     {
         repository.SupervisorAssignmentId = 100;
         repository.CurrentStatus = "CANCELLED";
-        var handler = new AddMeetingFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var handler = new AddMeetingFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock, new RecordingPublisher());
         var command = new AddMeetingFeedbackCommand(5, new AddMeetingFeedbackRequest("Feedback"));
 
         await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(command, CancellationToken.None));

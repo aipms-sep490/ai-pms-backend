@@ -6,6 +6,7 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.ProgressReports.Abstractions;
 using AIPMS.Application.Features.ProgressReports.DTOs;
+using AIPMS.Application.Features.Notifications.Events;
 using MediatR;
 
 namespace AIPMS.Application.Features.ProgressReports.Commands;
@@ -19,7 +20,8 @@ public sealed class AddProgressReportFeedbackCommandHandler(
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
     IAuditTrail audit,
-    TimeProvider clock) : IRequestHandler<AddProgressReportFeedbackCommand, ProgressReportFeedbackDto>
+    TimeProvider clock,
+    IPublisher publisher) : IRequestHandler<AddProgressReportFeedbackCommand, ProgressReportFeedbackDto>
 {
     public async Task<ProgressReportFeedbackDto> Handle(AddProgressReportFeedbackCommand command, CancellationToken cancellationToken)
     {
@@ -56,9 +58,10 @@ public sealed class AddProgressReportFeedbackCommandHandler(
                         ["feedbackId"] = fb.Id,
                         ["supervisorAssignmentId"] = assignmentId.Value
                     }), cancellationToken);
+                await publisher.Publish(new WorkflowNotificationEvent(
+                    WorkflowNotificationKind.SupervisorFeedbackAdded, fb.Id, actorId, now), cancellationToken);
             },
             cancellationToken);
-
         return feedback;
     }
 }

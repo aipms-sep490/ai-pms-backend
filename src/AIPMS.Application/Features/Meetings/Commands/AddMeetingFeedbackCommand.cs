@@ -6,6 +6,7 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Meetings.Abstractions;
 using AIPMS.Application.Features.Meetings.DTOs;
+using AIPMS.Application.Features.Notifications.Events;
 using MediatR;
 
 namespace AIPMS.Application.Features.Meetings.Commands;
@@ -19,7 +20,8 @@ public sealed class AddMeetingFeedbackCommandHandler(
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
     IAuditTrail audit,
-    TimeProvider clock) : IRequestHandler<AddMeetingFeedbackCommand, MeetingFeedbackDto>
+    TimeProvider clock,
+    IPublisher publisher) : IRequestHandler<AddMeetingFeedbackCommand, MeetingFeedbackDto>
 {
     public async Task<MeetingFeedbackDto> Handle(AddMeetingFeedbackCommand command, CancellationToken cancellationToken)
     {
@@ -56,9 +58,10 @@ public sealed class AddMeetingFeedbackCommandHandler(
                         ["feedbackId"] = fb.Id,
                         ["supervisorAssignmentId"] = assignmentId.Value
                     }), cancellationToken);
+                await publisher.Publish(new WorkflowNotificationEvent(
+                    WorkflowNotificationKind.SupervisorFeedbackAdded, fb.Id, actorId, now), cancellationToken);
             },
             cancellationToken);
-
         return feedback;
     }
 }

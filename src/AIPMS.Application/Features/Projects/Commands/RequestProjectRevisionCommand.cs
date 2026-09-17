@@ -11,6 +11,7 @@ using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Domain.Projects;
 using MediatR;
+using AIPMS.Application.Features.Notifications.Events;
 
 namespace AIPMS.Application.Features.Projects.Commands;
 
@@ -24,7 +25,8 @@ public sealed class RequestProjectRevisionCommandHandler(
     IProjectRepository repository,
     IAcademicStructureRepository academicRepository,
     ICurrentUser currentUser,
-    IAuditTrail auditTrail)
+    IAuditTrail auditTrail,
+    IPublisher publisher)
     : IRequestHandler<RequestProjectRevisionCommand, ProjectDto>
 {
     public Task<ProjectDto> Handle(RequestProjectRevisionCommand request, CancellationToken cancellationToken) =>
@@ -106,6 +108,9 @@ public sealed class RequestProjectRevisionCommandHandler(
                     ["reason"] = request.Reason
                 }),
             cancellationToken);
+
+        await publisher.Publish(new WorkflowNotificationEvent(
+            WorkflowNotificationKind.ProjectRevisionRequested, updatedProject.Id, actorUserId, updatedProject.UpdatedAt, updatedProject.ConcurrencyToken), cancellationToken);
 
         return updatedProject;
     }

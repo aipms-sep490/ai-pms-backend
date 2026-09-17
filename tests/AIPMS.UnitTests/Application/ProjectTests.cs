@@ -208,7 +208,7 @@ public sealed class ProjectTests
         // Arrange
         var repository = new StubProjectRepository();
         var currentUser = new TestCurrentUser(11, AppRoles.DepartmentStaff);
-        var handler = new RequestProjectRevisionCommandHandler(repository, new StubAcademicStructureRepository(), currentUser, new RecordingAuditTrail());
+        var handler = new RequestProjectRevisionCommandHandler(repository, new StubAcademicStructureRepository(), currentUser, new RecordingAuditTrail(), new RecordingPublisher());
 
         var command = new RequestProjectRevisionCommand(50, "token123", "   ");
 
@@ -228,7 +228,7 @@ public sealed class ProjectTests
         academicRepo.UserScopes[11] = new AcademicUserScope(1, 100); // Staff belongs to department 100 (Out of scope!)
 
         var currentUser = new TestCurrentUser(11, AppRoles.DepartmentStaff);
-        var handler = new RequestProjectRevisionCommandHandler(repository, academicRepo, currentUser, new RecordingAuditTrail());
+        var handler = new RequestProjectRevisionCommandHandler(repository, academicRepo, currentUser, new RecordingAuditTrail(), new RecordingPublisher());
 
         var command = new RequestProjectRevisionCommand(50, "token123", "Need more details.");
 

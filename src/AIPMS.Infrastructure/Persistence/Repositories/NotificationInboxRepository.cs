@@ -23,6 +23,29 @@ internal sealed class NotificationInboxRepository(AipmsDbContext context) : INot
                 r.Notification.Title, r.Notification.Content, r.Notification.RelatedEntityType,
                 r.Notification.RelatedEntityId, r.Notification.CreatedAt, r.IsRead, r.ReadAt))
             .ToListAsync(ct);
+        // Resolve only this page in batches. The destination endpoint still checks current access.
+        var historyIds = items.Where(i => i.RelatedEntityType == "PROJECT_STATUS_HISTORY").Select(i => i.RelatedEntityId).ToArray();
+        var feedbackIds = items.Where(i => i.RelatedEntityType == "SUPERVISOR_FEEDBACK").Select(i => i.RelatedEntityId).ToArray();
+        var history = historyIds.Length == 0 ? [] : await context.ProjectStatusHistories.AsNoTracking()
+            .Where(h => historyIds.Contains(h.Id)).Select(h => new { h.Id, h.ProjectId }).ToListAsync(ct);
+        var feedback = feedbackIds.Length == 0 ? [] : await context.SupervisorFeedbacks.AsNoTracking()
+            .Where(f => feedbackIds.Contains(f.Id)).Select(f => new { f.Id, f.ProgressReportId, f.DeliverableVersionId, f.MeetingId }).ToListAsync(ct);
+        items = items.Select(item =>
+        {
+            if (item.RelatedEntityType == "PROJECT_STATUS_HISTORY")
+            {
+                var source = history.SingleOrDefault(h => h.Id == item.RelatedEntityId);
+                return item with { RelatedEntityType = source is null ? null : "PROJECT", RelatedEntityId = source?.ProjectId };
+            }
+            if (item.RelatedEntityType == "SUPERVISOR_FEEDBACK")
+            {
+                var source = feedback.SingleOrDefault(f => f.Id == item.RelatedEntityId);
+                return item with { RelatedEntityType = source?.ProgressReportId.HasValue == true ? "PROGRESS_REPORT"
+                    : source?.DeliverableVersionId.HasValue == true ? "DELIVERABLE_VERSION" : source?.MeetingId.HasValue == true ? "MEETING" : null,
+                    RelatedEntityId = source?.ProgressReportId ?? source?.DeliverableVersionId ?? source?.MeetingId };
+            }
+            return item;
+        }).ToList();
         return new(items, page, pageSize, total);
     }
 

@@ -21,18 +21,28 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         long? targetUser = null;
         string role;
         long? projectId = null;
+        long? historyId = null;
         var finalSubmission = entityType == "FINAL_SUBMISSION";
         var projectResult = entityType == "PROJECT_RESULT";
-        var projectApproved = entityType == "PROJECT_APPROVED";
+        var projectStateEvent = entityType is "PROJECT_APPROVED" or "PROJECT_REJECTED" or "PROJECT_REVISION";
+        var feedbackEvent = entityType == "SUPERVISOR_FEEDBACK";
         var departmentEvent = finalSubmission || entityType == "EVALUATION";
 
         // A source-row lock serializes duplicate event handling; inbox and transition commit together.
-        if (projectApproved)
+        if (projectStateEvent)
         {
             var project = await context.Projects.FromSqlInterpolated(
                 $"SELECT * FROM dbo.projects WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
                 .AsNoTracking().SingleOrDefaultAsync(ct);
             if (project is null || project.Status != status) return;
+            if (notification.Kind is WorkflowNotificationKind.ProjectRejected or WorkflowNotificationKind.ProjectRevisionRequested)
+            {
+                if (notification.SourceVersion != Convert.ToBase64String(project.RowVersion)) return;
+                historyId = await context.ProjectStatusHistories.Where(h => h.ProjectId == project.Id
+                        && h.NewStatus == status && h.ChangedBy == notification.ActorId)
+                    .OrderByDescending(h => h.Id).Select(h => (long?)h.Id).FirstOrDefaultAsync(ct);
+                if (!historyId.HasValue) return;
+            }
             projectId = project.Id;
             teamId = project.TeamId;
             role = AppRoles.Student;
@@ -68,6 +78,27 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
             role = AppRoles.DepartmentStaff;
         }
+        else if (feedbackEvent)
+        {
+            var source = await context.SupervisorFeedbacks.FromSqlInterpolated(
+                $"SELECT * FROM dbo.supervisor_feedback WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
+                .AsNoTracking().SingleOrDefaultAsync(ct);
+            if (source is null) return;
+            // Resolve recipients only for a valid, auditable parent and its assigned supervisor.
+            if (new[] { source.ProgressReportId, source.DeliverableVersionId, source.MeetingId }.Count(id => id.HasValue) != 1
+                || !await context.SupervisorAssignments.AnyAsync(a => a.Id == source.SupervisorAssignmentId
+                    && a.ProjectId == source.ProjectId && a.EndedAt == null
+                    && a.SupervisorProfile.UserId == notification.ActorId, ct)) return;
+            var validParent = source.ProgressReportId.HasValue
+                ? await context.ProgressReports.AnyAsync(p => p.Id == source.ProgressReportId && p.ProjectId == source.ProjectId && p.Status != "DRAFT", ct)
+                : source.DeliverableVersionId.HasValue
+                    ? await context.DeliverableVersions.AnyAsync(v => v.Id == source.DeliverableVersionId && v.Deliverable.ProjectId == source.ProjectId, ct)
+                    : await context.Meetings.AnyAsync(m => m.Id == source.MeetingId && m.ProjectId == source.ProjectId && m.Status != "CANCELLED", ct);
+            if (!validParent) return;
+            projectId = source.ProjectId;
+            teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
+            role = AppRoles.Student;
+        }
         else if (entityType == "TEAM_INVITATION")
         {
             var source = await context.TeamInvitations.FromSqlInterpolated(
@@ -92,10 +123,10 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             role = targetUser.HasValue ? AppRoles.Lecturer : AppRoles.Student;
         }
 
-        // Project-scoped routes share a navigable project ID.
-        var projectScoped = finalSubmission || projectResult || projectApproved;
-        var relatedEntityType = projectScoped ? "PROJECT" : entityType;
-        var relatedEntityId = projectScoped ? projectId!.Value : notification.SourceId;
+        // Store occurrence identity for deduplication; the inbox maps history/feedback to navigable parents.
+        var projectScoped = finalSubmission || projectResult || projectStateEvent;
+        var relatedEntityType = historyId.HasValue ? "PROJECT_STATUS_HISTORY" : projectScoped ? "PROJECT" : entityType;
+        var relatedEntityId = historyId ?? (projectScoped ? projectId!.Value : notification.SourceId);
         if (await context.Notifications.AnyAsync(n => n.RelatedEntityType == relatedEntityType
             && n.RelatedEntityId == relatedEntityId && n.NotificationType == type, ct)) return;
 
@@ -107,7 +138,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             && u.Department.OrganizationId == organizationId);
         if (targetUser.HasValue)
             recipients = recipients.Where(u => u.Id == targetUser.Value);
-        else if (projectResult || projectApproved)
+        else if (projectResult || projectStateEvent || feedbackEvent)
             recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.LeftAt == null));
         else if (!departmentEvent)
             recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.IsLeader && m.LeftAt == null));
@@ -142,6 +173,9 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
     {
         WorkflowNotificationKind.ProjectResultPublished => ("PROJECT_RESULT", "PUBLISHED", "PROJECT_RESULT_PUBLISHED", "Your project's final result has been published"),
         WorkflowNotificationKind.ProjectApproved => ("PROJECT_APPROVED", "APPROVED", "PROJECT_APPROVED", "Your project proposal has been approved"),
+        WorkflowNotificationKind.ProjectRejected => ("PROJECT_REJECTED", "REJECTED", "PROJECT_REJECTED", "Your project proposal was rejected"),
+        WorkflowNotificationKind.ProjectRevisionRequested => ("PROJECT_REVISION", "REVISION_REQUIRED", "PROJECT_REVISION_REQUESTED", "Your project proposal requires revision"),
+        WorkflowNotificationKind.SupervisorFeedbackAdded => ("SUPERVISOR_FEEDBACK", "CREATED", "SUPERVISOR_FEEDBACK_ADDED", "Your supervisor added feedback to project work"),
         WorkflowNotificationKind.EvaluationFinalized => ("EVALUATION", "FINALIZED", "EVALUATION_FINALIZED", "An evaluator finalized a project evaluation"),
         WorkflowNotificationKind.FinalSubmissionLocked => ("FINAL_SUBMISSION", "LOCKED", "FINAL_SUBMISSION_LOCKED", "A project submitted its final package"),
         WorkflowNotificationKind.TeamInvitationSent => ("TEAM_INVITATION", "PENDING", "TEAM_INVITATION_SENT", "You received a team invitation"),

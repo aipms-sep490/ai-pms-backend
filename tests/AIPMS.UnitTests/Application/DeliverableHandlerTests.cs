@@ -90,7 +90,7 @@ public sealed class DeliverableHandlerTests
             Storage = new(Repository);
             Audit = new(Repository);
             workflow = new(Repository, Storage, new Actor(), Accounts, new Access(), Audit, TimeProvider.System,
-                NullLogger<DeliverableWorkflow>.Instance);
+                NullLogger<DeliverableWorkflow>.Instance, new RecordingPublisher());
         }
         public async Task<DeliverableVersionDto> Submit()
         {
