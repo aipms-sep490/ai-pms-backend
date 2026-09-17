@@ -18,6 +18,10 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApi(this IServiceCollection services)
     {
+        services.AddOptions<ScheduledNotificationSettings>()
+            .BindConfiguration(ScheduledNotificationSettings.SectionName)
+            .ValidateDataAnnotations().ValidateOnStart();
+        services.AddHostedService<Services.ScheduledNotificationWorker>();
         services.AddOptions<CorsSettings>()
             .BindConfiguration(CorsSettings.SectionName)
             .ValidateDataAnnotations()
