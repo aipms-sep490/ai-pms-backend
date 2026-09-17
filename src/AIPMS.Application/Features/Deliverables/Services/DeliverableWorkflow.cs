@@ -9,13 +9,15 @@ using AIPMS.Application.Features.Deliverables.DTOs;
 using AIPMS.Application.Features.Deliverables.Models;
 using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Application.Features.Supervisors.Models;
+using AIPMS.Application.Features.Notifications.Events;
+using MediatR;
 using Microsoft.Extensions.Logging;
 
 namespace AIPMS.Application.Features.Deliverables.Services;
 
 public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFileStorage storage,
     ICurrentUser currentUser, ISupervisorProfileRepository accounts, IProjectAccessService projectAccess,
-    IAuditTrail audit, TimeProvider clock, ILogger<DeliverableWorkflow> logger)
+    IAuditTrail audit, TimeProvider clock, ILogger<DeliverableWorkflow> logger, IPublisher publisher)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
     private async Task<SupervisorAccount> ActorAsync(CancellationToken ct)
@@ -166,6 +168,8 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
             var result = await repository.ReviewAsync(versionId, project.AssignmentId!.Value, actor.UserId, decision, feedback.Trim(), Now, token);
             await AuditAsync(actor.UserId, "DELIVERABLE_VERSION_REVIEWED", "DELIVERABLE_VERSION", versionId,
                 new { version.Status }, new { Status = decision, Feedback = result }, token);
+            await publisher.Publish(new WorkflowNotificationEvent(
+                WorkflowNotificationKind.SupervisorFeedbackAdded, result.Id, actor.UserId, result.CreatedAt), token);
             return result;
         }, ct);
 

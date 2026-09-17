@@ -429,7 +429,7 @@ public sealed class ProgressReportHandlerTests
         repository.Report = new ProgressReportDto(10, 1, 1, "Author", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7),
             "Summary", null, null, null, "SUBMITTED", DateTime.UtcNow, false, DateTime.UtcNow, DateTime.UtcNow);
 
-        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock, new RecordingPublisher());
         var command = new AddProgressReportFeedbackCommand(10, new AddProgressReportFeedbackRequest("Great work!"));
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -441,7 +441,7 @@ public sealed class ProgressReportHandlerTests
     public async Task OtherSupervisor_Feedback_403()
     {
         repository.SupervisorAssignmentId = null;
-        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock, new RecordingPublisher());
         var command = new AddProgressReportFeedbackCommand(10, new AddProgressReportFeedbackRequest("Feedback"));
 
         await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
@@ -451,7 +451,7 @@ public sealed class ProgressReportHandlerTests
     public async Task EndedSupervisor_Feedback_403()
     {
         repository.SupervisorAssignmentId = null; // Represents ended assignment
-        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock, new RecordingPublisher());
         var command = new AddProgressReportFeedbackCommand(10, new AddProgressReportFeedbackRequest("Feedback"));
 
         await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
@@ -461,7 +461,7 @@ public sealed class ProgressReportHandlerTests
     public async Task DraftReport_Feedback_409()
     {
         repository.CurrentStatus = "DRAFT";
-        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock, new RecordingPublisher());
         var command = new AddProgressReportFeedbackCommand(10, new AddProgressReportFeedbackRequest("Feedback"));
 
         await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(command, CancellationToken.None));
@@ -720,7 +720,7 @@ public sealed class ProgressReportHandlerTests
             "Summary", "Done", "Next", "Risks", "SUBMITTED", DateTime.UtcNow, false, DateTime.UtcNow, DateTime.UtcNow);
 
         audit.ShouldThrow = true;
-        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock);
+        var handler = new AddProgressReportFeedbackCommandHandler(repository, executionGuard, currentUser, audit, clock, new RecordingPublisher());
         var command = new AddProgressReportFeedbackCommand(10, new AddProgressReportFeedbackRequest("Good work."));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => handler.Handle(command, CancellationToken.None));
