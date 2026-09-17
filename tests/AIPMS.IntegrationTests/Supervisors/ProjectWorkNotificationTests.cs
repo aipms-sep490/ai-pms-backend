@@ -153,7 +153,8 @@ public sealed partial class SupervisorRequestEndpointTests
         {
             var feedback = await db.SupervisorFeedbacks.SingleAsync(f => f.ProjectId == p.Id);
             await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => Replay(app, new(WorkflowNotificationKind.SupervisorFeedbackAdded, feedback.Id, s.Lecturer, Now))));
-            (await db.TeamMembers.SingleAsync(m => m.TeamId == p.TeamId && m.UserId == p.MemberId)).LeftAt = DateTime.UtcNow;
+            var departedMember = await db.TeamMembers.SingleAsync(m => m.TeamId == p.TeamId && m.UserId == p.MemberId);
+            departedMember.LeftAt = departedMember.JoinedAt.AddSeconds(1);
             await db.SaveChangesAsync();
         }
         Assert.Single(await Notifications(member));
@@ -206,7 +207,11 @@ public sealed partial class SupervisorRequestEndpointTests
         var token = action == "revision" ? await PrepareApproval(p) : "";
         await using (var db = database.CreateContext())
         {
-            if (condition == "LEFT") (await db.TeamMembers.SingleAsync(m => m.TeamId == p.TeamId && m.UserId == p.MemberId)).LeftAt = DateTime.UtcNow;
+            if (condition == "LEFT")
+            {
+                var departedMember = await db.TeamMembers.SingleAsync(m => m.TeamId == p.TeamId && m.UserId == p.MemberId);
+                departedMember.LeftAt = departedMember.JoinedAt.AddSeconds(1);
+            }
             if (condition == "INACTIVE") (await db.Users.FindAsync(p.MemberId))!.Status = "INACTIVE";
             if (condition == "ROLE_REMOVED") db.UserRoles.RemoveRange(await db.UserRoles.Where(r => r.UserId == p.MemberId).ToListAsync());
             if (condition == "DEPARTMENT_INACTIVE")
