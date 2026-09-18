@@ -52,6 +52,10 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260912_add_interdisciplinary_projects.sql"), ct);
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
+                "db", "changes", "20260913_add_topic_catalog.sql"), ct);
+            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
+                "db", "changes", "20260914_add_project_topic_selection.sql"), ct);
+            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260916_add_contribution_snapshots.sql"), ct);
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260918_add_scheduled_notification_occurrences.sql"), ct);

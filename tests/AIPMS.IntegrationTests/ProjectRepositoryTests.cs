@@ -8,8 +8,10 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using AIPMS.Application.Common.Exceptions;
+using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
+using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.Infrastructure.Persistence.Repositories;
 using Testcontainers.MsSql;
 using Xunit;
@@ -593,5 +595,617 @@ public class ProjectRepositoryTests
         var pEntity = await cleanupContext.Projects.SingleAsync(p => p.Id == project.Id);
         cleanupContext.Projects.Remove(pEntity);
         await cleanupContext.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task ConcurrentSubmit_OnlyOneSucceeds()
+    {
+        using var contextSetup = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(contextSetup);
+        var teamId = await contextSetup.Teams.Where(t => t.Name == "Team One").Select(t => t.Id).FirstAsync();
+        var studentId = await contextSetup.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var majorId = await contextSetup.Majors.Select(m => m.Id).FirstAsync();
+
+        var project = await repoSetup.CreateDraftAsync(
+            teamId,
+            studentId,
+            "Concurrent Submit Project",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "ConcurrentSubmit",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        var token = project.ConcurrencyToken;
+
+        // Run two concurrent submissions with the same concurrency token
+        using var context1 = _fixture.CreateContext();
+        using var context2 = _fixture.CreateContext();
+        var repo1 = new ProjectRepository(context1);
+        var repo2 = new ProjectRepository(context2);
+
+        var task1 = Task.Run(async () =>
+        {
+            try
+            {
+                return await repo1.UpdateStatusAsync(project.Id, token, "DRAFT", "SUBMITTED", studentId, "Submit 1", default);
+            }
+            catch (Exception ex)
+            {
+                return (object)ex;
+            }
+        });
+
+        var task2 = Task.Run(async () =>
+        {
+            try
+            {
+                return await repo2.UpdateStatusAsync(project.Id, token, "DRAFT", "SUBMITTED", studentId, "Submit 2", default);
+            }
+            catch (Exception ex)
+            {
+                return (object)ex;
+            }
+        });
+
+        var results = await Task.WhenAll(task1, task2);
+
+        var successCount = results.Count(r => r is ProjectDto);
+        var conflictCount = results.Count(r => r is ConflictException);
+
+        Assert.Equal(1, successCount);
+        Assert.Equal(1, conflictCount);
+
+        // Verify DB final state
+        using var verifyContext = _fixture.CreateContext();
+        var finalProject = await verifyContext.Projects.SingleAsync(p => p.Id == project.Id);
+        Assert.Equal("SUBMITTED", finalProject.Status);
+
+        var histories = await verifyContext.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
+        Assert.Single(histories);
+        Assert.Equal("SUBMITTED", histories[0].NewStatus);
+
+        // Cleanup
+        verifyContext.ProjectStatusHistories.RemoveRange(histories);
+        verifyContext.Projects.Remove(finalProject);
+        await verifyContext.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task UpdateVsSubmit_SubmitWins_StaleUpdate409()
+    {
+        using var contextSetup = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(contextSetup);
+        var teamId = await contextSetup.Teams.Where(t => t.Name == "Team One").Select(t => t.Id).FirstAsync();
+        var studentId = await contextSetup.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var majorId = await contextSetup.Majors.Select(m => m.Id).FirstAsync();
+
+        var project = await repoSetup.CreateDraftAsync(
+            teamId,
+            studentId,
+            "Update vs Submit Project",
+            "Original Description",
+            "Original Objectives",
+            "Original Problem",
+            "Original Output",
+            new[] { majorId },
+            "OriginalDomain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        var token = project.ConcurrencyToken;
+
+        // Submit wins first
+        using var contextSubmit = _fixture.CreateContext();
+        var repoSubmit = new ProjectRepository(contextSubmit);
+        var submittedProject = await repoSubmit.UpdateStatusAsync(
+            project.Id, token, "DRAFT", "SUBMITTED", studentId, "Submitting proposal", default);
+        Assert.Equal("SUBMITTED", submittedProject.Status);
+
+        // Stale update attempt using original token
+        using var contextUpdate = _fixture.CreateContext();
+        var repoUpdate = new ProjectRepository(contextUpdate);
+
+        await Assert.ThrowsAsync<ConflictException>(async () =>
+        {
+            await repoUpdate.UpdateDraftAsync(
+                project.Id,
+                token,
+                "Overwritten Title",
+                "Overwritten Description",
+                "Overwritten Objectives",
+                "Overwritten Problem",
+                "Overwritten Output",
+                new[] { majorId },
+                "OverwrittenDomain",
+                new[] { "OverwrittenTech" },
+                new[] { "OverwrittenKw" },
+                default);
+        });
+
+        // Verify submitted data was NOT overwritten
+        using var verifyContext = _fixture.CreateContext();
+        var finalProject = await verifyContext.Projects.SingleAsync(p => p.Id == project.Id);
+        Assert.Equal("SUBMITTED", finalProject.Status);
+        Assert.Equal("Update vs Submit Project", finalProject.Title);
+        Assert.Equal("Original Description", finalProject.Description);
+
+        // Cleanup
+        var histories = await verifyContext.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
+        verifyContext.ProjectStatusHistories.RemoveRange(histories);
+        verifyContext.Projects.Remove(finalProject);
+        await verifyContext.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task UpdateDraft_AfterSubmit_Returns409()
+    {
+        using var contextSetup = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(contextSetup);
+        var teamId = await contextSetup.Teams.Where(t => t.Name == "Team One").Select(t => t.Id).FirstAsync();
+        var studentId = await contextSetup.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var majorId = await contextSetup.Majors.Select(m => m.Id).FirstAsync();
+
+        var project = await repoSetup.CreateDraftAsync(
+            teamId,
+            studentId,
+            "Already Submitted Project",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "ImmutableDomain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        // Transition to SUBMITTED
+        var submitted = await repoSetup.UpdateStatusAsync(
+            project.Id, project.ConcurrencyToken, "DRAFT", "SUBMITTED", studentId, "Submit", default);
+
+        // Even with the fresh concurrency token of the submitted project, editing must be rejected
+        using var contextEdit = _fixture.CreateContext();
+        var repoEdit = new ProjectRepository(contextEdit);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
+        {
+            await repoEdit.UpdateDraftAsync(
+                project.Id,
+                submitted.ConcurrencyToken,
+                "Mutated Title",
+                "Mutated Description",
+                "Mutated Objectives",
+                "Mutated Problem",
+                "Mutated Output",
+                new[] { majorId },
+                "MutatedDomain",
+                new[] { "Tech" },
+                new[] { "Kw" },
+                default);
+        });
+
+        Assert.Equal("Only an editable proposal can be updated.", ex.Message);
+
+        // Cleanup
+        using var cleanupContext = _fixture.CreateContext();
+        var histories = await cleanupContext.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
+        cleanupContext.ProjectStatusHistories.RemoveRange(histories);
+        var p = await cleanupContext.Projects.SingleAsync(p => p.Id == project.Id);
+        cleanupContext.Projects.Remove(p);
+        await cleanupContext.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task TopicSelectionVsSubmit_SubmitWins_StaleSelectionReturns409()
+    {
+        using var contextSetup = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(contextSetup);
+        var teamId = await contextSetup.Teams.Where(t => t.Name == "Team One").Select(t => t.Id).FirstAsync();
+        var studentId = await contextSetup.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var majorId = await contextSetup.Majors.Select(m => m.Id).FirstAsync();
+        var periodId = await contextSetup.ProjectPeriods.Select(p => p.Id).FirstAsync();
+        var deptId = await contextSetup.Departments.Select(d => d.Id).FirstAsync();
+
+        // Ensure a published topic exists
+        var topic = new ProjectTopic
+        {
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            Code = "TOPIC-CONC-" + Guid.NewGuid().ToString("N")[..8],
+            Status = "PUBLISHED",
+            Title = "Topic for Concurrency Test",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"AI\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedBy = studentId,
+            UpdatedBy = studentId,
+            PublishedBy = studentId,
+            PublishedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        contextSetup.Set<ProjectTopic>().Add(topic);
+        await contextSetup.SaveChangesAsync();
+
+        var project = await repoSetup.CreateDraftAsync(
+            teamId,
+            studentId,
+            "Topic vs Submit Project",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "Domain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        var token = project.ConcurrencyToken;
+
+        // Submit wins first
+        using var contextSubmit = _fixture.CreateContext();
+        var repoSubmit = new ProjectRepository(contextSubmit);
+        var submittedProject = await repoSubmit.UpdateStatusAsync(
+            project.Id, token, "DRAFT", "SUBMITTED", studentId, "Submitting proposal", default);
+        Assert.Equal("SUBMITTED", submittedProject.Status);
+
+        // Stale topic selection attempt
+        using var contextSelect = _fixture.CreateContext();
+        var repoSelect = new ProjectRepository(contextSelect);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
+        {
+            await repoSelect.SelectTopicAsync(project.Id, topic.Id, token, default);
+        });
+        Assert.Equal("The project has been modified by another user. Please refresh and try again.", ex.Message);
+
+        // Even with fresh token, submitted project cannot change topic
+        var ex2 = await Assert.ThrowsAsync<ConflictException>(async () =>
+        {
+            await repoSelect.SelectTopicAsync(project.Id, topic.Id, submittedProject.ConcurrencyToken, default);
+        });
+        Assert.Equal("Only an editable proposal can be updated.", ex2.Message);
+
+        // Verify submitted data unchanged
+        using var verifyContext = _fixture.CreateContext();
+        var finalProject = await verifyContext.Projects.SingleAsync(p => p.Id == project.Id);
+        Assert.Equal("SUBMITTED", finalProject.Status);
+        Assert.Null(finalProject.TopicId);
+
+        // Cleanup
+        var histories = await verifyContext.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
+        verifyContext.ProjectStatusHistories.RemoveRange(histories);
+        verifyContext.Projects.Remove(finalProject);
+        var t = await verifyContext.Set<ProjectTopic>().SingleAsync(x => x.Id == topic.Id);
+        verifyContext.Set<ProjectTopic>().Remove(t);
+        await verifyContext.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task ConcurrentTopicSelection_OnlyValidWritePersists()
+    {
+        using var contextSetup = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(contextSetup);
+        var teamId = await contextSetup.Teams.Where(t => t.Name == "Team One").Select(t => t.Id).FirstAsync();
+        var studentId = await contextSetup.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var majorId = await contextSetup.Majors.Select(m => m.Id).FirstAsync();
+        var periodId = await contextSetup.ProjectPeriods.Select(p => p.Id).FirstAsync();
+        var deptId = await contextSetup.Departments.Select(d => d.Id).FirstAsync();
+
+        var topic1 = new ProjectTopic
+        {
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            Code = "TOPIC-A-" + Guid.NewGuid().ToString("N")[..8],
+            Status = "PUBLISHED",
+            Title = "Topic A",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"AI\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedBy = studentId,
+            UpdatedBy = studentId,
+            PublishedBy = studentId,
+            PublishedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        var topic2 = new ProjectTopic
+        {
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            Code = "TOPIC-B-" + Guid.NewGuid().ToString("N")[..8],
+            Status = "PUBLISHED",
+            Title = "Topic B",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"AI\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedBy = studentId,
+            UpdatedBy = studentId,
+            PublishedBy = studentId,
+            PublishedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        contextSetup.Set<ProjectTopic>().AddRange(topic1, topic2);
+        await contextSetup.SaveChangesAsync();
+
+        var project = await repoSetup.CreateDraftAsync(
+            teamId,
+            studentId,
+            "Concurrent Topic Selection",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "Domain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        var token = project.ConcurrencyToken;
+
+        // User 1 selects Topic 1
+        using var ctx1 = _fixture.CreateContext();
+        var repo1 = new ProjectRepository(ctx1);
+        var updated1 = await repo1.SelectTopicAsync(project.Id, topic1.Id, token, default);
+        Assert.Equal(topic1.Id, updated1.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", updated1.ProposalSource);
+
+        // User 2 tries to select Topic 2 using stale token
+        using var ctx2 = _fixture.CreateContext();
+        var repo2 = new ProjectRepository(ctx2);
+        await Assert.ThrowsAsync<ConflictException>(async () =>
+        {
+            await repo2.SelectTopicAsync(project.Id, topic2.Id, token, default);
+        });
+
+        // User 2 retries with fresh token -> replaces topic selection
+        var updated2 = await repo2.SelectTopicAsync(project.Id, topic2.Id, updated1.ConcurrencyToken, default);
+        Assert.Equal(topic2.Id, updated2.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", updated2.ProposalSource);
+
+        // Cleanup
+        using var cleanupCtx = _fixture.CreateContext();
+        var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
+        cleanupCtx.Projects.Remove(p);
+        var t1 = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic1.Id);
+        var t2 = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic2.Id);
+        cleanupCtx.Set<ProjectTopic>().RemoveRange(t1, t2);
+        await cleanupCtx.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task SelectPublishedTopic_PersistsTopicId()
+    {
+        using var contextSetup = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(contextSetup);
+        var teamId = await contextSetup.Teams.Where(t => t.Name == "Team One").Select(t => t.Id).FirstAsync();
+        var studentId = await contextSetup.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var majorId = await contextSetup.Majors.Select(m => m.Id).FirstAsync();
+        var periodId = await contextSetup.ProjectPeriods.Select(p => p.Id).FirstAsync();
+        var deptId = await contextSetup.Departments.Select(d => d.Id).FirstAsync();
+
+        var topic = new ProjectTopic
+        {
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            Code = "TOPIC-PERSIST-" + Guid.NewGuid().ToString("N")[..8],
+            Status = "PUBLISHED",
+            Title = "Topic for Persistence",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"AI\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedBy = studentId,
+            UpdatedBy = studentId,
+            PublishedBy = studentId,
+            PublishedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        contextSetup.Set<ProjectTopic>().Add(topic);
+        await contextSetup.SaveChangesAsync();
+
+        var project = await repoSetup.CreateDraftAsync(
+            teamId,
+            studentId,
+            "Persist Topic Project",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "Domain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        var updated = await repoSetup.SelectTopicAsync(project.Id, topic.Id, project.ConcurrencyToken, default);
+        Assert.Equal(topic.Id, updated.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", updated.ProposalSource);
+
+        var retrieved = await repoSetup.GetByIdAsync(project.Id, default);
+        Assert.NotNull(retrieved);
+        Assert.Equal(topic.Id, retrieved.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", retrieved.ProposalSource);
+        Assert.NotNull(retrieved.SelectedTopic);
+        Assert.Equal(topic.Id, retrieved.SelectedTopic.Id);
+        Assert.Equal(topic.Code, retrieved.SelectedTopic.Code);
+        Assert.Equal(topic.Title, retrieved.SelectedTopic.Title);
+
+        // Cleanup
+        using var cleanupCtx = _fixture.CreateContext();
+        var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
+        cleanupCtx.Projects.Remove(p);
+        var t = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic.Id);
+        cleanupCtx.Set<ProjectTopic>().Remove(t);
+        await cleanupCtx.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task UpdateTopic_ReplacesSelection_WhenDraftEditable()
+    {
+        using var contextSetup = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(contextSetup);
+        var teamId = await contextSetup.Teams.Where(t => t.Name == "Team One").Select(t => t.Id).FirstAsync();
+        var studentId = await contextSetup.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var majorId = await contextSetup.Majors.Select(m => m.Id).FirstAsync();
+        var periodId = await contextSetup.ProjectPeriods.Select(p => p.Id).FirstAsync();
+        var deptId = await contextSetup.Departments.Select(d => d.Id).FirstAsync();
+
+        var topic1 = new ProjectTopic
+        {
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            Code = "TOPIC-REP1-" + Guid.NewGuid().ToString("N")[..8],
+            Status = "PUBLISHED",
+            Title = "Topic Replacement 1",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"AI\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedBy = studentId,
+            UpdatedBy = studentId,
+            PublishedBy = studentId,
+            PublishedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        var topic2 = new ProjectTopic
+        {
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            Code = "TOPIC-REP2-" + Guid.NewGuid().ToString("N")[..8],
+            Status = "PUBLISHED",
+            Title = "Topic Replacement 2",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"AI\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedBy = studentId,
+            UpdatedBy = studentId,
+            PublishedBy = studentId,
+            PublishedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        contextSetup.Set<ProjectTopic>().AddRange(topic1, topic2);
+        await contextSetup.SaveChangesAsync();
+
+        var project = await repoSetup.CreateDraftAsync(
+            teamId,
+            studentId,
+            "Replace Topic Project",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "Domain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        // Select topic 1
+        var selected1 = await repoSetup.SelectTopicAsync(project.Id, topic1.Id, project.ConcurrencyToken, default);
+        Assert.Equal(topic1.Id, selected1.TopicId);
+
+        // Replace with topic 2
+        var selected2 = await repoSetup.SelectTopicAsync(project.Id, topic2.Id, selected1.ConcurrencyToken, default);
+        Assert.Equal(topic2.Id, selected2.TopicId);
+        Assert.Equal(topic2.Code, selected2.SelectedTopic?.Code);
+
+        // Cleanup
+        using var cleanupCtx = _fixture.CreateContext();
+        var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
+        cleanupCtx.Projects.Remove(p);
+        var t1 = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic1.Id);
+        var t2 = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic2.Id);
+        cleanupCtx.Set<ProjectTopic>().RemoveRange(t1, t2);
+        await cleanupCtx.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task SubmittedProject_TopicChange_Returns409()
+    {
+        using var contextSetup = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(contextSetup);
+        var teamId = await contextSetup.Teams.Where(t => t.Name == "Team One").Select(t => t.Id).FirstAsync();
+        var studentId = await contextSetup.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var majorId = await contextSetup.Majors.Select(m => m.Id).FirstAsync();
+        var periodId = await contextSetup.ProjectPeriods.Select(p => p.Id).FirstAsync();
+        var deptId = await contextSetup.Departments.Select(d => d.Id).FirstAsync();
+
+        var topic = new ProjectTopic
+        {
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            Code = "TOPIC-SUBM-" + Guid.NewGuid().ToString("N")[..8],
+            Status = "PUBLISHED",
+            Title = "Topic for Submitted Test",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"AI\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedBy = studentId,
+            UpdatedBy = studentId,
+            PublishedBy = studentId,
+            PublishedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        contextSetup.Set<ProjectTopic>().Add(topic);
+        await contextSetup.SaveChangesAsync();
+
+        var project = await repoSetup.CreateDraftAsync(
+            teamId,
+            studentId,
+            "Submitted Project Topic Change",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "Domain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        var submitted = await repoSetup.UpdateStatusAsync(
+            project.Id, project.ConcurrencyToken, "DRAFT", "SUBMITTED", studentId, "Submit", default);
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
+        {
+            await repoSetup.SelectTopicAsync(project.Id, topic.Id, submitted.ConcurrencyToken, default);
+        });
+        Assert.Equal("Only an editable proposal can be updated.", ex.Message);
+
+        // Cleanup
+        using var cleanupCtx = _fixture.CreateContext();
+        var histories = await cleanupCtx.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
+        cleanupCtx.ProjectStatusHistories.RemoveRange(histories);
+        var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
+        cleanupCtx.Projects.Remove(p);
+        var t = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic.Id);
+        cleanupCtx.Set<ProjectTopic>().Remove(t);
+        await cleanupCtx.SaveChangesAsync();
     }
 }
