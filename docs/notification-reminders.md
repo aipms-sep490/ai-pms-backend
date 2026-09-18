@@ -4,6 +4,15 @@ The API can run a background sweep for active projects in an active semester and
 organization. It uses the server UTC clock and the existing notification inbox.
 There is no public endpoint to trigger a sweep and no external email/push delivery.
 
+The optional SMTP notification worker is configured separately with
+`NotificationEmail__Enabled=true`. It queues every in-app notification after its
+transaction commits, claims each recipient exactly once at a time, and retries
+temporary SMTP failures with bounded exponential backoff. After the configured
+maximum attempts it marks the delivery `FAILED`; the in-app notification remains
+available and unchanged. SMTP credentials use the existing `Email__Host`,
+`Email__SenderAddress`, `Email__Username`, `Email__Password`, `Email__Port` and
+`Email__EnableSsl` settings. Keep this worker disabled until SMTP is verified.
+
 ## Deployment
 
 1. Apply existing final-submission migrations, then

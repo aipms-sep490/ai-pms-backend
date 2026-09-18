@@ -21,7 +21,11 @@ public static class DependencyInjection
         services.AddOptions<ScheduledNotificationSettings>()
             .BindConfiguration(ScheduledNotificationSettings.SectionName)
             .ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<NotificationEmailSettings>()
+            .BindConfiguration(NotificationEmailSettings.SectionName)
+            .ValidateDataAnnotations().ValidateOnStart();
         services.AddHostedService<Services.ScheduledNotificationWorker>();
+        services.AddHostedService<Services.NotificationEmailWorker>();
         services.AddOptions<CorsSettings>()
             .BindConfiguration(CorsSettings.SectionName)
             .ValidateDataAnnotations()
