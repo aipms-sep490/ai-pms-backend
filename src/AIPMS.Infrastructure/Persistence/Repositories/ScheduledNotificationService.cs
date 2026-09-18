@@ -8,6 +8,7 @@ using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
+using EmailDeliveryRow = AIPMS.Infrastructure.Persistence.Models.NotificationEmailDelivery;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
@@ -96,7 +97,26 @@ internal sealed class ScheduledNotificationService(
                     "PROJECT", projectId, warningRecipients, nowUtc, ct);
         }
         await db.SaveChangesAsync(ct);
+        await QueueEmailsAsync(ct);
         await transaction.CommitAsync(ct);
+    }
+
+    private async Task QueueEmailsAsync(CancellationToken ct)
+    {
+        // Queue every in-app notification created in this transaction; the email worker
+        // remains independently opt-in and can retry without changing inbox state.
+        var notificationIds = db.Notifications.Local
+            .Select(n => n.Id)
+            .Where(id => id > 0)
+            .ToArray();
+        if (notificationIds.Length == 0) return;
+        var recipientIds = await db.NotificationRecipients.Where(r => notificationIds.Contains(r.NotificationId))
+            .Select(r => r.Id).ToListAsync(ct);
+        var existing = await db.Set<EmailDeliveryRow>().Where(d => recipientIds.Contains(d.NotificationRecipientId))
+            .Select(d => d.NotificationRecipientId).ToListAsync(ct);
+        db.Set<EmailDeliveryRow>().AddRange(recipientIds.Where(id => !existing.Contains(id))
+            .Select(id => new EmailDeliveryRow { NotificationRecipientId = id, NextAttemptAt = DateTime.UtcNow }));
+        await db.SaveChangesAsync(ct);
     }
 
     private Task DeadlineAsync(long projectId, string entity, long sourceId, DateTime deadline, bool overdue,

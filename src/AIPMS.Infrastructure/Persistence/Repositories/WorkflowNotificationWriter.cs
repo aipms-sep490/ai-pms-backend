@@ -6,6 +6,7 @@ using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
+using EmailDeliveryRow = AIPMS.Infrastructure.Persistence.Models.NotificationEmailDelivery;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
@@ -166,6 +167,13 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
                 DeliveredAt = notification.OccurredAt
             }).ToArray()
         });
+        await context.SaveChangesAsync(ct);
+        context.Set<EmailDeliveryRow>().AddRange(ids.Select(id => new EmailDeliveryRow
+        {
+            NotificationRecipientId = context.NotificationRecipients.Local
+                .Single(r => r.NotificationId == context.Notifications.Local.Single(n => n.NotificationType == type).Id && r.UserId == id).Id,
+            NextAttemptAt = notification.OccurredAt
+        }));
         await context.SaveChangesAsync(ct);
     }
 
