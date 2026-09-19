@@ -425,21 +425,21 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         string concurrencyToken,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(concurrencyToken))
+        {
+            throw new ArgumentException("Concurrency token is required.", nameof(concurrencyToken));
+        }
+
         await using var transaction = context.Database.CurrentTransaction is null
             ? await context.Database.BeginTransactionAsync(cancellationToken) : null;
         try
         {
-            await LockProjectAsync(projectId, cancellationToken);
+            await LockProjectAndTopicAsync(projectId, topicId, cancellationToken);
             var project = await context.Projects
                 .Include(static p => p.ProjectMajors)
                 .Include(static p => p.ProjectTags)
                 .SingleOrDefaultAsync(p => p.Id == projectId, cancellationToken)
                 ?? throw new NotFoundException("Project", projectId);
-
-            if (string.IsNullOrWhiteSpace(concurrencyToken))
-            {
-                throw new ArgumentException("Concurrency token is required.", nameof(concurrencyToken));
-            }
 
             var existingToken = Convert.ToBase64String(project.RowVersion);
             if (existingToken != concurrencyToken)
@@ -453,6 +453,11 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             var topic = await context.Set<ProjectTopic>().AsNoTracking()
                 .SingleOrDefaultAsync(t => t.Id == topicId, cancellationToken)
                 ?? throw new NotFoundException("Topic", topicId);
+
+            if (topic.Status != "PUBLISHED")
+            {
+                throw new ConflictException("Only published topics can be selected.");
+            }
 
             project.TopicId = topicId;
             project.ProposalSource = "PUBLISHED_TOPIC";

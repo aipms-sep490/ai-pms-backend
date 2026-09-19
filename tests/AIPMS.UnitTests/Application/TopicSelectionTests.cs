@@ -515,6 +515,9 @@ internal sealed class StubTopicRepoForGuard : ITopicRepository
             [new TopicMajorRequirementDto(100, "SE", "Software", 1, "SE Dept", 1, 5, "Responsibility")],
             10, 10, FixedNow, FixedNow, 10, FixedNow, null, null, null, Guid.NewGuid(), true));
 
+    public Task<TopicDto?> GetByIdForSelectionAsync(long id, TopicActor actor, CancellationToken ct) =>
+        GetAsync(id, actor, false, ct);
+
     public Task<TopicPeriod?> GetPeriodAsync(long periodId, CancellationToken ct) =>
         Task.FromResult<TopicPeriod?>(new TopicPeriod(periodId, 1, 1, "REGISTRATION", "ACTIVE", "ACTIVE", FixedNow.AddDays(-1), FixedNow.AddDays(10), DateOnly.FromDateTime(FixedNow.AddDays(30)), true));
 

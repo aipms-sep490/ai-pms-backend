@@ -67,6 +67,17 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
         return topic?.ToDto(actor);
     }
 
+    public async Task<TopicDto?> GetByIdForSelectionAsync(long id, TopicActor actor, CancellationToken ct)
+    {
+        var query = db.Set<ProjectTopic>().AsNoTracking().Where(t => t.Id == id);
+        if (!actor.IsAdmin && actor.HasActiveScope)
+        {
+            query = query.Where(t => t.Period.AcademicSemester.OrganizationId == actor.OrganizationId);
+        }
+        var topic = await Include(query).SingleOrDefaultAsync(ct);
+        return topic?.ToDto(actor);
+    }
+
     public async Task<PagedResult<TopicDto>> ListAsync(TopicActor actor, TopicFilter filter, CancellationToken ct)
     {
         var query = Visible(db.Set<ProjectTopic>().AsNoTracking(), actor).Where(t => t.Status == filter.Status);

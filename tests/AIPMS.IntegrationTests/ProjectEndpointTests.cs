@@ -1127,6 +1127,8 @@ public sealed class TestProjectRepository : IProjectRepository
         return Task.FromResult(updated);
     }
 
+    public Task LockProjectAndTopicAsync(long projectId, long topicId, CancellationToken cancellationToken) => Task.CompletedTask;
+
     public Task<ProjectDto> SelectTopicAsync(
         long projectId,
         long topicId,

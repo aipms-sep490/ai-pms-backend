@@ -49,6 +49,16 @@ public sealed partial class ProjectRepository
         return await context.Projects.FromSqlInterpolated($"SELECT * FROM dbo.projects WITH (UPDLOCK, HOLDLOCK) WHERE id = {projectId}").SingleAsync(ct);
     }
 
+    public async System.Threading.Tasks.Task LockProjectAndTopicAsync(long projectId, long topicId, CancellationToken ct)
+    {
+        var teamId = await context.Projects.Where(p => p.Id == projectId).Select(p => (long?)p.TeamId)
+            .SingleOrDefaultAsync(ct) ?? throw new NotFoundException("Project", projectId);
+        await context.Teams.FromSqlInterpolated($"SELECT * FROM dbo.teams WITH (UPDLOCK, HOLDLOCK) WHERE id = {teamId}").SingleAsync(ct);
+        await context.Projects.FromSqlInterpolated($"SELECT * FROM dbo.projects WITH (UPDLOCK, HOLDLOCK) WHERE id = {projectId}").SingleAsync(ct);
+        await context.TeamMembers.FromSqlInterpolated($"SELECT * FROM dbo.team_members WITH (UPDLOCK, HOLDLOCK) WHERE team_id = {teamId}").AsNoTracking().ToListAsync(ct);
+        await context.Set<ProjectTopic>().FromSqlInterpolated($"SELECT * FROM dbo.project_topics WITH (UPDLOCK, HOLDLOCK) WHERE id = {topicId}").AsNoTracking().SingleOrDefaultAsync(ct);
+    }
+
     private async System.Threading.Tasks.Task ValidateProjectMajorsAsync(long teamId, IReadOnlyList<long> majorIds, CancellationToken ct)
     {
         var scope = await GetTeamScopeAsync(teamId, ct);

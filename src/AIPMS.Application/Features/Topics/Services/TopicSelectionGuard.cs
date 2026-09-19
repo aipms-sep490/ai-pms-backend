@@ -40,7 +40,7 @@ public sealed class TopicSelectionGuard(
         }
 
         // 4. Retrieve topic
-        var topic = await topicWorkflow.Get(topicId, cancellationToken);
+        var topic = await topicWorkflow.GetForSelection(topicId, cancellationToken);
         if (topic is null)
         {
             throw new NotFoundException("Topic", topicId);

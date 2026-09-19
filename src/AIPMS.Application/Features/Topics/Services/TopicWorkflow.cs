@@ -90,6 +90,9 @@ public sealed class TopicWorkflow(ITopicRepository repository, ITeamFormationPol
     public async Task<TopicDto> Get(long id, CancellationToken ct) =>
         await repository.GetAsync(id, await Actor(ct), false, ct) ?? throw new NotFoundException("Topic", id);
 
+    public async Task<TopicDto> GetForSelection(long id, CancellationToken ct) =>
+        await repository.GetByIdForSelectionAsync(id, await Actor(ct), ct) ?? throw new NotFoundException("Topic", id);
+
     public Task<TopicDto> Create(CreateTopicRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
     {
         var actor = await Actor(ct);

@@ -13,6 +13,12 @@ using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.Infrastructure.Persistence.Repositories;
+using AIPMS.Application.Abstractions.Security;
+using AIPMS.Application.Common.Security;
+using AIPMS.Application.Features.Projects.Commands;
+using AIPMS.Application.Features.Topics.Services;
+using AIPMS.Infrastructure.Services.Auditing;
+using AIPMS.Domain.Teams;
 using Testcontainers.MsSql;
 using Xunit;
 
@@ -1342,5 +1348,484 @@ public class ProjectRepositoryTests
         var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
         cleanupCtx.Projects.Remove(p);
         await cleanupCtx.SaveChangesAsync();
+    }
+
+    private sealed class StubCurrentUser(long? userId, IReadOnlyCollection<string> roles) : ICurrentUser
+    {
+        public bool IsAuthenticated => userId.HasValue;
+        public long? UserId => userId;
+        public string? Email => "test@aipms.test";
+        public string? FullName => "Test User";
+        public IReadOnlyCollection<string> Roles => roles;
+    }
+
+    private sealed class StubRequestContext : IRequestContext
+    {
+        public string? IpAddress => "127.0.0.1";
+        public string? UserAgent => "TestAgent";
+        public Guid CorrelationId => Guid.NewGuid();
+    }
+
+    private sealed class StubPolicyProvider : AIPMS.Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider
+    {
+        public Task<TeamFormationPolicy?> GetAsync(long periodId, CancellationToken cancellationToken) =>
+            Task.FromResult<TeamFormationPolicy?>(new TeamFormationPolicy(1, 5, 24, "v1", 1));
+    }
+
+    [Fact]
+    public async Task SelectTopic_WhenLeaderChangesAfterPreflight_RollsBackAndReturnsForbidden()
+    {
+        using var setupContext = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(setupContext);
+        var periodId = await setupContext.ProjectPeriods.Select(p => p.Id).FirstAsync();
+        var deptId = await setupContext.Departments.Select(d => d.Id).FirstAsync();
+        var majorId = await setupContext.Majors.Select(m => m.Id).FirstAsync();
+        var semesterId = await setupContext.ProjectPeriods.Where(p => p.Id == periodId).Select(p => p.AcademicSemesterId).FirstAsync();
+
+        // Create 2 test student users
+        var userA = new User
+        {
+            Email = $"leader_a_{Guid.NewGuid():N}@aipms.test",
+            FullName = "Leader A Test",
+            PasswordHash = "HASH",
+            Status = "ACTIVE",
+            DepartmentId = deptId,
+            MajorId = majorId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var userB = new User
+        {
+            Email = $"member_b_{Guid.NewGuid():N}@aipms.test",
+            FullName = "Member B Test",
+            PasswordHash = "HASH",
+            Status = "ACTIVE",
+            DepartmentId = deptId,
+            MajorId = majorId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        setupContext.Users.AddRange(userA, userB);
+        await setupContext.SaveChangesAsync();
+
+        var studentRoleId = await setupContext.Roles.Where(r => r.Code == "STUDENT").Select(r => r.Id).FirstAsync();
+        setupContext.UserRoles.AddRange(
+            new UserRole { UserId = userA.Id, RoleId = studentRoleId },
+            new UserRole { UserId = userB.Id, RoleId = studentRoleId }
+        );
+        await setupContext.SaveChangesAsync();
+
+        // Create team
+        var team = new Team
+        {
+            AcademicSemesterId = semesterId,
+            Code = "TEAM-RA-" + Guid.NewGuid().ToString("N")[..8],
+            Name = "Team Race A " + Guid.NewGuid().ToString("N")[..8],
+            Status = "ELIGIBLE",
+            CreatedBy = userA.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        setupContext.Teams.Add(team);
+        await setupContext.SaveChangesAsync();
+
+        // Add team members: User A is leader, User B is member
+        var tmA = new TeamMember
+        {
+            TeamId = team.Id,
+            AcademicSemesterId = semesterId,
+            UserId = userA.Id,
+            IsLeader = true,
+            JoinedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var tmB = new TeamMember
+        {
+            TeamId = team.Id,
+            AcademicSemesterId = semesterId,
+            UserId = userB.Id,
+            IsLeader = false,
+            JoinedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        setupContext.TeamMembers.AddRange(tmA, tmB);
+
+        // Add academic configuration for team so academic scope is satisfied
+        var teamConfig = new TeamAcademicConfiguration
+        {
+            TeamId = team.Id,
+            ProjectMode = "SINGLE_MAJOR",
+            LeadDepartmentId = deptId,
+            PrimaryMajorId = majorId,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        teamConfig.Requirements.Add(new TeamMajorRequirement
+        {
+            TeamId = team.Id,
+            MajorId = majorId,
+            MinMembers = 1,
+            MaxMembers = 5,
+            Responsibility = "Core"
+        });
+        setupContext.Set<TeamAcademicConfiguration>().Add(teamConfig);
+
+        // Create published topic
+        var topic = new ProjectTopic
+        {
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            Code = "TOPIC-RA-" + Guid.NewGuid().ToString("N")[..8],
+            Status = "PUBLISHED",
+            Title = "Race A Topic",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"Race\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedBy = userA.Id,
+            UpdatedBy = userA.Id,
+            PublishedBy = userA.Id,
+            PublishedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        topic.Requirements.Add(new TopicMajorRequirement
+        {
+            MajorId = majorId,
+            DepartmentId = deptId,
+            MinMembers = 1,
+            MaxMembers = 5,
+            Responsibility = "Developer"
+        });
+        setupContext.Set<ProjectTopic>().Add(topic);
+        await setupContext.SaveChangesAsync();
+
+        // Create project draft by User A (leader)
+        var project = await repoSetup.CreateDraftAsync(
+            team.Id,
+            userA.Id,
+            "Race A Proposal",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "Domain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        var originalToken = project.ConcurrencyToken;
+
+        // Synchronization gates
+        var preflightCompletedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resumeTransactionTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        SelectProjectTopicCommandHandler.AfterPreflightHook = async () =>
+        {
+            preflightCompletedTcs.TrySetResult();
+            await resumeTransactionTcs.Task;
+        };
+
+        try
+        {
+            // Start topic selection in background task as User A
+            var selectTask = Task.Run(async () =>
+            {
+                using var handlerCtx = _fixture.CreateContext();
+                var projectRepo = new ProjectRepository(handlerCtx);
+                var teamRepo = new TeamRepository(handlerCtx);
+                var topicRepo = new TopicRepository(handlerCtx);
+                var currentUser = new StubCurrentUser(userA.Id, [AppRoles.Student]);
+                var auditTrail = new DatabaseAuditTrail(handlerCtx, new StubRequestContext(), TimeProvider.System);
+                var policy = new StubPolicyProvider();
+                var topicWorkflow = new TopicWorkflow(topicRepo, policy, currentUser, auditTrail, TimeProvider.System);
+                var guard = new TopicSelectionGuard(projectRepo, teamRepo, topicWorkflow, TimeProvider.System);
+                var handler = new SelectProjectTopicCommandHandler(projectRepo, guard, currentUser, auditTrail);
+
+                return await handler.Handle(new SelectProjectTopicCommand(project.Id, topic.Id, originalToken), default);
+            });
+
+            // Wait until preflight has successfully validated
+            await preflightCompletedTcs.Task;
+
+            // Concurrently transfer leadership from User A to User B using a separate DbContext
+            using (var transferCtx = _fixture.CreateContext())
+            {
+                var transferTeamRepo = new TeamRepository(transferCtx);
+                await transferTeamRepo.InTransactionAsync(async ct =>
+                {
+                    await transferTeamRepo.TransferLeaderAsync(team.Id, userA.Id, userB.Id, DateTime.UtcNow, ct);
+                    return true;
+                }, default);
+            }
+
+            // Release handler to enter transaction
+            resumeTransactionTcs.TrySetResult();
+
+            // Handler must detect that User A is no longer leader under transaction lock and throw ForbiddenException
+            var ex = await Assert.ThrowsAsync<ForbiddenException>(() => selectTask);
+            Assert.Contains("Only the Team Leader can select a topic for the project.", ex.Message);
+
+            // Verify project topic was NOT persisted and audit was NOT recorded
+            using var verifyCtx = _fixture.CreateContext();
+            var verifiedProject = await verifyCtx.Projects.SingleAsync(p => p.Id == project.Id);
+            Assert.Null(verifiedProject.TopicId);
+            Assert.Equal("STUDENT_PROPOSAL", verifiedProject.ProposalSource);
+            Assert.Equal(originalToken, Convert.ToBase64String(verifiedProject.RowVersion));
+
+            var auditLogs = await verifyCtx.AuditLogs
+                .Where(a => a.EntityId == project.Id.ToString() && a.Action == "PROJECT_TOPIC_SELECTED")
+                .ToListAsync();
+            Assert.Empty(auditLogs);
+        }
+        finally
+        {
+            SelectProjectTopicCommandHandler.AfterPreflightHook = null;
+
+            // Cleanup
+            using var cleanupCtx = _fixture.CreateContext();
+            var p = await cleanupCtx.Projects.SingleOrDefaultAsync(x => x.Id == project.Id);
+            if (p != null) cleanupCtx.Projects.Remove(p);
+            var t = await cleanupCtx.Set<ProjectTopic>().Include(x => x.Requirements).SingleOrDefaultAsync(x => x.Id == topic.Id);
+            if (t != null)
+            {
+                cleanupCtx.RemoveRange(t.Requirements);
+                cleanupCtx.Set<ProjectTopic>().Remove(t);
+            }
+            var cfg = await cleanupCtx.Set<TeamAcademicConfiguration>().Include(x => x.Requirements).SingleOrDefaultAsync(x => x.TeamId == team.Id);
+            if (cfg != null)
+            {
+                cleanupCtx.RemoveRange(cfg.Requirements);
+                cleanupCtx.Set<TeamAcademicConfiguration>().Remove(cfg);
+            }
+            var tms = await cleanupCtx.TeamMembers.Where(x => x.TeamId == team.Id).ToListAsync();
+            cleanupCtx.TeamMembers.RemoveRange(tms);
+            var tm = await cleanupCtx.Teams.SingleOrDefaultAsync(x => x.Id == team.Id);
+            if (tm != null) cleanupCtx.Teams.Remove(tm);
+            var urus = await cleanupCtx.UserRoles.Where(x => x.UserId == userA.Id || x.UserId == userB.Id).ToListAsync();
+            cleanupCtx.UserRoles.RemoveRange(urus);
+            var us = await cleanupCtx.Users.Where(x => x.Id == userA.Id || x.Id == userB.Id).ToListAsync();
+            cleanupCtx.Users.RemoveRange(us);
+            await cleanupCtx.SaveChangesAsync();
+        }
+    }
+
+    [Fact]
+    public async Task SelectTopic_WhenTopicClosesAfterPreflight_DoesNotPersistSelection()
+    {
+        using var setupContext = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(setupContext);
+        var periodId = await setupContext.ProjectPeriods.Select(p => p.Id).FirstAsync();
+        var deptId = await setupContext.Departments.Select(d => d.Id).FirstAsync();
+        var majorId = await setupContext.Majors.Select(m => m.Id).FirstAsync();
+        var semesterId = await setupContext.ProjectPeriods.Where(p => p.Id == periodId).Select(p => p.AcademicSemesterId).FirstAsync();
+
+        // Create test leader user
+        var leader = new User
+        {
+            Email = $"leader_b_{Guid.NewGuid():N}@aipms.test",
+            FullName = "Leader B Test",
+            PasswordHash = "HASH",
+            Status = "ACTIVE",
+            DepartmentId = deptId,
+            MajorId = majorId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        setupContext.Users.Add(leader);
+        await setupContext.SaveChangesAsync();
+
+        var studentRoleId = await setupContext.Roles.Where(r => r.Code == "STUDENT").Select(r => r.Id).FirstAsync();
+        setupContext.UserRoles.Add(new UserRole { UserId = leader.Id, RoleId = studentRoleId });
+        await setupContext.SaveChangesAsync();
+
+        // Create team
+        var team = new Team
+        {
+            AcademicSemesterId = semesterId,
+            Code = "TEAM-RB-" + Guid.NewGuid().ToString("N")[..8],
+            Name = "Team Race B " + Guid.NewGuid().ToString("N")[..8],
+            Status = "ELIGIBLE",
+            CreatedBy = leader.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        setupContext.Teams.Add(team);
+        await setupContext.SaveChangesAsync();
+
+        // Add team member as leader
+        setupContext.TeamMembers.Add(new TeamMember
+        {
+            TeamId = team.Id,
+            AcademicSemesterId = semesterId,
+            UserId = leader.Id,
+            IsLeader = true,
+            JoinedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+
+        // Add academic configuration for team
+        var teamConfig = new TeamAcademicConfiguration
+        {
+            TeamId = team.Id,
+            ProjectMode = "SINGLE_MAJOR",
+            LeadDepartmentId = deptId,
+            PrimaryMajorId = majorId,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        teamConfig.Requirements.Add(new TeamMajorRequirement
+        {
+            TeamId = team.Id,
+            MajorId = majorId,
+            MinMembers = 1,
+            MaxMembers = 5,
+            Responsibility = "Core"
+        });
+        setupContext.Set<TeamAcademicConfiguration>().Add(teamConfig);
+
+        // Create published topic
+        var topic = new ProjectTopic
+        {
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            Code = "TOPIC-RB-" + Guid.NewGuid().ToString("N")[..8],
+            Status = "PUBLISHED",
+            Title = "Race B Topic",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"Race\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedBy = leader.Id,
+            UpdatedBy = leader.Id,
+            PublishedBy = leader.Id,
+            PublishedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        topic.Requirements.Add(new TopicMajorRequirement
+        {
+            MajorId = majorId,
+            DepartmentId = deptId,
+            MinMembers = 1,
+            MaxMembers = 5,
+            Responsibility = "Developer"
+        });
+        setupContext.Set<ProjectTopic>().Add(topic);
+        await setupContext.SaveChangesAsync();
+
+        // Create project draft
+        var project = await repoSetup.CreateDraftAsync(
+            team.Id,
+            leader.Id,
+            "Race B Proposal",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "Domain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        var originalToken = project.ConcurrencyToken;
+
+        // Synchronization gates
+        var preflightCompletedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resumeTransactionTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        SelectProjectTopicCommandHandler.AfterPreflightHook = async () =>
+        {
+            preflightCompletedTcs.TrySetResult();
+            await resumeTransactionTcs.Task;
+        };
+
+        try
+        {
+            // Start topic selection in background task as Leader
+            var selectTask = Task.Run(async () =>
+            {
+                using var handlerCtx = _fixture.CreateContext();
+                var projectRepo = new ProjectRepository(handlerCtx);
+                var teamRepo = new TeamRepository(handlerCtx);
+                var topicRepo = new TopicRepository(handlerCtx);
+                var currentUser = new StubCurrentUser(leader.Id, [AppRoles.Student]);
+                var auditTrail = new DatabaseAuditTrail(handlerCtx, new StubRequestContext(), TimeProvider.System);
+                var policy = new StubPolicyProvider();
+                var topicWorkflow = new TopicWorkflow(topicRepo, policy, currentUser, auditTrail, TimeProvider.System);
+                var guard = new TopicSelectionGuard(projectRepo, teamRepo, topicWorkflow, TimeProvider.System);
+                var handler = new SelectProjectTopicCommandHandler(projectRepo, guard, currentUser, auditTrail);
+
+                return await handler.Handle(new SelectProjectTopicCommand(project.Id, topic.Id, originalToken), default);
+            });
+
+            // Wait until preflight has successfully validated
+            await preflightCompletedTcs.Task;
+
+            // Concurrently close the topic using a separate DbContext
+            using (var closeCtx = _fixture.CreateContext())
+            {
+                var t = await closeCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic.Id);
+                t.Status = "CLOSED";
+                t.ClosedAt = DateTime.UtcNow;
+                t.ClosedBy = leader.Id;
+                t.CloseReason = "Closed by admin concurrently";
+                await closeCtx.SaveChangesAsync();
+            }
+
+            // Release handler to enter transaction
+            resumeTransactionTcs.TrySetResult();
+
+            // Handler must detect that topic is no longer PUBLISHED under transaction lock and throw ConflictException
+            var ex = await Assert.ThrowsAsync<ConflictException>(() => selectTask);
+            Assert.Contains("Only published topics can be selected.", ex.Message);
+
+            // Verify project topic was NOT persisted and audit was NOT recorded
+            using var verifyCtx = _fixture.CreateContext();
+            var verifiedProject = await verifyCtx.Projects.SingleAsync(p => p.Id == project.Id);
+            Assert.Null(verifiedProject.TopicId);
+            Assert.Equal("STUDENT_PROPOSAL", verifiedProject.ProposalSource);
+            Assert.Equal(originalToken, Convert.ToBase64String(verifiedProject.RowVersion));
+
+            var auditLogs = await verifyCtx.AuditLogs
+                .Where(a => a.EntityId == project.Id.ToString() && a.Action == "PROJECT_TOPIC_SELECTED")
+                .ToListAsync();
+            Assert.Empty(auditLogs);
+        }
+        finally
+        {
+            SelectProjectTopicCommandHandler.AfterPreflightHook = null;
+
+            // Cleanup
+            using var cleanupCtx = _fixture.CreateContext();
+            var p = await cleanupCtx.Projects.SingleOrDefaultAsync(x => x.Id == project.Id);
+            if (p != null) cleanupCtx.Projects.Remove(p);
+            var t = await cleanupCtx.Set<ProjectTopic>().Include(x => x.Requirements).SingleOrDefaultAsync(x => x.Id == topic.Id);
+            if (t != null)
+            {
+                cleanupCtx.RemoveRange(t.Requirements);
+                cleanupCtx.Set<ProjectTopic>().Remove(t);
+            }
+            var cfg = await cleanupCtx.Set<TeamAcademicConfiguration>().Include(x => x.Requirements).SingleOrDefaultAsync(x => x.TeamId == team.Id);
+            if (cfg != null)
+            {
+                cleanupCtx.RemoveRange(cfg.Requirements);
+                cleanupCtx.Set<TeamAcademicConfiguration>().Remove(cfg);
+            }
+            var tms = await cleanupCtx.TeamMembers.Where(x => x.TeamId == team.Id).ToListAsync();
+            cleanupCtx.TeamMembers.RemoveRange(tms);
+            var tm = await cleanupCtx.Teams.SingleOrDefaultAsync(x => x.Id == team.Id);
+            if (tm != null) cleanupCtx.Teams.Remove(tm);
+            var urus = await cleanupCtx.UserRoles.Where(x => x.UserId == leader.Id).ToListAsync();
+            cleanupCtx.UserRoles.RemoveRange(urus);
+            var u = await cleanupCtx.Users.SingleOrDefaultAsync(x => x.Id == leader.Id);
+            if (u != null) cleanupCtx.Users.Remove(u);
+            await cleanupCtx.SaveChangesAsync();
+        }
     }
 }
