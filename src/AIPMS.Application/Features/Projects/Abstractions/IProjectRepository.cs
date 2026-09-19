@@ -75,7 +75,7 @@ public interface IProjectRepository
     Task<ProjectDto> SelectTopicAsync(
         long projectId,
         long topicId,
-        string? concurrencyToken,
+        string concurrencyToken,
         CancellationToken cancellationToken);
 
     Task<ProjectDto> UpdateStatusAsync(

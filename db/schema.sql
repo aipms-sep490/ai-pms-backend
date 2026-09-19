@@ -404,8 +404,6 @@ CREATE TABLE dbo.projects (
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_projects_updated_at DEFAULT (SYSUTCDATETIME()),
     problem_statement NVARCHAR(MAX) NULL,
     expected_output NVARCHAR(MAX) NULL,
-    topic_id        BIGINT NULL,
-    proposal_source VARCHAR(30) NOT NULL CONSTRAINT df_projects_proposal_source DEFAULT ('STUDENT_PROPOSAL'),
     row_version     ROWVERSION NOT NULL,
     CONSTRAINT pk_projects PRIMARY KEY (id),
     CONSTRAINT uq_projects_code UNIQUE (code),
@@ -413,17 +411,11 @@ CREATE TABLE dbo.projects (
         N'DRAFT', N'SUBMITTED', N'UNDER_REVIEW', N'REVISION_REQUIRED', N'REJECTED', N'APPROVED',
         N'SUPERVISOR_PENDING', N'ACTIVE', N'FINAL_SUBMISSION', N'COMPLETED', N'ARCHIVED'
     )),
-    CONSTRAINT ck_projects_proposal_source CHECK (proposal_source IN ('STUDENT_PROPOSAL', 'PUBLISHED_TOPIC')),
     CONSTRAINT fk_projects_team FOREIGN KEY (team_id)
         REFERENCES dbo.teams(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_projects_created_by FOREIGN KEY (created_by)
         REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
-GO
-
-CREATE NONCLUSTERED INDEX ix_projects_topic_id
-ON dbo.projects(topic_id)
-WHERE topic_id IS NOT NULL;
 GO
 
 CREATE UNIQUE NONCLUSTERED INDEX uq_projects_active_team

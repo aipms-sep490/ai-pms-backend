@@ -656,7 +656,7 @@ internal sealed class StubProjectRepository : IProjectRepository
     public Task<ProjectDto> SelectTopicAsync(
         long projectId,
         long topicId,
-        string? concurrencyToken,
+        string concurrencyToken,
         CancellationToken cancellationToken)
     {
         var existing = Projects[projectId];
@@ -664,7 +664,11 @@ internal sealed class StubProjectRepository : IProjectRepository
         {
             throw new ConflictException("Only an editable proposal can be updated.");
         }
-        if (!string.IsNullOrWhiteSpace(concurrencyToken) && existing.ConcurrencyToken != concurrencyToken)
+        if (string.IsNullOrWhiteSpace(concurrencyToken))
+        {
+            throw new ArgumentException("Concurrency token is required.", nameof(concurrencyToken));
+        }
+        if (existing.ConcurrencyToken != concurrencyToken)
         {
             throw new ConflictException("Concurrency token mismatch.");
         }

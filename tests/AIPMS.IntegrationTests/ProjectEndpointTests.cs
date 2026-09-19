@@ -455,6 +455,139 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
     }
 
     [Fact]
+    public async Task SelectTopic_MissingConcurrencyToken_Returns400()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new { topicId = 50 });
+        Assert.Equal(HttpStatusCode.BadRequest, selectResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task SelectTopic_BlankConcurrencyToken_Returns400()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new { topicId = 50, concurrencyToken = "   " });
+        Assert.Equal(HttpStatusCode.BadRequest, selectResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task SelectTopic_InvalidBase64ConcurrencyToken_Returns400()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new { topicId = 50, concurrencyToken = "not-a-base64-token!" });
+        Assert.Equal(HttpStatusCode.BadRequest, selectResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task SelectTopic_StaleConcurrencyToken_Returns409()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        // First topic selection updates the token
+        var firstSelect = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(50, project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, firstSelect.StatusCode);
+
+        // Second topic selection with original stale token returns 409
+        var staleSelect = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(60, project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Conflict, staleSelect.StatusCode);
+    }
+
+    [Fact]
+    public async Task SelectTopic_CurrentConcurrencyToken_Returns200()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(50, project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, selectResponse.StatusCode);
+
+        var updated = await selectResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(updated);
+        Assert.Equal(50, updated.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", updated.ProposalSource);
+    }
+
+    [Fact]
+    public async Task SelectTopic_TwoConcurrentUpdatesWithoutTokens_BothRejected()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var task1 = leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new { topicId = 50 });
+        var task2 = leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new { topicId = 60 });
+
+        var responses = await Task.WhenAll(task1, task2);
+        Assert.Equal(HttpStatusCode.BadRequest, responses[0].StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, responses[1].StatusCode);
+
+        // Verify project remains untouched
+        var getResponse = await leaderClient.GetAsync($"api/v1/projects/{project.Id}");
+        var finalProject = await getResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(finalProject);
+        Assert.Null(finalProject.TopicId);
+        Assert.Equal("STUDENT_PROPOSAL", finalProject.ProposalSource);
+    }
+
+    [Fact]
     public async Task NonLeader_SelectTopic_Returns403()
     {
         ResetProjectRepositoryState();
@@ -997,7 +1130,7 @@ public sealed class TestProjectRepository : IProjectRepository
     public Task<ProjectDto> SelectTopicAsync(
         long projectId,
         long topicId,
-        string? concurrencyToken,
+        string concurrencyToken,
         CancellationToken cancellationToken)
     {
         var existing = Projects[projectId];
@@ -1005,7 +1138,11 @@ public sealed class TestProjectRepository : IProjectRepository
         {
             throw new AIPMS.Application.Common.Exceptions.ConflictException("Only an editable proposal can be updated.");
         }
-        if (!string.IsNullOrWhiteSpace(concurrencyToken) && existing.ConcurrencyToken != concurrencyToken)
+        if (string.IsNullOrWhiteSpace(concurrencyToken))
+        {
+            throw new ArgumentException("Concurrency token is required.", nameof(concurrencyToken));
+        }
+        if (existing.ConcurrencyToken != concurrencyToken)
         {
             throw new AIPMS.Application.Common.Exceptions.ConflictException("Concurrency token mismatch.");
         }

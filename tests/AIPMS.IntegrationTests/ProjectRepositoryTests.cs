@@ -1208,4 +1208,139 @@ public class ProjectRepositoryTests
         cleanupCtx.Set<ProjectTopic>().Remove(t);
         await cleanupCtx.SaveChangesAsync();
     }
+
+    [Fact]
+    public async Task SelectTopic_AuditFailure_RollsBackProjectMutation()
+    {
+        using var contextSetup = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(contextSetup);
+        var teamId = await contextSetup.Teams.Where(t => t.Name == "Team One").Select(t => t.Id).FirstAsync();
+        var studentId = await contextSetup.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var majorId = await contextSetup.Majors.Select(m => m.Id).FirstAsync();
+        var periodId = await contextSetup.ProjectPeriods.Select(p => p.Id).FirstAsync();
+        var deptId = await contextSetup.Departments.Select(d => d.Id).FirstAsync();
+
+        var topic = new ProjectTopic
+        {
+            Code = "TOPIC-AUDIT-FAIL",
+            Status = "PUBLISHED",
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            CreatedBy = studentId,
+            UpdatedBy = studentId,
+            PublishedBy = studentId,
+            PublishedAt = DateTime.UtcNow,
+            Title = "Topic for Audit Failure Test",
+            Description = "Description",
+            ProblemStatement = "Problem",
+            Objectives = "Objectives",
+            ExpectedOutput = "Output",
+            Domain = "Domain",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"AI\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        contextSetup.Set<ProjectTopic>().Add(topic);
+        await contextSetup.SaveChangesAsync();
+
+        var project = await repoSetup.CreateDraftAsync(
+            teamId,
+            studentId,
+            "Atomic Audit Rollback Proposal",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "Domain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        var originalToken = project.ConcurrencyToken;
+
+        // Verify initial state
+        using var checkContext = _fixture.CreateContext();
+        var initialDbProject = await checkContext.Projects.SingleAsync(p => p.Id == project.Id);
+        Assert.Null(initialDbProject.TopicId);
+        Assert.Equal("STUDENT_PROPOSAL", initialDbProject.ProposalSource);
+        var initialRowVersion = Convert.ToBase64String(initialDbProject.RowVersion);
+
+        // Execute SelectTopic + Audit in InTransactionAsync, where Audit persistence fails
+        using var txContext = _fixture.CreateContext();
+        var txRepo = new ProjectRepository(txContext);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await txRepo.InTransactionAsync<ProjectDto>(async ct =>
+            {
+                var updated = await txRepo.SelectTopicAsync(project.Id, topic.Id, originalToken, ct);
+
+                // Simulate audit failure: e.g. throwing exception or database error
+                throw new InvalidOperationException("Audit persistence failed abruptly.");
+            }, default);
+        });
+
+        // Verify that database transaction rolled back completely
+        using var verifyContext = _fixture.CreateContext();
+        var rolledBackProject = await verifyContext.Projects.SingleAsync(p => p.Id == project.Id);
+        Assert.Null(rolledBackProject.TopicId);
+        Assert.Equal("STUDENT_PROPOSAL", rolledBackProject.ProposalSource);
+        Assert.Equal(initialRowVersion, Convert.ToBase64String(rolledBackProject.RowVersion));
+
+        var auditLogs = await verifyContext.AuditLogs
+            .Where(a => a.EntityId == project.Id.ToString() && a.Action == "PROJECT_TOPIC_SELECTED")
+            .ToListAsync();
+        Assert.Empty(auditLogs);
+
+        // Cleanup
+        verifyContext.Projects.Remove(rolledBackProject);
+        var t = await verifyContext.Set<ProjectTopic>().SingleAsync(x => x.Id == topic.Id);
+        verifyContext.Set<ProjectTopic>().Remove(t);
+        await verifyContext.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task SelectTopic_MissingOrBlankConcurrencyToken_ThrowsArgumentException()
+    {
+        using var contextSetup = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(contextSetup);
+        var teamId = await contextSetup.Teams.Where(t => t.Name == "Team One").Select(t => t.Id).FirstAsync();
+        var studentId = await contextSetup.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
+        var majorId = await contextSetup.Majors.Select(m => m.Id).FirstAsync();
+
+        var project = await repoSetup.CreateDraftAsync(
+            teamId,
+            studentId,
+            "Concurrency Token Test Proposal",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "Domain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+        {
+            await repoSetup.SelectTopicAsync(project.Id, 1, "", default);
+        });
+
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+        {
+            await repoSetup.SelectTopicAsync(project.Id, 1, "   ", default);
+        });
+
+        // Cleanup
+        using var cleanupCtx = _fixture.CreateContext();
+        var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
+        cleanupCtx.Projects.Remove(p);
+        await cleanupCtx.SaveChangesAsync();
+    }
 }

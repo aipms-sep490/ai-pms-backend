@@ -14,7 +14,7 @@ namespace AIPMS.Application.Features.Projects.Commands;
 public sealed record SelectProjectTopicCommand(
     long ProjectId,
     long TopicId,
-    string? ConcurrencyToken = null) : IRequest<ProjectDto>;
+    string ConcurrencyToken) : IRequest<ProjectDto>;
 
 public sealed class SelectProjectTopicCommandHandler(
     IProjectRepository projectRepository,
@@ -56,28 +56,30 @@ public sealed class SelectProjectTopicCommandHandler(
             actorUserId,
             cancellationToken);
 
-        // 5. Persist topic selection
-        var result = await projectRepository.SelectTopicAsync(
-            request.ProjectId,
-            request.TopicId,
-            request.ConcurrencyToken,
-            cancellationToken);
+        // 5 & 6. Persist topic selection and audit atomically in the same transaction
+        return await projectRepository.InTransactionAsync(async ct =>
+        {
+            var result = await projectRepository.SelectTopicAsync(
+                request.ProjectId,
+                request.TopicId,
+                request.ConcurrencyToken,
+                ct);
 
-        // 6. Record audit
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                actorUserId,
-                "PROJECT_TOPIC_SELECTED",
-                "PROJECT",
-                result.Id,
-                new Dictionary<string, object?>
-                {
-                    ["projectId"] = result.Id,
-                    ["topicId"] = request.TopicId,
-                    ["proposalSource"] = "PUBLISHED_TOPIC"
-                }),
-            cancellationToken);
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    actorUserId,
+                    "PROJECT_TOPIC_SELECTED",
+                    "PROJECT",
+                    result.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = result.Id,
+                        ["topicId"] = request.TopicId,
+                        ["proposalSource"] = "PUBLISHED_TOPIC"
+                    }),
+                ct);
 
-        return result;
+            return result;
+        }, cancellationToken);
     }
 }

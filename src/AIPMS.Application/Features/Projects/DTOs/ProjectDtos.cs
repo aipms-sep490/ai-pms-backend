@@ -106,4 +106,4 @@ public sealed record ArchiveProjectRequest(string ConcurrencyToken, string? Reas
 
 public sealed record SelectProjectTopicRequest(
     long TopicId,
-    string? ConcurrencyToken = null);
+    string ConcurrencyToken);

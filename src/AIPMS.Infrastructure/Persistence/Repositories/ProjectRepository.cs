@@ -422,7 +422,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
     public async Task<ProjectDto> SelectTopicAsync(
         long projectId,
         long topicId,
-        string? concurrencyToken,
+        string concurrencyToken,
         CancellationToken cancellationToken)
     {
         await using var transaction = context.Database.CurrentTransaction is null
@@ -436,13 +436,15 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
                 .SingleOrDefaultAsync(p => p.Id == projectId, cancellationToken)
                 ?? throw new NotFoundException("Project", projectId);
 
-            if (!string.IsNullOrWhiteSpace(concurrencyToken))
+            if (string.IsNullOrWhiteSpace(concurrencyToken))
             {
-                var existingToken = Convert.ToBase64String(project.RowVersion);
-                if (existingToken != concurrencyToken)
-                {
-                    throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
-                }
+                throw new ArgumentException("Concurrency token is required.", nameof(concurrencyToken));
+            }
+
+            var existingToken = Convert.ToBase64String(project.RowVersion);
+            if (existingToken != concurrencyToken)
+            {
+                throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
             }
 
             if (project.Status is not ("DRAFT" or "REVISION_REQUIRED"))

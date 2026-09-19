@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using FluentValidation;
 using AIPMS.Application.Features.Projects.Commands;
+using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Projects.Queries;
 
 namespace AIPMS.Application.Features.Projects.Validators;
@@ -260,5 +261,34 @@ public sealed class GetProjectReviewQueueQueryValidator : AbstractValidator<GetP
 
         RuleFor(x => x.PageSize)
             .InclusiveBetween(1, 100).WithMessage("PageSize must be between 1 and 100.");
+    }
+}
+
+public sealed class SelectProjectTopicRequestValidator : AbstractValidator<SelectProjectTopicRequest>
+{
+    public SelectProjectTopicRequestValidator()
+    {
+        RuleFor(x => x.TopicId)
+            .GreaterThan(0).WithMessage("TopicId must be greater than 0.");
+
+        RuleFor(x => x.ConcurrencyToken)
+            .NotEmpty().WithMessage("ConcurrencyToken is required.")
+            .Must(ProjectValidationHelpers.BeValidBase64).WithMessage("ConcurrencyToken must be a valid 8-byte Base64 string.");
+    }
+}
+
+public sealed class SelectProjectTopicCommandValidator : AbstractValidator<SelectProjectTopicCommand>
+{
+    public SelectProjectTopicCommandValidator()
+    {
+        RuleFor(x => x.ProjectId)
+            .GreaterThan(0).WithMessage("ProjectId must be greater than 0.");
+
+        RuleFor(x => x.TopicId)
+            .GreaterThan(0).WithMessage("TopicId must be greater than 0.");
+
+        RuleFor(x => x.ConcurrencyToken)
+            .NotEmpty().WithMessage("ConcurrencyToken is required.")
+            .Must(ProjectValidationHelpers.BeValidBase64).WithMessage("ConcurrencyToken must be a valid 8-byte Base64 string.");
     }
 }
