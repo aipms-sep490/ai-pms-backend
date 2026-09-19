@@ -185,6 +185,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationEmailQueue, NotificationEmailQueue>();
         services.AddSingleton<INotificationEmailSender, SmtpNotificationEmailSender>();
         services.AddScoped<IContributionRepository, ContributionRepository>();
+        services.AddScoped<Application.Features.Dashboards.Abstractions.IDashboardRepository, DashboardRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<IProgressReportRepository, ProgressReportRepository>();
         services.AddScoped<IMeetingRepository, MeetingRepository>();
