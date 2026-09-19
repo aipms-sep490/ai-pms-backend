@@ -10,6 +10,7 @@ using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Mappers;
+using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
@@ -32,6 +33,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
                 .ThenInclude(static pm => pm.Major)
             .Include(static p => p.ProjectTags)
                 .ThenInclude(static pt => pt.Tag)
+            .Include(static p => p.Topic)
             .SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
 
         if (entity is null) return null;
@@ -409,6 +411,67 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         {
             if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
             throw new ConflictException("The team already has an active or unfinished project proposal.");
+        }
+        catch
+        {
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    public async Task<ProjectDto> SelectTopicAsync(
+        long projectId,
+        long topicId,
+        string concurrencyToken,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(concurrencyToken))
+        {
+            throw new ArgumentException("Concurrency token is required.", nameof(concurrencyToken));
+        }
+
+        await using var transaction = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken) : null;
+        try
+        {
+            await LockProjectAndTopicAsync(projectId, topicId, cancellationToken);
+            var project = await context.Projects
+                .Include(static p => p.ProjectMajors)
+                .Include(static p => p.ProjectTags)
+                .SingleOrDefaultAsync(p => p.Id == projectId, cancellationToken)
+                ?? throw new NotFoundException("Project", projectId);
+
+            var existingToken = Convert.ToBase64String(project.RowVersion);
+            if (existingToken != concurrencyToken)
+            {
+                throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+            }
+
+            if (project.Status is not ("DRAFT" or "REVISION_REQUIRED"))
+                throw new ConflictException("Only an editable proposal can be updated.");
+
+            var topic = await context.Set<ProjectTopic>().AsNoTracking()
+                .SingleOrDefaultAsync(t => t.Id == topicId, cancellationToken)
+                ?? throw new NotFoundException("Topic", topicId);
+
+            if (topic.Status != "PUBLISHED")
+            {
+                throw new ConflictException("Only published topics can be selected.");
+            }
+
+            project.TopicId = topicId;
+            project.ProposalSource = "PUBLISHED_TOPIC";
+            project.UpdatedAt = Now;
+
+            await context.SaveChangesAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+
+            return (await GetByIdAsync(project.Id, cancellationToken))!;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
+            throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
         }
         catch
         {

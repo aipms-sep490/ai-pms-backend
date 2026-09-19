@@ -61,5 +61,12 @@ public partial class AipmsDbContext
             e.HasOne(x => x.Major).WithMany().HasForeignKey(x => x.MajorId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.NoAction);
         });
+        modelBuilder.Entity<Project>(e =>
+        {
+            e.Property(x => x.TopicId).HasColumnName("topic_id");
+            e.Property(x => x.ProposalSource).HasColumnName("proposal_source").HasMaxLength(30).IsUnicode(false).HasDefaultValue("STUDENT_PROPOSAL");
+            e.HasOne(x => x.Topic).WithMany().HasForeignKey(x => x.TopicId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => x.TopicId).HasDatabaseName("ix_projects_topic_id");
+        });
     }
 }

@@ -36,7 +36,11 @@ internal static class ProjectMapper
             project.ProjectTags.Select(static pt => new ProjectTagDto(
                 pt.TagId,
                 pt.Tag.Name,
-                pt.Tag.TagType)).ToArray()
+                pt.Tag.TagType)).ToArray(),
+            AcademicScope: null,
+            TopicId: project.TopicId,
+            ProposalSource: project.ProposalSource ?? "STUDENT_PROPOSAL",
+            SelectedTopic: project.Topic is null ? null : new SelectedTopicDto(project.Topic.Id, project.Topic.Code, project.Topic.Title)
         );
 
     public static ProjectSummaryDto ToSummaryDto(this ProjectEntity project) =>

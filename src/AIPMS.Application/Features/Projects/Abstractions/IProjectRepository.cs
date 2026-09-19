@@ -72,6 +72,17 @@ public interface IProjectRepository
         IReadOnlyList<string> keywords,
         CancellationToken cancellationToken);
 
+    Task LockProjectAndTopicAsync(
+        long projectId,
+        long topicId,
+        CancellationToken cancellationToken);
+
+    Task<ProjectDto> SelectTopicAsync(
+        long projectId,
+        long topicId,
+        string concurrencyToken,
+        CancellationToken cancellationToken);
+
     Task<ProjectDto> UpdateStatusAsync(
         long projectId,
         string concurrencyToken,

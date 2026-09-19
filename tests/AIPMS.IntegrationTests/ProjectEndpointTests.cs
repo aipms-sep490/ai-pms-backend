@@ -16,6 +16,7 @@ using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Teams.Abstractions;
 using AIPMS.Application.Features.Notifications.Abstractions;
 using AIPMS.Application.Features.Notifications.Events;
+using AIPMS.Application.Features.Topics.Abstractions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -32,6 +33,7 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         public TestProjectRepository ProjectRepository { get; } = new();
         public TestAcademicRepository AcademicRepository { get; } = new();
         public RecordingNotifications Notifications { get; } = new();
+        public StubTopicSelectionGuard TopicSelectionGuard { get; } = new();
 
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
         {
@@ -45,6 +47,9 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
 
                 services.RemoveAll<IAcademicStructureRepository>();
                 services.AddSingleton<IAcademicStructureRepository>(AcademicRepository);
+
+                services.RemoveAll<ITopicSelectionGuard>();
+                services.AddSingleton<ITopicSelectionGuard>(TopicSelectionGuard);
 
                 services.RemoveAll<IAuditTrail>();
                 services.AddSingleton<IAuditTrail, NoOpAuditTrail>();
@@ -305,6 +310,629 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"api/v1/projects/{project.Id}/archive",
             new ArchiveProjectRequest(project.ConcurrencyToken, null))).StatusCode);
     }
+
+    private void ResetProjectRepositoryState()
+    {
+        _factory.ProjectRepository.Projects.Clear();
+        _factory.ProjectRepository.StatusHistories.Clear();
+        _factory.ProjectRepository.ProjectDeptIds.Clear();
+        _factory.ProjectRepository.IsLeader = true;
+        _factory.ProjectRepository.IsTeamEligible = true;
+        _factory.ProjectRepository.IsRegistrationOpen = true;
+        _factory.ProjectRepository.UserActiveTeamId = 1;
+        _factory.ProjectRepository.MajorsExist = true;
+        _factory.ProjectRepository.HasActiveProject = false;
+        _factory.TopicSelectionGuard.OnValidate = null;
+    }
+
+    [Fact]
+    public async Task SelectPublishedTopic_PersistsTopicId()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(50, project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, selectResponse.StatusCode);
+
+        var updated = await selectResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(updated);
+        Assert.Equal(50, updated.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", updated.ProposalSource);
+        Assert.NotNull(updated.SelectedTopic);
+        Assert.Equal(50, updated.SelectedTopic.Id);
+    }
+
+    [Fact]
+    public async Task SelectPublishedTopic_SetsProposalSourcePublishedTopic()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+        Assert.Equal("STUDENT_PROPOSAL", project.ProposalSource);
+
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(77, project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, selectResponse.StatusCode);
+
+        var updated = await selectResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(updated);
+        Assert.Equal("PUBLISHED_TOPIC", updated.ProposalSource);
+    }
+
+    [Fact]
+    public async Task GetProject_ReturnsSelectedTopic()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(88, project.ConcurrencyToken));
+
+        var getResponse = await leaderClient.GetAsync($"api/v1/projects/{project.Id}");
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+
+        var fetched = await getResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(fetched);
+        Assert.Equal(88, fetched.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", fetched.ProposalSource);
+        Assert.NotNull(fetched.SelectedTopic);
+        Assert.Equal(88, fetched.SelectedTopic.Id);
+    }
+
+    [Fact]
+    public async Task UpdateTopic_ReplacesSelection_WhenDraftEditable()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var firstSelect = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(50, project.ConcurrencyToken));
+        var updated1 = await firstSelect.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(updated1);
+        Assert.Equal(50, updated1.TopicId);
+
+        var secondSelect = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(60, updated1.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, secondSelect.StatusCode);
+        var updated2 = await secondSelect.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(updated2);
+        Assert.Equal(60, updated2.TopicId);
+    }
+
+    [Fact]
+    public async Task SubmittedProject_TopicChange_Returns409()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var submitResponse = await leaderClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/submit",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
+        var submitted = await submitResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(submitted);
+        Assert.Equal("SUBMITTED", submitted.Status);
+
+        var changeResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(70, submitted.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Conflict, changeResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task SelectTopic_MissingConcurrencyToken_Returns400()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new { topicId = 50 });
+        Assert.Equal(HttpStatusCode.BadRequest, selectResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task SelectTopic_BlankConcurrencyToken_Returns400()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new { topicId = 50, concurrencyToken = "   " });
+        Assert.Equal(HttpStatusCode.BadRequest, selectResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task SelectTopic_InvalidBase64ConcurrencyToken_Returns400()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new { topicId = 50, concurrencyToken = "not-a-base64-token!" });
+        Assert.Equal(HttpStatusCode.BadRequest, selectResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task SelectTopic_StaleConcurrencyToken_Returns409()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        // First topic selection updates the token
+        var firstSelect = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(50, project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, firstSelect.StatusCode);
+
+        // Second topic selection with original stale token returns 409
+        var staleSelect = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(60, project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Conflict, staleSelect.StatusCode);
+    }
+
+    [Fact]
+    public async Task SelectTopic_CurrentConcurrencyToken_Returns200()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(50, project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, selectResponse.StatusCode);
+
+        var updated = await selectResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(updated);
+        Assert.Equal(50, updated.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", updated.ProposalSource);
+    }
+
+    [Fact]
+    public async Task SelectTopic_TwoConcurrentUpdatesWithoutTokens_BothRejected()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var task1 = leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new { topicId = 50 });
+        var task2 = leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new { topicId = 60 });
+
+        var responses = await Task.WhenAll(task1, task2);
+        Assert.Equal(HttpStatusCode.BadRequest, responses[0].StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, responses[1].StatusCode);
+
+        // Verify project remains untouched
+        var getResponse = await leaderClient.GetAsync($"api/v1/projects/{project.Id}");
+        var finalProject = await getResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(finalProject);
+        Assert.Null(finalProject.TopicId);
+        Assert.Equal("STUDENT_PROPOSAL", finalProject.ProposalSource);
+    }
+
+    [Fact]
+    public async Task NonLeader_SelectTopic_Returns403()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var memberClient = _factory.CreateAuthenticatedClient(1002, roles: [AppRoles.Student]);
+
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        _factory.ProjectRepository.IsLeader = false;
+        var response = await memberClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(50, project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CrossProjectLeader_SelectTopic_Returns403()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var otherLeaderClient = _factory.CreateAuthenticatedClient(2001, roles: [AppRoles.Student]);
+
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        _factory.ProjectRepository.IsLeader = false;
+        var response = await otherLeaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(50, project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MissingTopic_Returns404()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new NotFoundException("Topic", topicId);
+
+        var response = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(999, project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ClosedOrDraftTopic_Returns409()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new ConflictException("TOPIC_NOT_PUBLISHED");
+
+        var response = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(999, project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SelectTopic_NoRegistrationWindow_Returns409_REGISTRATION_WINDOW_UNAVAILABLE()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new ConflictException("REGISTRATION_WINDOW_UNAVAILABLE");
+
+        var response = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(10, project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("REGISTRATION_WINDOW_UNAVAILABLE", content);
+    }
+
+    [Fact]
+    public async Task SelectTopic_LegacyTeamWrongMajor_Returns409_PRIMARY_MAJOR_MISMATCH()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new ConflictException("PRIMARY_MAJOR_MISMATCH");
+
+        var response = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(10, project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("PRIMARY_MAJOR_MISMATCH", content);
+    }
+
+    [Fact]
+    public async Task SelectTopic_InterdisciplinaryNoMajorEvidence_Returns409()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new ConflictException("MAJOR_EVIDENCE_UNAVAILABLE");
+
+        var response = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(10, project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("MAJOR_EVIDENCE_UNAVAILABLE", content);
+    }
+
+    [Fact]
+    public async Task SelectTopic_InterdisciplinaryBelowMinQuota_Returns409()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new ConflictException("MAJOR_MIN_MEMBERS");
+
+        var response = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(10, project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("MAJOR_MIN_MEMBERS", content);
+    }
+
+    [Fact]
+    public async Task SelectTopic_InterdisciplinaryAboveMaxQuota_Returns409()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new ConflictException("MAJOR_MAX_MEMBERS");
+
+        var response = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(10, project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("MAJOR_MAX_MEMBERS", content);
+    }
+
+    [Fact]
+    public async Task SelectTopic_InterdisciplinaryValidQuotas_Succeeds()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        var response = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(10, project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = await response.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(updated);
+        Assert.Equal(10, updated.TopicId);
+    }
+
+    [Fact]
+    public async Task SubmitPublishedTopicDraft_RevalidatesCurrentTopicRules()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        // Select topic
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(50, project.ConcurrencyToken));
+        project = await selectResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+        Assert.Equal("PUBLISHED_TOPIC", project.ProposalSource);
+
+        bool validatedOnSubmit = false;
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+        {
+            validatedOnSubmit = true;
+            return Task.CompletedTask;
+        };
+
+        // Submit
+        var submitResponse = await leaderClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/submit",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
+        Assert.True(validatedOnSubmit, "Topic rules should have been revalidated on submit!");
+
+        var submitted = await submitResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(submitted);
+        Assert.Equal("SUBMITTED", submitted.Status);
+    }
+
+    [Fact]
+    public async Task SubmitPublishedTopicDraft_WhenRulesBecomeInvalid_Returns409()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Proposal", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        // Select topic initially passes
+        var selectResponse = await leaderClient.PutAsJsonAsync(
+            $"api/v1/projects/{project.Id}/topic",
+            new SelectProjectTopicRequest(50, project.ConcurrencyToken));
+        project = await selectResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+
+        // Rules become invalid at submit time
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new ConflictException("MAJOR_MIN_MEMBERS");
+
+        var submitResponse = await leaderClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/submit",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Conflict, submitResponse.StatusCode);
+        var content = await submitResponse.Content.ReadAsStringAsync();
+        Assert.Contains("MAJOR_MIN_MEMBERS", content);
+
+        // Verify project remains in DRAFT
+        var getResponse = await leaderClient.GetAsync($"api/v1/projects/{project.Id}");
+        var current = await getResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(current);
+        Assert.Equal("DRAFT", current.Status);
+    }
+
+    [Fact]
+    public async Task SubmitStudentProposalDraft_RemainsSupported()
+    {
+        ResetProjectRepositoryState();
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Student Proposal Project", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var project = await createResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(project);
+        Assert.Equal("STUDENT_PROPOSAL", project.ProposalSource);
+        Assert.Null(project.TopicId);
+
+        var submitResponse = await leaderClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/submit",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
+
+        var submitted = await submitResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(submitted);
+        Assert.Equal("SUBMITTED", submitted.Status);
+        Assert.Equal("STUDENT_PROPOSAL", submitted.ProposalSource);
+        Assert.Null(submitted.TopicId);
+    }
+}
+
+public sealed class StubTopicSelectionGuard : ITopicSelectionGuard
+{
+    public Func<long, long, long, CancellationToken, Task>? OnValidate { get; set; }
+
+    public Task ValidateTopicSelectionAsync(long topicId, long projectId, long actorUserId, CancellationToken cancellationToken)
+    {
+        if (OnValidate is not null)
+        {
+            return OnValidate(topicId, projectId, actorUserId, cancellationToken);
+        }
+        return Task.CompletedTask;
+    }
 }
 
 public sealed class NoOpAuditTrail : IAuditTrail
@@ -494,6 +1122,38 @@ public sealed class TestProjectRepository : IProjectRepository
                 .Concat(technologies.Select(t => new ProjectTagDto(2, t, "TECHNOLOGY")))
                 .Concat(keywords.Select(k => new ProjectTagDto(3, k, "KEYWORD")))
                 .ToArray()
+        };
+        Projects[projectId] = updated;
+        return Task.FromResult(updated);
+    }
+
+    public Task LockProjectAndTopicAsync(long projectId, long topicId, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task<ProjectDto> SelectTopicAsync(
+        long projectId,
+        long topicId,
+        string concurrencyToken,
+        CancellationToken cancellationToken)
+    {
+        var existing = Projects[projectId];
+        if (existing.Status != "DRAFT" && existing.Status != "REVISION_REQUIRED")
+        {
+            throw new AIPMS.Application.Common.Exceptions.ConflictException("Only an editable proposal can be updated.");
+        }
+        if (string.IsNullOrWhiteSpace(concurrencyToken))
+        {
+            throw new ArgumentException("Concurrency token is required.", nameof(concurrencyToken));
+        }
+        if (existing.ConcurrencyToken != concurrencyToken)
+        {
+            throw new AIPMS.Application.Common.Exceptions.ConflictException("Concurrency token mismatch.");
+        }
+        var updated = existing with
+        {
+            TopicId = topicId,
+            ProposalSource = "PUBLISHED_TOPIC",
+            ConcurrencyToken = Convert.ToBase64String(BitConverter.GetBytes((long)(projectId + 10))),
+            SelectedTopic = new SelectedTopicDto(topicId, "TOPIC-" + topicId, "Selected topic " + topicId)
         };
         Projects[projectId] = updated;
         return Task.FromResult(updated);

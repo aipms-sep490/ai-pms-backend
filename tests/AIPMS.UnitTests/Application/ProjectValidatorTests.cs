@@ -240,6 +240,42 @@ public sealed class ProjectValidatorTests
             technologies ?? ["React", ".NET"],
             keywords ?? ["AI", "PMS"]);
 
+    // ── SelectProjectTopicCommandValidator ─────────────────────────────────
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not-base64")]
+    [InlineData("AQID")] // 3 bytes, not 8
+    public void SelectTopic_InvalidConcurrencyToken_ShouldFail(string token)
+    {
+        var validator = new SelectProjectTopicCommandValidator();
+        var cmd = new SelectProjectTopicCommand(1, 10, token);
+        var result = validator.TestValidate(cmd);
+        result.ShouldHaveValidationErrorFor(x => x.ConcurrencyToken);
+    }
+
+    [Fact]
+    public void SelectTopic_ValidConcurrencyToken_ShouldPass()
+    {
+        var validator = new SelectProjectTopicCommandValidator();
+        var cmd = new SelectProjectTopicCommand(1, 10, ValidToken());
+        var result = validator.TestValidate(cmd);
+        result.ShouldNotHaveValidationErrorFor(x => x.ConcurrencyToken);
+        result.ShouldNotHaveValidationErrorFor(x => x.ProjectId);
+        result.ShouldNotHaveValidationErrorFor(x => x.TopicId);
+    }
+
+    [Fact]
+    public void SelectTopic_ZeroOrNegativeIds_ShouldFail()
+    {
+        var validator = new SelectProjectTopicCommandValidator();
+        var cmd = new SelectProjectTopicCommand(0, -1, ValidToken());
+        var result = validator.TestValidate(cmd);
+        result.ShouldHaveValidationErrorFor(x => x.ProjectId);
+        result.ShouldHaveValidationErrorFor(x => x.TopicId);
+    }
+
     private static UpdateProjectDraftCommand MakeUpdate(
         long projectId = 1,
         string? concurrencyToken = null,
