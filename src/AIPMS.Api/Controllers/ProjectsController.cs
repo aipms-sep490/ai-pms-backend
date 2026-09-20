@@ -90,6 +90,25 @@ public sealed class ProjectsController(ISender sender) : ControllerBase
         return Ok(await sender.Send(command, cancellationToken));
     }
 
+    [HttpPut("{id:long}/topic")]
+    [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ProjectDto>> SelectTopic(
+        long id,
+        [FromBody] SelectProjectTopicRequest request,
+        CancellationToken cancellationToken)
+    {
+        var command = new SelectProjectTopicCommand(
+            id,
+            request.TopicId,
+            request.ConcurrencyToken);
+
+        return Ok(await sender.Send(command, cancellationToken));
+    }
+
     [HttpGet("{id}")]
     [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ProjectDto>> GetById(

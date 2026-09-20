@@ -24,7 +24,16 @@ public sealed record ProjectDto(
     string? ExpectedOutput,
     string ConcurrencyToken,
     IReadOnlyList<ProjectMajorDto> Majors,
-    IReadOnlyList<ProjectTagDto> Tags, AIPMS.Application.Features.Teams.DTOs.TeamAcademicScopeDto? AcademicScope = null);
+    IReadOnlyList<ProjectTagDto> Tags,
+    AIPMS.Application.Features.Teams.DTOs.TeamAcademicScopeDto? AcademicScope = null,
+    long? TopicId = null,
+    string ProposalSource = "STUDENT_PROPOSAL",
+    SelectedTopicDto? SelectedTopic = null);
+
+public sealed record SelectedTopicDto(
+    long Id,
+    string Code,
+    string Title);
 
 public sealed record ProjectSummaryDto(
     long Id,
@@ -94,3 +103,7 @@ public sealed record ProjectReviewRequest(
     string? Reason);
 
 public sealed record ArchiveProjectRequest(string ConcurrencyToken, string? Reason);
+
+public sealed record SelectProjectTopicRequest(
+    long TopicId,
+    string ConcurrencyToken);

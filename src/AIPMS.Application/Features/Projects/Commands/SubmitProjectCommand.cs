@@ -23,7 +23,8 @@ public sealed class SubmitProjectCommandHandler(
     ICurrentUser currentUser,
     IAuditTrail auditTrail,
     TimeProvider timeProvider,
-    ITeamRegistrationGuard registrationGuard)
+    ITeamRegistrationGuard registrationGuard,
+    AIPMS.Application.Features.Topics.Abstractions.ITopicSelectionGuard? topicSelectionGuard = null)
     : IRequestHandler<SubmitProjectCommand, ProjectDto>
 {
     public Task<ProjectDto> Handle(
@@ -96,6 +97,24 @@ public sealed class SubmitProjectCommandHandler(
             !project.Tags.Any(t => t.TagType == "KEYWORD"))
         {
             throw new ConflictException("The project proposal must have at least one Domain, one Technology, and one Keyword tag defined.");
+        }
+
+        // BR-58: Re-validate topic selection if proposal source is PUBLISHED_TOPIC
+        if (string.Equals(project.ProposalSource, "PUBLISHED_TOPIC", StringComparison.OrdinalIgnoreCase))
+        {
+            if (project.TopicId is null)
+            {
+                throw new ConflictException("A published-topic proposal must reference a valid topic.");
+            }
+
+            if (topicSelectionGuard is not null)
+            {
+                await topicSelectionGuard.ValidateTopicSelectionAsync(
+                    project.TopicId.Value,
+                    project.Id,
+                    actorUserId,
+                    cancellationToken);
+            }
         }
 
         // Update project status to SUBMITTED and write history (all within repository transaction)

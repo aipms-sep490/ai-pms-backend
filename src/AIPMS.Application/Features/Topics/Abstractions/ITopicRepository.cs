@@ -11,6 +11,7 @@ public interface ITopicRepository
     Task<IReadOnlyList<TopicMajor>> GetMajorsAsync(IReadOnlyList<long> ids, CancellationToken ct);
     Task<bool> IsActiveDepartmentAsync(long departmentId, long organizationId, CancellationToken ct);
     Task<TopicDto?> GetAsync(long id, TopicActor actor, bool forUpdate, CancellationToken ct);
+    Task<TopicDto?> GetByIdForSelectionAsync(long id, TopicActor actor, CancellationToken ct);
     Task<PagedResult<TopicDto>> ListAsync(TopicActor actor, TopicFilter filter, CancellationToken ct);
     Task<TopicDto> CreateAsync(CreateTopicRequest input, TopicActor actor, DateTime now, CancellationToken ct);
     Task<TopicDto> UpdateAsync(long id, TopicContentRequest content, TopicActor actor, DateTime now, CancellationToken ct);
