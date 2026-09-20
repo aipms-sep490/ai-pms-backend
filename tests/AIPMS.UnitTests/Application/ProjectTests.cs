@@ -486,6 +486,128 @@ public sealed class ProjectTests
         Assert.Equal(55, result.TopicId);
         Assert.True(guard.WasValidated);
     }
+
+    [Fact]
+    public async Task Resubmit_WithPublishedTopic_RevalidatesTopic_WhenInvalid_FailsWithoutMutation()
+    {
+        // Arrange
+        var repository = new StubProjectRepository();
+        repository.IsLeader = true;
+        repository.IsTeamEligible = true;
+        repository.IsRegistrationOpen = true;
+
+        var project = new ProjectDto(70, 1, "Team 1", "PRJ070", "Title", "Desc", "Objs", "REVISION_REQUIRED",
+            FixedNow, null, null, null, 10, "Leader", FixedNow, FixedNow, "Problem", "Output", "token123",
+            [new ProjectMajorDto(1, 301, "SE", "Software Engineering")],
+            [
+                new ProjectTagDto(1, "Software Engineering", "DOMAIN"),
+                new ProjectTagDto(2, "React", "TECHNOLOGY"),
+                new ProjectTagDto(3, "AI", "KEYWORD")
+            ],
+            TopicId: 55,
+            ProposalSource: "PUBLISHED_TOPIC");
+        repository.Projects[70] = project;
+
+        var guard = new StubTopicGuardForProjectTests
+        {
+            ValidateCallback = (topicId, projId, userId, ct) => throw new ConflictException("MAJOR_MIN_MEMBERS")
+        };
+
+        var currentUser = new TestCurrentUser(10, AppRoles.Student);
+        var handler = new ResubmitProjectCommandHandler(repository, currentUser, new RecordingAuditTrail(), new FakeTimeProvider(FixedNow),
+            new StubRegistrationGuard(repository), guard);
+
+        var command = new ResubmitProjectCommand(70, "token123");
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(command, CancellationToken.None));
+        Assert.Contains("MAJOR_MIN_MEMBERS", ex.Message);
+
+        // Verify project in repository remained REVISION_REQUIRED, not SUBMITTED (no state mutation)
+        Assert.Equal("REVISION_REQUIRED", repository.Projects[70].Status);
+        Assert.Null(repository.Projects[70].SubmittedAt);
+    }
+
+    [Fact]
+    public async Task Resubmit_WithPublishedTopic_RevalidatesTopic_WhenValid_Succeeds()
+    {
+        // Arrange
+        var repository = new StubProjectRepository();
+        repository.IsLeader = true;
+        repository.IsTeamEligible = true;
+        repository.IsRegistrationOpen = true;
+
+        var project = new ProjectDto(71, 1, "Team 1", "PRJ071", "Title", "Desc", "Objs", "REVISION_REQUIRED",
+            FixedNow, null, null, null, 10, "Leader", FixedNow, FixedNow, "Problem", "Output", "token123",
+            [new ProjectMajorDto(1, 301, "SE", "Software Engineering")],
+            [
+                new ProjectTagDto(1, "Software Engineering", "DOMAIN"),
+                new ProjectTagDto(2, "React", "TECHNOLOGY"),
+                new ProjectTagDto(3, "AI", "KEYWORD")
+            ],
+            TopicId: 55,
+            ProposalSource: "PUBLISHED_TOPIC");
+        repository.Projects[71] = project;
+
+        var guard = new StubTopicGuardForProjectTests();
+
+        var currentUser = new TestCurrentUser(10, AppRoles.Student);
+        var handler = new ResubmitProjectCommandHandler(repository, currentUser, new RecordingAuditTrail(), new FakeTimeProvider(FixedNow),
+            new StubRegistrationGuard(repository), guard);
+
+        var command = new ResubmitProjectCommand(71, "token123");
+
+        // Act
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        Assert.Equal("SUBMITTED", result.Status);
+        Assert.Equal("PUBLISHED_TOPIC", result.ProposalSource);
+        Assert.Equal(55, result.TopicId);
+        Assert.True(guard.WasValidated);
+    }
+
+    [Fact]
+    public async Task Resubmit_WithStudentProposal_DoesNotCallTopicGuard_Succeeds()
+    {
+        // Arrange
+        var repository = new StubProjectRepository();
+        repository.IsLeader = true;
+        repository.IsTeamEligible = true;
+        repository.IsRegistrationOpen = true;
+
+        var project = new ProjectDto(72, 1, "Team 1", "PRJ072", "Title", "Desc", "Objs", "REVISION_REQUIRED",
+            FixedNow, null, null, null, 10, "Leader", FixedNow, FixedNow, "Problem", "Output", "token123",
+            [new ProjectMajorDto(1, 301, "SE", "Software Engineering")],
+            [
+                new ProjectTagDto(1, "Software Engineering", "DOMAIN"),
+                new ProjectTagDto(2, "React", "TECHNOLOGY"),
+                new ProjectTagDto(3, "AI", "KEYWORD")
+            ],
+            TopicId: null,
+            ProposalSource: "STUDENT_PROPOSAL");
+        repository.Projects[72] = project;
+
+        var guard = new StubTopicGuardForProjectTests
+        {
+            ValidateCallback = (topicId, projId, userId, ct) => throw new InvalidOperationException("Guard should not be called for student proposal")
+        };
+
+        var currentUser = new TestCurrentUser(10, AppRoles.Student);
+        var handler = new ResubmitProjectCommandHandler(repository, currentUser, new RecordingAuditTrail(), new FakeTimeProvider(FixedNow),
+            new StubRegistrationGuard(repository), guard);
+
+        var command = new ResubmitProjectCommand(72, "token123");
+
+        // Act
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        Assert.Equal("SUBMITTED", result.Status);
+        Assert.Equal("STUDENT_PROPOSAL", result.ProposalSource);
+        Assert.Null(result.TopicId);
+        Assert.False(guard.WasValidated);
+    }
 }
 
 internal sealed class StubTopicGuardForProjectTests : ITopicSelectionGuard

@@ -18,6 +18,7 @@ using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Projects.Commands;
 using AIPMS.Application.Features.Topics.Services;
 using AIPMS.Infrastructure.Services.Auditing;
+using AIPMS.Application.Features.Teams.Abstractions;
 using AIPMS.Domain.Teams;
 using Testcontainers.MsSql;
 using Xunit;
@@ -1801,6 +1802,228 @@ public class ProjectRepositoryTests
         {
             SelectProjectTopicCommandHandler.AfterPreflightHook = null;
 
+            // Cleanup
+            using var cleanupCtx = _fixture.CreateContext();
+            var p = await cleanupCtx.Projects.SingleOrDefaultAsync(x => x.Id == project.Id);
+            if (p != null) cleanupCtx.Projects.Remove(p);
+            var t = await cleanupCtx.Set<ProjectTopic>().Include(x => x.Requirements).SingleOrDefaultAsync(x => x.Id == topic.Id);
+            if (t != null)
+            {
+                cleanupCtx.RemoveRange(t.Requirements);
+                cleanupCtx.Set<ProjectTopic>().Remove(t);
+            }
+            var cfg = await cleanupCtx.Set<TeamAcademicConfiguration>().Include(x => x.Requirements).SingleOrDefaultAsync(x => x.TeamId == team.Id);
+            if (cfg != null)
+            {
+                cleanupCtx.RemoveRange(cfg.Requirements);
+                cleanupCtx.Set<TeamAcademicConfiguration>().Remove(cfg);
+            }
+            var tms = await cleanupCtx.TeamMembers.Where(x => x.TeamId == team.Id).ToListAsync();
+            cleanupCtx.TeamMembers.RemoveRange(tms);
+            var tm = await cleanupCtx.Teams.SingleOrDefaultAsync(x => x.Id == team.Id);
+            if (tm != null) cleanupCtx.Teams.Remove(tm);
+            var urus = await cleanupCtx.UserRoles.Where(x => x.UserId == leader.Id).ToListAsync();
+            cleanupCtx.UserRoles.RemoveRange(urus);
+            var u = await cleanupCtx.Users.SingleOrDefaultAsync(x => x.Id == leader.Id);
+            if (u != null) cleanupCtx.Users.Remove(u);
+            await cleanupCtx.SaveChangesAsync();
+        }
+    }
+
+    private sealed class RealDbRegistrationGuard(ITeamRepository teamRepo) : ITeamRegistrationGuard
+    {
+        public Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) =>
+            teamRepo.InTransactionAsync(action, ct);
+        public Task ValidateAsync(long teamId, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task ResubmitPublishedTopic_WhenTopicClosedInDatabase_ThrowsConflictAndRemainsRevisionRequired()
+    {
+        using var setupContext = _fixture.CreateContext();
+        var repoSetup = new ProjectRepository(setupContext);
+        var periodId = await setupContext.ProjectPeriods.Select(p => p.Id).FirstAsync();
+        var deptId = await setupContext.Departments.Select(d => d.Id).FirstAsync();
+        var majorId = await setupContext.Majors.Select(m => m.Id).FirstAsync();
+        var semesterId = await setupContext.ProjectPeriods.Where(p => p.Id == periodId).Select(p => p.AcademicSemesterId).FirstAsync();
+
+        // Create test leader user
+        var leader = new User
+        {
+            Email = $"leader_resubmit_{Guid.NewGuid():N}@aipms.test",
+            FullName = "Leader Resubmit Test",
+            PasswordHash = "HASH",
+            Status = "ACTIVE",
+            DepartmentId = deptId,
+            MajorId = majorId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        setupContext.Users.Add(leader);
+        await setupContext.SaveChangesAsync();
+
+        var studentRoleId = await setupContext.Roles.Where(r => r.Code == "STUDENT").Select(r => r.Id).FirstAsync();
+        setupContext.UserRoles.Add(new UserRole { UserId = leader.Id, RoleId = studentRoleId });
+        await setupContext.SaveChangesAsync();
+
+        // Create team
+        var team = new Team
+        {
+            AcademicSemesterId = semesterId,
+            Code = "TEAM-RS-" + Guid.NewGuid().ToString("N")[..8],
+            Name = "Team Resubmit " + Guid.NewGuid().ToString("N")[..8],
+            Status = "ELIGIBLE",
+            CreatedBy = leader.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        setupContext.Teams.Add(team);
+        await setupContext.SaveChangesAsync();
+
+        // Add team member as leader
+        setupContext.TeamMembers.Add(new TeamMember
+        {
+            TeamId = team.Id,
+            AcademicSemesterId = semesterId,
+            UserId = leader.Id,
+            IsLeader = true,
+            JoinedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+
+        // Add academic configuration for team
+        var teamConfig = new TeamAcademicConfiguration
+        {
+            TeamId = team.Id,
+            ProjectMode = "SINGLE_MAJOR",
+            LeadDepartmentId = deptId,
+            PrimaryMajorId = majorId,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        teamConfig.Requirements.Add(new TeamMajorRequirement
+        {
+            TeamId = team.Id,
+            MajorId = majorId,
+            MinMembers = 1,
+            MaxMembers = 5,
+            Responsibility = "Core"
+        });
+        setupContext.Set<TeamAcademicConfiguration>().Add(teamConfig);
+
+        // Create published topic
+        var topic = new ProjectTopic
+        {
+            ProjectPeriodId = periodId,
+            LeadDepartmentId = deptId,
+            Code = "TOPIC-RS-" + Guid.NewGuid().ToString("N")[..8],
+            Status = "PUBLISHED",
+            Title = "Resubmit Test Topic",
+            TechnologiesJson = "[\"C#\"]",
+            KeywordsJson = "[\"Resubmit\"]",
+            ProjectMode = "SINGLE_MAJOR",
+            PrimaryMajorId = majorId,
+            CreatedBy = leader.Id,
+            UpdatedBy = leader.Id,
+            PublishedBy = leader.Id,
+            PublishedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid()
+        };
+        topic.Requirements.Add(new TopicMajorRequirement
+        {
+            MajorId = majorId,
+            DepartmentId = deptId,
+            MinMembers = 1,
+            MaxMembers = 5,
+            Responsibility = "Developer"
+        });
+        setupContext.Set<ProjectTopic>().Add(topic);
+        await setupContext.SaveChangesAsync();
+
+        // Create project draft
+        var project = await repoSetup.CreateDraftAsync(
+            team.Id,
+            leader.Id,
+            "Resubmit Test Proposal",
+            "Description",
+            "Objectives",
+            "Problem",
+            "Output",
+            new[] { majorId },
+            "Domain",
+            new[] { "Tech" },
+            new[] { "Kw" },
+            default);
+
+        // Select topic
+        await repoSetup.InTransactionAsync(async ct =>
+        {
+            await repoSetup.SelectTopicAsync(project.Id, topic.Id, project.ConcurrencyToken, ct);
+            return true;
+        }, default);
+
+        // Put project into REVISION_REQUIRED
+        using (var updateCtx = _fixture.CreateContext())
+        {
+            var p = await updateCtx.Projects.SingleAsync(x => x.Id == project.Id);
+            p.Status = "REVISION_REQUIRED";
+            await updateCtx.SaveChangesAsync();
+        }
+
+        // Refresh project DTO to get current concurrency token
+        var refreshedProject = await repoSetup.GetByIdAsync(project.Id, default);
+        Assert.NotNull(refreshedProject);
+        Assert.Equal("REVISION_REQUIRED", refreshedProject.Status);
+        Assert.Equal(topic.Id, refreshedProject.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", refreshedProject.ProposalSource);
+
+        // Make selected topic invalid before resubmit (CLOSED using real persistence path)
+        using (var closeCtx = _fixture.CreateContext())
+        {
+            var t = await closeCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic.Id);
+            t.Status = "CLOSED";
+            t.ClosedAt = DateTime.UtcNow;
+            t.ClosedBy = leader.Id;
+            t.CloseReason = "Closed by admin before resubmit";
+            await closeCtx.SaveChangesAsync();
+        }
+
+        try
+        {
+            using var handlerCtx = _fixture.CreateContext();
+            var projectRepo = new ProjectRepository(handlerCtx);
+            var teamRepo = new TeamRepository(handlerCtx);
+            var topicRepo = new TopicRepository(handlerCtx);
+            var currentUser = new StubCurrentUser(leader.Id, [AppRoles.Student]);
+            var auditTrail = new DatabaseAuditTrail(handlerCtx, new StubRequestContext(), TimeProvider.System);
+            var policy = new StubPolicyProvider();
+            var topicWorkflow = new TopicWorkflow(topicRepo, policy, currentUser, auditTrail, TimeProvider.System);
+            var guard = new TopicSelectionGuard(projectRepo, teamRepo, topicWorkflow, TimeProvider.System);
+            var regGuard = new RealDbRegistrationGuard(teamRepo);
+            var handler = new ResubmitProjectCommandHandler(projectRepo, currentUser, auditTrail, TimeProvider.System, regGuard, guard);
+
+            var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+                handler.Handle(new ResubmitProjectCommand(project.Id, refreshedProject.ConcurrencyToken), default));
+            Assert.Contains("Only published topics can be selected.", ex.Message);
+
+            // Assert in real DB:
+            // project remains REVISION_REQUIRED, TopicId remains unchanged, ProposalSource remains PUBLISHED_TOPIC, no audit log
+            using var verifyCtx = _fixture.CreateContext();
+            var verified = await verifyCtx.Projects.SingleAsync(x => x.Id == project.Id);
+            Assert.Equal("REVISION_REQUIRED", verified.Status);
+            Assert.Equal(topic.Id, verified.TopicId);
+            Assert.Equal("PUBLISHED_TOPIC", verified.ProposalSource);
+            Assert.Equal(refreshedProject.ConcurrencyToken, Convert.ToBase64String(verified.RowVersion));
+
+            var auditLogs = await verifyCtx.AuditLogs
+                .Where(a => a.EntityId == project.Id.ToString() && a.Action == "PROJECT_RESUBMITTED")
+                .ToListAsync();
+            Assert.Empty(auditLogs);
+        }
+        finally
+        {
             // Cleanup
             using var cleanupCtx = _fixture.CreateContext();
             var p = await cleanupCtx.Projects.SingleOrDefaultAsync(x => x.Id == project.Id);

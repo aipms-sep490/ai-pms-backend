@@ -919,6 +919,180 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         Assert.Equal("STUDENT_PROPOSAL", submitted.ProposalSource);
         Assert.Null(submitted.TopicId);
     }
+
+    private async Task<(HttpClient leaderClient, HttpClient staffClient, ProjectDto project)> SetupProjectInRevisionRequiredAsync(
+        bool isPublishedTopic = true,
+        long topicId = 50)
+    {
+        ResetProjectRepositoryState();
+        _factory.TopicSelectionGuard.OnValidate = null;
+
+        var leaderClient = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
+        long staffUserId = 2001;
+        _factory.AcademicRepository.Scopes[staffUserId] = new AcademicUserScope(1, 100);
+        if (!_factory.ProjectRepository.ProjectDeptIds.Contains(100))
+        {
+            _factory.ProjectRepository.ProjectDeptIds.Add(100);
+        }
+        var staffClient = _factory.CreateAuthenticatedClient(staffUserId, "staff@aipms.test", "Staff", AppRoles.DepartmentStaff);
+
+        var createResponse = await leaderClient.PostAsJsonAsync("api/v1/projects", new CreateProjectDraftRequest(
+            "Revision Project", "Desc", "Objs", "Problem", "Output", [100], "Domain", ["Tech"], ["Kw"]));
+        var project = (await createResponse.Content.ReadFromJsonAsync<ProjectDto>())!;
+
+        if (isPublishedTopic)
+        {
+            var selectResponse = await leaderClient.PutAsJsonAsync(
+                $"api/v1/projects/{project.Id}/topic",
+                new SelectProjectTopicRequest(topicId, project.ConcurrencyToken));
+            project = (await selectResponse.Content.ReadFromJsonAsync<ProjectDto>())!;
+        }
+
+        var submitResponse = await leaderClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/submit",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+        project = (await submitResponse.Content.ReadFromJsonAsync<ProjectDto>())!;
+
+        var startReviewResponse = await staffClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/start-review",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+        project = (await startReviewResponse.Content.ReadFromJsonAsync<ProjectDto>())!;
+
+        var revisionResponse = await staffClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/revision",
+            new ProjectReviewRequest(project.ConcurrencyToken, "Please revise requirements."));
+        project = (await revisionResponse.Content.ReadFromJsonAsync<ProjectDto>())!;
+
+        return (leaderClient, staffClient, project);
+    }
+
+    [Fact]
+    public async Task ResubmitPublishedTopic_WhenTopicBecomesInvalid_Returns409AndRemainsRevisionRequired()
+    {
+        var (leaderClient, _, project) = await SetupProjectInRevisionRequiredAsync(isPublishedTopic: true, topicId: 50);
+        Assert.Equal("REVISION_REQUIRED", project.Status);
+        Assert.Equal(50, project.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", project.ProposalSource);
+
+        var preHistoriesCount = _factory.ProjectRepository.StatusHistories.GetValueOrDefault(project.Id)?.Count ?? 0;
+        var preEventsCount = _factory.Notifications.Events.Count;
+
+        // Invalidate topic before resubmit (e.g. topic is closed/unpublished)
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new ConflictException("Only published topics can be selected.");
+
+        var resubmitResponse = await leaderClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/resubmit",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Conflict, resubmitResponse.StatusCode);
+        var content = await resubmitResponse.Content.ReadAsStringAsync();
+        Assert.Contains("Only published topics can be selected.", content);
+
+        // Verify project remains REVISION_REQUIRED
+        var getResponse = await leaderClient.GetAsync($"api/v1/projects/{project.Id}");
+        var current = await getResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(current);
+        Assert.Equal("REVISION_REQUIRED", current.Status);
+        Assert.Equal(50, current.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", current.ProposalSource);
+
+        // No new status history added for SUBMITTED
+        var postHistories = _factory.ProjectRepository.StatusHistories.GetValueOrDefault(project.Id) ?? [];
+        Assert.DoesNotContain(postHistories.Skip(preHistoriesCount), h => h.NewStatus == "SUBMITTED");
+
+        // No new notification emitted
+        Assert.Equal(preEventsCount, _factory.Notifications.Events.Count);
+    }
+
+    [Fact]
+    public async Task ResubmitPublishedTopic_WhenTopicStillValid_Succeeds()
+    {
+        var (leaderClient, _, project) = await SetupProjectInRevisionRequiredAsync(isPublishedTopic: true, topicId: 50);
+        bool validated = false;
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+        {
+            validated = true;
+            return Task.CompletedTask;
+        };
+
+        var resubmitResponse = await leaderClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/resubmit",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.OK, resubmitResponse.StatusCode);
+        Assert.True(validated, "Topic rules should have been revalidated on resubmit!");
+
+        var current = await resubmitResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(current);
+        Assert.Equal("SUBMITTED", current.Status);
+        Assert.Equal(50, current.TopicId);
+        Assert.Equal("PUBLISHED_TOPIC", current.ProposalSource);
+    }
+
+    [Fact]
+    public async Task ResubmitPublishedTopic_WhenRegistrationWindowUnavailable_Returns409()
+    {
+        var (leaderClient, _, project) = await SetupProjectInRevisionRequiredAsync(isPublishedTopic: true, topicId: 50);
+
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new ConflictException("REGISTRATION_WINDOW_UNAVAILABLE");
+
+        var resubmitResponse = await leaderClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/resubmit",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Conflict, resubmitResponse.StatusCode);
+        var content = await resubmitResponse.Content.ReadAsStringAsync();
+        Assert.Contains("REGISTRATION_WINDOW_UNAVAILABLE", content);
+
+        var current = await (await leaderClient.GetAsync($"api/v1/projects/{project.Id}")).Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(current);
+        Assert.Equal("REVISION_REQUIRED", current.Status);
+    }
+
+    [Fact]
+    public async Task ResubmitPublishedTopic_WhenTeamEligibilityInvalid_Returns409()
+    {
+        var (leaderClient, _, project) = await SetupProjectInRevisionRequiredAsync(isPublishedTopic: true, topicId: 50);
+
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new ConflictException("PRIMARY_MAJOR_MISMATCH");
+
+        var resubmitResponse = await leaderClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/resubmit",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.Conflict, resubmitResponse.StatusCode);
+        var content = await resubmitResponse.Content.ReadAsStringAsync();
+        Assert.Contains("PRIMARY_MAJOR_MISMATCH", content);
+
+        var current = await (await leaderClient.GetAsync($"api/v1/projects/{project.Id}")).Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(current);
+        Assert.Equal("REVISION_REQUIRED", current.Status);
+    }
+
+    [Fact]
+    public async Task ResubmitStudentProposal_RemainsSupportedWithoutTopicSelectionGuard()
+    {
+        var (leaderClient, _, project) = await SetupProjectInRevisionRequiredAsync(isPublishedTopic: false);
+        Assert.Equal("STUDENT_PROPOSAL", project.ProposalSource);
+        Assert.Null(project.TopicId);
+
+        _factory.TopicSelectionGuard.OnValidate = (topicId, projId, userId, ct) =>
+            throw new InvalidOperationException("TopicSelectionGuard should NOT be called for STUDENT_PROPOSAL");
+
+        var resubmitResponse = await leaderClient.PostAsJsonAsync(
+            $"api/v1/projects/{project.Id}/resubmit",
+            new SubmitProjectRequest(project.ConcurrencyToken));
+
+        Assert.Equal(HttpStatusCode.OK, resubmitResponse.StatusCode);
+        var current = await resubmitResponse.Content.ReadFromJsonAsync<ProjectDto>();
+        Assert.NotNull(current);
+        Assert.Equal("SUBMITTED", current.Status);
+        Assert.Equal("STUDENT_PROPOSAL", current.ProposalSource);
+        Assert.Null(current.TopicId);
+    }
 }
 
 public sealed class StubTopicSelectionGuard : ITopicSelectionGuard
