@@ -31,7 +31,10 @@ public sealed class ProjectRegistrationHandlerTests
             else if (operation == "submit")
                 await new SubmitProjectCommandHandler(repository, user, audit, clock, guard).Handle(new(draft.Id, "token"), default);
             else
-                await new ResubmitProjectCommandHandler(repository, user, audit, clock, guard).Handle(new(draft.Id, "token"), default);
+            {
+                var topicGuard = new StubTopicGuard();
+                await new ResubmitProjectCommandHandler(repository, user, audit, clock, guard, topicGuard).Handle(new(draft.Id, "token"), default);
+            }
         });
         Assert.Equal(1, guard.Validations);
         Assert.False(guard.Committed);
@@ -54,13 +57,14 @@ public sealed class ProjectRegistrationHandlerTests
         var clock = new FakeTimeProvider(Now);
         var draft = Draft(operation == "resubmit" ? "REVISION_REQUIRED" : "DRAFT");
         repository.Projects[draft.Id] = draft;
+        var topicGuard = new StubTopicGuard();
         if (operation == "create")
             await new CreateProjectDraftCommandHandler(repository, user, audit, guard, clock)
                 .Handle(new("Title", null, "Objectives", "Problem", "Output", [301], "Domain", [".NET"], ["Project"]), default);
         else if (operation == "submit")
             await new SubmitProjectCommandHandler(repository, user, audit, clock, guard).Handle(new(draft.Id, "token"), default);
         else
-            await new ResubmitProjectCommandHandler(repository, user, audit, clock, guard).Handle(new(draft.Id, "token"), default);
+            await new ResubmitProjectCommandHandler(repository, user, audit, clock, guard, topicGuard).Handle(new(draft.Id, "token"), default);
         Assert.Equal(1, guard.Validations);
         Assert.True(guard.Committed);
         Assert.Equal(1, audit.Calls);
@@ -82,5 +86,10 @@ public sealed class ProjectRegistrationHandlerTests
             Calls++;
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class StubTopicGuard : AIPMS.Application.Features.Topics.Abstractions.ITopicSelectionGuard
+    {
+        public Task ValidateTopicSelectionAsync(long topicId, long projectId, long actorUserId, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

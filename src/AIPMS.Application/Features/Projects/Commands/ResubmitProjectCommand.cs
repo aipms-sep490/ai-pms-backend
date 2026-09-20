@@ -24,7 +24,7 @@ public sealed class ResubmitProjectCommandHandler(
     IAuditTrail auditTrail,
     TimeProvider timeProvider,
     ITeamRegistrationGuard registrationGuard,
-    AIPMS.Application.Features.Topics.Abstractions.ITopicSelectionGuard? topicSelectionGuard = null)
+    AIPMS.Application.Features.Topics.Abstractions.ITopicSelectionGuard topicSelectionGuard)
     : IRequestHandler<ResubmitProjectCommand, ProjectDto>
 {
     public Task<ProjectDto> Handle(
@@ -104,14 +104,14 @@ public sealed class ResubmitProjectCommandHandler(
                 throw new ConflictException("A published-topic proposal must reference a valid topic.");
             }
 
-            if (topicSelectionGuard is not null)
-            {
-                await topicSelectionGuard.ValidateTopicSelectionAsync(
-                    project.TopicId.Value,
-                    project.Id,
-                    actorUserId,
-                    cancellationToken);
-            }
+            // Lock project, team, team members, and topic rows with UPDLOCK, HOLDLOCK
+            await repository.LockProjectAndTopicAsync(project.Id, project.TopicId.Value, cancellationToken);
+
+            await topicSelectionGuard.ValidateTopicSelectionAsync(
+                project.TopicId.Value,
+                project.Id,
+                actorUserId,
+                cancellationToken);
         }
 
         // Update project status to SUBMITTED and write history (all within repository transaction)
