@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -7,12 +9,18 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.AI.Configuration;
 using AIPMS.Application.Features.AiAssistant.Abstractions;
+using AIPMS.Application.Features.AiAssistant.Models;
 
 namespace AIPMS.AI.Providers;
 
 public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options = null) : IAiTextGenerationProvider
 {
     private readonly AiAssistantOptions _options = options ?? new AiAssistantOptions();
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public async Task<string> GenerateTextAsync(
         string systemPrompt,
@@ -36,7 +44,11 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
         cts.Token.ThrowIfCancellationRequested();
 
         // Check if report summary request
-        if (userPrompt.Contains("<report_evidence"))
+        if (systemPrompt.Contains("summarizing an academic project progress report", StringComparison.OrdinalIgnoreCase) ||
+            userPrompt.Contains("<report_evidence", StringComparison.OrdinalIgnoreCase) ||
+            (!userPrompt.Contains("<user_query_json>", StringComparison.OrdinalIgnoreCase) &&
+             !userPrompt.Contains("<user_query>", StringComparison.OrdinalIgnoreCase) &&
+             (userPrompt.Contains("\"ReportId\":") || userPrompt.Contains("\"reportId\":"))))
         {
             return GenerateReportSummaryJson(userPrompt);
         }
@@ -47,13 +59,27 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
 
     private static string GenerateReportSummaryJson(string userPrompt)
     {
-        var evidencePayloadMatch = Regex.Match(userPrompt, @"<evidence_payload>(.*?)</evidence_payload>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-        var evidenceText = evidencePayloadMatch.Success ? evidencePayloadMatch.Groups[1].Value : userPrompt;
+        var evidenceMatch = Regex.Match(userPrompt, @"<evidence_json>(.*?)</evidence_json>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        if (!evidenceMatch.Success)
+        {
+            evidenceMatch = Regex.Match(userPrompt, @"<evidence_payload>(.*?)</evidence_payload>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        }
+        var evidenceText = evidenceMatch.Success ? evidenceMatch.Groups[1].Value.Trim() : userPrompt.Trim();
 
-        var summary = ExtractXmlTag(evidenceText, "summary");
-        var completed = ExtractXmlTag(evidenceText, "completed_work");
-        var planned = ExtractXmlTag(evidenceText, "planned_work");
-        var issues = ExtractXmlTag(evidenceText, "issues_and_risks");
+        ReportEvidencePayload? reportPayload = null;
+        try
+        {
+            reportPayload = JsonSerializer.Deserialize<ReportEvidencePayload>(evidenceText, JsonOptions);
+        }
+        catch
+        {
+            // fallback if XML or unparseable
+        }
+
+        var summary = reportPayload?.Summary ?? ExtractXmlTag(evidenceText, "summary");
+        var completed = reportPayload?.CompletedWork ?? ExtractXmlTag(evidenceText, "completed_work");
+        var planned = reportPayload?.PlannedWork ?? ExtractXmlTag(evidenceText, "planned_work");
+        var issues = reportPayload?.IssuesAndRisks ?? ExtractXmlTag(evidenceText, "issues_and_risks");
 
         var completedSummary = !string.IsNullOrWhiteSpace(completed)
             ? $"Completed items: {completed}"
@@ -113,22 +139,59 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
             query = queryMatch.Success ? queryMatch.Groups[1].Value.Trim() : string.Empty;
         }
 
-        // Provider parsing: provider must parse evidence ONLY from the authoritative evidence section (<evidence_payload>)
-        // provider must NEVER regex-search the raw prompt or user query block for evidence tags
-        var evidencePayloadMatch = Regex.Match(userPrompt, @"<evidence_payload>(.*?)</evidence_payload>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-        var evidenceText = evidencePayloadMatch.Success ? evidencePayloadMatch.Groups[1].Value : string.Empty;
+        var evidenceMatch = Regex.Match(userPrompt, @"<evidence_json>(.*?)</evidence_json>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        if (!evidenceMatch.Success)
+        {
+            evidenceMatch = Regex.Match(userPrompt, @"<evidence_payload>(.*?)</evidence_payload>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        }
+        var evidenceText = evidenceMatch.Success ? evidenceMatch.Groups[1].Value.Trim() : string.Empty;
 
-        // Check task truncation metadata from evidence
-        var tasksTagMatch = Regex.Match(evidenceText, @"<tasks\s+total_count=""(\d+)""\s+retrieved_count=""(\d+)""\s+truncated=""(true|false)""[^>]*>", RegexOptions.IgnoreCase);
-        var totalTasks = tasksTagMatch.Success ? int.Parse(tasksTagMatch.Groups[1].Value) : 0;
-        var retrievedTasks = tasksTagMatch.Success ? int.Parse(tasksTagMatch.Groups[2].Value) : 0;
-        var isTasksTruncated = tasksTagMatch.Success && bool.Parse(tasksTagMatch.Groups[3].Value);
+        ProjectEvidencePayload? projectEvidence = null;
+        try
+        {
+            projectEvidence = JsonSerializer.Deserialize<ProjectEvidencePayload>(evidenceText, JsonOptions);
+        }
+        catch
+        {
+            // fallback if XML
+        }
 
-        // Extract tasks, milestones, reports, meetings ONLY from evidenceText
-        var taskMatches = Regex.Matches(evidenceText, @"<task id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</task>", RegexOptions.Singleline);
-        var milestoneMatches = Regex.Matches(evidenceText, @"<milestone id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</milestone>", RegexOptions.Singleline);
-        var reportMatches = Regex.Matches(evidenceText, @"<report id=""([^""]+)"" type=""([^""]+)""[^>]*>(.*?)</report>", RegexOptions.Singleline);
-        var meetingMatches = Regex.Matches(evidenceText, @"<meeting id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</meeting>", RegexOptions.Singleline);
+        int totalTasks;
+        int retrievedTasks;
+        bool isTasksTruncated;
+        IReadOnlyList<MilestoneEvidenceItem> milestones;
+        IReadOnlyList<TaskEvidenceItem> tasks;
+        IReadOnlyList<ProgressReportEvidenceItem> reports;
+        IReadOnlyList<MeetingEvidenceItem> meetings;
+
+        if (projectEvidence != null)
+        {
+            totalTasks = projectEvidence.TotalTasks;
+            retrievedTasks = projectEvidence.RetrievedTasks;
+            isTasksTruncated = projectEvidence.TasksTruncated;
+            milestones = projectEvidence.Milestones ?? Array.Empty<MilestoneEvidenceItem>();
+            tasks = projectEvidence.Tasks ?? Array.Empty<TaskEvidenceItem>();
+            reports = projectEvidence.ProgressReports ?? Array.Empty<ProgressReportEvidenceItem>();
+            meetings = projectEvidence.Meetings ?? Array.Empty<MeetingEvidenceItem>();
+        }
+        else
+        {
+            // Backward-compatible fallback for legacy XML
+            var tasksTagMatch = Regex.Match(evidenceText, @"<tasks\s+total_count=""(\d+)""\s+retrieved_count=""(\d+)""\s+truncated=""(true|false)""[^>]*>", RegexOptions.IgnoreCase);
+            totalTasks = tasksTagMatch.Success ? int.Parse(tasksTagMatch.Groups[1].Value) : 0;
+            retrievedTasks = tasksTagMatch.Success ? int.Parse(tasksTagMatch.Groups[2].Value) : 0;
+            isTasksTruncated = tasksTagMatch.Success && bool.Parse(tasksTagMatch.Groups[3].Value);
+
+            var taskMatches = Regex.Matches(evidenceText, @"<task id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</task>", RegexOptions.Singleline);
+            var milestoneMatches = Regex.Matches(evidenceText, @"<milestone id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</milestone>", RegexOptions.Singleline);
+            var reportMatches = Regex.Matches(evidenceText, @"<report id=""([^""]+)"" type=""([^""]+)""[^>]*>(.*?)</report>", RegexOptions.Singleline);
+            var meetingMatches = Regex.Matches(evidenceText, @"<meeting id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</meeting>", RegexOptions.Singleline);
+
+            milestones = milestoneMatches.Cast<Match>().Select(m => new MilestoneEvidenceItem(m.Groups[1].Value, 0, m.Groups[2].Value, m.Groups[3].Value, null, 0, null)).ToList();
+            tasks = taskMatches.Cast<Match>().Select(t => new TaskEvidenceItem(t.Groups[1].Value, 0, t.Groups[2].Value, t.Groups[3].Value, null, null, false, false, null)).ToList();
+            reports = reportMatches.Cast<Match>().Select(r => new ProgressReportEvidenceItem(r.Groups[1].Value, 0, r.Groups[2].Value, "", "", null, null, null)).ToList();
+            meetings = meetingMatches.Cast<Match>().Select(mtg => new MeetingEvidenceItem(mtg.Groups[1].Value, 0, mtg.Groups[2].Value, mtg.Groups[3].Value, "", null, null)).ToList();
+        }
 
         var answerBuilder = new StringBuilder();
 
@@ -138,33 +201,33 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
             query.Contains("overview", StringComparison.OrdinalIgnoreCase))
         {
             answerBuilder.AppendLine("Based on current project evidence:");
-            if (milestoneMatches.Count > 0)
+            if (milestones.Count > 0)
             {
-                var m = milestoneMatches[0];
-                answerBuilder.AppendLine($"- Current Milestone: [{m.Groups[1].Value}] '{m.Groups[2].Value}' (Status: {m.Groups[3].Value}).");
+                var m = milestones[0];
+                answerBuilder.AppendLine($"- Current Milestone: [{m.Id}] '{m.Title}' (Status: {m.Status}).");
             }
-            if (taskMatches.Count > 0)
+            if (tasks.Count > 0)
             {
-                var done = taskMatches.Cast<Match>().Count(t => t.Groups[3].Value.Equals("DONE", StringComparison.OrdinalIgnoreCase));
-                var blocked = taskMatches.Cast<Match>().Count(t => t.Groups[3].Value.Equals("BLOCKED", StringComparison.OrdinalIgnoreCase));
+                var done = tasks.Count(t => string.Equals(t.Status, "DONE", StringComparison.OrdinalIgnoreCase));
+                var blocked = tasks.Count(t => string.Equals(t.Status, "BLOCKED", StringComparison.OrdinalIgnoreCase));
                 if (isTasksTruncated)
                 {
                     answerBuilder.AppendLine($"- Tasks ({retrievedTasks} of {totalTasks} retrieved): {done} completed, {blocked} blocked in retrieved sample.");
                 }
                 else
                 {
-                    var total = taskMatches.Count;
+                    var total = tasks.Count;
                     answerBuilder.AppendLine($"- Tasks: {done}/{total} completed, {blocked} blocked.");
                 }
-                foreach (var t in taskMatches.Cast<Match>())
+                foreach (var t in tasks)
                 {
-                    answerBuilder.AppendLine($"  * [{t.Groups[1].Value}] '{t.Groups[2].Value}' (Status: {t.Groups[3].Value})");
+                    answerBuilder.AppendLine($"  * [{t.Id}] '{t.Title}' (Status: {t.Status})");
                 }
             }
-            if (reportMatches.Count > 0)
+            if (reports.Count > 0)
             {
-                var r = reportMatches[0];
-                answerBuilder.AppendLine($"- Latest Progress Report: [{r.Groups[1].Value}] ({r.Groups[2].Value}).");
+                var r = reports[0];
+                answerBuilder.AppendLine($"- Latest Progress Report: [{r.Id}] ({r.ReportType}).");
             }
             return answerBuilder.ToString().Trim();
         }
@@ -174,8 +237,8 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
             query.Contains("risk", StringComparison.OrdinalIgnoreCase) ||
             query.Contains("issue", StringComparison.OrdinalIgnoreCase))
         {
-            var blockedTasks = taskMatches.Cast<Match>()
-                .Where(t => t.Groups[3].Value.Equals("BLOCKED", StringComparison.OrdinalIgnoreCase))
+            var blockedTasks = tasks
+                .Where(t => string.Equals(t.Status, "BLOCKED", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             if (blockedTasks.Count > 0)
@@ -183,7 +246,7 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
                 answerBuilder.AppendLine("The following blockers were identified in project tasks:");
                 foreach (var bt in blockedTasks)
                 {
-                    answerBuilder.AppendLine($"- [{bt.Groups[1].Value}] '{bt.Groups[2].Value}' is currently blocked.");
+                    answerBuilder.AppendLine($"- [{bt.Id}] '{bt.Title}' is currently blocked.");
                 }
                 if (isTasksTruncated)
                 {
@@ -205,49 +268,49 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
         }
 
         // Check if query mentions tasks or milestones
-        if (query.Contains("task", StringComparison.OrdinalIgnoreCase) && taskMatches.Count > 0)
+        if (query.Contains("task", StringComparison.OrdinalIgnoreCase) && tasks.Count > 0)
         {
             answerBuilder.AppendLine("Relevant project tasks include:");
-            foreach (var t in taskMatches.Cast<Match>().Take(3))
+            foreach (var t in tasks.Take(3))
             {
-                answerBuilder.AppendLine($"- [{t.Groups[1].Value}] '{t.Groups[2].Value}' (Status: {t.Groups[3].Value}).");
+                answerBuilder.AppendLine($"- [{t.Id}] '{t.Title}' (Status: {t.Status}).");
             }
             return answerBuilder.ToString().Trim();
         }
 
-        if (query.Contains("milestone", StringComparison.OrdinalIgnoreCase) && milestoneMatches.Count > 0)
+        if (query.Contains("milestone", StringComparison.OrdinalIgnoreCase) && milestones.Count > 0)
         {
             answerBuilder.AppendLine("Project milestones recorded:");
-            foreach (var m in milestoneMatches.Cast<Match>().Take(3))
+            foreach (var m in milestones.Take(3))
             {
-                answerBuilder.AppendLine($"- [{m.Groups[1].Value}] '{m.Groups[2].Value}' (Status: {m.Groups[3].Value}).");
+                answerBuilder.AppendLine($"- [{m.Id}] '{m.Title}' (Status: {m.Status}).");
             }
             return answerBuilder.ToString().Trim();
         }
 
-        if (query.Contains("meeting", StringComparison.OrdinalIgnoreCase) && meetingMatches.Count > 0)
+        if (query.Contains("meeting", StringComparison.OrdinalIgnoreCase) && meetings.Count > 0)
         {
             answerBuilder.AppendLine("Recent meetings recorded:");
-            foreach (var mtg in meetingMatches.Cast<Match>().Take(3))
+            foreach (var mtg in meetings.Take(3))
             {
-                answerBuilder.AppendLine($"- [{mtg.Groups[1].Value}] '{mtg.Groups[2].Value}' (Status: {mtg.Groups[3].Value}).");
+                answerBuilder.AppendLine($"- [{mtg.Id}] '{mtg.Title}' (Status: {mtg.Status}).");
             }
             return answerBuilder.ToString().Trim();
         }
 
         // General grounded summary
-        if (taskMatches.Count > 0 || milestoneMatches.Count > 0)
+        if (tasks.Count > 0 || milestones.Count > 0)
         {
             answerBuilder.Append("According to project records, ");
-            if (milestoneMatches.Count > 0)
+            if (milestones.Count > 0)
             {
-                var m = milestoneMatches[0];
-                answerBuilder.Append($"milestone [{m.Groups[1].Value}] '{m.Groups[2].Value}' is {m.Groups[3].Value}, ");
+                var m = milestones[0];
+                answerBuilder.Append($"milestone [{m.Id}] '{m.Title}' is {m.Status}, ");
             }
-            if (taskMatches.Count > 0)
+            if (tasks.Count > 0)
             {
-                var t = taskMatches[0];
-                answerBuilder.Append($"and recent task [{t.Groups[1].Value}] '{t.Groups[2].Value}' is {t.Groups[3].Value}.");
+                var t = tasks[0];
+                answerBuilder.Append($"and recent task [{t.Id}] '{t.Title}' is {t.Status}.");
             }
             return answerBuilder.ToString().Trim();
         }

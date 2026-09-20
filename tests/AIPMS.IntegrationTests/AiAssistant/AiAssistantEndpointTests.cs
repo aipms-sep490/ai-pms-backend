@@ -17,9 +17,13 @@ using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.Models;
 using AIPMS.Application.Features.Tasks.Abstractions;
 using AIPMS.Application.Features.Tasks.DTOs;
+using System.Security.Claims;
+using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 using Xunit;
 
 namespace AIPMS.IntegrationTests.AiAssistant;
@@ -505,6 +509,51 @@ public sealed class AiAssistantEndpointTests : IClassFixture<AiAssistantEndpoint
         // User 2 is isolated and should still be allowed
         var user2Res = await client2.PostAsJsonAsync("/api/v1/projects/101/ai/assistant/ask", new AskProjectAssistantRequest("Check progress"));
         Assert.Equal(HttpStatusCode.OK, user2Res.StatusCode);
+    }
+
+    [Fact]
+    public async Task AiAssistant_InvalidSignatureJwtCannotConsumeAuthenticatedUserQuota()
+    {
+        const long victimUserId = 7777;
+        _factory.ProjectAccessService.AllowedProjectsByUser[(victimUserId, 101)] = true;
+
+        // Construct forged JWT signed with an untrusted attacker key, claiming victimUserId in sub/nameid
+        var attackerKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("untrusted-attacker-signing-key-64-characters-minimum-value-for-forgery"));
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, victimUserId.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            new Claim("sub", victimUserId.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            new Claim(ClaimTypes.Email, "victim@test.local"),
+            new Claim(ClaimTypes.Role, AppRoles.Student)
+        };
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = "AI-PMS.IntegrationTests",
+            Audience = "AI-PMS.IntegrationTests.Client",
+            Subject = new ClaimsIdentity(claims),
+            NotBefore = DateTime.UtcNow,
+            Expires = DateTime.UtcNow.AddMinutes(30),
+            SigningCredentials = new SigningCredentials(attackerKey, SecurityAlgorithms.HmacSha256)
+        };
+        var forgedToken = new JsonWebTokenHandler().CreateToken(descriptor);
+
+        var attackerClient = _factory.CreateClient();
+        attackerClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", forgedToken);
+
+        // Attacker fires 21 requests with forged JWT
+        for (var i = 1; i <= 21; i++)
+        {
+            var forgedRes = await attackerClient.PostAsJsonAsync("/api/v1/projects/101/ai/assistant/ask", new AskProjectAssistantRequest("Check progress"));
+            // All unauthenticated requests fail auth with 401 (or 429 once attacker IP partition is exhausted)
+            Assert.True(forgedRes.StatusCode == HttpStatusCode.Unauthorized || forgedRes.StatusCode == HttpStatusCode.TooManyRequests);
+        }
+
+        // Legitimate victim logs in with a valid signed JWT
+        var victimClient = _factory.CreateAuthenticatedClient(victimUserId, "victim@test.local", "Victim User", AppRoles.Student);
+
+        // Victim's quota MUST be completely intact and return 200 OK (NOT 429)
+        var victimRes = await victimClient.PostAsJsonAsync("/api/v1/projects/101/ai/assistant/ask", new AskProjectAssistantRequest("Check progress"));
+        Assert.Equal(HttpStatusCode.OK, victimRes.StatusCode);
     }
 }
 

@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Formatting.Compact;
@@ -165,34 +164,21 @@ public static class DependencyInjection
                     }));
             options.AddPolicy("ai-assistant", httpContext =>
             {
-                var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                    ?? httpContext.User.FindFirst("sub")?.Value;
-
-                if (string.IsNullOrEmpty(userId))
+                string partitionKey;
+                if (httpContext.User.Identity?.IsAuthenticated == true)
                 {
-                    var authHeader = httpContext.Request.Headers.Authorization.ToString();
-                    if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var token = authHeader["Bearer ".Length..].Trim();
-                        try
-                        {
-                            var handler = new JsonWebTokenHandler();
-                            if (handler.CanReadToken(token))
-                            {
-                                var jwt = handler.ReadJsonWebToken(token);
-                                userId = jwt.Subject ?? jwt.Claims.FirstOrDefault(c => c.Type == "nameid" || c.Type == "sub" || c.Type == ClaimTypes.NameIdentifier)?.Value;
-                            }
-                        }
-                        catch
-                        {
-                            // fallback to IP on parse error
-                        }
-                    }
-                }
+                    var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                        ?? httpContext.User.FindFirst("sub")?.Value;
 
-                var partitionKey = userId
-                    ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                    ?? "unknown";
+                    partitionKey = !string.IsNullOrWhiteSpace(userId)
+                        ? $"user:{userId}"
+                        : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+                }
+                else
+                {
+                    var ip = httpContext.Connection.RemoteIpAddress?.ToString();
+                    partitionKey = string.IsNullOrWhiteSpace(ip) ? "ip:unknown" : $"ip:{ip}";
+                }
 
                 return RateLimitPartition.GetFixedWindowLimiter(
                     partitionKey,

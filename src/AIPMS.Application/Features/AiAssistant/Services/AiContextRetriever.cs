@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Security;
@@ -34,6 +34,11 @@ public sealed class AiContextRetriever(
     private const int MaxMeetings = 5;
     private const int MaxStringLength = 350;
 
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = false
+    };
+
     public async Task<ProjectBoundedContext> RetrieveProjectContextAsync(
         long projectId,
         string query,
@@ -56,14 +61,11 @@ public sealed class AiContextRetriever(
 
         var evidenceList = new List<EvidenceReferenceDto>();
 
-        var evidenceBuilder = new StringBuilder();
-        evidenceBuilder.AppendLine($"<project_evidence project_id=\"{projectId}\" status=\"{projectStatus}\">");
-
         // 1. Milestones
         var milestones = await milestoneRepository.GetProjectMilestonesAsync(projectId, cancellationToken);
+        var milestoneItems = new List<MilestoneEvidenceItem>();
         if (milestones.Count > 0)
         {
-            evidenceBuilder.AppendLine("  <milestones>");
             foreach (var m in milestones.Take(MaxMilestones))
             {
                 var dateStr = m.DueDate?.ToString("yyyy-MM-dd") ?? m.StartDate?.ToString("yyyy-MM-dd");
@@ -76,9 +78,16 @@ public sealed class AiContextRetriever(
                     ReferenceUrl: $"/api/v1/milestones/{m.Id}",
                     Excerpt: excerpt);
                 evidenceList.Add(refDto);
-                evidenceBuilder.AppendLine($"    <milestone id=\"MS-{m.Id}\" title=\"{Sanitize(m.Title)}\" status=\"{m.Status}\" due=\"{dateStr}\">{excerpt}</milestone>");
+
+                milestoneItems.Add(new MilestoneEvidenceItem(
+                    Id: $"MS-{m.Id}",
+                    MilestoneId: m.Id,
+                    Title: Sanitize(m.Title),
+                    Status: m.Status,
+                    DueDate: dateStr,
+                    SortOrder: m.SortOrder,
+                    Description: Sanitize(m.Description)));
             }
-            evidenceBuilder.AppendLine("  </milestones>");
         }
 
         // 2. Tasks
@@ -141,10 +150,10 @@ public sealed class AiContextRetriever(
         var retrievedTasks = allTasks.Count;
         var tasksTruncated = totalTasks > retrievedTasks;
 
+        var taskItems = new List<TaskEvidenceItem>();
         if (allTasks.Count > 0)
         {
             var now = DateTime.UtcNow;
-            evidenceBuilder.AppendLine($"  <tasks total_count=\"{totalTasks}\" retrieved_count=\"{retrievedTasks}\" truncated=\"{tasksTruncated.ToString().ToLowerInvariant()}\">");
             foreach (var t in allTasks)
             {
                 var isOverdue = t.DueAt.HasValue && t.DueAt.Value < now && !string.Equals(t.Status, "DONE", StringComparison.OrdinalIgnoreCase);
@@ -160,9 +169,18 @@ public sealed class AiContextRetriever(
                     ReferenceUrl: $"/api/v1/tasks/{t.Id}",
                     Excerpt: excerpt);
                 evidenceList.Add(refDto);
-                evidenceBuilder.AppendLine($"    <task id=\"TASK-{t.Id}\" title=\"{Sanitize(t.Title)}\" status=\"{t.Status}\" priority=\"{t.Priority}\" due=\"{dueStr}\">{excerpt}</task>");
+
+                taskItems.Add(new TaskEvidenceItem(
+                    Id: $"TASK-{t.Id}",
+                    TaskId: t.Id,
+                    Title: Sanitize(t.Title),
+                    Status: t.Status,
+                    Priority: t.Priority,
+                    DueAt: dueStr,
+                    IsOverdue: isOverdue,
+                    IsBlocked: isBlocked,
+                    Description: Sanitize(t.Description)));
             }
-            evidenceBuilder.AppendLine("  </tasks>");
         }
 
         // 3. Progress Reports
@@ -176,9 +194,9 @@ public sealed class AiContextRetriever(
             pageSize: MaxReports,
             cancellationToken: cancellationToken);
 
+        var reportItems = new List<ProgressReportEvidenceItem>();
         if (reportResult.Items.Count > 0)
         {
-            evidenceBuilder.AppendLine("  <progress_reports>");
             foreach (var r in reportResult.Items)
             {
                 var periodStr = $"{r.PeriodStart:yyyy-MM-dd} to {r.PeriodEnd:yyyy-MM-dd}";
@@ -193,9 +211,17 @@ public sealed class AiContextRetriever(
                     ReferenceUrl: $"/api/v1/progress-reports/{r.Id}",
                     Excerpt: excerpt);
                 evidenceList.Add(refDto);
-                evidenceBuilder.AppendLine($"    <report id=\"PR-{r.Id}\" type=\"{r.ReportType}\" period=\"{periodStr}\" status=\"{r.Status}\">{excerpt}</report>");
+
+                reportItems.Add(new ProgressReportEvidenceItem(
+                    Id: $"PR-{r.Id}",
+                    ReportId: r.Id,
+                    ReportType: r.ReportType,
+                    Status: r.Status,
+                    Period: periodStr,
+                    Summary: Sanitize(r.Summary),
+                    CompletedWork: Sanitize(r.CompletedWork),
+                    IssuesAndRisks: Sanitize(r.IssuesAndRisks)));
             }
-            evidenceBuilder.AppendLine("  </progress_reports>");
         }
 
         // 4. Meetings
@@ -208,9 +234,9 @@ public sealed class AiContextRetriever(
             pageSize: MaxMeetings,
             cancellationToken: cancellationToken);
 
+        var meetingItems = new List<MeetingEvidenceItem>();
         if (meetingResult.Items.Count > 0)
         {
-            evidenceBuilder.AppendLine("  <meetings>");
             foreach (var m in meetingResult.Items)
             {
                 var dateStr = m.StartAt.ToString("yyyy-MM-dd HH:mm");
@@ -225,12 +251,20 @@ public sealed class AiContextRetriever(
                     ReferenceUrl: $"/api/v1/meetings/{m.Id}",
                     Excerpt: excerpt);
                 evidenceList.Add(refDto);
-                evidenceBuilder.AppendLine($"    <meeting id=\"MTG-{m.Id}\" title=\"{Sanitize(m.Title)}\" status=\"{m.Status}\" start=\"{dateStr}\">{excerpt}</meeting>");
+
+                meetingItems.Add(new MeetingEvidenceItem(
+                    Id: $"MTG-{m.Id}",
+                    MeetingId: m.Id,
+                    Title: Sanitize(m.Title),
+                    Status: m.Status,
+                    StartAt: dateStr,
+                    Agenda: Sanitize(m.Agenda),
+                    MeetingNotes: Sanitize(m.MeetingNotes)));
             }
-            evidenceBuilder.AppendLine("  </meetings>");
         }
 
         // 5. Contribution summary
+        ContributionEvidenceItem? contributionItem = null;
         try
         {
             var contributionSummary = await contributionRepository.GetSummaryAsync(projectId, storedOnly: true, cancellationToken);
@@ -247,15 +281,18 @@ public sealed class AiContextRetriever(
                     ReferenceUrl: $"/api/v1/projects/{projectId}/contributions",
                     Excerpt: excerpt);
                 evidenceList.Add(refDto);
-                evidenceBuilder.AppendLine($"  <contributions snapshot=\"{dateStr}\">{excerpt}</contributions>");
+
+                contributionItem = new ContributionEvidenceItem(
+                    Id: $"CONTRIB-{projectId}",
+                    MemberCount: contributionSummary.Members.Count,
+                    TotalTasksCompleted: totalTasksCompleted,
+                    SnapshotAt: dateStr);
             }
         }
         catch
         {
             // Contribution data is optional evidence; non-fatal if absent
         }
-
-        evidenceBuilder.AppendLine("</project_evidence>");
 
         var hasSufficientEvidence = evidenceList.Count > 0;
         if (hasSufficientEvidence && facts != null)
@@ -269,11 +306,25 @@ public sealed class AiContextRetriever(
                 Excerpt: $"Status: {projectStatus}, TeamMembers: {facts.TeamMemberCount}"));
         }
 
+        var payload = new ProjectEvidencePayload(
+            ProjectId: projectId,
+            ProjectStatus: projectStatus,
+            TotalTasks: totalTasks,
+            RetrievedTasks: retrievedTasks,
+            TasksTruncated: tasksTruncated,
+            Milestones: milestoneItems,
+            Tasks: taskItems,
+            ProgressReports: reportItems,
+            Meetings: meetingItems,
+            ContributionSummary: contributionItem);
+
+        var formattedText = JsonSerializer.Serialize(payload, JsonOptions);
+
         return new ProjectBoundedContext(
             ProjectId: projectId,
             ProjectStatus: projectStatus,
             EvidenceList: evidenceList,
-            FormattedEvidenceText: evidenceBuilder.ToString(),
+            FormattedEvidenceText: formattedText,
             HasSufficientEvidence: hasSufficientEvidence,
             TotalEvidenceCount: evidenceList.Count,
             TotalTasks: totalTasks,
@@ -327,6 +378,7 @@ public sealed class AiContextRetriever(
             Excerpt: Sanitize(report.Summary));
         evidenceList.Add(primaryRef);
 
+        var feedbackItems = new List<ReportFeedbackEvidenceItem>();
         if (report.Feedbacks != null && report.Feedbacks.Count > 0)
         {
             foreach (var fb in report.Feedbacks)
@@ -339,29 +391,27 @@ public sealed class AiContextRetriever(
                     ReferenceUrl: $"/api/v1/progress-reports/{report.Id}",
                     Excerpt: Sanitize(fb.FeedbackText));
                 evidenceList.Add(fbRef);
+
+                feedbackItems.Add(new ReportFeedbackEvidenceItem(
+                    SupervisorName: Sanitize(fb.SupervisorName),
+                    CreatedAt: fb.CreatedAt.ToString("yyyy-MM-dd"),
+                    FeedbackText: Sanitize(fb.FeedbackText)));
             }
         }
 
-        var evidenceBuilder = new StringBuilder();
-        evidenceBuilder.AppendLine($"<report_evidence report_id=\"{report.Id}\" project_id=\"{projectId}\" type=\"{report.ReportType}\" period=\"{periodStr}\" status=\"{report.Status}\">");
-        evidenceBuilder.AppendLine($"  <summary>{Sanitize(report.Summary)}</summary>");
-        if (!string.IsNullOrWhiteSpace(report.CompletedWork))
-            evidenceBuilder.AppendLine($"  <completed_work>{Sanitize(report.CompletedWork)}</completed_work>");
-        if (!string.IsNullOrWhiteSpace(report.PlannedWork))
-            evidenceBuilder.AppendLine($"  <planned_work>{Sanitize(report.PlannedWork)}</planned_work>");
-        if (!string.IsNullOrWhiteSpace(report.IssuesAndRisks))
-            evidenceBuilder.AppendLine($"  <issues_and_risks>{Sanitize(report.IssuesAndRisks)}</issues_and_risks>");
+        var payload = new ReportEvidencePayload(
+            ReportId: report.Id,
+            ProjectId: projectId,
+            ReportType: report.ReportType,
+            Period: periodStr,
+            Status: report.Status,
+            Summary: Sanitize(report.Summary),
+            CompletedWork: Sanitize(report.CompletedWork),
+            PlannedWork: Sanitize(report.PlannedWork),
+            IssuesAndRisks: Sanitize(report.IssuesAndRisks),
+            Feedbacks: feedbackItems);
 
-        if (report.Feedbacks != null && report.Feedbacks.Count > 0)
-        {
-            evidenceBuilder.AppendLine("  <feedbacks>");
-            foreach (var fb in report.Feedbacks)
-            {
-                evidenceBuilder.AppendLine($"    <feedback by=\"{Sanitize(fb.SupervisorName)}\" date=\"{fb.CreatedAt:yyyy-MM-dd}\">{Sanitize(fb.FeedbackText)}</feedback>");
-            }
-            evidenceBuilder.AppendLine("  </feedbacks>");
-        }
-        evidenceBuilder.AppendLine("</report_evidence>");
+        var formattedText = JsonSerializer.Serialize(payload, JsonOptions);
 
         var hasSufficientEvidence = !string.IsNullOrWhiteSpace(report.Summary) ||
                                      !string.IsNullOrWhiteSpace(report.CompletedWork) ||
@@ -380,7 +430,7 @@ public sealed class AiContextRetriever(
             PlannedWork: report.PlannedWork,
             IssuesAndRisks: report.IssuesAndRisks,
             EvidenceList: evidenceList,
-            FormattedEvidenceText: evidenceBuilder.ToString(),
+            FormattedEvidenceText: formattedText,
             HasSufficientEvidence: hasSufficientEvidence);
     }
 
