@@ -293,7 +293,12 @@ internal sealed class TeamTestFactory(TeamDatabaseFixture database, TeamScenario
         }
         builder.ConfigureAppConfiguration((_, config) =>
         {
-            var values = new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = database.ConnectionString };
+            var values = new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = database.ConnectionString,
+                ["NotificationEmail:Enabled"] = "false",
+                ["ScheduledNotifications:Enabled"] = "false"
+            };
             if (configured)
             {
                 var prefix = $"TeamFormation:Periods:{scenario.PeriodId}:";

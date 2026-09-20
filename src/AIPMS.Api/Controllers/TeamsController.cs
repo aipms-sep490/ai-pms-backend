@@ -99,12 +99,18 @@ public sealed class TeamsController(ISender sender) : ControllerBase
     }
 
     [HttpPost("{teamId:long}/leader")]
-    public async Task<ActionResult<TeamDto>> TransferLeader(long teamId, TransferTeamLeaderRequest request, CancellationToken ct) =>
-        Ok(await sender.Send(new TransferTeamLeaderCommand(teamId, request.NewLeaderUserId), ct));
+    public async Task<ActionResult> TransferLeader(long teamId,
+        TransferTeamLeaderRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new RequestOrTransferTeamLeaderCommand(teamId, request.NewLeaderUserId, request.Message), ct));
+
+    [HttpPost("{teamId:long}/leader-change-requests")]
+    public async Task<ActionResult<TeamLeaderChangeRequestDto>> RequestLeaderChange(long teamId,
+        TransferTeamLeaderRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new RequestTeamLeaderChangeCommand(teamId, request.NewLeaderUserId, request.Message), ct));
 }
 
 public sealed record CreateTeamRequest(long AcademicSemesterId, string Code, string Name, string? Description,
     TeamAcademicScopeRequest? AcademicScope = null);
 public sealed record UpdateTeamRequest(string Name, string? Description);
 public sealed record InviteTeamMemberRequest(long InvitedUserId, string? Message);
-public sealed record TransferTeamLeaderRequest(long NewLeaderUserId);
+public sealed record TransferTeamLeaderRequest(long NewLeaderUserId, string? Message = null);

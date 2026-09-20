@@ -3,7 +3,7 @@
  Run after schema.sql and seed.sql.
 
  Checks:
- - 44 required tables
+ - 45 required tables
  - Required system roles
  - SUPERVISOR is not seeded as a separate role
  - Foreign-key relationships
@@ -58,6 +58,7 @@ INSERT INTO @expected_tables(table_name) VALUES
     (N'supervisor_expertise'),
     (N'supervisor_requests'),
     (N'supervisor_assignments'),
+    (N'team_leader_change_requests'),
     (N'milestones'),
     (N'tasks'),
     (N'task_assignees'),
@@ -80,9 +81,9 @@ INSERT INTO @expected_tables(table_name) VALUES
     (N'tags'),
     (N'project_tags');
 
-IF (SELECT COUNT(*) FROM @expected_tables) <> 44
+IF (SELECT COUNT(*) FROM @expected_tables) <> 45
 BEGIN
-    THROW 51001, 'Verification script error: expected table list is not 44.', 1;
+    THROW 51001, 'Verification script error: expected table list is not 45.', 1;
 END;
 
 IF EXISTS (
@@ -194,6 +195,12 @@ INSERT INTO @required_fks(table_name, fk_name) VALUES
     (N'supervisor_assignments', N'fk_supervisor_assignments_project'),
     (N'supervisor_assignments', N'fk_supervisor_assignments_profile'),
     (N'supervisor_assignments', N'fk_supervisor_assignments_request'),
+    (N'team_leader_change_requests', N'fk_team_leader_change_requests_team'),
+    (N'team_leader_change_requests', N'fk_team_leader_change_requests_project'),
+    (N'team_leader_change_requests', N'fk_team_leader_change_requests_requested_by'),
+    (N'team_leader_change_requests', N'fk_team_leader_change_requests_current_leader'),
+    (N'team_leader_change_requests', N'fk_team_leader_change_requests_new_leader'),
+    (N'team_leader_change_requests', N'fk_team_leader_change_requests_mentor_profile'),
     (N'milestones', N'fk_milestones_project'),
     (N'milestones', N'fk_milestones_created_by'),
     (N'tasks', N'fk_tasks_milestone'),
@@ -338,6 +345,7 @@ INSERT INTO @required_checks(table_name, check_name) VALUES
     (N'supervisor_profiles', N'ck_supervisor_profiles_capacity'),
     (N'supervisor_requests', N'ck_supervisor_requests_status'),
     (N'supervisor_assignments', N'ck_supervisor_assignments_dates'),
+    (N'team_leader_change_requests', N'ck_team_leader_change_requests_status'),
     (N'milestones', N'ck_milestones_dates'),
     (N'milestones', N'ck_milestones_status'),
     (N'tasks', N'ck_tasks_status'),
@@ -461,7 +469,8 @@ INSERT INTO @required_unique_indexes(table_name, index_name) VALUES
     (N'team_members', N'ux_team_members_one_active_team_per_semester'),
     (N'team_invitations', N'ux_team_invitations_pending'),
     (N'supervisor_requests', N'ux_supervisor_requests_pending'),
-    (N'supervisor_assignments', N'ux_supervisor_assignments_one_primary_active');
+    (N'supervisor_assignments', N'ux_supervisor_assignments_one_primary_active'),
+    (N'team_leader_change_requests', N'ux_team_leader_change_requests_pending');
 
 IF EXISTS (
     SELECT 1
@@ -557,6 +566,8 @@ INSERT INTO @required_indexes(table_name, index_name) VALUES
     (N'supervisor_requests', N'ix_supervisor_requests_supervisor_status'),
     (N'supervisor_assignments', N'ix_supervisor_assignments_project'),
     (N'supervisor_assignments', N'ix_supervisor_assignments_supervisor'),
+    (N'team_leader_change_requests', N'ix_team_leader_change_requests_team_status'),
+    (N'team_leader_change_requests', N'ix_team_leader_change_requests_mentor_status'),
     (N'milestones', N'ix_milestones_project_status'),
     (N'tasks', N'ix_tasks_milestone_status'),
     (N'tasks', N'ix_tasks_parent_task_id'),

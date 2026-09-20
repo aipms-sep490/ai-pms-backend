@@ -44,6 +44,7 @@ public static class DependencyInjection
         services.AddScoped<SupervisorAssignmentWorkflow>();
         services.AddScoped<DeliverableWorkflow>();
         services.AddScoped<TeamWorkflow>();
+        services.AddScoped<TeamLeaderChangeWorkflow>();
         services.AddScoped<ITeamRegistrationGuard, TeamRegistrationGuard>();
 
         return services;

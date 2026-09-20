@@ -190,6 +190,7 @@ public static class DependencyInjection
         services.AddScoped<IMeetingRepository, MeetingRepository>();
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
+        services.AddScoped<ITeamLeaderChangeRequestRepository, TeamLeaderChangeRequestRepository>();
         services.AddScoped<ITeamInvitationCandidateReader, TeamInvitationCandidateReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, DatabaseTeamFormationPolicyProvider>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
