@@ -9,6 +9,8 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.AiAssistant.DTOs;
 using AIPMS.Application.Features.AiAssistant.Queries;
 using AIPMS.Application.Features.AiAssistant.Services;
+using AIPMS.Application.Features.Contributions.DTOs;
+using AIPMS.Application.Features.Meetings.DTOs;
 using AIPMS.Application.Features.Milestones.DTOs;
 using AIPMS.Application.Features.ProgressReports.DTOs;
 using AIPMS.Application.Features.Tasks.DTOs;
@@ -221,7 +223,101 @@ public sealed class AiAssistantProjectQueryTests
         var evidence = Assert.Single(response.Evidence);
         Assert.Equal("TASK-42", evidence.SourceId);
         Assert.Equal("TASK", evidence.SourceType);
-        Assert.Equal("/api/v1/projects/101/tasks/42", evidence.ReferenceUrl);
+        Assert.Equal("/api/v1/tasks/42", evidence.ReferenceUrl);
+    }
+
+    [Fact]
+    public async Task ProjectAssistant_EmitsCanonicalRoutes_ForAllEvidenceTypes()
+    {
+        var taskRepo = new StubTaskRepository();
+        taskRepo.Tasks.Add(new TaskDto(10, 1, null, "Task 10", "Desc", "DONE", "HIGH", null, FixedNow, FixedNow, 1, "Dev", FixedNow, FixedNow, Array.Empty<TaskAssigneeDto>(), Array.Empty<TaskDependencyDto>()));
+
+        var milestoneRepo = new StubMilestoneRepository();
+        milestoneRepo.Milestones.Add(new MilestoneDto(5, 101, "Milestone 5", "Desc", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), "IN_PROGRESS", 1, 1, "Leader", FixedNow, FixedNow));
+
+        var reportRepo = new StubProgressReportRepository();
+        reportRepo.Reports[15] = new ProgressReportDetailDto(15, 101, 1, "Leader", "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary 15", "Completed", "Planned", "Issues", "SUBMITTED", FixedNow, false, FixedNow, FixedNow, Array.Empty<ProgressReportFeedbackDto>());
+
+        var meetingRepo = new StubMeetingRepository();
+        meetingRepo.Meetings.Add(new MeetingDto(20, 101, "Meeting 20", "Agenda", null, FixedNow, FixedNow.AddHours(1), "Room A", null, "COMPLETED", 1, "Leader", 1, FixedNow, FixedNow));
+
+        var contribRepo = new StubContributionRepository
+        {
+            Summary = new ContributionSummaryDto("ACTIVE", 0.5, new[] { new ContributionMemberDto(1, "Leader", 10, 5, 2, 3, 1, 0.5, 20) }, 1, 20, 0, "v1", null, FixedNow)
+        };
+        var dataReader = new StubProjectProgressDataReader { ProjectExists = true };
+        var accessService = new StubProjectAccessService { CanAccess = true };
+        var currentUser = new TestCurrentUser(10, "STUDENT");
+
+        var contextRetriever = new AiContextRetriever(
+            accessService, dataReader, reportRepo, milestoneRepo, taskRepo, meetingRepo, contribRepo, currentUser);
+
+        var context = await contextRetriever.RetrieveProjectContextAsync(101, "overview", CancellationToken.None);
+
+        Assert.NotNull(context);
+        var projectEv = Assert.Single(context.EvidenceList, e => e.SourceType == "PROJECT");
+        Assert.Equal("/api/v1/projects/101", projectEv.ReferenceUrl);
+
+        var milestoneEv = Assert.Single(context.EvidenceList, e => e.SourceType == "MILESTONE");
+        Assert.Equal("/api/v1/milestones/5", milestoneEv.ReferenceUrl);
+
+        var taskEv = Assert.Single(context.EvidenceList, e => e.SourceType == "TASK");
+        Assert.Equal("/api/v1/tasks/10", taskEv.ReferenceUrl);
+
+        var reportEv = Assert.Single(context.EvidenceList, e => e.SourceType == "PROGRESS_REPORT");
+        Assert.Equal("/api/v1/progress-reports/15", reportEv.ReferenceUrl);
+
+        var meetingEv = Assert.Single(context.EvidenceList, e => e.SourceType == "MEETING");
+        Assert.Equal("/api/v1/meetings/20", meetingEv.ReferenceUrl);
+
+        var contribEv = Assert.Single(context.EvidenceList, e => e.SourceType == "CONTRIBUTION");
+        Assert.Equal("/api/v1/projects/101/contributions", contribEv.ReferenceUrl);
+    }
+
+    [Fact]
+    public async Task Assistant_WhenTaskContextTruncated_ReportsLimitation()
+    {
+        var taskRepo = new StubTaskRepository();
+        for (int i = 1; i <= 20; i++)
+        {
+            taskRepo.Tasks.Add(new TaskDto(i, 1, null, $"Task {i}", "Desc", "DONE", "NORMAL", null, null, null, 1, "Dev", FixedNow, FixedNow, Array.Empty<TaskAssigneeDto>(), Array.Empty<TaskDependencyDto>()));
+        }
+
+        var milestoneRepo = new StubMilestoneRepository();
+        var contextRetriever = CreateContextRetriever(taskRepo, milestoneRepo, canAccess: true, actorId: 10);
+        var provider = new GroundedAiTextGenerationProvider(new AiAssistantOptions());
+        var service = new AiAssistantService(contextRetriever, provider, _timeProvider);
+
+        var response = await service.AskAsync(101, "Are there any blockers?", CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.NotNull(response.LimitationNote);
+        Assert.Contains("Based on 15 retrieved tasks out of 20 total tasks; non-retrieved tasks may contain additional items.", response.LimitationNote);
+        Assert.Contains("No blocked tasks found in the 15 retrieved tasks (out of 20 total). Non-retrieved tasks were not inspected.", response.Answer);
+        Assert.DoesNotContain("No blocked tasks were found in the current project records.", response.Answer);
+    }
+
+    [Fact]
+    public async Task Assistant_BlockerQuery_DoesNotMissBlockedTaskOutsideDefaultFirst15()
+    {
+        var taskRepo = new StubTaskRepository();
+        for (int i = 1; i <= 15; i++)
+        {
+            taskRepo.Tasks.Add(new TaskDto(i, 1, null, $"Task {i}", "Desc", "DONE", "NORMAL", null, null, null, 1, "Dev", FixedNow, FixedNow, Array.Empty<TaskAssigneeDto>(), Array.Empty<TaskDependencyDto>()));
+        }
+        taskRepo.Tasks.Add(new TaskDto(16, 1, null, "Critical Blocked Task", "Blocked desc", "BLOCKED", "HIGH", null, null, null, 1, "Dev", FixedNow, FixedNow, Array.Empty<TaskAssigneeDto>(), Array.Empty<TaskDependencyDto>()));
+
+        var milestoneRepo = new StubMilestoneRepository();
+        var contextRetriever = CreateContextRetriever(taskRepo, milestoneRepo, canAccess: true, actorId: 10);
+        var provider = new GroundedAiTextGenerationProvider(new AiAssistantOptions());
+        var service = new AiAssistantService(contextRetriever, provider, _timeProvider);
+
+        var response = await service.AskAsync(101, "Are there any blockers?", CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Contains(response.Evidence, e => e.SourceId == "TASK-16");
+        Assert.Contains("TASK-16", response.Answer);
+        Assert.Contains("Critical Blocked Task", response.Answer);
     }
 
     private static AiContextRetriever CreateContextRetriever(

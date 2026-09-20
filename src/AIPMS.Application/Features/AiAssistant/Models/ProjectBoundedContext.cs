@@ -8,4 +8,7 @@ public sealed record ProjectBoundedContext(
     IReadOnlyList<EvidenceReferenceDto> EvidenceList,
     string FormattedEvidenceText,
     bool HasSufficientEvidence,
-    int TotalEvidenceCount);
+    int TotalEvidenceCount,
+    int TotalTasks = 0,
+    int RetrievedTasks = 0,
+    bool TasksTruncated = false);

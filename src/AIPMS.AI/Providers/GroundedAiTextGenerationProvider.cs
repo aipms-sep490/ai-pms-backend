@@ -47,10 +47,13 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
 
     private static string GenerateReportSummaryJson(string userPrompt)
     {
-        var summary = ExtractXmlTag(userPrompt, "summary");
-        var completed = ExtractXmlTag(userPrompt, "completed_work");
-        var planned = ExtractXmlTag(userPrompt, "planned_work");
-        var issues = ExtractXmlTag(userPrompt, "issues_and_risks");
+        var evidencePayloadMatch = Regex.Match(userPrompt, @"<evidence_payload>(.*?)</evidence_payload>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        var evidenceText = evidencePayloadMatch.Success ? evidencePayloadMatch.Groups[1].Value : userPrompt;
+
+        var summary = ExtractXmlTag(evidenceText, "summary");
+        var completed = ExtractXmlTag(evidenceText, "completed_work");
+        var planned = ExtractXmlTag(evidenceText, "planned_work");
+        var issues = ExtractXmlTag(evidenceText, "issues_and_risks");
 
         var completedSummary = !string.IsNullOrWhiteSpace(completed)
             ? $"Completed items: {completed}"
@@ -86,15 +89,46 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
 
     private static string GenerateProjectAnswer(string userPrompt)
     {
-        // Extract query
-        var queryMatch = Regex.Match(userPrompt, @"<user_query>(.*?)</user_query>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-        var query = queryMatch.Success ? queryMatch.Groups[1].Value.Trim() : string.Empty;
+        // Extract query safely from <user_query_json> or fallback to <user_query>
+        var query = string.Empty;
+        var queryJsonMatch = Regex.Match(userPrompt, @"<user_query_json>(.*?)</user_query_json>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        if (queryJsonMatch.Success)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(queryJsonMatch.Groups[1].Value.Trim());
+                if (doc.RootElement.TryGetProperty("query", out var qProp))
+                {
+                    query = qProp.GetString() ?? string.Empty;
+                }
+            }
+            catch
+            {
+                query = queryJsonMatch.Groups[1].Value.Trim();
+            }
+        }
+        else
+        {
+            var queryMatch = Regex.Match(userPrompt, @"<user_query>(.*?)</user_query>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            query = queryMatch.Success ? queryMatch.Groups[1].Value.Trim() : string.Empty;
+        }
 
-        // Extract tasks, milestones, reports, meetings
-        var taskMatches = Regex.Matches(userPrompt, @"<task id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</task>", RegexOptions.Singleline);
-        var milestoneMatches = Regex.Matches(userPrompt, @"<milestone id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</milestone>", RegexOptions.Singleline);
-        var reportMatches = Regex.Matches(userPrompt, @"<report id=""([^""]+)"" type=""([^""]+)""[^>]*>(.*?)</report>", RegexOptions.Singleline);
-        var meetingMatches = Regex.Matches(userPrompt, @"<meeting id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</meeting>", RegexOptions.Singleline);
+        // Provider parsing: provider must parse evidence ONLY from the authoritative evidence section (<evidence_payload>)
+        // provider must NEVER regex-search the raw prompt or user query block for evidence tags
+        var evidencePayloadMatch = Regex.Match(userPrompt, @"<evidence_payload>(.*?)</evidence_payload>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        var evidenceText = evidencePayloadMatch.Success ? evidencePayloadMatch.Groups[1].Value : string.Empty;
+
+        // Check task truncation metadata from evidence
+        var tasksTagMatch = Regex.Match(evidenceText, @"<tasks\s+total_count=""(\d+)""\s+retrieved_count=""(\d+)""\s+truncated=""(true|false)""[^>]*>", RegexOptions.IgnoreCase);
+        var totalTasks = tasksTagMatch.Success ? int.Parse(tasksTagMatch.Groups[1].Value) : 0;
+        var retrievedTasks = tasksTagMatch.Success ? int.Parse(tasksTagMatch.Groups[2].Value) : 0;
+        var isTasksTruncated = tasksTagMatch.Success && bool.Parse(tasksTagMatch.Groups[3].Value);
+
+        // Extract tasks, milestones, reports, meetings ONLY from evidenceText
+        var taskMatches = Regex.Matches(evidenceText, @"<task id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</task>", RegexOptions.Singleline);
+        var milestoneMatches = Regex.Matches(evidenceText, @"<milestone id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</milestone>", RegexOptions.Singleline);
+        var reportMatches = Regex.Matches(evidenceText, @"<report id=""([^""]+)"" type=""([^""]+)""[^>]*>(.*?)</report>", RegexOptions.Singleline);
+        var meetingMatches = Regex.Matches(evidenceText, @"<meeting id=""([^""]+)"" title=""([^""]+)"" status=""([^""]+)""[^>]*>(.*?)</meeting>", RegexOptions.Singleline);
 
         var answerBuilder = new StringBuilder();
 
@@ -111,10 +145,17 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
             }
             if (taskMatches.Count > 0)
             {
-                var total = taskMatches.Count;
                 var done = taskMatches.Cast<Match>().Count(t => t.Groups[3].Value.Equals("DONE", StringComparison.OrdinalIgnoreCase));
                 var blocked = taskMatches.Cast<Match>().Count(t => t.Groups[3].Value.Equals("BLOCKED", StringComparison.OrdinalIgnoreCase));
-                answerBuilder.AppendLine($"- Tasks: {done}/{total} completed, {blocked} blocked.");
+                if (isTasksTruncated)
+                {
+                    answerBuilder.AppendLine($"- Tasks ({retrievedTasks} of {totalTasks} retrieved): {done} completed, {blocked} blocked in retrieved sample.");
+                }
+                else
+                {
+                    var total = taskMatches.Count;
+                    answerBuilder.AppendLine($"- Tasks: {done}/{total} completed, {blocked} blocked.");
+                }
                 foreach (var t in taskMatches.Cast<Match>())
                 {
                     answerBuilder.AppendLine($"  * [{t.Groups[1].Value}] '{t.Groups[2].Value}' (Status: {t.Groups[3].Value})");
@@ -144,10 +185,21 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
                 {
                     answerBuilder.AppendLine($"- [{bt.Groups[1].Value}] '{bt.Groups[2].Value}' is currently blocked.");
                 }
+                if (isTasksTruncated)
+                {
+                    answerBuilder.AppendLine($"Note: Inspected {retrievedTasks} of {totalTasks} total tasks. Additional non-retrieved tasks were not inspected.");
+                }
             }
             else
             {
-                answerBuilder.AppendLine("No blocked tasks were found in the current project records.");
+                if (isTasksTruncated)
+                {
+                    answerBuilder.AppendLine($"No blocked tasks found in the {retrievedTasks} retrieved tasks (out of {totalTasks} total). Non-retrieved tasks were not inspected.");
+                }
+                else
+                {
+                    answerBuilder.AppendLine("No blocked tasks were found in the current project records.");
+                }
             }
             return answerBuilder.ToString().Trim();
         }

@@ -102,7 +102,7 @@ internal sealed class StubProgressReportRepository : IProgressReportRepository
                 list.Add(new ProgressReportDto(r.Id, r.ProjectId, r.SubmittedBy, r.SubmittedByName, r.ReportType, r.PeriodStart, r.PeriodEnd, r.Summary, r.CompletedWork, r.PlannedWork, r.IssuesAndRisks, r.Status, r.SubmittedAt, r.IsLate, r.CreatedAt, r.UpdatedAt));
             }
         }
-        return Task.FromResult(new PagedResult<ProgressReportDto>(list, list.Count, page, pageSize));
+        return Task.FromResult(new PagedResult<ProgressReportDto>(list, page, pageSize, list.Count));
     }
 
     public Task<bool> ExistsForPeriodAsync(long projectId, string reportType, DateOnly periodStart, DateOnly periodEnd, long? excludeId, CancellationToken cancellationToken) => Task.FromResult(false);
@@ -148,7 +148,14 @@ internal class StubTaskRepository : ITaskRepository
     public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, CancellationToken cancellationToken)
     {
         LastQueriedProjectId = projectId;
-        return Task.FromResult(new PagedResult<TaskDto>(Tasks, Tasks.Count, page, pageSize));
+        var query = Tasks.AsEnumerable();
+        if (isBlocked.HasValue)
+        {
+            query = query.Where(t => (string.Equals(t.Status, "BLOCKED", StringComparison.OrdinalIgnoreCase)) == isBlocked.Value);
+        }
+        var list = query.ToList();
+        var pagedItems = list.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        return Task.FromResult(new PagedResult<TaskDto>(pagedItems, page, pageSize, list.Count));
     }
 
     public Task<TaskDto?> GetByIdAsync(long id, CancellationToken cancellationToken) => Task.FromResult<TaskDto?>(null);
@@ -191,7 +198,7 @@ internal sealed class StubMeetingRepository : IMeetingRepository
 {
     public List<MeetingDto> Meetings { get; } = new();
     public Task<PagedResult<MeetingDto>> GetMeetingsAsync(long projectId, string? status, DateTime? from, DateTime? to, int page, int pageSize, CancellationToken cancellationToken) =>
-        Task.FromResult(new PagedResult<MeetingDto>(Meetings, Meetings.Count, page, pageSize));
+        Task.FromResult(new PagedResult<MeetingDto>(Meetings, page, pageSize, Meetings.Count));
     public Task<MeetingDto?> GetByIdAsync(long id, CancellationToken cancellationToken) => Task.FromResult<MeetingDto?>(null);
     public Task<MeetingDetailDto?> GetDetailByIdAsync(long id, CancellationToken cancellationToken) => Task.FromResult<MeetingDetailDto?>(null);
     public Task<MeetingDto> CreateAsync(long projectId, long createdBy, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, IReadOnlyList<long>? participantUserIds, DateTime now, CancellationToken cancellationToken) => throw new NotImplementedException();

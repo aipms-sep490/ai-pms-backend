@@ -6,15 +6,18 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AIPMS.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[EnableRateLimiting("ai-assistant")]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
 public sealed class AiAssistantController(ISender sender) : ControllerBase
 {
     [HttpGet("/api/v1/projects/{projectId:long}/reports/{reportId:long}/summary")]

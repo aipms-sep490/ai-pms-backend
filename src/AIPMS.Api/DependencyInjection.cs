@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Threading.RateLimiting;
 using AIPMS.Api.Configuration;
 using AIPMS.Api.Security;
@@ -8,6 +9,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Formatting.Compact;
@@ -143,9 +145,10 @@ public static class DependencyInjection
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = async (context, cancellationToken) =>
             {
+                var isAuth = context.HttpContext.Request.Path.StartsWithSegments("/api/v1/auth");
                 await Results.Problem(
                     statusCode: StatusCodes.Status429TooManyRequests,
-                    title: "Too many authentication requests.",
+                    title: isAuth ? "Too many authentication requests." : "Too many requests.",
                     detail: "Wait before retrying this operation.",
                     instance: context.HttpContext.Request.Path)
                     .ExecuteAsync(context.HttpContext);
@@ -160,6 +163,47 @@ public static class DependencyInjection
                         QueueLimit = 0,
                         AutoReplenishment = true
                     }));
+            options.AddPolicy("ai-assistant", httpContext =>
+            {
+                var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                    ?? httpContext.User.FindFirst("sub")?.Value;
+
+                if (string.IsNullOrEmpty(userId))
+                {
+                    var authHeader = httpContext.Request.Headers.Authorization.ToString();
+                    if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var token = authHeader["Bearer ".Length..].Trim();
+                        try
+                        {
+                            var handler = new JsonWebTokenHandler();
+                            if (handler.CanReadToken(token))
+                            {
+                                var jwt = handler.ReadJsonWebToken(token);
+                                userId = jwt.Subject ?? jwt.Claims.FirstOrDefault(c => c.Type == "nameid" || c.Type == "sub" || c.Type == ClaimTypes.NameIdentifier)?.Value;
+                            }
+                        }
+                        catch
+                        {
+                            // fallback to IP on parse error
+                        }
+                    }
+                }
+
+                var partitionKey = userId
+                    ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                    ?? "unknown";
+
+                return RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey,
+                    static _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 20,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    });
+            });
         });
 
         return services;

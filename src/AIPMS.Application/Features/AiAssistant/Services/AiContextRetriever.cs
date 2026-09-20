@@ -14,6 +14,7 @@ using AIPMS.Application.Features.Milestones.Abstractions;
 using AIPMS.Application.Features.ProgressReports.Abstractions;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Tasks.Abstractions;
+using AIPMS.Application.Features.Tasks.DTOs;
 
 namespace AIPMS.Application.Features.AiAssistant.Services;
 
@@ -54,6 +55,7 @@ public sealed class AiContextRetriever(
         var projectStatus = facts?.ProjectStatus ?? "UNKNOWN";
 
         var evidenceList = new List<EvidenceReferenceDto>();
+
         var evidenceBuilder = new StringBuilder();
         evidenceBuilder.AppendLine($"<project_evidence project_id=\"{projectId}\" status=\"{projectStatus}\">");
 
@@ -71,7 +73,7 @@ public sealed class AiContextRetriever(
                     SourceId: $"MS-{m.Id}",
                     Title: Sanitize(m.Title),
                     PeriodOrDate: dateStr,
-                    ReferenceUrl: $"/api/v1/projects/{projectId}/milestones/{m.Id}",
+                    ReferenceUrl: $"/api/v1/milestones/{m.Id}",
                     Excerpt: excerpt);
                 evidenceList.Add(refDto);
                 evidenceBuilder.AppendLine($"    <milestone id=\"MS-{m.Id}\" title=\"{Sanitize(m.Title)}\" status=\"{m.Status}\" due=\"{dateStr}\">{excerpt}</milestone>");
@@ -95,11 +97,55 @@ public sealed class AiContextRetriever(
             pageSize: MaxTasks,
             cancellationToken: cancellationToken);
 
-        if (taskResult.Items.Count > 0)
+        var allTasks = new List<TaskDto>(taskResult.Items);
+
+        // For blocker/risk queries, ensure blocked tasks beyond first page are retrieved (P1 #3)
+        var isBlockerQuery = query.Contains("block", StringComparison.OrdinalIgnoreCase) ||
+                             query.Contains("risk", StringComparison.OrdinalIgnoreCase) ||
+                             query.Contains("issue", StringComparison.OrdinalIgnoreCase);
+
+        if (isBlockerQuery)
+        {
+            try
+            {
+                var blockedResult = await taskRepository.GetTasksAsync(
+                    projectId: projectId,
+                    milestoneId: null,
+                    status: null,
+                    priority: null,
+                    assigneeUserId: null,
+                    search: null,
+                    dueFrom: null,
+                    dueTo: null,
+                    isOverdue: null,
+                    isBlocked: true,
+                    page: 1,
+                    pageSize: 15,
+                    cancellationToken: cancellationToken);
+
+                foreach (var bt in blockedResult.Items)
+                {
+                    if (!allTasks.Any(t => t.Id == bt.Id))
+                    {
+                        allTasks.Add(bt);
+                    }
+                }
+            }
+            catch
+            {
+                // Non-fatal if blocked query fails
+            }
+        }
+
+        var totalTasks = (int)Math.Max(taskResult.TotalCount, (long)allTasks.Count);
+        var retrievedTasks = allTasks.Count;
+        var tasksTruncated = totalTasks > retrievedTasks;
+
+        if (allTasks.Count > 0)
         {
             var now = DateTime.UtcNow;
-            evidenceBuilder.AppendLine("  <tasks>");
-            foreach (var t in taskResult.Items)
+            evidenceBuilder.AppendLine($"  <tasks total_count=\"{totalTasks}\" retrieved_count=\"{retrievedTasks}\" truncated=\"{tasksTruncated.ToString().ToLowerInvariant()}\">");
+            foreach (var t in allTasks)
             {
                 var isOverdue = t.DueAt.HasValue && t.DueAt.Value < now && !string.Equals(t.Status, "DONE", StringComparison.OrdinalIgnoreCase);
                 var isBlocked = string.Equals(t.Status, "BLOCKED", StringComparison.OrdinalIgnoreCase);
@@ -111,7 +157,7 @@ public sealed class AiContextRetriever(
                     SourceId: $"TASK-{t.Id}",
                     Title: Sanitize(t.Title),
                     PeriodOrDate: dueStr,
-                    ReferenceUrl: $"/api/v1/projects/{projectId}/tasks/{t.Id}",
+                    ReferenceUrl: $"/api/v1/tasks/{t.Id}",
                     Excerpt: excerpt);
                 evidenceList.Add(refDto);
                 evidenceBuilder.AppendLine($"    <task id=\"TASK-{t.Id}\" title=\"{Sanitize(t.Title)}\" status=\"{t.Status}\" priority=\"{t.Priority}\" due=\"{dueStr}\">{excerpt}</task>");
@@ -144,7 +190,7 @@ public sealed class AiContextRetriever(
                     SourceId: $"PR-{r.Id}",
                     Title: $"{r.ReportType} Report ({periodStr})",
                     PeriodOrDate: periodStr,
-                    ReferenceUrl: $"/api/v1/projects/{projectId}/progress-reports/{r.Id}",
+                    ReferenceUrl: $"/api/v1/progress-reports/{r.Id}",
                     Excerpt: excerpt);
                 evidenceList.Add(refDto);
                 evidenceBuilder.AppendLine($"    <report id=\"PR-{r.Id}\" type=\"{r.ReportType}\" period=\"{periodStr}\" status=\"{r.Status}\">{excerpt}</report>");
@@ -176,7 +222,7 @@ public sealed class AiContextRetriever(
                     SourceId: $"MTG-{m.Id}",
                     Title: Sanitize(m.Title),
                     PeriodOrDate: dateStr,
-                    ReferenceUrl: $"/api/v1/projects/{projectId}/meetings/{m.Id}",
+                    ReferenceUrl: $"/api/v1/meetings/{m.Id}",
                     Excerpt: excerpt);
                 evidenceList.Add(refDto);
                 evidenceBuilder.AppendLine($"    <meeting id=\"MTG-{m.Id}\" title=\"{Sanitize(m.Title)}\" status=\"{m.Status}\" start=\"{dateStr}\">{excerpt}</meeting>");
@@ -198,7 +244,7 @@ public sealed class AiContextRetriever(
                     SourceId: $"CONTRIB-{projectId}",
                     Title: "Project Contribution Summary",
                     PeriodOrDate: dateStr,
-                    ReferenceUrl: $"/api/v1/projects/{projectId}/contributions/summary",
+                    ReferenceUrl: $"/api/v1/projects/{projectId}/contributions",
                     Excerpt: excerpt);
                 evidenceList.Add(refDto);
                 evidenceBuilder.AppendLine($"  <contributions snapshot=\"{dateStr}\">{excerpt}</contributions>");
@@ -212,6 +258,16 @@ public sealed class AiContextRetriever(
         evidenceBuilder.AppendLine("</project_evidence>");
 
         var hasSufficientEvidence = evidenceList.Count > 0;
+        if (hasSufficientEvidence && facts != null)
+        {
+            evidenceList.Insert(0, new EvidenceReferenceDto(
+                SourceType: "PROJECT",
+                SourceId: $"PROJ-{projectId}",
+                Title: $"Project #{projectId}",
+                PeriodOrDate: null,
+                ReferenceUrl: $"/api/v1/projects/{projectId}",
+                Excerpt: $"Status: {projectStatus}, TeamMembers: {facts.TeamMemberCount}"));
+        }
 
         return new ProjectBoundedContext(
             ProjectId: projectId,
@@ -219,7 +275,10 @@ public sealed class AiContextRetriever(
             EvidenceList: evidenceList,
             FormattedEvidenceText: evidenceBuilder.ToString(),
             HasSufficientEvidence: hasSufficientEvidence,
-            TotalEvidenceCount: evidenceList.Count);
+            TotalEvidenceCount: evidenceList.Count,
+            TotalTasks: totalTasks,
+            RetrievedTasks: retrievedTasks,
+            TasksTruncated: tasksTruncated);
     }
 
     public async Task<ReportBoundedContext> RetrieveReportContextAsync(
@@ -264,7 +323,7 @@ public sealed class AiContextRetriever(
             SourceId: $"PR-{report.Id}",
             Title: $"{report.ReportType} Report ({periodStr})",
             PeriodOrDate: periodStr,
-            ReferenceUrl: $"/api/v1/projects/{projectId}/progress-reports/{report.Id}",
+            ReferenceUrl: $"/api/v1/progress-reports/{report.Id}",
             Excerpt: Sanitize(report.Summary));
         evidenceList.Add(primaryRef);
 
@@ -277,7 +336,7 @@ public sealed class AiContextRetriever(
                     SourceId: $"FB-{fb.Id}",
                     Title: $"Feedback from {Sanitize(fb.SupervisorName)}",
                     PeriodOrDate: fb.CreatedAt.ToString("yyyy-MM-dd"),
-                    ReferenceUrl: $"/api/v1/projects/{projectId}/progress-reports/{report.Id}",
+                    ReferenceUrl: $"/api/v1/progress-reports/{report.Id}",
                     Excerpt: Sanitize(fb.FeedbackText));
                 evidenceList.Add(fbRef);
             }

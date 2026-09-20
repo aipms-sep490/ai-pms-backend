@@ -474,6 +474,38 @@ public sealed class AiAssistantEndpointTests : IClassFixture<AiAssistantEndpoint
         Assert.True(dto.InsufficientEvidence);
         Assert.NotNull(dto.LimitationNote);
     }
+
+    [Fact]
+    public async Task AiAssistant_WhenRateLimitExceeded_Returns429()
+    {
+        const long userId1 = 5555;
+        const long userId2 = 6666;
+        _factory.ProjectAccessService.AllowedProjectsByUser[(userId1, 101)] = true;
+        _factory.ProjectAccessService.AllowedProjectsByUser[(userId2, 101)] = true;
+
+        var client1 = _factory.CreateAuthenticatedClient(userId1, "rate1@test.local", "Rate User 1", AppRoles.Student);
+        var client2 = _factory.CreateAuthenticatedClient(userId2, "rate2@test.local", "Rate User 2", AppRoles.Student);
+
+        // First 20 requests by User 1 should succeed
+        for (var i = 1; i <= 20; i++)
+        {
+            var res = await client1.PostAsJsonAsync("/api/v1/projects/101/ai/assistant/ask", new AskProjectAssistantRequest("Check progress"));
+            Assert.True(res.StatusCode == HttpStatusCode.OK, $"Request {i} failed with status {res.StatusCode}");
+        }
+
+        // 21st request by User 1 must be rate-limited to 429
+        var rateLimitedRes = await client1.PostAsJsonAsync("/api/v1/projects/101/ai/assistant/ask", new AskProjectAssistantRequest("Check progress"));
+        Assert.Equal(HttpStatusCode.TooManyRequests, rateLimitedRes.StatusCode);
+
+        var problem = await rateLimitedRes.Content.ReadFromJsonAsync<Microsoft.AspNetCore.Mvc.ProblemDetails>();
+        Assert.NotNull(problem);
+        Assert.Equal(429, problem.Status);
+        Assert.Equal("Too many requests.", problem.Title);
+
+        // User 2 is isolated and should still be allowed
+        var user2Res = await client2.PostAsJsonAsync("/api/v1/projects/101/ai/assistant/ask", new AskProjectAssistantRequest("Check progress"));
+        Assert.Equal(HttpStatusCode.OK, user2Res.StatusCode);
+    }
 }
 
 public enum ProviderTestMode
