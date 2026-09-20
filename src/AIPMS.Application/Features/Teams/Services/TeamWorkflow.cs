@@ -389,23 +389,27 @@ public sealed class TeamWorkflow(
         }, ct);
 
     public Task<TeamDto> TransferAsync(TransferTeamLeaderCommand request, CancellationToken ct) =>
-        repository.InTransactionAsync(async token =>
-        {
-            var actor = await ActorAsync(token);
-            var team = await TeamAsync(request.TeamId, token);
-            RequireMember(team, actor.UserId, true);
-            var (window, policy) = await MutableAsync(team, token);
-            var member = team.Members.SingleOrDefault(m => m.UserId == request.NewLeaderUserId)
-                ?? throw new ConflictException("The new leader must be an active member of this team.");
-            RequireEligibleStudent(member, window.OrganizationId);
-            RequireSameMajorAsLeader(team, member, window.OrganizationId, policy);
-            if (member.UserId == actor.UserId)
-                throw new ConflictException("This student is already the leader.");
-            await repository.TransferLeaderAsync(team.Id, actor.UserId, member.UserId, Now, token);
-            var result = await SaveEligibilityAsync(team.Id, token);
-            await AuditAsync("TEAM_LEADER_TRANSFERRED", team.Id, actor.UserId, member.UserId, token);
-            return result;
-        }, ct);
+        repository.InTransactionAsync(token => TransferWithinTransactionAsync(request, token), ct);
+
+    internal async Task<TeamDto> TransferWithinTransactionAsync(TransferTeamLeaderCommand request, CancellationToken token)
+    {
+        var actor = await ActorAsync(token);
+        var team = await TeamAsync(request.TeamId, token);
+        RequireMember(team, actor.UserId, true);
+        if (team.ProjectStatuses.Count != 0)
+            throw new ConflictException("A project team must request mentor approval to change its leader.");
+        var (window, policy) = await MutableAsync(team, token);
+        var member = team.Members.SingleOrDefault(m => m.UserId == request.NewLeaderUserId)
+            ?? throw new ConflictException("The new leader must be an active member of this team.");
+        RequireEligibleStudent(member, window.OrganizationId);
+        RequireSameMajorAsLeader(team, member, window.OrganizationId, policy);
+        if (member.UserId == actor.UserId)
+            throw new ConflictException("This student is already the leader.");
+        await repository.TransferLeaderAsync(team.Id, actor.UserId, member.UserId, Now, token);
+        var result = await SaveEligibilityAsync(team.Id, token);
+        await AuditAsync("TEAM_LEADER_TRANSFERRED", team.Id, actor.UserId, member.UserId, token);
+        return result;
+    }
 
     public async Task<PagedResult<TeamInvitationDto>> InvitationsAsync(
         long? teamId, int page, int pageSize, CancellationToken ct)

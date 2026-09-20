@@ -7,6 +7,7 @@ public enum WorkflowNotificationKind
 {
     TeamInvitationSent, TeamInvitationAccepted, TeamInvitationRejected, TeamInvitationCancelled,
     SupervisorRequestSent, SupervisorRequestAccepted, SupervisorRequestRejected, SupervisorRequestCancelled,
+    TeamLeaderChangeRequested, TeamLeaderChangeApproved, TeamLeaderChangeRejected,
     FinalSubmissionLocked, EvaluationFinalized, ProjectResultPublished, ProjectApproved,
     ProjectRejected, ProjectRevisionRequested, SupervisorFeedbackAdded
 }

@@ -581,6 +581,51 @@ ON dbo.supervisor_assignments(project_id)
 WHERE is_primary = 1 AND ended_at IS NULL;
 GO
 
+CREATE TABLE dbo.team_leader_change_requests (
+    id                      BIGINT IDENTITY(1,1) NOT NULL,
+    team_id                 BIGINT NOT NULL,
+    project_id              BIGINT NOT NULL,
+    requested_by            BIGINT NOT NULL,
+    current_leader_user_id BIGINT NOT NULL,
+    new_leader_user_id     BIGINT NOT NULL,
+    mentor_profile_id       BIGINT NOT NULL,
+    status                  NVARCHAR(20) NOT NULL CONSTRAINT df_team_leader_change_requests_status DEFAULT (N'PENDING'),
+    request_message         NVARCHAR(2000) NULL,
+    response_message        NVARCHAR(2000) NULL,
+    requested_at            DATETIME2(0) NOT NULL CONSTRAINT df_team_leader_change_requests_requested_at DEFAULT (SYSUTCDATETIME()),
+    responded_at            DATETIME2(0) NULL,
+    created_at              DATETIME2(0) NOT NULL CONSTRAINT df_team_leader_change_requests_created_at DEFAULT (SYSUTCDATETIME()),
+    updated_at              DATETIME2(0) NOT NULL CONSTRAINT df_team_leader_change_requests_updated_at DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT pk_team_leader_change_requests PRIMARY KEY (id),
+    CONSTRAINT ck_team_leader_change_requests_status CHECK (status IN (N'PENDING', N'APPROVED', N'REJECTED', N'CANCELLED')),
+    CONSTRAINT fk_team_leader_change_requests_team FOREIGN KEY (team_id)
+        REFERENCES dbo.teams(id) ON DELETE CASCADE ON UPDATE NO ACTION,
+    CONSTRAINT fk_team_leader_change_requests_project FOREIGN KEY (project_id)
+        REFERENCES dbo.projects(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_team_leader_change_requests_requested_by FOREIGN KEY (requested_by)
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_team_leader_change_requests_current_leader FOREIGN KEY (current_leader_user_id)
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_team_leader_change_requests_new_leader FOREIGN KEY (new_leader_user_id)
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_team_leader_change_requests_mentor_profile FOREIGN KEY (mentor_profile_id)
+        REFERENCES dbo.supervisor_profiles(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+GO
+
+CREATE UNIQUE INDEX ux_team_leader_change_requests_pending
+ON dbo.team_leader_change_requests(team_id)
+WHERE status = N'PENDING';
+GO
+
+CREATE INDEX ix_team_leader_change_requests_team_status
+ON dbo.team_leader_change_requests(team_id, status);
+GO
+
+CREATE INDEX ix_team_leader_change_requests_mentor_status
+ON dbo.team_leader_change_requests(mentor_profile_id, status);
+GO
+
 /* =========================================================
    EXECUTION - MILESTONES / TASKS
    ========================================================= */

@@ -4,6 +4,37 @@ Team formation, invitations and mode-aware eligibility. New clients configure
 SINGLE_MAJOR or INTERDISCIPLINARY through academicScope; see
 `../../../../docs/interdisciplinary-demo.md` for the complete FE contract.
 
+## Mentor-approved leader changes
+
+`POST /api/v1/teams/{teamId}/leader` (or `/leader-change-requests`) now creates
+a `PENDING` request when the team has a project with an active primary mentor.
+The request records the current leader, proposed leader and mentor snapshot;
+the `is_leader` flags do not change at this point. The mentor uses their inbox
+at `GET /api/v1/team-leader-change-requests` and decides with
+`POST /api/v1/team-leader-change-requests/{requestId}/approve` or `/reject`.
+Approval rechecks the active assignment, membership and current leader inside
+the same serializable transaction before switching the leader flags. A team
+can have only one pending request. Team-level history is available through
+`GET /api/v1/team-leader-change-requests?teamId={teamId}`.
+
+Teams without a project have no current mentor, so the legacy `/leader` route
+keeps its pre-project transfer behavior for compatibility. Once a project is
+attached, the public route cannot bypass mentor approval; use the explicit
+request route to receive a `PENDING` decision. Request and decision audit
+records are committed with the leader change.
+
+Apply `db/changes/20260920_add_team_leader_change_requests.sql` before deploying
+the API. The migration is additive and rerunnable, including the SQL session
+options required by the filtered unique index. Requests notify the assigned
+mentor; decisions notify the requesting student through the existing inbox and
+email queue. A mentor whose assignment has ended cannot approve or reject a
+pending request. Replaying the same decision does not duplicate notifications.
+
+SQL integration coverage includes approval, rejection, duplicate requests,
+unauthorized approval, ended mentor assignments, decision replay, team history,
+and rollback of leadership/request/notification changes when audit fails.
+The test fixture creates and removes its own `AI_PMS_TEST_<guid>` database.
+
 ## Invitation candidate search
 
 `GET /api/v1/teams/{teamId}/invitation-candidates?search=SE001&page=1&pageSize=20`

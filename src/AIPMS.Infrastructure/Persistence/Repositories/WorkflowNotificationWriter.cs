@@ -27,6 +27,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         var projectResult = entityType == "PROJECT_RESULT";
         var projectStateEvent = entityType is "PROJECT_APPROVED" or "PROJECT_REJECTED" or "PROJECT_REVISION";
         var feedbackEvent = entityType == "SUPERVISOR_FEEDBACK";
+        var leaderChangeEvent = entityType == "TEAM_LEADER_CHANGE_REQUEST";
         var departmentEvent = finalSubmission || entityType == "EVALUATION";
 
         // A source-row lock serializes duplicate event handling; inbox and transition commit together.
@@ -110,6 +111,21 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             if (status is "PENDING" or "CANCELLED") targetUser = source.InvitedUserId;
             role = AppRoles.Student;
         }
+        else if (leaderChangeEvent)
+        {
+            var source = await context.Set<M.TeamLeaderChangeRequest>().FromSqlInterpolated(
+                $"SELECT * FROM dbo.team_leader_change_requests WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
+                .AsNoTracking().SingleOrDefaultAsync(ct);
+            if (source is null || source.Status != status) return;
+            projectId = source.ProjectId;
+            teamId = source.TeamId;
+            if (status == "PENDING")
+                targetUser = await context.SupervisorProfiles.Where(p => p.Id == source.MentorProfileId)
+                    .Select(p => p.UserId).SingleAsync(ct);
+            else
+                targetUser = source.RequestedBy;
+            role = status == "PENDING" ? AppRoles.Lecturer : AppRoles.Student;
+        }
         else
         {
             var source = await context.SupervisorRequests.FromSqlInterpolated(
@@ -149,7 +165,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         if (entityType == "EVALUATION")
             recipients = recipients.Where(u => context.Set<EvaluationDraftState>().Any(s => s.EvaluationId == notification.SourceId
                 && context.Set<EvaluationAssignment>().Any(a => a.Id == s.AssignmentId && a.DepartmentId == u.DepartmentId)));
-        if (projectId.HasValue && role == AppRoles.Lecturer)
+        if (projectId.HasValue && role == AppRoles.Lecturer && !leaderChangeEvent)
             recipients = recipients.Where(u => context.ProjectMajors.Any(m => m.ProjectId == projectId.Value
                 && m.Major.IsActive && m.Major.DepartmentId == u.DepartmentId));
         var ids = await recipients.Select(u => u.Id).Distinct().ToListAsync(ct);
@@ -194,6 +210,9 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         WorkflowNotificationKind.SupervisorRequestAccepted => ("SUPERVISOR_REQUEST", "ACCEPTED", "SUPERVISOR_REQUEST_ACCEPTED", "Your project's supervision request was accepted"),
         WorkflowNotificationKind.SupervisorRequestRejected => ("SUPERVISOR_REQUEST", "REJECTED", "SUPERVISOR_REQUEST_REJECTED", "Your project's supervision request was declined"),
         WorkflowNotificationKind.SupervisorRequestCancelled => ("SUPERVISOR_REQUEST", "CANCELLED", "SUPERVISOR_REQUEST_CANCELLED", "A supervision request was cancelled"),
+        WorkflowNotificationKind.TeamLeaderChangeRequested => ("TEAM_LEADER_CHANGE_REQUEST", "PENDING", "TEAM_LEADER_CHANGE_REQUESTED", "You received a team leader change request"),
+        WorkflowNotificationKind.TeamLeaderChangeApproved => ("TEAM_LEADER_CHANGE_REQUEST", "APPROVED", "TEAM_LEADER_CHANGE_APPROVED", "Your team leader change request was approved"),
+        WorkflowNotificationKind.TeamLeaderChangeRejected => ("TEAM_LEADER_CHANGE_REQUEST", "REJECTED", "TEAM_LEADER_CHANGE_REJECTED", "Your team leader change request was rejected"),
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 }

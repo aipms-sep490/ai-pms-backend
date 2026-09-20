@@ -16,6 +16,9 @@ do not construct notifications. Existing Deliverables producers are unchanged.
 | SUPERVISOR_REQUEST_ACCEPTED | Current project team leader | SUPERVISOR_REQUEST / request ID |
 | SUPERVISOR_REQUEST_REJECTED | Current project team leader | SUPERVISOR_REQUEST / request ID |
 | SUPERVISOR_REQUEST_CANCELLED | Requested lecturer | SUPERVISOR_REQUEST / request ID |
+| TEAM_LEADER_CHANGE_REQUESTED | Current project mentor | TEAM_LEADER_CHANGE_REQUEST / request ID |
+| TEAM_LEADER_CHANGE_APPROVED | Requesting student | TEAM_LEADER_CHANGE_REQUEST / request ID |
+| TEAM_LEADER_CHANGE_REJECTED | Requesting student | TEAM_LEADER_CHANGE_REQUEST / request ID |
 | FINAL_SUBMISSION_LOCKED | Active staff in project major departments and semester organization | PROJECT / project ID (navigate to final-submission route) |
 | EVALUATION_FINALIZED | Active staff in assignment department and project/organization scope | EVALUATION / evaluation ID |
 
