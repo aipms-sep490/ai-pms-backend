@@ -23,7 +23,7 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
         {
             u.Id, u.DepartmentId, u.MajorId, OrganizationId = u.Department == null ? (long?)null : u.Department.OrganizationId,
             ActiveScope = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive,
-            Eligible = u.Major != null && u.Major.IsActive && u.Major.DepartmentId == u.DepartmentId,
+            Eligible = u.AcademicProfileStatus == "VERIFIED" && u.Major != null && u.Major.IsActive && u.Major.DepartmentId == u.DepartmentId,
             Roles = u.UserRoleUsers.Select(r => r.Role.Code).ToArray()
         }).SingleOrDefaultAsync(ct);
         if (user is null) return null;

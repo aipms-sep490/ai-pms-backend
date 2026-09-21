@@ -1922,6 +1922,10 @@ public partial class AipmsDbContext : DbContext
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.AccessFailedCount).HasColumnName("access_failed_count");
+            entity.Property(e => e.AcademicProfileStatus).HasMaxLength(20).HasDefaultValue("PENDING").HasColumnName("academic_profile_status");
+            entity.Property(e => e.AcademicProfileReviewedBy).HasColumnName("academic_profile_reviewed_by");
+            entity.Property(e => e.AcademicProfileReviewedAt).HasPrecision(0).HasColumnName("academic_profile_reviewed_at");
+            entity.Property(e => e.AcademicProfileRejectionReason).HasMaxLength(2000).HasColumnName("academic_profile_rejection_reason");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")

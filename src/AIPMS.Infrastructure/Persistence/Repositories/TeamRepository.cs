@@ -120,7 +120,8 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
 
     public Task<TeamParticipant?> GetStudentAsync(long userId, CancellationToken ct) =>
         context.Users.Where(u => u.Id == userId && u.Status == "ACTIVE"
-            && u.UserRoleUsers.Any(r => r.Role.Code == "STUDENT"))
+            && u.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")
+            && u.AcademicProfileStatus == "VERIFIED")
             .Select(StudentProjection).SingleOrDefaultAsync(ct);
 
     public Task<long?> GetCurrentTeamIdAsync(long semesterId, long userId, CancellationToken ct) =>

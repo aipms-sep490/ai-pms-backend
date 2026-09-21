@@ -96,6 +96,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
             EmployeeCode = data.EmployeeCode,
             Title = data.Title,
             Status = "ACTIVE",
+            AcademicProfileStatus = await IsStudentAccountAsync(data.RoleIds, cancellationToken) ? "PENDING" : "VERIFIED",
             AccessFailedCount = 0,
             PasswordChangedAt = utcNow,
             CreatedAt = utcNow,
@@ -123,6 +124,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         CancellationToken cancellationToken = default)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var studentRoleId = await context.Roles.Where(r => r.Code == AppRoles.Student).Select(r => (long?)r.Id).SingleOrDefaultAsync(cancellationToken);
         var pairs = accounts.Select(data => new
         {
             Data = data,
@@ -138,6 +140,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
                 EmployeeCode = data.EmployeeCode,
                 Title = data.Title,
                 Status = "ACTIVE",
+                AcademicProfileStatus = studentRoleId.HasValue && data.RoleIds.Contains(studentRoleId.Value) ? "PENDING" : "VERIFIED",
                 AccessFailedCount = 0,
                 PasswordChangedAt = utcNow,
                 CreatedAt = utcNow,
@@ -165,6 +168,9 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         var byId = users.ToDictionary(static user => user.Id);
         return userIds.Select(userId => byId[userId].ToApplication()).ToArray();
     }
+
+    private Task<bool> IsStudentAccountAsync(IReadOnlyCollection<long> roleIds, CancellationToken ct) =>
+        context.Roles.AnyAsync(r => roleIds.Contains(r.Id) && r.Code == AppRoles.Student, ct);
 
     public async Task<AccountUser> UpdateProfileAsync(
         long userId,
