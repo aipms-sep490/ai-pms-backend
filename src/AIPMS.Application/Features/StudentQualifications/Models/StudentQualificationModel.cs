@@ -45,3 +45,11 @@ public sealed record StudentQualificationModel(
     string? RejectionReason,
     DateTime CreatedAt,
     DateTime UpdatedAt);
+
+public sealed record ProjectPeriodQualificationPolicyModel(
+    long ProjectPeriodId,
+    bool RequireStudentQualification,
+    string QualificationType,
+    bool RequireCertificate,
+    bool CheckExpiration,
+    DateTime UpdatedAt);
