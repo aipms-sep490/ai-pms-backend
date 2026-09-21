@@ -17,6 +17,9 @@ public sealed record GetStudentQualificationVerificationQueueQuery(
     int PageSize = 20)
     : IRequest<PagedResult<StudentQualificationDto>>;
 
+public sealed record GetProjectPeriodQualificationPolicyQuery(long ProjectPeriodId)
+    : IRequest<ProjectPeriodQualificationPolicyDto>;
+
 public sealed class GetMyStudentQualificationQueryHandler(StudentQualificationWorkflow workflow)
     : IRequestHandler<GetMyStudentQualificationQuery, StudentQualificationDto?>
 {
@@ -31,4 +34,12 @@ public sealed class GetStudentQualificationVerificationQueueQueryHandler(Student
     public Task<PagedResult<StudentQualificationDto>> Handle(
         GetStudentQualificationVerificationQueueQuery request, CancellationToken cancellationToken) =>
         workflow.QueueAsync(request.VerificationStatus, request.Search, request.Page, request.PageSize, cancellationToken);
+}
+
+public sealed class GetProjectPeriodQualificationPolicyQueryHandler(StudentQualificationWorkflow workflow)
+    : IRequestHandler<GetProjectPeriodQualificationPolicyQuery, ProjectPeriodQualificationPolicyDto>
+{
+    public Task<ProjectPeriodQualificationPolicyDto> Handle(
+        GetProjectPeriodQualificationPolicyQuery request, CancellationToken cancellationToken) =>
+        workflow.GetPeriodPolicyAsync(request.ProjectPeriodId, cancellationToken);
 }
