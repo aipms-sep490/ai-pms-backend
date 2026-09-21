@@ -16,10 +16,17 @@ public sealed partial class TeamEndpointTests
     [InlineData("reject")]
     [InlineData("ended-approve")]
     [InlineData("ended-reject")]
+    [InlineData("inactive-mentor")]
+    [InlineData("qualification-revoked")]
+    [InlineData("target-left")]
+    [InlineData("current-leader-changed")]
+    [InlineData("concurrent-approve")]
     [InlineData("audit-failure")]
     public async Task Assigned_mentor_must_approve_leader_change_before_membership_changes(string decision)
     {
         var scenario = await database.SeedAsync();
+        if (decision == "qualification-revoked")
+            await EnableQualificationAsync(scenario, scenario.Students[0], scenario.Students[1]);
         using var app = new TeamTestFactory(database, scenario);
         using var leader = app.CreateAuthenticatedClient(scenario.Students[0]);
         using var member = app.CreateAuthenticatedClient(scenario.Students[1]);
@@ -107,6 +114,75 @@ public sealed partial class TeamEndpointTests
             Assert.Equal("PENDING", (await db.TeamLeaderChangeRequests.AsNoTracking().SingleAsync(r => r.Id == pending.Id)).Status);
             Assert.Equal(scenario.Students[0], await db.TeamMembers.Where(m => m.TeamId == team.Id && m.IsLeader)
                 .Select(m => m.UserId).SingleAsync());
+            return;
+        }
+        if (decision == "inactive-mentor")
+        {
+            await using var db = database.CreateContext();
+            await db.Users.Where(u => u.Id == mentorId)
+                .ExecuteUpdateAsync(s => s.SetProperty(u => u.Status, "INACTIVE"));
+            Assert.Equal(HttpStatusCode.Forbidden, (await mentorClient.PostAsJsonAsync(
+                $"/api/v1/team-leader-change-requests/{pending.Id}/approve", new { })).StatusCode);
+            Assert.Equal("PENDING", await db.TeamLeaderChangeRequests.Where(r => r.Id == pending.Id)
+                .Select(r => r.Status).SingleAsync());
+            Assert.Equal(scenario.Students[0], await db.TeamMembers.Where(m => m.TeamId == team.Id && m.IsLeader && m.LeftAt == null)
+                .Select(m => m.UserId).SingleAsync());
+            return;
+        }
+        if (decision == "qualification-revoked")
+        {
+            await RevokeQualificationAsync(scenario.Students[1]);
+            Assert.Equal(HttpStatusCode.Conflict, (await mentorClient.PostAsJsonAsync(
+                $"/api/v1/team-leader-change-requests/{pending.Id}/approve", new { })).StatusCode);
+            await using var db = database.CreateContext();
+            Assert.Equal("PENDING", await db.TeamLeaderChangeRequests.Where(r => r.Id == pending.Id)
+                .Select(r => r.Status).SingleAsync());
+            Assert.Equal(scenario.Students[0], await db.TeamMembers.Where(m => m.TeamId == team.Id && m.IsLeader && m.LeftAt == null)
+                .Select(m => m.UserId).SingleAsync());
+            return;
+        }
+        if (decision == "target-left")
+        {
+            await using var db = database.CreateContext();
+            await db.TeamMembers.Where(m => m.TeamId == team.Id && m.UserId == scenario.Students[1])
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.LeftAt, TeamDatabaseFixture.Now.AddMinutes(1)));
+            Assert.Equal(HttpStatusCode.Conflict, (await mentorClient.PostAsJsonAsync(
+                $"/api/v1/team-leader-change-requests/{pending.Id}/approve", new { })).StatusCode);
+            Assert.Equal("PENDING", await db.TeamLeaderChangeRequests.Where(r => r.Id == pending.Id)
+                .Select(r => r.Status).SingleAsync());
+            Assert.Equal(scenario.Students[0], await db.TeamMembers.Where(m => m.TeamId == team.Id && m.IsLeader && m.LeftAt == null)
+                .Select(m => m.UserId).SingleAsync());
+            return;
+        }
+        if (decision == "current-leader-changed")
+        {
+            await using var db = database.CreateContext();
+            await db.TeamMembers.Where(m => m.TeamId == team.Id && m.UserId == scenario.Students[0])
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.IsLeader, false));
+            await db.TeamMembers.Where(m => m.TeamId == team.Id && m.UserId == scenario.Students[1])
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.IsLeader, true));
+            Assert.Equal(HttpStatusCode.Conflict, (await mentorClient.PostAsJsonAsync(
+                $"/api/v1/team-leader-change-requests/{pending.Id}/approve", new { })).StatusCode);
+            Assert.Equal("PENDING", await db.TeamLeaderChangeRequests.Where(r => r.Id == pending.Id)
+                .Select(r => r.Status).SingleAsync());
+            Assert.Equal(scenario.Students[1], await db.TeamMembers.Where(m => m.TeamId == team.Id && m.IsLeader && m.LeftAt == null)
+                .Select(m => m.UserId).SingleAsync());
+            return;
+        }
+        if (decision == "concurrent-approve")
+        {
+            using var secondMentor = app.CreateAuthenticatedClient(mentorId, "mentor@example.test", "Assigned Mentor", AppRoles.Lecturer);
+            var responses = await Task.WhenAll(
+                mentorClient.PostAsJsonAsync($"/api/v1/team-leader-change-requests/{pending.Id}/approve", new { }),
+                secondMentor.PostAsJsonAsync($"/api/v1/team-leader-change-requests/{pending.Id}/approve", new { }));
+            Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+            await using var db = database.CreateContext();
+            Assert.Equal("APPROVED", await db.TeamLeaderChangeRequests.Where(r => r.Id == pending.Id)
+                .Select(r => r.Status).SingleAsync());
+            Assert.Equal(scenario.Students[1], await db.TeamMembers.Where(m => m.TeamId == team.Id && m.IsLeader && m.LeftAt == null)
+                .Select(m => m.UserId).SingleAsync());
+            Assert.Equal(1, await db.AuditLogs.CountAsync(a => a.Action == "TEAM_LEADER_CHANGE_APPROVED"
+                && a.EntityId == pending.Id.ToString()));
             return;
         }
         if (decision == "audit-failure")
