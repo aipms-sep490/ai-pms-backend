@@ -2167,7 +2167,7 @@ public class ProjectPeriodSqlTests
             MilestoneTemplateId: 99);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
-        Assert.Contains("Milestone Template module is not available yet", ex.Message);
+        Assert.Contains("The milestone template must be active and have a published version.", ex.Message);
     }
 
     [Fact]
@@ -2196,7 +2196,7 @@ public class ProjectPeriodSqlTests
             MilestoneTemplateId: 99);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
-        Assert.Contains("Milestone Template module is not available yet", ex.Message);
+        Assert.Contains("The milestone template must be active and have a published version.", ex.Message);
     }
 
     [Fact]
