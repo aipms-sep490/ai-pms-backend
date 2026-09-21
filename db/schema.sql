@@ -1180,6 +1180,12 @@ BEGIN
 END;
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_project_periods_milestone_template')
     ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_milestone_template FOREIGN KEY (milestone_template_id) REFERENCES dbo.milestone_templates(id);
+IF COL_LENGTH(N'dbo.files', N'task_id') IS NULL ALTER TABLE dbo.files ADD task_id BIGINT NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_files_task') ALTER TABLE dbo.files ADD CONSTRAINT fk_files_task FOREIGN KEY (task_id) REFERENCES dbo.tasks(id);
+IF OBJECT_ID(N'dbo.task_comments', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.task_comments (id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_task_comments PRIMARY KEY, task_id BIGINT NOT NULL, author_id BIGINT NOT NULL, content NVARCHAR(4000) NOT NULL, created_at DATETIME2(0) NOT NULL CONSTRAINT df_task_comments_created_at DEFAULT (SYSUTCDATETIME()), updated_at DATETIME2(0) NOT NULL CONSTRAINT df_task_comments_updated_at DEFAULT (SYSUTCDATETIME()), CONSTRAINT fk_task_comments_task FOREIGN KEY (task_id) REFERENCES dbo.tasks(id) ON DELETE CASCADE, CONSTRAINT fk_task_comments_author FOREIGN KEY (author_id) REFERENCES dbo.users(id));
+END;
 
 
 

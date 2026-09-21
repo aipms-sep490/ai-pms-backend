@@ -46,4 +46,6 @@ public partial class Task
     public virtual ICollection<TaskDependency> TaskDependencyTasks { get; set; } = new List<TaskDependency>();
 
     public virtual ICollection<TaskStatusHistory> TaskStatusHistories { get; set; } = new List<TaskStatusHistory>();
+    public virtual ICollection<File> Files { get; set; } = new List<File>();
+    public virtual ICollection<TaskComment> Comments { get; set; } = new List<TaskComment>();
 }

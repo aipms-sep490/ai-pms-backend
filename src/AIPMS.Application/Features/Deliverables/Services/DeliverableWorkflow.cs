@@ -191,6 +191,13 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
         return await repository.FilesAsync(search, ct);
     }
 
+    public async Task<PagedResult<ProjectFileDto>> TaskEvidenceAsync(long taskId, int page, int pageSize, CancellationToken ct)
+    {
+        var parent = await ParentAsync("TASK", taskId, ct);
+        await ProjectAsync(await ActorAsync(ct), parent.ProjectId, ct);
+        return await repository.FilesAsync(new(parent.ProjectId, null, page, pageSize, null, null, null, null, "TASK", taskId), ct);
+    }
+
     public async Task<FileDownload> DownloadAsync(long id, CancellationToken ct)
     {
         var file = await ReadableFileAsync(id, ct);
@@ -258,7 +265,7 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
     {
         RequireMutable(project);
         if (parent.Type == "REPORT" && parent.Status != "DRAFT" || parent.Type == "MEETING" && parent.Status != "SCHEDULED"
-            || parent.Type is not ("REPORT" or "MEETING"))
+            || parent.Type is not ("REPORT" or "MEETING" or "TASK"))
             throw new ConflictException("Submitted versions, feedback and completed records retain immutable files.");
         if (!IsStudent(actor, project) && !IsSupervisor(actor, project))
             throw new ForbiddenException("Only current project participants may manage attachments.");

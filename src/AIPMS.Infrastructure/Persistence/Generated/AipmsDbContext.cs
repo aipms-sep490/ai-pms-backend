@@ -94,6 +94,7 @@ public partial class AipmsDbContext : DbContext
     public virtual DbSet<TaskDependency> TaskDependencies { get; set; }
 
     public virtual DbSet<TaskStatusHistory> TaskStatusHistories { get; set; }
+    public virtual DbSet<TaskComment> TaskComments { get; set; }
 
     public virtual DbSet<Team> Teams { get; set; }
 
@@ -497,6 +498,7 @@ public partial class AipmsDbContext : DbContext
                 .HasMaxLength(2000)
                 .HasColumnName("file_url");
             entity.Property(e => e.MeetingId).HasColumnName("meeting_id");
+            entity.Property(e => e.TaskId).HasColumnName("task_id");
             entity.Property(e => e.MimeType)
                 .HasMaxLength(255)
                 .HasColumnName("mime_type");
@@ -537,6 +539,8 @@ public partial class AipmsDbContext : DbContext
                 .HasForeignKey(d => d.UploadedBy)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_files_uploaded_by");
+            entity.HasOne(d => d.Task).WithMany(p => p.Files)
+                .HasForeignKey(d => d.TaskId).HasConstraintName("fk_files_task");
         });
 
         modelBuilder.Entity<Major>(entity =>
@@ -1729,6 +1733,21 @@ public partial class AipmsDbContext : DbContext
             entity.HasOne(d => d.ParentTask).WithMany(p => p.InverseParentTask)
                 .HasForeignKey(d => d.ParentTaskId)
                 .HasConstraintName("fk_tasks_parent");
+        });
+
+        modelBuilder.Entity<TaskComment>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_task_comments");
+            entity.ToTable("task_comments");
+            entity.HasIndex(e => new { e.TaskId, e.CreatedAt, e.Id }).HasDatabaseName("ix_task_comments_task_created");
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TaskId).HasColumnName("task_id");
+            entity.Property(e => e.AuthorId).HasColumnName("author_id");
+            entity.Property(e => e.Content).HasMaxLength(4000).HasColumnName("content");
+            entity.Property(e => e.CreatedAt).HasPrecision(0).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasPrecision(0).HasColumnName("updated_at");
+            entity.HasOne(e => e.Task).WithMany(t => t.Comments).HasForeignKey(e => e.TaskId).OnDelete(DeleteBehavior.Cascade).HasConstraintName("fk_task_comments_task");
+            entity.HasOne(e => e.Author).WithMany(u => u.TaskComments).HasForeignKey(e => e.AuthorId).HasConstraintName("fk_task_comments_author");
         });
 
         modelBuilder.Entity<TaskAssignee>(entity =>

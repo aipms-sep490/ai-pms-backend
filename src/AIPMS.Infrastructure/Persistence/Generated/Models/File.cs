@@ -16,6 +16,7 @@ public partial class File
     public long? MeetingId { get; set; }
 
     public long? SupervisorFeedbackId { get; set; }
+    public long? TaskId { get; set; }
 
     public string OriginalFileName { get; set; } = null!;
 
@@ -44,4 +45,5 @@ public partial class File
     public virtual SupervisorFeedback? SupervisorFeedback { get; set; }
 
     public virtual User UploadedByNavigation { get; set; } = null!;
+    public virtual Task? Task { get; set; }
 }
