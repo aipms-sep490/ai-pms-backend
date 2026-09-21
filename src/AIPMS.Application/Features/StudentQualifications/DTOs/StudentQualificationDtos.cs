@@ -47,3 +47,24 @@ public static class StudentQualificationDtoMapper
         model.IssuedAt, model.ExpiresAt, model.VerifiedBy, model.VerifiedAt,
         model.RejectionReason, model.CreatedAt, model.UpdatedAt);
 }
+
+public sealed record ProjectPeriodQualificationPolicyDto(
+    long ProjectPeriodId,
+    bool RequireStudentQualification,
+    string QualificationType,
+    bool RequireCertificate,
+    bool CheckExpiration,
+    DateTime UpdatedAt);
+
+public sealed record SetProjectPeriodQualificationPolicyRequest(
+    bool RequireStudentQualification,
+    string QualificationType,
+    bool RequireCertificate = true,
+    bool CheckExpiration = true);
+
+public static class ProjectPeriodQualificationPolicyDtoMapper
+{
+    public static ProjectPeriodQualificationPolicyDto ToDto(this ProjectPeriodQualificationPolicyModel model) => new(
+        model.ProjectPeriodId, model.RequireStudentQualification, model.QualificationType,
+        model.RequireCertificate, model.CheckExpiration, model.UpdatedAt);
+}
