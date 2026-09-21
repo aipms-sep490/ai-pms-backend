@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using AIPMS.Application.Features.Projects.DTOs;
-using AIPMS.Application.Features.StudentQualifications.DTOs;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,27 +15,26 @@ public sealed partial class TeamEndpointTests
         var otherScenario = await database.SeedAsync();
         using var app = new TeamTestFactory(database, scenario);
         using var student = app.CreateAuthenticatedClient(scenario.Students[0]);
-        var qualification = await BodyAsync<StudentQualificationDto>(await student.PostAsJsonAsync(
-            "/api/v1/student-qualifications/me/evidence", Evidence()));
+        var qualificationId = await AddPendingQualificationAsync(scenario, scenario.Students[0]);
         var staffId = await AddStaffAsync(scenario);
         var outsideStaffId = await AddStaffAsync(otherScenario);
         using var staff = app.CreateAuthenticatedClient(staffId, roles: ["DEPARTMENT_STAFF"]);
         using var outside = app.CreateAuthenticatedClient(outsideStaffId, roles: ["DEPARTMENT_STAFF"]);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsync(
-            $"/api/v1/student-qualifications/{qualification.Id}/verify", null)).StatusCode);
+            $"/api/v1/student-qualifications/{qualificationId}/verify", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await outside.PostAsync(
-            $"/api/v1/student-qualifications/{qualification.Id}/verify", null)).StatusCode);
+            $"/api/v1/student-qualifications/{qualificationId}/verify", null)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await staff.PostAsync(
-            $"/api/v1/student-qualifications/{qualification.Id}/verify", null)).StatusCode);
+            $"/api/v1/student-qualifications/{qualificationId}/verify", null)).StatusCode);
 
         await using var db = database.CreateContext();
-        var stored = await db.Set<StudentQualification>().SingleAsync(x => x.Id == qualification.Id);
+        var stored = await db.Set<StudentQualification>().SingleAsync(x => x.Id == qualificationId);
         Assert.Equal("VERIFIED", stored.VerificationStatus);
         Assert.Equal(staffId, stored.VerifiedBy);
         Assert.NotNull(stored.VerifiedAt);
         Assert.True(await db.AuditLogs.AnyAsync(x => x.Action == "STUDENT_QUALIFICATION_VERIFIED"
-            && x.EntityId == qualification.Id.ToString()));
+            && x.EntityId == qualificationId.ToString()));
     }
 
     [Fact]
@@ -44,23 +42,21 @@ public sealed partial class TeamEndpointTests
     {
         var scenario = await database.SeedAsync();
         using var app = new TeamTestFactory(database, scenario);
-        using var student = app.CreateAuthenticatedClient(scenario.Students[0]);
-        var qualification = await BodyAsync<StudentQualificationDto>(await student.PostAsJsonAsync(
-            "/api/v1/student-qualifications/me/evidence", Evidence()));
+        var qualificationId = await AddPendingQualificationAsync(scenario, scenario.Students[0]);
         var staffId = await AddStaffAsync(scenario);
         using var verifier = app.CreateAuthenticatedClient(staffId, roles: ["DEPARTMENT_STAFF"]);
         using var rejecter = app.CreateAuthenticatedClient(staffId, roles: ["DEPARTMENT_STAFF"]);
 
         var responses = await Task.WhenAll(
-            verifier.PostAsync($"/api/v1/student-qualifications/{qualification.Id}/verify", null),
-            rejecter.PostAsJsonAsync($"/api/v1/student-qualifications/{qualification.Id}/reject", new { reason = "Concurrent review" }));
+            verifier.PostAsync($"/api/v1/student-qualifications/{qualificationId}/verify", null),
+            rejecter.PostAsJsonAsync($"/api/v1/student-qualifications/{qualificationId}/reject", new { reason = "Concurrent review" }));
 
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
         await using var db = database.CreateContext();
-        var stored = await db.Set<StudentQualification>().SingleAsync(x => x.Id == qualification.Id);
+        var stored = await db.Set<StudentQualification>().SingleAsync(x => x.Id == qualificationId);
         Assert.Contains(stored.VerificationStatus, new[] { "VERIFIED", "REJECTED" });
-        Assert.Equal(1, await db.AuditLogs.CountAsync(x => x.EntityId == qualification.Id.ToString()
+        Assert.Equal(1, await db.AuditLogs.CountAsync(x => x.EntityId == qualificationId.ToString()
             && (x.Action == "STUDENT_QUALIFICATION_VERIFIED" || x.Action == "STUDENT_QUALIFICATION_REJECTED")));
     }
 
@@ -119,12 +115,6 @@ public sealed partial class TeamEndpointTests
         Assert.False(await db.ProjectStatusHistories.AnyAsync(x => x.ProjectId == draft.Id));
     }
 
-    private static object Evidence() => new
-    {
-        qualificationType = "CAPSTONE_READINESS", trainingStatus = "TRAINING_COMPLETED",
-        certificateNumber = "CERT-2026", issuedAt = "2026-01-01T00:00:00Z", expiresAt = "2027-01-01T00:00:00Z"
-    };
-
     private async Task EnableQualificationAsync(TeamScenario scenario, params long[] userIds)
     {
         await using var db = database.CreateContext();
@@ -148,6 +138,24 @@ public sealed partial class TeamEndpointTests
             });
         }
         await db.SaveChangesAsync();
+    }
+
+    private async Task<long> AddPendingQualificationAsync(TeamScenario scenario, long userId)
+    {
+        await using var db = database.CreateContext();
+        var organizationId = await db.AcademicSemesters.Where(x => x.Id == scenario.SemesterId)
+            .Select(x => x.OrganizationId).SingleAsync();
+        var qualification = new StudentQualification
+        {
+            UserId = userId, OrganizationId = organizationId, QualificationType = "CAPSTONE_READINESS",
+            TrainingStatus = "TRAINING_COMPLETED", VerificationStatus = "PENDING",
+            CertificateNumber = "CERT-PENDING-" + userId, IssuedAt = TeamDatabaseFixture.Now.AddDays(-1),
+            ExpiresAt = TeamDatabaseFixture.Now.AddYears(1), ConcurrencyToken = Guid.NewGuid(),
+            CreatedAt = TeamDatabaseFixture.Now, UpdatedAt = TeamDatabaseFixture.Now
+        };
+        db.Set<StudentQualification>().Add(qualification);
+        await db.SaveChangesAsync();
+        return qualification.Id;
     }
 
     private async Task RevokeQualificationAsync(long userId)
