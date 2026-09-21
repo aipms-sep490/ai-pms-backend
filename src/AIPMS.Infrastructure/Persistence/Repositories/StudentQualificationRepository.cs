@@ -17,15 +17,13 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
         var q =
             from qualification in context.Set<StudentQualification>().AsNoTracking()
             join user in context.Users.AsNoTracking() on qualification.UserId equals user.Id
-            join major in context.Majors.AsNoTracking() on user.MajorId equals major.Id into majors
-            from major in majors.DefaultIfEmpty()
             select new StudentQualificationModel(
                 qualification.Id,
                 qualification.UserId,
                 user.FullName,
                 user.StudentCode,
                 qualification.OrganizationId,
-                major != null ? major.DepartmentId : (user.DepartmentId ?? 0),
+                user.Major != null ? user.Major.DepartmentId : (user.DepartmentId ?? 0),
                 user.MajorId,
                 qualification.QualificationType,
                 qualification.TrainingStatus,
