@@ -38,6 +38,11 @@ public partial class AipmsDbContext : DbContext
 
     public virtual DbSet<Milestone> Milestones { get; set; }
 
+    public virtual DbSet<MilestoneTemplate> MilestoneTemplates { get; set; }
+    public virtual DbSet<MilestoneTemplateVersion> MilestoneTemplateVersions { get; set; }
+    public virtual DbSet<MilestoneTemplateItem> MilestoneTemplateItems { get; set; }
+    public virtual DbSet<ProjectMilestoneTemplateApplication> ProjectMilestoneTemplateApplications { get; set; }
+
     public virtual DbSet<Notification> Notifications { get; set; }
 
     public virtual DbSet<NotificationRecipient> NotificationRecipients { get; set; }
@@ -686,6 +691,68 @@ public partial class AipmsDbContext : DbContext
                 .HasForeignKey(d => d.ProjectId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_milestones_project");
+        });
+
+        modelBuilder.Entity<MilestoneTemplate>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_milestone_templates");
+            entity.ToTable("milestone_templates");
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Name).HasMaxLength(255).HasColumnName("name");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.Status).HasMaxLength(20).HasColumnName("status");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.CreatedAt).HasPrecision(0).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasPrecision(0).HasColumnName("updated_at");
+            entity.HasOne(e => e.CreatedByNavigation).WithMany().HasForeignKey(e => e.CreatedBy).HasConstraintName("fk_milestone_templates_created_by");
+        });
+
+        modelBuilder.Entity<MilestoneTemplateVersion>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_milestone_template_versions");
+            entity.ToTable("milestone_template_versions");
+            entity.HasIndex(e => new { e.MilestoneTemplateId, e.VersionNumber }).IsUnique().HasDatabaseName("uq_milestone_template_versions_template_version");
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.MilestoneTemplateId).HasColumnName("milestone_template_id");
+            entity.Property(e => e.VersionNumber).HasColumnName("version_number");
+            entity.Property(e => e.Status).HasMaxLength(20).HasColumnName("status");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
+            entity.Property(e => e.CreatedAt).HasPrecision(0).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasPrecision(0).HasColumnName("updated_at");
+            entity.HasOne(e => e.MilestoneTemplate).WithMany(e => e.Versions).HasForeignKey(e => e.MilestoneTemplateId).HasConstraintName("fk_milestone_template_versions_template");
+            entity.HasOne(e => e.CreatedByNavigation).WithMany().HasForeignKey(e => e.CreatedBy).HasConstraintName("fk_milestone_template_versions_created_by");
+        });
+
+        modelBuilder.Entity<MilestoneTemplateItem>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_milestone_template_items");
+            entity.ToTable("milestone_template_items");
+            entity.HasIndex(e => new { e.MilestoneTemplateVersionId, e.SortOrder }).HasDatabaseName("ix_milestone_template_items_version_sort");
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.MilestoneTemplateVersionId).HasColumnName("milestone_template_version_id");
+            entity.Property(e => e.Title).HasMaxLength(255).HasColumnName("title");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.StartOffsetDays).HasColumnName("start_offset_days");
+            entity.Property(e => e.DueOffsetDays).HasColumnName("due_offset_days");
+            entity.Property(e => e.SortOrder).HasColumnName("sort_order");
+            entity.Property(e => e.CreatedAt).HasPrecision(0).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasPrecision(0).HasColumnName("updated_at");
+            entity.HasOne(e => e.MilestoneTemplateVersion).WithMany(e => e.Items).HasForeignKey(e => e.MilestoneTemplateVersionId).OnDelete(DeleteBehavior.Cascade).HasConstraintName("fk_milestone_template_items_version");
+        });
+
+        modelBuilder.Entity<ProjectMilestoneTemplateApplication>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_project_milestone_template_applications");
+            entity.ToTable("project_milestone_template_applications");
+            entity.HasIndex(e => e.ProjectId).IsUnique().HasDatabaseName("uq_project_milestone_template_applications_project");
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.ProjectId).HasColumnName("project_id");
+            entity.Property(e => e.MilestoneTemplateVersionId).HasColumnName("milestone_template_version_id");
+            entity.Property(e => e.AppliedBy).HasColumnName("applied_by");
+            entity.Property(e => e.AppliedAt).HasPrecision(0).HasColumnName("applied_at");
+            entity.HasOne(e => e.Project).WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Cascade).HasConstraintName("fk_project_milestone_template_applications_project");
+            entity.HasOne(e => e.MilestoneTemplateVersion).WithMany().HasForeignKey(e => e.MilestoneTemplateVersionId).HasConstraintName("fk_project_milestone_template_applications_version");
+            entity.HasOne(e => e.AppliedByNavigation).WithMany().HasForeignKey(e => e.AppliedBy).HasConstraintName("fk_project_milestone_template_applications_user");
         });
 
         modelBuilder.Entity<Notification>(entity =>

@@ -21,7 +21,7 @@ public sealed class GetMyAcademicProfileHandler(IAcademicProfileRepository repos
 public sealed class GetAcademicProfilesHandler(IAcademicProfileRepository repository, AcademicAccessService access)
     : IRequestHandler<GetAcademicProfilesQuery, PagedResult<AcademicProfileDto>>
 {
-    public Task<PagedResult<AcademicProfileDto>> Handle(GetAcademicProfilesQuery request, CancellationToken ct)
+    public async Task<PagedResult<AcademicProfileDto>> Handle(GetAcademicProfilesQuery request, CancellationToken ct)
     {
         var managedDepartment = await access.GetManagedDepartmentIdAsync(ct);
         if (managedDepartment.HasValue && request.DepartmentId.HasValue && request.DepartmentId != managedDepartment)

@@ -69,10 +69,10 @@ public sealed class CreateProjectPeriodCommandHandler(
                 "A project period with the same code already exists in this semester.");
         }
 
-        if (request.MilestoneTemplateId.HasValue)
+        if (request.MilestoneTemplateId.HasValue && !await repository.ValidateMilestoneTemplateUsableAsync(request.MilestoneTemplateId.Value, cancellationToken))
         {
             throw new ConflictException(
-                "Milestone Template module is not available yet for this Project Period (DEFERRED).");
+                "The milestone template must be active and have a published version.");
         }
 
         if (request.RubricId.HasValue)
@@ -269,10 +269,10 @@ public sealed class UpdateProjectPeriodCommandHandler(
                 $"Project Period window overlaps with an existing '{request.PeriodType}' period in this semester.");
         }
 
-        if (request.MilestoneTemplateId.HasValue)
+        if (request.MilestoneTemplateId.HasValue && !await repository.ValidateMilestoneTemplateUsableAsync(request.MilestoneTemplateId.Value, cancellationToken))
         {
             throw new ConflictException(
-                "Milestone Template module is not available yet for this Project Period (DEFERRED).");
+                "The milestone template must be active and have a published version.");
         }
 
         if (request.RubricId.HasValue && request.RubricId.Value != existing.RubricId)

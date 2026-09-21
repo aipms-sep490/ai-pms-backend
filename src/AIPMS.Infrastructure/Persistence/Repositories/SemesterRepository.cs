@@ -786,6 +786,9 @@ internal sealed class SemesterRepository(AipmsDbContext context)
             .AnyAsync(p => p.Team.AcademicSemesterId == semesterId && activeStatuses.Contains(p.Status), cancellationToken);
     }
 
+    public Task<bool> ValidateMilestoneTemplateUsableAsync(long templateId, CancellationToken cancellationToken = default) =>
+        context.MilestoneTemplates.AnyAsync(t => t.Id == templateId && t.Status == "ACTIVE" && t.Versions.Any(v => v.Status == "PUBLISHED"), cancellationToken);
+
     public async Task<bool> ValidateRubricUsableAsync(
         long rubricId,
         long semesterId,
