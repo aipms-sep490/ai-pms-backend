@@ -148,7 +148,7 @@ public sealed partial class TeamEndpointTests
         var qualification = new StudentQualification
         {
             UserId = userId, OrganizationId = organizationId, QualificationType = "CAPSTONE_READINESS",
-            TrainingStatus = "TRAINING_COMPLETED", VerificationStatus = "PENDING",
+            TrainingStatus = "TRAINING_COMPLETED", VerificationStatus = "PENDING_VERIFICATION",
             CertificateNumber = "CERT-PENDING-" + userId, IssuedAt = TeamDatabaseFixture.Now.AddDays(-1),
             ExpiresAt = TeamDatabaseFixture.Now.AddYears(1), ConcurrencyToken = Guid.NewGuid(),
             CreatedAt = TeamDatabaseFixture.Now, UpdatedAt = TeamDatabaseFixture.Now
