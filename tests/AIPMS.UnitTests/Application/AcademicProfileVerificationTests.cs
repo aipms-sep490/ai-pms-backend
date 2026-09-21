@@ -62,6 +62,9 @@ public sealed class AcademicProfileVerificationTests
 
     private sealed class StubProfileRepository(AcademicProfileDto profile) : IAcademicProfileRepository
     {
+        public Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) => action(ct);
+        public Task<long?> GetReviewerDepartmentAsync(long actorId, CancellationToken ct) => Task.FromResult<long?>(10);
+        public Task LockAsync(long userId, CancellationToken ct) => Task.CompletedTask;
         public AcademicProfileDto Current { get; private set; } = profile;
         public Task<AcademicProfileDto?> GetAsync(long userId, CancellationToken ct = default) => Task.FromResult<AcademicProfileDto?>(userId == Current.UserId ? Current : null);
         public Task<PagedResult<AcademicProfileDto>> SearchAsync(string? status, long? departmentId, int page, int pageSize, CancellationToken ct = default) =>

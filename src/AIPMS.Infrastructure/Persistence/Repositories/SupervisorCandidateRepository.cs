@@ -19,7 +19,7 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
                 p.Team.AcademicSemester.Status == "ACTIVE" && p.Team.AcademicSemester.Organization.IsActive
                     && p.Team.AcademicSemester.StartDate <= today && today <= p.Team.AcademicSemester.EndDate,
                 context.SupervisorAssignments.Any(a => a.ProjectId == p.Id && a.EndedAt == null),
-                p.ProjectMajors.Where(m => m.Major.IsActive && m.Major.Department.IsActive
+                p.ProjectMajors.Where(m => !p.Team.TeamMembers.Any(tm => tm.LeftAt == null && (tm.User.AcademicProfileStatus != "VERIFIED" || tm.User.Status != "ACTIVE")) && m.Major.IsActive && m.Major.Department.IsActive
                     && m.Major.Department.OrganizationId == p.Team.AcademicSemester.OrganizationId)
                     .Select(m => m.Major.DepartmentId).Distinct().ToList()))
             .SingleOrDefaultAsync(ct);

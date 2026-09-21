@@ -23,7 +23,7 @@ public sealed class GetAcademicProfilesHandler(IAcademicProfileRepository reposi
 {
     public async Task<PagedResult<AcademicProfileDto>> Handle(GetAcademicProfilesQuery request, CancellationToken ct)
     {
-        var managedDepartment = await access.GetManagedDepartmentIdAsync(ct);
+        var managedDepartment = await repository.GetReviewerDepartmentAsync(access.ActorUserId, ct);
         if (managedDepartment.HasValue && request.DepartmentId.HasValue && request.DepartmentId != managedDepartment)
             throw new AIPMS.Application.Common.Exceptions.ForbiddenException("Department staff can only view their assigned department.");
         return await repository.SearchAsync(request.Status, managedDepartment ?? request.DepartmentId, request.Page, request.PageSize, ct);

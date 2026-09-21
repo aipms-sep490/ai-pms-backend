@@ -105,6 +105,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         context.Users.Add(user);
         await SaveChangesAsync(cancellationToken);
 
+        if (user.AcademicProfileStatus == "PENDING") context.AcademicProfileVerifications.Add(new() { UserId = user.Id, Status = "PENDING" });
         context.UserRoles.AddRange(data.RoleIds.Select(roleId => new UserRole
         {
             UserId = user.Id,
@@ -150,6 +151,8 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
 
         context.Users.AddRange(pairs.Select(static pair => pair.Entity));
         await SaveChangesAsync(cancellationToken);
+        foreach (var pair in pairs.Where(p => p.Entity.AcademicProfileStatus == "PENDING"))
+            context.AcademicProfileVerifications.Add(new() { UserId = pair.Entity.Id, Status = "PENDING" });
         context.UserRoles.AddRange(pairs.SelectMany(pair =>
             pair.Data.RoleIds.Select(roleId => new UserRole
             {

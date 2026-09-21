@@ -1131,3 +1131,18 @@ GO
 PRINT N'AI-PMS schema created successfully.';
 
 
+
+GO
+CREATE TABLE dbo.academic_profile_verifications (
+    id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_academic_profile_verifications PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    status NVARCHAR(20) NOT NULL,
+    reviewed_by BIGINT NULL,
+    reviewed_at DATETIME2(0) NULL,
+    rejection_reason NVARCHAR(2000) NULL,
+    CONSTRAINT ck_academic_profile_verifications_status CHECK (status IN (N'PENDING', N'VERIFIED', N'REJECTED')),
+    CONSTRAINT ck_academic_profile_verifications_reason CHECK (status <> N'REJECTED' OR (rejection_reason IS NOT NULL AND LEN(LTRIM(RTRIM(rejection_reason))) > 0)),
+    CONSTRAINT fk_academic_profile_verifications_user FOREIGN KEY (user_id) REFERENCES dbo.users(id),
+    CONSTRAINT fk_academic_profile_verifications_reviewer FOREIGN KEY (reviewed_by) REFERENCES dbo.users(id)
+);
+CREATE INDEX ix_academic_profile_verifications_user ON dbo.academic_profile_verifications(user_id, id);
