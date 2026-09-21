@@ -7,6 +7,7 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
+using AIPMS.Application.Abstractions.Projects;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Mappers;
@@ -15,7 +16,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvider? timeProvider = null) : IProjectRepository
+public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvider? timeProvider = null, IProjectActivationService? activation = null) : IProjectRepository
 {
     private static readonly string[] ActiveStatuses = 
     [
@@ -536,6 +537,9 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
                 ChangedAt = utcNow
             };
             context.ProjectStatusHistories.Add(history);
+
+            if (newStatus == "ACTIVE" && activation is not null)
+                await activation.ApplyMilestoneTemplateAsync(projectId, actorUserId, utcNow, cancellationToken);
 
             await context.SaveChangesAsync(cancellationToken);
             if (transaction is not null) await transaction.CommitAsync(cancellationToken);
