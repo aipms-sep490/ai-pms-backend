@@ -13,6 +13,9 @@ public interface ITeamRepository
     Task<long?> GetCurrentTeamIdAsync(long semesterId, long userId, CancellationToken cancellationToken);
     Task<TeamParticipant?> GetStudentAsync(long userId, CancellationToken cancellationToken);
     Task<TeamRegistrationWindow?> GetOpenWindowAsync(long semesterId, DateTime now, CancellationToken cancellationToken);
+    Task<StudentQualificationEligibility> GetQualificationEligibilityAsync(
+        long userId, long semesterId, DateTime now, CancellationToken cancellationToken) =>
+        Task.FromResult(new StudentQualificationEligibility(false, true, "NOT_REQUIRED", null));
     Task<long> CreateAsync(long semesterId, string code, string name, string? description,
         long actorId, DateTime now, CancellationToken cancellationToken);
     Task UpdateAsync(long teamId, string name, string? description, string status, DateTime now, CancellationToken cancellationToken);
