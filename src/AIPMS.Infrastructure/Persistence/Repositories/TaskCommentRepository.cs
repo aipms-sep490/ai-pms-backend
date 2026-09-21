@@ -22,9 +22,12 @@ internal sealed class TaskCommentRepository(AipmsDbContext db) : ITaskCommentRep
     public System.Threading.Tasks.Task<TaskCommentAccess?> GetAccessAsync(long taskId, long actorId, CancellationToken ct) =>
         db.Tasks.AsNoTracking().Where(t => t.Id == taskId).Select(t => new TaskCommentAccess(
             t.Id, t.Milestone.ProjectId, t.Milestone.Project.Status,
-            t.Milestone.Project.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null),
-            t.Milestone.Project.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null && m.IsLeader),
-            db.SupervisorAssignments.Any(a => a.ProjectId == t.Milestone.ProjectId && a.EndedAt == null && a.SupervisorProfile.UserId == actorId))).SingleOrDefaultAsync(ct);
+            db.Users.Any(u => u.Id == actorId && u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")
+                && t.Milestone.Project.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null)),
+            db.Users.Any(u => u.Id == actorId && u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")
+                && t.Milestone.Project.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null && m.IsLeader)),
+            db.Users.Any(u => u.Id == actorId && u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER")
+                && db.SupervisorAssignments.Any(a => a.ProjectId == t.Milestone.ProjectId && a.EndedAt == null && a.SupervisorProfile.UserId == actorId)))).SingleOrDefaultAsync(ct);
 
     public async System.Threading.Tasks.Task<PagedResult<TaskCommentDto>> ListAsync(TaskCommentSearch search, CancellationToken ct)
     {

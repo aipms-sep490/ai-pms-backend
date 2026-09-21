@@ -886,6 +886,7 @@ CREATE TABLE dbo.files (
     progress_report_id      BIGINT NULL,
     meeting_id              BIGINT NULL,
     supervisor_feedback_id  BIGINT NULL,
+    task_id                 BIGINT NULL,
     original_file_name      NVARCHAR(500) NOT NULL,
     stored_file_name        NVARCHAR(500) NULL,
     storage_path            NVARCHAR(2000) NOT NULL,
@@ -901,7 +902,8 @@ CREATE TABLE dbo.files (
         (CASE WHEN deliverable_version_id IS NULL THEN 0 ELSE 1 END) +
         (CASE WHEN progress_report_id IS NULL THEN 0 ELSE 1 END) +
         (CASE WHEN meeting_id IS NULL THEN 0 ELSE 1 END) +
-        (CASE WHEN supervisor_feedback_id IS NULL THEN 0 ELSE 1 END) <= 1
+        (CASE WHEN supervisor_feedback_id IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN task_id IS NULL THEN 0 ELSE 1 END) <= 1
     ),
     CONSTRAINT fk_files_uploaded_by FOREIGN KEY (uploaded_by)
         REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
@@ -911,6 +913,8 @@ CREATE TABLE dbo.files (
         REFERENCES dbo.progress_reports(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_files_meeting FOREIGN KEY (meeting_id)
         REFERENCES dbo.meetings(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_files_task FOREIGN KEY (task_id)
+        REFERENCES dbo.tasks(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_files_supervisor_feedback FOREIGN KEY (supervisor_feedback_id)
         REFERENCES dbo.supervisor_feedback(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );

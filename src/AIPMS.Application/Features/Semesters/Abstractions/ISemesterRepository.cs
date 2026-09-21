@@ -119,8 +119,7 @@ public interface ISemesterRepository
         long semesterId,
         CancellationToken cancellationToken = default);
 
-    Task<bool> ValidateMilestoneTemplateUsableAsync(long templateId, CancellationToken cancellationToken = default)
-        => Task.FromResult(true);
+    Task<bool> ValidateMilestoneTemplateUsableAsync(long templateId, CancellationToken cancellationToken = default);
 
     Task<T> ExecuteInTransactionAsync<T>(
         Func<Task<T>> action,

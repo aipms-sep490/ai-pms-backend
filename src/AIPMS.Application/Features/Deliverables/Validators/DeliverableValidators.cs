@@ -125,3 +125,12 @@ public sealed class GetProjectFilesQueryValidator : AbstractValidator<GetProject
         RuleFor(r => r.PageSize).InclusiveBetween(1, 100);
     }
 }
+public sealed class GetTaskEvidenceQueryValidator : AbstractValidator<GetTaskEvidenceQuery>
+{
+    public GetTaskEvidenceQueryValidator()
+    {
+        RuleFor(r => r.TaskId).GreaterThan(0);
+        RuleFor(r => r.Page).InclusiveBetween(1, 1_000_000);
+        RuleFor(r => r.PageSize).InclusiveBetween(1, 100);
+    }
+}

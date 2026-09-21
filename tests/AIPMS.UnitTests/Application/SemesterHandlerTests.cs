@@ -162,6 +162,8 @@ internal sealed class StubSemesterRepository : ISemesterRepository
 
     public HashSet<long> UsableRubricIds { get; } = [];
 
+    public Task<bool> ValidateMilestoneTemplateUsableAsync(long templateId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+
     public Task<bool> ValidateRubricUsableAsync(
         long rubricId, long semesterId, CancellationToken cancellationToken = default) =>
         Task.FromResult(UsableRubricIds.Contains(rubricId));
@@ -590,7 +592,7 @@ public sealed class ProjectPeriodHandlerTests
                     MilestoneTemplateId: 42),
                 CancellationToken.None));
 
-        Assert.Contains("Milestone Template module is not available yet", ex.Message);
+        Assert.Contains("The milestone template must be active and have a published version.", ex.Message);
     }
 
     [Fact]
@@ -610,7 +612,7 @@ public sealed class ProjectPeriodHandlerTests
                     MilestoneTemplateId: 42),
                 CancellationToken.None));
 
-        Assert.Contains("Milestone Template module is not available yet", ex.Message);
+        Assert.Contains("The milestone template must be active and have a published version.", ex.Message);
     }
 
     // ── Rubric Unit Tests ───────────────────────────────────────────────────
