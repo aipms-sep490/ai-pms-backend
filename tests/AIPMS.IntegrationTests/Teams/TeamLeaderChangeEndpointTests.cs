@@ -22,6 +22,7 @@ public sealed partial class TeamEndpointTests
     [InlineData("ended-approve")]
     [InlineData("ended-reject")]
     [InlineData("inactive-mentor")]
+    [InlineData("wrong-mentor")]
     [InlineData("qualification-revoked")]
     [InlineData("target-left")]
     [InlineData("current-leader-changed")]
@@ -41,6 +42,7 @@ public sealed partial class TeamEndpointTests
         await BodyAsync<TeamDto>(await AcceptAsync(member, invitation.Id));
 
         long mentorId;
+        long nonPrimaryMentorId;
         await using (var db = database.CreateContext())
         {
             var department = await db.Departments.SingleAsync(d => d.Id ==
@@ -59,6 +61,15 @@ public sealed partial class TeamEndpointTests
                 UserRoleUsers = [new UserRole { Role = lecturerRole }]
             };
             var profile = new SupervisorProfile { User = mentor, IsAvailable = true,
+                CreatedAt = TeamDatabaseFixture.Now, UpdatedAt = TeamDatabaseFixture.Now };
+            var nonPrimaryMentor = new User
+            {
+                Email = $"non-primary-mentor-{Guid.NewGuid():N}@example.test", FullName = "Non-primary Mentor",
+                PasswordHash = "unused-test-hash", Status = "ACTIVE", DepartmentId = department.Id,
+                EmployeeCode = $"NP-{Guid.NewGuid():N}"[..10],
+                UserRoleUsers = [new UserRole { Role = lecturerRole }]
+            };
+            var nonPrimaryProfile = new SupervisorProfile { User = nonPrimaryMentor, IsAvailable = true,
                 CreatedAt = TeamDatabaseFixture.Now, UpdatedAt = TeamDatabaseFixture.Now };
             var project = new Project
             {
@@ -79,8 +90,10 @@ public sealed partial class TeamEndpointTests
                 IsPrimary = true, AssignedAt = TeamDatabaseFixture.Now,
                 CreatedAt = TeamDatabaseFixture.Now, UpdatedAt = TeamDatabaseFixture.Now
             });
+            db.SupervisorProfiles.Add(nonPrimaryProfile);
             await db.SaveChangesAsync();
             mentorId = mentor.Id;
+            nonPrimaryMentorId = nonPrimaryMentor.Id;
         }
 
         var pending = await BodyAsync<TeamLeaderChangeRequestDto>(await leader.PostAsJsonAsync(
@@ -110,6 +123,26 @@ public sealed partial class TeamEndpointTests
         var inbox = await BodyAsync<PagedResult<TeamLeaderChangeRequestDto>>(
             await mentorClient.GetAsync("/api/v1/team-leader-change-requests?status=PENDING"));
         Assert.Contains(inbox.Items, item => item.Id == pending.Id);
+        if (decision == "wrong-mentor")
+        {
+            using var nonPrimaryMentor = app.CreateAuthenticatedClient(
+                nonPrimaryMentorId, roles: [AppRoles.Lecturer]);
+            Assert.Equal(HttpStatusCode.Forbidden, (await nonPrimaryMentor.PostAsJsonAsync(
+                $"/api/v1/team-leader-change-requests/{pending.Id}/approve", new { })).StatusCode);
+            await using var db = database.CreateContext();
+            Assert.Equal("PENDING", await db.TeamLeaderChangeRequests.Where(r => r.Id == pending.Id)
+                .Select(r => r.Status).SingleAsync());
+            var members = await db.TeamMembers.Where(m => m.TeamId == team.Id && m.LeftAt == null
+                && (m.UserId == scenario.Students[0] || m.UserId == scenario.Students[1]))
+                .Select(m => new { m.UserId, m.IsLeader }).ToListAsync();
+            Assert.Contains(members, member => member.UserId == scenario.Students[0] && member.IsLeader);
+            Assert.Contains(members, member => member.UserId == scenario.Students[1] && !member.IsLeader);
+            Assert.False(await db.AuditLogs.AnyAsync(a => a.Action == "TEAM_LEADER_CHANGE_APPROVED"
+                && a.EntityId == pending.Id.ToString()));
+            Assert.False(await db.Notifications.AnyAsync(n => n.RelatedEntityId == pending.Id
+                && n.NotificationType == "TEAM_LEADER_CHANGE_APPROVED"));
+            return;
+        }
         if (decision.StartsWith("ended-"))
         {
             await using var db = database.CreateContext();

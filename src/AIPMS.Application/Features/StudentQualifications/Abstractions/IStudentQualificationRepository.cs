@@ -5,6 +5,8 @@ namespace AIPMS.Application.Features.StudentQualifications.Abstractions;
 
 public interface IStudentQualificationRepository
 {
+    Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken);
+
     Task<StudentQualificationModel?> GetForUserAsync(
         long userId,
         string qualificationType,

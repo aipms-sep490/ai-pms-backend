@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using AIPMS.Application.Common.Models;
+using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Projects.DTOs;
+using AIPMS.Application.Features.StudentQualifications.DTOs;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -58,6 +61,116 @@ public sealed partial class TeamEndpointTests
         Assert.Contains(stored.VerificationStatus, new[] { "VERIFIED", "REJECTED" });
         Assert.Equal(1, await db.AuditLogs.CountAsync(x => x.EntityId == qualificationId.ToString()
             && (x.Action == "STUDENT_QUALIFICATION_VERIFIED" || x.Action == "STUDENT_QUALIFICATION_REJECTED")));
+    }
+
+    [Theory]
+    [InlineData("verify", "STUDENT_QUALIFICATION_VERIFIED", null)]
+    [InlineData("reject", "STUDENT_QUALIFICATION_REJECTED", "Evidence rejected")]
+    public async Task Qualification_decision_rolls_back_when_audit_fails(
+        string decision,
+        string auditAction,
+        string? reason)
+    {
+        var scenario = await database.SeedAsync();
+        var qualificationId = await AddPendingQualificationAsync(scenario, scenario.Students[0]);
+        var staffId = await AddStaffAsync(scenario);
+        using var app = new TeamTestFactory(database, scenario, failAuditAction: auditAction);
+        using var staff = app.CreateAuthenticatedClient(staffId, roles: [AppRoles.DepartmentStaff]);
+
+        var response = decision == "verify"
+            ? await staff.PostAsync($"/api/v1/student-qualifications/{qualificationId}/verify", null)
+            : await staff.PostAsJsonAsync($"/api/v1/student-qualifications/{qualificationId}/reject", new { reason });
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        await using var db = database.CreateContext();
+        var stored = await db.Set<StudentQualification>().SingleAsync(x => x.Id == qualificationId);
+        Assert.Equal("PENDING_VERIFICATION", stored.VerificationStatus);
+        Assert.Null(stored.VerifiedBy);
+        Assert.Null(stored.VerifiedAt);
+        Assert.Null(stored.RejectionReason);
+        Assert.False(await db.AuditLogs.AnyAsync(x => x.EntityId == qualificationId.ToString()
+            && x.Action == auditAction));
+    }
+
+    [Fact]
+    public async Task Qualification_verification_queue_is_scoped_filterable_and_stably_paged()
+    {
+        var scenario = await database.SeedAsync();
+        var outsideScenario = await database.SeedAsync();
+        var firstPendingId = await AddPendingQualificationAsync(scenario, scenario.Students[0]);
+        var secondPendingId = await AddPendingQualificationAsync(scenario, scenario.Students[1]);
+        var verifiedId = await AddPendingQualificationAsync(scenario, scenario.Students[2]);
+        var outsideId = await AddPendingQualificationAsync(outsideScenario, outsideScenario.Students[0]);
+        var staffId = await AddStaffAsync(scenario);
+
+        await using (var setup = database.CreateContext())
+        {
+            await setup.Users.Where(x => x.Id == scenario.Students[0]).ExecuteUpdateAsync(x => x
+                .SetProperty(user => user.FullName, "Queue Student Alpha")
+                .SetProperty(user => user.StudentCode, "QUEUE-ALPHA"));
+            await setup.Users.Where(x => x.Id == scenario.Students[1]).ExecuteUpdateAsync(x => x
+                .SetProperty(user => user.FullName, "Queue Student Beta")
+                .SetProperty(user => user.StudentCode, "QUEUE-BETA"));
+            await setup.Set<StudentQualification>().Where(x => x.Id == firstPendingId).ExecuteUpdateAsync(x => x
+                .SetProperty(qualification => qualification.UpdatedAt, TeamDatabaseFixture.Now.AddMinutes(2)));
+            await setup.Set<StudentQualification>().Where(x => x.Id == secondPendingId).ExecuteUpdateAsync(x => x
+                .SetProperty(qualification => qualification.UpdatedAt, TeamDatabaseFixture.Now.AddMinutes(1)));
+            await setup.Set<StudentQualification>().Where(x => x.Id == verifiedId).ExecuteUpdateAsync(x => x
+                .SetProperty(qualification => qualification.VerificationStatus, "VERIFIED")
+                .SetProperty(qualification => qualification.VerifiedBy, staffId)
+                .SetProperty(qualification => qualification.VerifiedAt, TeamDatabaseFixture.Now)
+                .SetProperty(qualification => qualification.UpdatedAt, TeamDatabaseFixture.Now));
+        }
+
+        using var app = new TeamTestFactory(database, scenario);
+        using var staff = app.CreateAuthenticatedClient(staffId, roles: [AppRoles.DepartmentStaff]);
+        using var student = app.CreateAuthenticatedClient(scenario.Students[0]);
+        using var lecturer = app.CreateAuthenticatedClient(staffId, roles: [AppRoles.Lecturer]);
+
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await student.GetAsync("/api/v1/student-qualifications/verification-queue")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await lecturer.GetAsync("/api/v1/student-qualifications/verification-queue")).StatusCode);
+
+        var firstPage = await BodyAsync<PagedResult<StudentQualificationDto>>(await staff.GetAsync(
+            "/api/v1/student-qualifications/verification-queue?page=1&pageSize=1"));
+        var secondPage = await BodyAsync<PagedResult<StudentQualificationDto>>(await staff.GetAsync(
+            "/api/v1/student-qualifications/verification-queue?page=2&pageSize=1"));
+        Assert.Equal(firstPendingId, Assert.Single(firstPage.Items).Id);
+        Assert.Equal(secondPendingId, Assert.Single(secondPage.Items).Id);
+        Assert.Equal(2, firstPage.TotalCount);
+        Assert.Equal(2, firstPage.TotalPages);
+        Assert.Equal(1, firstPage.PageSize);
+        Assert.Equal(2, secondPage.Page);
+
+        var byCode = await BodyAsync<PagedResult<StudentQualificationDto>>(await staff.GetAsync(
+            "/api/v1/student-qualifications/verification-queue?search=QUEUE-ALPHA"));
+        Assert.Equal(firstPendingId, Assert.Single(byCode.Items).Id);
+        Assert.Equal("Queue Student Alpha", byCode.Items[0].FullName);
+
+        var byName = await BodyAsync<PagedResult<StudentQualificationDto>>(await staff.GetAsync(
+            "/api/v1/student-qualifications/verification-queue?search=Student%20Beta"));
+        Assert.Equal(secondPendingId, Assert.Single(byName.Items).Id);
+
+        var verified = await BodyAsync<PagedResult<StudentQualificationDto>>(await staff.GetAsync(
+            "/api/v1/student-qualifications/verification-queue?status=VERIFIED"));
+        Assert.Equal(verifiedId, Assert.Single(verified.Items).Id);
+        Assert.Equal("VERIFIED", verified.Items[0].VerificationStatus);
+
+        await using var db = database.CreateContext();
+        Assert.Equal("PENDING_VERIFICATION", await db.Set<StudentQualification>().Where(x => x.Id == firstPendingId)
+            .Select(x => x.VerificationStatus).SingleAsync());
+        Assert.Equal("PENDING_VERIFICATION", await db.Set<StudentQualification>().Where(x => x.Id == secondPendingId)
+            .Select(x => x.VerificationStatus).SingleAsync());
+        Assert.Equal("VERIFIED", await db.Set<StudentQualification>().Where(x => x.Id == verifiedId)
+            .Select(x => x.VerificationStatus).SingleAsync());
+        Assert.Equal("PENDING_VERIFICATION", await db.Set<StudentQualification>().Where(x => x.Id == outsideId)
+            .Select(x => x.VerificationStatus).SingleAsync());
+        Assert.False(await db.AuditLogs.AnyAsync(x => x.EntityType == "STUDENT_QUALIFICATION"
+            && (x.EntityId == firstPendingId.ToString()
+                || x.EntityId == secondPendingId.ToString()
+                || x.EntityId == verifiedId.ToString()
+                || x.EntityId == outsideId.ToString())));
     }
 
     [Fact]

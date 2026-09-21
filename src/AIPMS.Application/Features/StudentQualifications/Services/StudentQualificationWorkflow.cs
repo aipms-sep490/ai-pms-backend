@@ -151,40 +151,43 @@ public sealed class StudentQualificationWorkflow(
         string? reason,
         CancellationToken cancellationToken)
     {
-        var actorId = RequireRole(AppRoles.DepartmentStaff);
-        var scope = await academic.GetUserScopeAsync(actorId, cancellationToken)
-            ?? throw new ForbiddenException("The department staff account has no active academic scope.");
-        var current = await repository.GetAsync(qualificationId, cancellationToken)
-            ?? throw new NotFoundException("StudentQualification", qualificationId);
+        return await repository.InTransactionAsync(async token =>
+        {
+            var actorId = RequireRole(AppRoles.DepartmentStaff);
+            var scope = await academic.GetUserScopeAsync(actorId, token)
+                ?? throw new ForbiddenException("The department staff account has no active academic scope.");
+            var current = await repository.GetAsync(qualificationId, token)
+                ?? throw new NotFoundException("StudentQualification", qualificationId);
 
-        if (current.OrganizationId != scope.OrganizationId || current.DepartmentId != scope.DepartmentId)
-            throw new ForbiddenException("Department staff can only verify students in their assigned department.");
-        if (current.VerificationStatus != StudentQualificationStatuses.PendingVerification)
-            throw new ConflictException("Only a pending qualification can be verified or rejected.");
-        if (status == StudentQualificationStatuses.Verified
-            && current.TrainingStatus != StudentTrainingStatuses.Completed)
-            throw new ConflictException("Training must be completed before qualification verification.");
-        if (status == StudentQualificationStatuses.Rejected && string.IsNullOrWhiteSpace(reason))
-            throw new ConflictException("A rejection reason is required.");
+            if (current.OrganizationId != scope.OrganizationId || current.DepartmentId != scope.DepartmentId)
+                throw new ForbiddenException("Department staff can only verify students in their assigned department.");
+            if (current.VerificationStatus != StudentQualificationStatuses.PendingVerification)
+                throw new ConflictException("Only a pending qualification can be verified or rejected.");
+            if (status == StudentQualificationStatuses.Verified
+                && current.TrainingStatus != StudentTrainingStatuses.Completed)
+                throw new ConflictException("Training must be completed before qualification verification.");
+            if (status == StudentQualificationStatuses.Rejected && string.IsNullOrWhiteSpace(reason))
+                throw new ConflictException("A rejection reason is required.");
 
-        var result = await repository.DecideAsync(
-            qualificationId, status, actorId, Trim(reason), Now, cancellationToken);
+            var result = await repository.DecideAsync(
+                qualificationId, status, actorId, Trim(reason), Now, token);
 
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            status == StudentQualificationStatuses.Verified
-                ? "STUDENT_QUALIFICATION_VERIFIED"
-                : "STUDENT_QUALIFICATION_REJECTED",
-            "STUDENT_QUALIFICATION", result.Id,
-            new Dictionary<string, object?>
-            {
-                ["studentUserId"] = result.UserId,
-                ["qualificationType"] = result.QualificationType,
-                ["verificationStatus"] = result.VerificationStatus,
-                ["reason"] = result.RejectionReason
-            }), cancellationToken);
+            await audit.RecordAsync(new AuditEntry(
+                actorId,
+                status == StudentQualificationStatuses.Verified
+                    ? "STUDENT_QUALIFICATION_VERIFIED"
+                    : "STUDENT_QUALIFICATION_REJECTED",
+                "STUDENT_QUALIFICATION", result.Id,
+                new Dictionary<string, object?>
+                {
+                    ["studentUserId"] = result.UserId,
+                    ["qualificationType"] = result.QualificationType,
+                    ["verificationStatus"] = result.VerificationStatus,
+                    ["reason"] = result.RejectionReason
+                }), token);
 
-        return result.ToDto();
+            return result.ToDto();
+        }, cancellationToken);
     }
 
     private long RequireRole(string role)

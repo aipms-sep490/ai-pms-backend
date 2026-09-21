@@ -1,3 +1,4 @@
+using System.Data;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
@@ -6,6 +7,7 @@ using AIPMS.Application.Features.StudentQualifications.Abstractions;
 using AIPMS.Application.Features.StudentQualifications.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
@@ -13,6 +15,29 @@ namespace AIPMS.Infrastructure.Persistence.Repositories;
 internal sealed class StudentQualificationRepository(AipmsDbContext context)
     : IStudentQualificationRepository
 {
+    public async Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken)
+    {
+        if (context.Database.CurrentTransaction is not null)
+            return await action(cancellationToken);
+
+        await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        try
+        {
+            var result = await action(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return result;
+        }
+        catch (Exception exception)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            context.ChangeTracker.Clear();
+            for (var cause = exception; cause is not null; cause = cause.InnerException)
+                if (cause is DbUpdateConcurrencyException or SqlException { Number: 1205 or 2601 or 2627 })
+                    throw new ConflictException("The qualification changed concurrently. Reload and retry.");
+            throw;
+        }
+    }
+
     private IQueryable<StudentQualificationModel> Query(
         long? qualificationId = null,
         long? userId = null,
@@ -94,16 +119,54 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        var query = Query(organizationId: organizationId, departmentId: departmentId,
-            verificationStatus: verificationStatus, search: search);
+        var query =
+            from qualification in context.Set<StudentQualification>().AsNoTracking()
+            join user in context.Users.AsNoTracking() on qualification.UserId equals user.Id
+            select new
+            {
+                Qualification = qualification,
+                User = user,
+                DepartmentId = user.Major != null ? user.Major.DepartmentId : (user.DepartmentId ?? 0)
+            };
+
+        query = query.Where(x => x.Qualification.OrganizationId == organizationId
+            && x.DepartmentId == departmentId);
+        if (!string.IsNullOrWhiteSpace(verificationStatus))
+            query = query.Where(x => x.Qualification.VerificationStatus == verificationStatus);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var value = search.Trim();
+            query = query.Where(x => x.User.FullName.Contains(value)
+                || (x.User.StudentCode != null && x.User.StudentCode.Contains(value)));
+        }
 
         var total = await query.LongCountAsync(cancellationToken);
         var items = await query
-            .OrderBy(x => x.VerificationStatus)
-            .ThenByDescending(x => x.UpdatedAt)
-            .ThenBy(x => x.UserId)
+            .OrderBy(x => x.Qualification.VerificationStatus)
+            .ThenByDescending(x => x.Qualification.UpdatedAt)
+            .ThenBy(x => x.Qualification.UserId)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .Select(x => new StudentQualificationModel(
+                x.Qualification.Id,
+                x.Qualification.UserId,
+                x.User.FullName,
+                x.User.StudentCode,
+                x.Qualification.OrganizationId,
+                x.DepartmentId,
+                x.User.MajorId,
+                x.Qualification.QualificationType,
+                x.Qualification.TrainingStatus,
+                x.Qualification.VerificationStatus,
+                x.Qualification.CertificateNumber,
+                x.Qualification.CertificateFileId,
+                x.Qualification.IssuedAt,
+                x.Qualification.ExpiresAt,
+                x.Qualification.VerifiedBy,
+                x.Qualification.VerifiedAt,
+                x.Qualification.RejectionReason,
+                x.Qualification.CreatedAt,
+                x.Qualification.UpdatedAt))
             .ToListAsync(cancellationToken);
 
         return new(items, page, pageSize, total);
