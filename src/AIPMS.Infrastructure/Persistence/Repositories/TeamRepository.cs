@@ -113,7 +113,7 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
     private static readonly Expression<Func<User, TeamParticipant>> StudentProjection = u =>
         new TeamParticipant(u.Id, u.FullName, u.MajorId,
             u.Major != null ? u.Major.Department.OrganizationId : null,
-            u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")
+            u.Status == "ACTIVE" && u.AcademicProfileStatus == "VERIFIED" && u.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")
                 && u.Major != null && u.Major.IsActive && u.Major.Department.IsActive
                 && u.Major.Department.Organization.IsActive
                 && u.DepartmentId == u.Major.DepartmentId, false);

@@ -68,6 +68,9 @@ public sealed partial class ProjectRepository
 
     private async System.Threading.Tasks.Task CaptureRegistrationAsync(Project project, long actorId, DateTime now, CancellationToken ct)
     {
+        if (await context.TeamMembers.AnyAsync(m => m.TeamId == project.TeamId && m.LeftAt == null
+            && (m.User.AcademicProfileStatus != "VERIFIED" || m.User.Status != "ACTIVE"), ct))
+            throw new ConflictException("Every active team member must have a verified academic profile before submission.");
         var scope = await GetTeamScopeAsync(project.TeamId, ct);
         if (scope is null) return; // Legacy Foundation proposals retain their existing contract.
         var teams = new TeamRepository(context);

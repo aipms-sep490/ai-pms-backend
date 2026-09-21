@@ -63,7 +63,7 @@ public sealed class TeamDatabaseFixture : IAsyncLifetime
         var users = Enumerable.Range(0, 6).Select(index => new User
         {
             Email = $"student{index}-{suffix}@example.test", FullName = $"Student {index}",
-            PasswordHash = "unused-test-hash", Status = "ACTIVE", Department = department,
+            PasswordHash = "unused-test-hash", Status = "ACTIVE", AcademicProfileStatus = "VERIFIED", Department = department,
             Major = index < 4 ? major1 : major2,
             UserRoleUsers = new List<UserRole> { new() { RoleId = studentRoleId } }
         }).ToList();

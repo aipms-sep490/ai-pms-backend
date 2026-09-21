@@ -16,10 +16,11 @@ public sealed class VerifyAcademicProfileHandler(
     : IRequestHandler<VerifyAcademicProfileCommand, AcademicProfileDto>
 {
     public Task<AcademicProfileDto> Handle(VerifyAcademicProfileCommand request, CancellationToken ct)
-        => HandleAsync(request.UserId, "VERIFIED", null, ct);
+        => repository.InTransactionAsync(token => HandleAsync(request.UserId, "VERIFIED", null, token), ct);
 
     private async Task<AcademicProfileDto> HandleAsync(long userId, string status, string? reason, CancellationToken ct)
     {
+        await repository.LockAsync(userId, ct);
         var profile = await repository.GetAsync(userId, ct) ?? throw new NotFoundException("AcademicProfile", userId);
         if (!profile.DepartmentId.HasValue || !profile.MajorId.HasValue || profile.Status == "VERIFIED" && status == "VERIFIED")
             throw new ConflictException("The student academic profile is incomplete or already verified.");
@@ -35,9 +36,13 @@ public sealed class RejectAcademicProfileHandler(
     IAcademicProfileRepository repository, AcademicAccessService access, IAuditTrail audit, TimeProvider clock)
     : IRequestHandler<RejectAcademicProfileCommand, AcademicProfileDto>
 {
-    public async Task<AcademicProfileDto> Handle(RejectAcademicProfileCommand request, CancellationToken ct)
+    public Task<AcademicProfileDto> Handle(RejectAcademicProfileCommand request, CancellationToken ct) =>
+        repository.InTransactionAsync(token => RejectAsync(request, token), ct);
+
+    private async Task<AcademicProfileDto> RejectAsync(RejectAcademicProfileCommand request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Reason)) throw new ValidationException(new Dictionary<string, string[]> { ["reason"] = ["A rejection reason is required."] });
+        await repository.LockAsync(request.UserId, ct);
         var profile = await repository.GetAsync(request.UserId, ct) ?? throw new NotFoundException("AcademicProfile", request.UserId);
         if (!profile.DepartmentId.HasValue) throw new ConflictException("The student academic profile has no department.");
         await access.EnsureCanManageDepartmentAsync(profile.DepartmentId.Value, ct);
