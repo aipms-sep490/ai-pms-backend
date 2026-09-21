@@ -31,6 +31,8 @@ public partial class ProjectPeriod
 
     public long? MilestoneTemplateId { get; set; }
 
+    public long? MilestoneTemplateVersionId { get; set; }
+
     public long? RubricId { get; set; }
 
     public DateTime CreatedAt { get; set; }
@@ -40,4 +42,6 @@ public partial class ProjectPeriod
     public virtual AcademicSemester AcademicSemester { get; set; } = null!;
 
     public virtual Rubric? Rubric { get; set; }
+
+    public virtual MilestoneTemplateVersion? MilestoneTemplateVersion { get; set; }
 }

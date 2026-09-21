@@ -733,6 +733,7 @@ public partial class AipmsDbContext : DbContext
             entity.Property(e => e.CreatedBy).HasColumnName("created_by");
             entity.Property(e => e.CreatedAt).HasPrecision(0).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasPrecision(0).HasColumnName("updated_at");
+            entity.Property(e => e.LockedAt).HasPrecision(0).HasColumnName("locked_at");
             entity.HasOne(e => e.MilestoneTemplate).WithMany(e => e.Versions).HasForeignKey(e => e.MilestoneTemplateId).HasConstraintName("fk_milestone_template_versions_template");
             entity.HasOne(e => e.CreatedByNavigation).WithMany().HasForeignKey(e => e.CreatedBy).HasConstraintName("fk_milestone_template_versions_created_by");
         });
@@ -1113,6 +1114,7 @@ public partial class AipmsDbContext : DbContext
                 .HasDefaultValue(5)
                 .HasColumnName("max_team_size");
             entity.Property(e => e.MilestoneTemplateId).HasColumnName("milestone_template_id");
+            entity.Property(e => e.MilestoneTemplateVersionId).HasColumnName("milestone_template_version_id");
             entity.Property(e => e.MinDistinctMajors)
                 .HasDefaultValue(1)
                 .HasColumnName("min_distinct_majors");
@@ -1146,6 +1148,10 @@ public partial class AipmsDbContext : DbContext
             entity.HasOne(d => d.Rubric).WithMany(p => p.ProjectPeriods)
                 .HasForeignKey(d => d.RubricId)
                 .HasConstraintName("fk_project_periods_rubric");
+
+            entity.HasOne(d => d.MilestoneTemplateVersion).WithMany()
+                .HasForeignKey(d => d.MilestoneTemplateVersionId)
+                .HasConstraintName("fk_project_periods_milestone_template_version");
         });
 
         modelBuilder.Entity<ProjectStatusHistory>(entity =>

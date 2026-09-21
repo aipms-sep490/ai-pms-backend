@@ -469,6 +469,7 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                 MinDistinctMajors = minDistinctMajors,
                 MaxProjectsPerSupervisor = maxProjectsPerSupervisor,
                 MilestoneTemplateId = milestoneTemplateId,
+                MilestoneTemplateVersionId = await PinTemplateVersionAsync(milestoneTemplateId, utcNow, cancellationToken),
                 RubricId = rubricId,
                 Status = "DRAFT",
                 CreatedAt = utcNow,
@@ -620,6 +621,8 @@ internal sealed class SemesterRepository(AipmsDbContext context)
             entity.MaxTeamSize = maxTeamSize;
             entity.MinDistinctMajors = minDistinctMajors;
             entity.MaxProjectsPerSupervisor = maxProjectsPerSupervisor;
+            if (entity.MilestoneTemplateId != milestoneTemplateId || !entity.MilestoneTemplateVersionId.HasValue)
+                entity.MilestoneTemplateVersionId = await PinTemplateVersionAsync(milestoneTemplateId, utcNow, cancellationToken);
             entity.MilestoneTemplateId = milestoneTemplateId;
             entity.RubricId = rubricId;
             entity.UpdatedAt = utcNow;
@@ -788,6 +791,17 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
     public Task<bool> ValidateMilestoneTemplateUsableAsync(long templateId, CancellationToken cancellationToken = default) =>
         context.MilestoneTemplates.AnyAsync(t => t.Id == templateId && t.Status == "ACTIVE" && t.Versions.Any(v => v.Status == "PUBLISHED"), cancellationToken);
+
+    private async Task<long?> PinTemplateVersionAsync(long? templateId, DateTime now, CancellationToken ct)
+    {
+        if (!templateId.HasValue) return null;
+        var version = await context.MilestoneTemplateVersions
+            .Where(v => v.MilestoneTemplateId == templateId && v.Status == "PUBLISHED")
+            .OrderByDescending(v => v.VersionNumber).FirstOrDefaultAsync(ct)
+            ?? throw new ConflictException("The milestone template has no published version.");
+        version.LockedAt ??= now;
+        return version.Id;
+    }
 
     public async Task<bool> ValidateRubricUsableAsync(
         long rubricId,

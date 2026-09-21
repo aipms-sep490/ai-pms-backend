@@ -37,5 +37,6 @@ internal static class SemesterDtoMapper
             period.MilestoneTemplateId,
             period.RubricId,
             period.CreatedAt,
-            period.UpdatedAt);
+            period.UpdatedAt,
+            period.MilestoneTemplateVersionId);
 }

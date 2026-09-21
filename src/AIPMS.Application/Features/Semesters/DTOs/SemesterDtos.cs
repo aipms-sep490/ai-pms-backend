@@ -35,7 +35,8 @@ public sealed record ProjectPeriodDto(
     long? MilestoneTemplateId,
     long? RubricId,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    long? MilestoneTemplateVersionId = null);
 
 // ── Request bodies ────────────────────────────────────────────────────────────
 

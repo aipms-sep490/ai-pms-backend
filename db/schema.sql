@@ -108,6 +108,7 @@ CREATE TABLE dbo.project_periods (
     min_distinct_majors         INT NULL CONSTRAINT df_project_periods_min_distinct_majors DEFAULT (1),
     max_projects_per_supervisor INT NULL CONSTRAINT df_project_periods_max_projects_per_supervisor DEFAULT (5),
     milestone_template_id          BIGINT NULL,
+    milestone_template_version_id  BIGINT NULL,
     rubric_id                   BIGINT NULL,
     created_at                  DATETIME2(0) NOT NULL CONSTRAINT df_project_periods_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at                  DATETIME2(0) NOT NULL CONSTRAINT df_project_periods_updated_at DEFAULT (SYSUTCDATETIME()),

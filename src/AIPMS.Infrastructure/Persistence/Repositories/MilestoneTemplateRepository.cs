@@ -28,7 +28,7 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db) : IMileston
     public async System.Threading.Tasks.Task PublishVersionAsync(long versionId, DateTime now, CancellationToken ct)
     {
         var version = await db.MilestoneTemplateVersions.Include(v => v.Items).SingleOrDefaultAsync(v => v.Id == versionId, ct) ?? throw new NotFoundException("MilestoneTemplateVersion", versionId);
-        if (version.Status != "DRAFT" || version.Items.Count == 0) throw new ConflictException("A non-empty draft version is required.");
+        if (version.Status != "DRAFT" || version.LockedAt.HasValue || version.Items.Count == 0) throw new ConflictException("A non-empty draft version is required.");
         version.Status = "PUBLISHED"; version.UpdatedAt = now; await db.SaveChangesAsync(ct);
     }
     public async System.Threading.Tasks.Task<MilestoneTemplateVersionDto> AddItemAsync(long versionId, SaveMilestoneTemplateItemRequest request, long actorId, DateTime now, CancellationToken ct)
@@ -53,10 +53,11 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db) : IMileston
         var template = await db.MilestoneTemplates.Include(t => t.Versions).SingleOrDefaultAsync(t => t.Id == templateId, ct) ?? throw new NotFoundException("MilestoneTemplate", templateId);
         var period = await db.ProjectPeriods.SingleOrDefaultAsync(p => p.Id == periodId, ct) ?? throw new NotFoundException("ProjectPeriod", periodId);
         var version = template.Versions.Where(v => v.Status == "PUBLISHED").OrderByDescending(v => v.VersionNumber).FirstOrDefault() ?? throw new ConflictException("The template has no published version.");
-        period.MilestoneTemplateId = templateId; period.UpdatedAt = DateTime.UtcNow; await db.SaveChangesAsync(ct);
+        period.MilestoneTemplateId = templateId; period.MilestoneTemplateVersionId = version.Id; version.LockedAt ??= DateTime.UtcNow;
+        period.UpdatedAt = DateTime.UtcNow; await db.SaveChangesAsync(ct);
     }
     private async System.Threading.Tasks.Task<MilestoneTemplateVersion> EditableVersionAsync(long id, CancellationToken ct) { var v = await db.MilestoneTemplateVersions.SingleOrDefaultAsync(v => v.Id == id, ct) ?? throw new NotFoundException("MilestoneTemplateVersion", id); await EnsureEditableAsync(v, ct); return v; }
-    private async System.Threading.Tasks.Task EnsureEditableAsync(MilestoneTemplateVersion v, CancellationToken ct) { if (v.Status != "DRAFT" || await db.ProjectMilestoneTemplateApplications.AnyAsync(a => a.MilestoneTemplateVersionId == v.Id, ct)) throw new ConflictException("A published or applied template version is immutable."); }
+    private async System.Threading.Tasks.Task EnsureEditableAsync(MilestoneTemplateVersion v, CancellationToken ct) { if (v.Status != "DRAFT" || v.LockedAt.HasValue || await db.ProjectMilestoneTemplateApplications.AnyAsync(a => a.MilestoneTemplateVersionId == v.Id, ct)) throw new ConflictException("A published or assigned template version is immutable."); }
     private static void Validate(SaveMilestoneTemplateItemRequest r) { if (string.IsNullOrWhiteSpace(r.Title)) throw new ValidationException(new Dictionary<string, string[]> { ["title"] = ["Title is required."] }); if (r.StartOffsetDays.HasValue && r.DueOffsetDays.HasValue && r.DueOffsetDays < r.StartOffsetDays) throw new ValidationException(new Dictionary<string, string[]> { ["dueOffsetDays"] = ["Due offset must not precede start offset."] }); }
     private System.Threading.Tasks.Task<MilestoneTemplate> LoadAsync(long id, CancellationToken ct) => db.MilestoneTemplates.Include(t => t.Versions).ThenInclude(v => v.Items).SingleAsync(t => t.Id == id, ct);
     private System.Threading.Tasks.Task<MilestoneTemplateVersion> LoadVersionAsync(long id, CancellationToken ct) => db.MilestoneTemplateVersions.Include(v => v.Items).SingleAsync(v => v.Id == id, ct);

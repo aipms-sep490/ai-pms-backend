@@ -22,6 +22,7 @@ internal static class SemesterMapper
             entity.Status,
             entity.CreatedAt,
             entity.UpdatedAt);
+            
 
     public static ProjectPeriodModel ToApplication(
         this ProjectPeriodEntity entity) =>
@@ -43,5 +44,6 @@ internal static class SemesterMapper
             entity.MilestoneTemplateId,
             entity.RubricId,
             entity.CreatedAt,
-            entity.UpdatedAt);
+            entity.UpdatedAt,
+            entity.MilestoneTemplateVersionId);
 }
