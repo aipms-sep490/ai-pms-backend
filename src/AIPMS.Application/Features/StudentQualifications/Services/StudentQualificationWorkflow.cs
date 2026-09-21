@@ -101,6 +101,50 @@ public sealed class StudentQualificationWorkflow(
         CancellationToken cancellationToken) =>
         DecideAsync(qualificationId, StudentQualificationStatuses.Rejected, reason, cancellationToken);
 
+    public async Task<ProjectPeriodQualificationPolicyDto> GetPeriodPolicyAsync(
+        long projectPeriodId,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUser.IsAuthenticated)
+            throw new UnauthorizedException();
+
+        var result = await repository.GetPeriodPolicyAsync(projectPeriodId, cancellationToken);
+        return result is null
+            ? new ProjectPeriodQualificationPolicyDto(
+                projectPeriodId, false, StudentQualificationTypes.CapstoneReadiness, true, true, DateTime.MinValue)
+            : result.ToDto();
+    }
+
+    public async Task<ProjectPeriodQualificationPolicyDto> SetPeriodPolicyAsync(
+        long projectPeriodId,
+        SetProjectPeriodQualificationPolicyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var actorId = RequireRole(AppRoles.Admin);
+        var qualificationType = NormalizeType(request.QualificationType);
+        var result = await repository.SetPeriodPolicyAsync(
+            projectPeriodId,
+            request.RequireStudentQualification,
+            qualificationType,
+            request.RequireCertificate,
+            request.CheckExpiration,
+            Now,
+            cancellationToken);
+
+        await audit.RecordAsync(new AuditEntry(
+            actorId, "PROJECT_PERIOD_QUALIFICATION_POLICY_UPDATED",
+            "PROJECT_PERIOD", projectPeriodId,
+            new Dictionary<string, object?>
+            {
+                ["requireStudentQualification"] = result.RequireStudentQualification,
+                ["qualificationType"] = result.QualificationType,
+                ["requireCertificate"] = result.RequireCertificate,
+                ["checkExpiration"] = result.CheckExpiration
+            }), cancellationToken);
+
+        return result.ToDto();
+    }
+
     private async Task<StudentQualificationDto> DecideAsync(
         long qualificationId,
         string status,
