@@ -13,6 +13,11 @@ public sealed record VerifyStudentQualificationCommand(long QualificationId)
 public sealed record RejectStudentQualificationCommand(long QualificationId, string? Reason)
     : IRequest<StudentQualificationDto>;
 
+public sealed record SetProjectPeriodQualificationPolicyCommand(
+    long ProjectPeriodId,
+    SetProjectPeriodQualificationPolicyRequest Request)
+    : IRequest<ProjectPeriodQualificationPolicyDto>;
+
 public sealed class SubmitStudentQualificationEvidenceCommandHandler(StudentQualificationWorkflow workflow)
     : IRequestHandler<SubmitStudentQualificationEvidenceCommand, StudentQualificationDto>
 {
@@ -35,4 +40,12 @@ public sealed class RejectStudentQualificationCommandHandler(StudentQualificatio
     public Task<StudentQualificationDto> Handle(
         RejectStudentQualificationCommand request, CancellationToken cancellationToken) =>
         workflow.RejectAsync(request.QualificationId, request.Reason, cancellationToken);
+}
+
+public sealed class SetProjectPeriodQualificationPolicyCommandHandler(StudentQualificationWorkflow workflow)
+    : IRequestHandler<SetProjectPeriodQualificationPolicyCommand, ProjectPeriodQualificationPolicyDto>
+{
+    public Task<ProjectPeriodQualificationPolicyDto> Handle(
+        SetProjectPeriodQualificationPolicyCommand request, CancellationToken cancellationToken) =>
+        workflow.SetPeriodPolicyAsync(request.ProjectPeriodId, request.Request, cancellationToken);
 }
