@@ -23,8 +23,9 @@ public sealed partial class TeamEndpointTests
 
         Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsync(
             $"/api/v1/student-qualifications/{qualificationId}/verify", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await outside.PostAsync(
-            $"/api/v1/student-qualifications/{qualificationId}/verify", null)).StatusCode);
+        var outsideResponse = await outside.PostAsync($"/api/v1/student-qualifications/{qualificationId}/verify", null);
+        Assert.True(outsideResponse.StatusCode == HttpStatusCode.Forbidden,
+            await FailureDiagnosticsAsync(outsideResponse));
         Assert.Equal(HttpStatusCode.OK, (await staff.PostAsync(
             $"/api/v1/student-qualifications/{qualificationId}/verify", null)).StatusCode);
 
@@ -180,5 +181,12 @@ public sealed partial class TeamEndpointTests
         db.Users.Add(user);
         await db.SaveChangesAsync();
         return user.Id;
+    }
+
+    private static async Task<string> FailureDiagnosticsAsync(HttpResponseMessage response)
+    {
+        var logs = Directory.GetFiles(Path.GetTempPath(), "aipms-tests-*.log")
+            .Select(File.ReadAllText);
+        return $"HTTP {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}\n{string.Join(Environment.NewLine, logs)}";
     }
 }
