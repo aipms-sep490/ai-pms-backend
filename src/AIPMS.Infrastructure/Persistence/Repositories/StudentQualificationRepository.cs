@@ -13,47 +13,77 @@ namespace AIPMS.Infrastructure.Persistence.Repositories;
 internal sealed class StudentQualificationRepository(AipmsDbContext context)
     : IStudentQualificationRepository
 {
-    private IQueryable<StudentQualificationModel> Query()
+    private IQueryable<StudentQualificationModel> Query(
+        long? qualificationId = null,
+        long? userId = null,
+        string? qualificationType = null,
+        long? organizationId = null,
+        long? departmentId = null,
+        string? verificationStatus = null,
+        string? search = null)
     {
         var q =
             from qualification in context.Set<StudentQualification>().AsNoTracking()
             join user in context.Users.AsNoTracking() on qualification.UserId equals user.Id
-            select new StudentQualificationModel(
-                qualification.Id,
-                qualification.UserId,
-                user.FullName,
-                user.StudentCode,
-                qualification.OrganizationId,
-                user.Major != null ? user.Major.DepartmentId : (user.DepartmentId ?? 0),
-                user.MajorId,
-                qualification.QualificationType,
-                qualification.TrainingStatus,
-                qualification.VerificationStatus,
-                qualification.CertificateNumber,
-                qualification.CertificateFileId,
-                qualification.IssuedAt,
-                qualification.ExpiresAt,
-                qualification.VerifiedBy,
-                qualification.VerifiedAt,
-                qualification.RejectionReason,
-                qualification.CreatedAt,
-                qualification.UpdatedAt);
+            select new
+            {
+                Qualification = qualification,
+                User = user,
+                DepartmentId = user.Major != null ? user.Major.DepartmentId : (user.DepartmentId ?? 0)
+            };
 
-        return q;
+        if (qualificationId.HasValue)
+            q = q.Where(x => x.Qualification.Id == qualificationId.Value);
+        if (userId.HasValue)
+            q = q.Where(x => x.Qualification.UserId == userId.Value);
+        if (!string.IsNullOrWhiteSpace(qualificationType))
+            q = q.Where(x => x.Qualification.QualificationType == qualificationType);
+        if (organizationId.HasValue)
+            q = q.Where(x => x.Qualification.OrganizationId == organizationId.Value);
+        if (departmentId.HasValue)
+            q = q.Where(x => x.DepartmentId == departmentId.Value);
+        if (!string.IsNullOrWhiteSpace(verificationStatus))
+            q = q.Where(x => x.Qualification.VerificationStatus == verificationStatus);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var value = search.Trim();
+            q = q.Where(x => x.User.FullName.Contains(value)
+                || (x.User.StudentCode != null && x.User.StudentCode.Contains(value)));
+        }
+
+        return q.Select(x => new StudentQualificationModel(
+            x.Qualification.Id,
+            x.Qualification.UserId,
+            x.User.FullName,
+            x.User.StudentCode,
+            x.Qualification.OrganizationId,
+            x.DepartmentId,
+            x.User.MajorId,
+            x.Qualification.QualificationType,
+            x.Qualification.TrainingStatus,
+            x.Qualification.VerificationStatus,
+            x.Qualification.CertificateNumber,
+            x.Qualification.CertificateFileId,
+            x.Qualification.IssuedAt,
+            x.Qualification.ExpiresAt,
+            x.Qualification.VerifiedBy,
+            x.Qualification.VerifiedAt,
+            x.Qualification.RejectionReason,
+            x.Qualification.CreatedAt,
+            x.Qualification.UpdatedAt));
     }
 
     public Task<StudentQualificationModel?> GetForUserAsync(
         long userId,
         string qualificationType,
         CancellationToken cancellationToken = default) =>
-        Query().SingleOrDefaultAsync(
-            x => x.UserId == userId && x.QualificationType == qualificationType,
-            cancellationToken);
+        Query(userId: userId, qualificationType: qualificationType)
+            .SingleOrDefaultAsync(cancellationToken);
 
     public Task<StudentQualificationModel?> GetAsync(
         long qualificationId,
         CancellationToken cancellationToken = default) =>
-        Query().SingleOrDefaultAsync(x => x.Id == qualificationId, cancellationToken);
+        Query(qualificationId: qualificationId).SingleOrDefaultAsync(cancellationToken);
 
     public async Task<PagedResult<StudentQualificationModel>> SearchVerificationQueueAsync(
         long organizationId,
@@ -64,19 +94,8 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        var query = Query().Where(x =>
-            x.OrganizationId == organizationId && x.DepartmentId == departmentId);
-
-        if (!string.IsNullOrWhiteSpace(verificationStatus))
-            query = query.Where(x => x.VerificationStatus == verificationStatus);
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var value = search.Trim();
-            query = query.Where(x =>
-                x.FullName.Contains(value)
-                || (x.StudentCode != null && x.StudentCode.Contains(value)));
-        }
+        var query = Query(organizationId: organizationId, departmentId: departmentId,
+            verificationStatus: verificationStatus, search: search);
 
         var total = await query.LongCountAsync(cancellationToken);
         var items = await query
