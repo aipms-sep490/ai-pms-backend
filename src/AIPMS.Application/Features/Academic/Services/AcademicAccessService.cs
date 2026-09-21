@@ -53,6 +53,14 @@ public sealed class AcademicAccessService(
         }
     }
 
+    public async Task<long?> GetManagedDepartmentIdAsync(CancellationToken cancellationToken)
+    {
+        EnsureAuthenticated();
+        if (HasRole(AppRoles.Admin)) return null;
+        var scope = await GetDepartmentStaffScopeAsync(cancellationToken);
+        return scope.DepartmentId;
+    }
+
     public async Task EnsureCanManageMajorInDepartmentAsync(
         long departmentId,
         CancellationToken cancellationToken)

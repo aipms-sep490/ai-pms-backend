@@ -15,7 +15,7 @@ internal sealed class TeamInvitationCandidateReader(AipmsDbContext context) : IT
     {
         var majorIds = scope.AllowedMajorIds?.ToArray() ?? [scope.MajorId];
         var query = context.Users.AsNoTracking().Where(u =>
-            u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Student)
+            u.Status == "ACTIVE" && u.AcademicProfileStatus == "VERIFIED" && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Student)
             && u.MajorId.HasValue && majorIds.Contains(u.MajorId.Value) && u.Major != null && u.Major.IsActive
             && u.DepartmentId == u.Major.DepartmentId && u.Major.Department.IsActive
             && u.Major.Department.OrganizationId == scope.OrganizationId && u.Major.Department.Organization.IsActive

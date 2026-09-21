@@ -27,6 +27,11 @@ public partial class User
 
     public string Status { get; set; } = null!;
 
+    public string? AcademicProfileStatus { get; set; }
+    public long? AcademicProfileReviewedBy { get; set; }
+    public DateTime? AcademicProfileReviewedAt { get; set; }
+    public string? AcademicProfileRejectionReason { get; set; }
+
     public DateTime? LastLoginAt { get; set; }
 
     public DateTime CreatedAt { get; set; }

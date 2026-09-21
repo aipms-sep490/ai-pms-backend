@@ -63,6 +63,8 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                 "db", "changes", "20260918_add_notification_email_deliveries.sql"), ct);
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260920_add_team_leader_change_requests.sql"), ct);
+            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
+                "db", "changes", "20260921_add_academic_profile_verification.sql"), ct);
             if (Regex.IsMatch(schema, @"\bUSE\s|\b(?:CREATE|DROP|ALTER)\s+DATABASE\b", RegexOptions.IgnoreCase))
                 throw new InvalidOperationException("Schema must not switch or manage databases.");
 
