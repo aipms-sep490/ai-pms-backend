@@ -608,6 +608,9 @@ public sealed class SemesterEndpointTests
             long rubricId, long semesterId, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
 
+        public Task<bool> ValidateMilestoneTemplateUsableAsync(long templateId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
         public Task<T> ExecuteInTransactionAsync<T>(
             Func<Task<T>> action, CancellationToken cancellationToken = default) =>
             action();
