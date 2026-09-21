@@ -13,9 +13,13 @@ internal static class TeamDtoMapper
                 ? DateTime.SpecifyKind(candidate.PendingInvitationExpiresAt.Value, DateTimeKind.Utc) : null,
             !candidate.PendingInvitationId.HasValue);
 
-    public static TeamMemberDto ToDto(this TeamParticipant member) =>
+    public static TeamMemberDto ToDto(
+        this TeamParticipant member,
+        StudentQualificationEligibility? qualification = null) =>
         new(member.UserId, member.FullName, member.MajorId, member.OrganizationId,
-            member.IsEligibleStudent, member.IsLeader);
+            member.IsEligibleStudent, member.IsLeader,
+            qualification?.Eligible ?? true,
+            qualification?.Status ?? "NOT_REQUIRED");
 
     public static TeamInvitationDto ToDto(this TeamInvitationData invitation) =>
         new(invitation.Id, invitation.TeamId, invitation.InvitedUserId,
