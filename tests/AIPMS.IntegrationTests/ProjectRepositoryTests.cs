@@ -89,14 +89,14 @@ public class DbFixture : IAsyncLifetime
             """);
 
         await Context.Database.ExecuteSqlAsync($"""
-            INSERT INTO dbo.users (major_id, email, password_hash, full_name, status)
-            VALUES ({majorId}, 'student1@aipms.test', 'HASH', 'Student One', 'ACTIVE')
+            INSERT INTO dbo.users (major_id, email, password_hash, full_name, status, academic_profile_status)
+            VALUES ({majorId}, 'student1@aipms.test', 'HASH', 'Student One', 'ACTIVE', 'VERIFIED')
             """);
         long student1Id = await Context.Users.Where(u => u.Email == "student1@aipms.test").Select(u => u.Id).FirstAsync();
 
         await Context.Database.ExecuteSqlAsync($"""
-            INSERT INTO dbo.users (major_id, email, password_hash, full_name, status)
-            VALUES ({majorId}, 'student2@aipms.test', 'HASH', 'Student Two', 'ACTIVE')
+            INSERT INTO dbo.users (major_id, email, password_hash, full_name, status, academic_profile_status)
+            VALUES ({majorId}, 'student2@aipms.test', 'HASH', 'Student Two', 'ACTIVE', 'VERIFIED')
             """);
         long student2Id = await Context.Users.Where(u => u.Email == "student2@aipms.test").Select(u => u.Id).FirstAsync();
 

@@ -404,7 +404,7 @@ public sealed partial class SupervisorRequestEndpointTests(SupervisorDatabaseFix
     {
         await using var db = database.CreateContext();
         var roleId = await db.Roles.Where(r => r.Code == AppRoles.Student).Select(r => r.Id).SingleAsync();
-        User Student() => new() { Email = $"{Guid.NewGuid():N}@test.local", FullName = "Student", Status = "ACTIVE",
+        User Student() => new() { Email = $"{Guid.NewGuid():N}@test.local", FullName = "Student", Status = "ACTIVE", AcademicProfileStatus = "VERIFIED",
             PasswordHash = "unused", DepartmentId = s.DepartmentId, UserRoleUsers = [new() { RoleId = roleId }] };
         var leader = Student();
         var member = Student();
