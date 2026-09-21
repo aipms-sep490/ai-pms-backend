@@ -41,4 +41,17 @@ public interface IStudentQualificationRepository
         string? reason,
         DateTime utcNow,
         CancellationToken cancellationToken = default);
+    Task<ProjectPeriodQualificationPolicyModel?> GetPeriodPolicyAsync(
+        long projectPeriodId,
+        CancellationToken cancellationToken = default);
+
+    Task<ProjectPeriodQualificationPolicyModel> SetPeriodPolicyAsync(
+        long projectPeriodId,
+        bool requireStudentQualification,
+        string qualificationType,
+        bool requireCertificate,
+        bool checkExpiration,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default);
 }
+
