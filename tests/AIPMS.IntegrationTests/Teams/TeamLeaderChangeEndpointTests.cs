@@ -3,9 +3,14 @@ using System.Net.Http.Json;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Teams.DTOs;
+using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Task = System.Threading.Tasks.Task;
+using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.IntegrationTests.Teams;
 
@@ -21,6 +26,7 @@ public sealed partial class TeamEndpointTests
     [InlineData("target-left")]
     [InlineData("current-leader-changed")]
     [InlineData("concurrent-approve")]
+    [InlineData("notification-failure")]
     [InlineData("audit-failure")]
     public async Task Assigned_mentor_must_approve_leader_change_before_membership_changes(string decision)
     {
@@ -199,6 +205,22 @@ public sealed partial class TeamEndpointTests
                 && n.NotificationType == "TEAM_LEADER_CHANGE_APPROVED"));
             return;
         }
+        if (decision == "notification-failure")
+        {
+            using var failingApp = new TeamTestFactory(database, scenario, customizeServices: InjectApprovedNotificationFailure);
+            using var failingMentor = failingApp.CreateAuthenticatedClient(mentorId, roles: [AppRoles.Lecturer]);
+            Assert.Equal(HttpStatusCode.InternalServerError, (await failingMentor.PostAsJsonAsync(
+                $"/api/v1/team-leader-change-requests/{pending.Id}/approve", new { })).StatusCode);
+            await using var db = database.CreateContext();
+            Assert.Equal("PENDING", (await db.TeamLeaderChangeRequests.SingleAsync(r => r.Id == pending.Id)).Status);
+            Assert.Equal(scenario.Students[0], await db.TeamMembers.Where(m => m.TeamId == team.Id && m.IsLeader)
+                .Select(m => m.UserId).SingleAsync());
+            Assert.False(await db.AuditLogs.AnyAsync(a => a.Action == "TEAM_LEADER_CHANGE_APPROVED"
+                && a.EntityId == pending.Id.ToString()));
+            Assert.False(await db.Notifications.AnyAsync(n => n.RelatedEntityId == pending.Id
+                && n.NotificationType == "TEAM_LEADER_CHANGE_APPROVED"));
+            return;
+        }
         if (decision == "reject")
         {
             var rejected = await BodyAsync<TeamLeaderChangeRequestDto>(await mentorClient.PostAsJsonAsync(
@@ -237,5 +259,24 @@ public sealed partial class TeamEndpointTests
             .Select(m => m.UserId).SingleAsync());
         Assert.Contains("TEAM_LEADER_CHANGE_APPROVED", await after.AuditLogs
             .Where(a => a.EntityId == pending.Id.ToString()).Select(a => a.Action).ToArrayAsync());
+    }
+
+    private void InjectApprovedNotificationFailure(IServiceCollection services)
+    {
+        services.RemoveAll<DbContextOptions<AipmsDbContext>>();
+        services.AddDbContext<AipmsDbContext>(options => options.UseSqlServer(database.ConnectionString)
+            .AddInterceptors(new FailApprovedNotificationSave()));
+    }
+
+    private sealed class FailApprovedNotificationSave : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context!.ChangeTracker.Entries<M.Notification>().Any(entry => entry.State == EntityState.Added
+                && entry.Entity.NotificationType == "TEAM_LEADER_CHANGE_APPROVED"))
+                throw new InvalidOperationException("Injected approved leader-change notification failure");
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
     }
 }
