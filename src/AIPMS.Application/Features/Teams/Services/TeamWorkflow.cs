@@ -113,8 +113,18 @@ public sealed class TeamWorkflow(
         var locked = reasons.Count > 0;
         if (window is not null && policy is { IsValid: true })
             reasons.AddRange(await EligibilityErrorsAsync(team, policy, window.OrganizationId, ct));
+        var memberDtos = new List<TeamMemberDto>(team.Members.Count);
+        foreach (var member in team.Members)
+        {
+            StudentQualificationEligibility? qualification = null;
+            if (policy is { RequireStudentQualification: true })
+                qualification = await repository.GetQualificationEligibilityAsync(
+                    member.UserId, team.SemesterId, Now, ct);
+            memberDtos.Add(member.ToDto(qualification));
+        }
+
         return new TeamDto(team.Id, team.SemesterId, team.Code, team.Name, team.Description,
-            team.Status, team.Members.Select(member => member.ToDto()).ToArray(),
+            team.Status, memberDtos,
             new TeamEligibilityDto(reasons.Count == 0, locked,
                 window?.PeriodId, policy?.Version, reasons.Distinct().ToArray()), team.AcademicScope is null ? null : TeamAcademicScopeDto.FromScope(team.AcademicScope));
     }
