@@ -454,6 +454,9 @@ public sealed class TeamWorkflow(
         var member = team.Members.SingleOrDefault(m => m.UserId == request.NewLeaderUserId)
             ?? throw new ConflictException("The new leader must be an active member of this team.");
         RequireEligibleStudent(member, window.OrganizationId);
+        // Direct (pre-project) handover is still a command boundary. Do not trust
+        // eligibility calculated when the member joined the team.
+        await RequireQualificationAsync(member, team.SemesterId, policy, token);
         RequireSameMajorAsLeader(team, member, window.OrganizationId, policy);
         if (member.UserId == actor.UserId)
             throw new ConflictException("This student is already the leader.");

@@ -155,7 +155,14 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
         entity.ConcurrencyToken = Guid.NewGuid();
         entity.UpdatedAt = utcNow;
 
-        await context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ConflictException("The qualification changed concurrently. Reload and retry.");
+        }
         return (await GetAsync(entity.Id, cancellationToken))!;
     }
 
@@ -181,7 +188,14 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
         entity.ConcurrencyToken = Guid.NewGuid();
         entity.UpdatedAt = utcNow;
 
-        await context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ConflictException("The qualification changed concurrently. Reload and retry.");
+        }
         return (await GetAsync(entity.Id, cancellationToken))!;
     }
 

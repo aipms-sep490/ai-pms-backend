@@ -26,9 +26,11 @@ public sealed partial class TeamHandlerTests
         var expected = JsonNode.Parse("""
             [
               { "userId": 1, "fullName": "Leader", "majorId": 10, "organizationId": 1,
-                "isEligibleStudent": true, "isLeader": true },
+                "isEligibleStudent": true, "isLeader": true,
+                "isProjectQualificationEligible": true, "qualificationStatus": "NOT_REQUIRED" },
               { "userId": 2, "fullName": "SE member", "majorId": 10, "organizationId": 1,
-                "isEligibleStudent": true, "isLeader": false }
+                "isEligibleStudent": true, "isLeader": false,
+                "isProjectQualificationEligible": true, "qualificationStatus": "NOT_REQUIRED" }
             ]
             """);
         Assert.True(JsonNode.DeepEquals(expected, json), json?.ToJsonString());
@@ -271,6 +273,21 @@ public sealed partial class TeamHandlerTests
     }
 
     [Fact]
+    public async Task Transfer_handler_rechecks_required_qualification_before_direct_handover()
+    {
+        var h = new Harness();
+        h.Policies.Policy = new(2, 3, 24, "v1", RequireStudentQualification: true);
+        h.Repository.Qualifications[2] = new(true, false, "PENDING_VERIFICATION", "QUALIFICATION_PENDING_VERIFICATION");
+
+        var error = await Assert.ThrowsAsync<ConflictException>(() =>
+            new TransferTeamLeaderCommandHandler(h.Workflow).Handle(new(1, 2), default));
+
+        Assert.Equal("QUALIFICATION_PENDING_VERIFICATION", error.Message);
+        Assert.Equal(1, Assert.Single(h.Repository.Team!.Members, m => m.IsLeader).UserId);
+        Assert.Empty(h.Audit.Entries);
+    }
+
+    [Fact]
     public async Task Leader_cannot_leave_before_transfer()
     {
         var h = new Harness();
@@ -394,6 +411,7 @@ public sealed partial class TeamHandlerTests
         public TeamSnapshot? Team { get; set; }
         public Dictionary<long, TeamInvitationData> Invitations { get; private set; } = [];
         public Dictionary<long, long> OtherMemberships { get; } = [];
+        public Dictionary<long, StudentQualificationEligibility> Qualifications { get; } = [];
         public TeamRegistrationWindow? Window { get; set; } = new(10, 1, 1, Now.AddHours(2));
         public bool InTransaction { get; private set; }
         public int Rollbacks { get; private set; }
@@ -412,6 +430,8 @@ public sealed partial class TeamHandlerTests
         }
         public Task<TeamSnapshot?> GetAsync(long id, CancellationToken ct) => Task.FromResult(Team?.Id == id ? Team : null);
         public Task<TeamParticipant?> GetStudentAsync(long id, CancellationToken ct) => Task.FromResult(Students.GetValueOrDefault(id));
+        public Task<StudentQualificationEligibility> GetQualificationEligibilityAsync(long userId, long semesterId, DateTime now, CancellationToken ct) =>
+            Task.FromResult(Qualifications.GetValueOrDefault(userId, new(false, true, "NOT_REQUIRED", null)));
         public Task<TeamRegistrationWindow?> GetOpenWindowAsync(long semester, DateTime now, CancellationToken ct) => Task.FromResult(Window);
         public Task<long?> GetCurrentTeamIdAsync(long semester, long user, CancellationToken ct) =>
             Task.FromResult(OtherMemberships.TryGetValue(user, out var other) ? (long?)other
