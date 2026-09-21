@@ -45,7 +45,7 @@ public sealed class TopicDatabaseFixture : IAsyncLifetime
         db.AddRange(major, otherMajor, period);
         var student = (await db.Users.FindAsync(users.Student))!; student.Major = major;
         var studentRole = await db.Roles.SingleAsync(r => r.Code == "STUDENT");
-        var otherStudent = new M.User { Email = Guid.NewGuid() + "@example.test", FullName = "Business student", Status = "ACTIVE", PasswordHash = "unused",
+        var otherStudent = new M.User { Email = Guid.NewGuid() + "@example.test", FullName = "Business student", Status = "ACTIVE", AcademicProfileStatus = "VERIFIED", PasswordHash = "unused",
             DepartmentId = otherDepartment, Major = otherMajor, UserRoleUsers = [new() { RoleId = studentRole.Id }] };
         db.Users.Add(otherStudent);
         await db.SaveChangesAsync();

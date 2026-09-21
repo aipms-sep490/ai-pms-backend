@@ -41,7 +41,7 @@ public sealed class SupervisorDatabaseFixture : IAsyncLifetime
         var otherDepartment = new Department { Code = "BUS", Name = "Business", IsActive = true, Organization = org };
         User Account(string name, string role, Department dept) => new()
         {
-            Email = $"{name}-{suffix}@example.test", FullName = name, PasswordHash = "unused", Status = "ACTIVE",
+            Email = $"{name}-{suffix}@example.test", FullName = name, PasswordHash = "unused", Status = "ACTIVE", AcademicProfileStatus = "VERIFIED",
             Department = dept, UserRoleUsers = [new() { RoleId = roles[role] }]
         };
         var admin = Account("Admin", AppRoles.Admin, department);

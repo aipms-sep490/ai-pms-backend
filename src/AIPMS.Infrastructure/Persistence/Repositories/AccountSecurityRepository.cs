@@ -96,7 +96,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
             EmployeeCode = data.EmployeeCode,
             Title = data.Title,
             Status = "ACTIVE",
-            AcademicProfileStatus = await IsStudentAccountAsync(data.RoleIds, cancellationToken) ? "PENDING" : "VERIFIED",
+            AcademicProfileStatus = "PENDING",
             AccessFailedCount = 0,
             PasswordChangedAt = utcNow,
             CreatedAt = utcNow,
@@ -105,7 +105,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         context.Users.Add(user);
         await SaveChangesAsync(cancellationToken);
 
-        if (user.AcademicProfileStatus == "PENDING") context.AcademicProfileVerifications.Add(new() { UserId = user.Id, Status = "PENDING" });
+        if (await IsStudentAccountAsync(data.RoleIds, cancellationToken)) context.AcademicProfileVerifications.Add(new() { UserId = user.Id, Status = "PENDING" });
         context.UserRoles.AddRange(data.RoleIds.Select(roleId => new UserRole
         {
             UserId = user.Id,
@@ -141,7 +141,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
                 EmployeeCode = data.EmployeeCode,
                 Title = data.Title,
                 Status = "ACTIVE",
-                AcademicProfileStatus = studentRoleId.HasValue && data.RoleIds.Contains(studentRoleId.Value) ? "PENDING" : "VERIFIED",
+                AcademicProfileStatus = "PENDING",
                 AccessFailedCount = 0,
                 PasswordChangedAt = utcNow,
                 CreatedAt = utcNow,
@@ -151,7 +151,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
 
         context.Users.AddRange(pairs.Select(static pair => pair.Entity));
         await SaveChangesAsync(cancellationToken);
-        foreach (var pair in pairs.Where(p => p.Entity.AcademicProfileStatus == "PENDING"))
+        foreach (var pair in pairs.Where(p => studentRoleId.HasValue && p.Data.RoleIds.Contains(studentRoleId.Value)))
             context.AcademicProfileVerifications.Add(new() { UserId = pair.Entity.Id, Status = "PENDING" });
         context.UserRoles.AddRange(pairs.SelectMany(pair =>
             pair.Data.RoleIds.Select(roleId => new UserRole

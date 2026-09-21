@@ -44,11 +44,10 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
         return actor.Admin ? null : actor.DepartmentId;
     }
 
-    private IQueryable<AcademicProfileDto> Query() => db.Users.AsNoTracking()
-        .Where(u => u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Student)).Select(u => new AcademicProfileDto(
+    private static readonly System.Linq.Expressions.Expression<Func<Generated.Models.User, AcademicProfileDto>> Projection = u => new AcademicProfileDto(
         u.Id, u.FullName, u.Email, u.StudentCode, u.DepartmentId, u.Department == null ? null : u.Department.Name,
         u.MajorId, u.Major == null ? null : u.Major.Name, u.AcademicProfileStatus ?? "PENDING",
-        u.AcademicProfileReviewedBy, u.AcademicProfileReviewedAt, u.AcademicProfileRejectionReason));
+        u.AcademicProfileReviewedBy, u.AcademicProfileReviewedAt, u.AcademicProfileRejectionReason);
 
     public Task<AcademicProfileDto?> GetAsync(long userId, CancellationToken ct = default) =>
         db.Users.AsNoTracking().Where(u => u.Id == userId && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Student))
@@ -59,12 +58,12 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
 
     public async Task<PagedResult<AcademicProfileDto>> SearchAsync(string? status, long? departmentId, int page, int pageSize, CancellationToken ct = default)
     {
-        var query = Query();
-        if (!string.IsNullOrWhiteSpace(status)) query = query.Where(x => x.Status == status.Trim().ToUpperInvariant());
+        var query = db.Users.AsNoTracking().Where(u => u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Student));
+        if (!string.IsNullOrWhiteSpace(status)) query = query.Where(x => x.AcademicProfileStatus == status.Trim().ToUpperInvariant());
         if (departmentId.HasValue) query = query.Where(x => x.DepartmentId == departmentId.Value);
         var count = await query.LongCountAsync(ct);
-        var items = await query.OrderBy(x => x.FullName).ThenBy(x => x.UserId)
-            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var items = await query.OrderBy(x => x.FullName).ThenBy(x => x.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).Select(Projection).ToListAsync(ct);
         return new(items, page, pageSize, count);
     }
 
