@@ -191,17 +191,18 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         "REPORT" => db.ProgressReports.AsNoTracking().Where(r => r.Id == id).Select(r => new FileParent(type, id, r.ProjectId, r.Status, r.SubmittedBy)).SingleOrDefaultAsync(ct),
         "MEETING" => db.Meetings.AsNoTracking().Where(m => m.Id == id).Select(m => new FileParent(type, id, m.ProjectId, m.Status, m.CreatedBy)).SingleOrDefaultAsync(ct),
         "FEEDBACK" => db.SupervisorFeedbacks.AsNoTracking().Where(f => f.Id == id).Select(f => new FileParent(type, id, f.ProjectId, "LOCKED", f.SupervisorAssignment.SupervisorProfile.UserId)).SingleOrDefaultAsync(ct),
+        "TASK" => db.Tasks.AsNoTracking().Where(t => t.Id == id).Select(t => new FileParent(type, id, t.Milestone.ProjectId, "OPEN", t.CreatedBy)).SingleOrDefaultAsync(ct),
         _ => Task.FromResult<FileParent?>(null)
     };
 
     public async Task<StoredProjectFile?> GetFileAsync(long id, CancellationToken ct)
     {
         var file = await db.Files.AsNoTracking().Include(f => f.DeliverableVersion).ThenInclude(v => v!.Deliverable)
-            .Include(f => f.ProgressReport).Include(f => f.Meeting).Include(f => f.SupervisorFeedback).SingleOrDefaultAsync(f => f.Id == id, ct);
+            .Include(f => f.ProgressReport).Include(f => f.Meeting).Include(f => f.SupervisorFeedback).Include(f => f.Task).ThenInclude(t => t!.Milestone).SingleOrDefaultAsync(f => f.Id == id, ct);
         if (file is null) return null;
         return new(file.ToDto(), file.StoragePath,
-            file.DeliverableVersion?.Deliverable.ProjectId ?? file.ProgressReport?.ProjectId ?? file.Meeting?.ProjectId ?? file.SupervisorFeedback?.ProjectId ?? 0,
-            new[] { file.DeliverableVersionId, file.ProgressReportId, file.MeetingId, file.SupervisorFeedbackId }.Count(x => x.HasValue));
+            file.Task?.Milestone.ProjectId ?? file.DeliverableVersion?.Deliverable.ProjectId ?? file.ProgressReport?.ProjectId ?? file.Meeting?.ProjectId ?? file.SupervisorFeedback?.ProjectId ?? 0,
+            new[] { file.TaskId, file.DeliverableVersionId, file.ProgressReportId, file.MeetingId, file.SupervisorFeedbackId }.Count(x => x.HasValue));
     }
 
     public async Task<PagedResult<ProjectFileDto>> FilesAsync(FileSearch search, CancellationToken ct)
@@ -210,7 +211,8 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
             (f.DeliverableVersion != null && f.DeliverableVersion.Deliverable.ProjectId == search.ProjectId)
             || (f.ProgressReport != null && f.ProgressReport.ProjectId == search.ProjectId)
             || (f.Meeting != null && f.Meeting.ProjectId == search.ProjectId)
-            || (f.SupervisorFeedback != null && f.SupervisorFeedback.ProjectId == search.ProjectId));
+            || (f.SupervisorFeedback != null && f.SupervisorFeedback.ProjectId == search.ProjectId)
+            || (f.Task != null && f.Task.Milestone.ProjectId == search.ProjectId));
         if (!string.IsNullOrWhiteSpace(search.Search)) query = query.Where(f => f.OriginalFileName.Contains(search.Search.Trim()));
         if (!string.IsNullOrWhiteSpace(search.ContentType)) query = query.Where(f => f.MimeType == search.ContentType.Trim());
         if (search.UploadedBy.HasValue) query = query.Where(f => f.UploadedBy == search.UploadedBy);
@@ -222,6 +224,7 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
             "REPORT" => query.Where(f => f.ProgressReportId != null && (!search.ParentId.HasValue || f.ProgressReportId == search.ParentId)),
             "MEETING" => query.Where(f => f.MeetingId != null && (!search.ParentId.HasValue || f.MeetingId == search.ParentId)),
             "FEEDBACK" => query.Where(f => f.SupervisorFeedbackId != null && (!search.ParentId.HasValue || f.SupervisorFeedbackId == search.ParentId)),
+            "TASK" => query.Where(f => f.TaskId != null && (!search.ParentId.HasValue || f.TaskId == search.ParentId)),
             _ => query
         };
         var count = await query.LongCountAsync(ct);
@@ -235,7 +238,8 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         var result = NewFile(key, file, actorId, now);
         if (parent.Type == "REPORT") result.ProgressReportId = parent.Id;
         else if (parent.Type == "MEETING") result.MeetingId = parent.Id;
-        else throw new InvalidOperationException("Standalone uploads require an editable report or meeting parent.");
+        else if (parent.Type == "TASK") result.TaskId = parent.Id;
+        else throw new InvalidOperationException("Standalone uploads require an editable report, meeting or task parent.");
         db.Files.Add(result);
         await db.SaveChangesAsync(ct);
         return result.ToDto();

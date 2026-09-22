@@ -16,6 +16,7 @@ public sealed record GetProjectFilesQuery(long ProjectId, string? Search, int Pa
     string? ParentType = null, long? ParentId = null) : IRequest<PagedResult<ProjectFileDto>>;
 public sealed record GetProjectFileQuery(long Id) : IRequest<ProjectFileDto>;
 public sealed record DownloadProjectFileQuery(long Id) : IRequest<FileDownload>;
+public sealed record GetTaskEvidenceQuery(long TaskId, int Page = 1, int PageSize = 20) : IRequest<PagedResult<ProjectFileDto>>;
 
 public sealed class GetDeliverableQueryHandler(DeliverableWorkflow workflow) : IRequestHandler<GetDeliverableQuery, DeliverableDto>
 {
@@ -50,4 +51,8 @@ public sealed class GetProjectFileQueryHandler(DeliverableWorkflow workflow) : I
 public sealed class DownloadProjectFileQueryHandler(DeliverableWorkflow workflow) : IRequestHandler<DownloadProjectFileQuery, FileDownload>
 {
     public Task<FileDownload> Handle(DownloadProjectFileQuery r, CancellationToken ct) => workflow.DownloadAsync(r.Id, ct);
+}
+public sealed class GetTaskEvidenceQueryHandler(DeliverableWorkflow workflow) : IRequestHandler<GetTaskEvidenceQuery, PagedResult<ProjectFileDto>>
+{
+    public Task<PagedResult<ProjectFileDto>> Handle(GetTaskEvidenceQuery r, CancellationToken ct) => workflow.TaskEvidenceAsync(r.TaskId, r.Page, r.PageSize, ct);
 }

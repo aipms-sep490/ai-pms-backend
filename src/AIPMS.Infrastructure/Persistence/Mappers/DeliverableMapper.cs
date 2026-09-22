@@ -11,14 +11,14 @@ internal static class DeliverableMapper
             d.Status, d.CreatedBy, d.DeliverableVersions.Select(v => (int?)v.VersionNumber).Max() ?? 0);
 
     public static readonly Expression<Func<M.File, ProjectFileDto>> FileProjection = f =>
-        new(f.Id, f.DeliverableVersionId != null ? "VERSION" : f.ProgressReportId != null ? "REPORT" : f.MeetingId != null ? "MEETING" : "FEEDBACK",
-            f.DeliverableVersionId ?? f.ProgressReportId ?? f.MeetingId ?? f.SupervisorFeedbackId ?? 0,
+        new(f.Id, f.TaskId != null ? "TASK" : f.DeliverableVersionId != null ? "VERSION" : f.ProgressReportId != null ? "REPORT" : f.MeetingId != null ? "MEETING" : "FEEDBACK",
+            f.TaskId ?? f.DeliverableVersionId ?? f.ProgressReportId ?? f.MeetingId ?? f.SupervisorFeedbackId ?? 0,
             f.OriginalFileName, f.MimeType ?? "application/octet-stream", f.FileSizeBytes,
             f.ChecksumSha256 ?? "", f.UploadedBy, f.CreatedAt);
 
     public static ProjectFileDto ToDto(this M.File f) => new(f.Id,
-        f.DeliverableVersionId.HasValue ? "VERSION" : f.ProgressReportId.HasValue ? "REPORT" : f.MeetingId.HasValue ? "MEETING" : "FEEDBACK",
-        f.DeliverableVersionId ?? f.ProgressReportId ?? f.MeetingId ?? f.SupervisorFeedbackId ?? 0,
+        f.TaskId.HasValue ? "TASK" : f.DeliverableVersionId.HasValue ? "VERSION" : f.ProgressReportId.HasValue ? "REPORT" : f.MeetingId.HasValue ? "MEETING" : "FEEDBACK",
+        f.TaskId ?? f.DeliverableVersionId ?? f.ProgressReportId ?? f.MeetingId ?? f.SupervisorFeedbackId ?? 0,
         f.OriginalFileName, f.MimeType ?? "application/octet-stream", f.FileSizeBytes,
         f.ChecksumSha256 ?? "", f.UploadedBy, f.CreatedAt);
 

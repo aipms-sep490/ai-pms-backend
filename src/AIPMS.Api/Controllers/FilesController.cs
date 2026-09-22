@@ -44,6 +44,11 @@ public sealed class FilesController(ISender sender) : ControllerBase
         return File(file.Content, file.ContentType, file.FileName);
     }
 
+    [HttpGet("/api/v1/tasks/{taskId:long}/evidence")]
+    [ProducesResponseType<PagedResult<ProjectFileDto>>(200)]
+    public Task<PagedResult<ProjectFileDto>> TaskEvidence(long taskId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        => sender.Send(new GetTaskEvidenceQuery(taskId, page, pageSize), ct);
+
     [HttpPost]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(22 * 1024 * 1024)]

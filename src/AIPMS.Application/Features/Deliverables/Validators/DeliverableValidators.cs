@@ -52,7 +52,7 @@ public sealed class UploadProjectFileCommandValidator : AbstractValidator<Upload
     public UploadProjectFileCommandValidator()
     {
         RuleFor(r => r.ParentId).GreaterThan(0);
-        RuleFor(r => r.ParentType).Must(s => s is "REPORT" or "MEETING");
+        RuleFor(r => r.ParentType).Must(s => s is "REPORT" or "MEETING" or "TASK");
         RuleFor(r => r.File).NotNull();
     }
 }
@@ -115,12 +115,21 @@ public sealed class GetProjectFilesQueryValidator : AbstractValidator<GetProject
         RuleFor(r => r.Search).MaximumLength(255);
         RuleFor(r => r.ContentType).MaximumLength(100);
         RuleFor(r => r.UploadedBy).GreaterThan(0).When(r => r.UploadedBy.HasValue);
-        RuleFor(r => r.ParentType).Must(s => s is null or "VERSION" or "REPORT" or "MEETING" or "FEEDBACK");
+        RuleFor(r => r.ParentType).Must(s => s is null or "VERSION" or "REPORT" or "MEETING" or "FEEDBACK" or "TASK");
         RuleFor(r => r.ParentId).GreaterThan(0).When(r => r.ParentId.HasValue);
         RuleFor(r => r.ParentType).NotEmpty().When(r => r.ParentId.HasValue);
         RuleFor(r => r.From).Must(d => d is null || d.Value.Kind == DateTimeKind.Utc).WithMessage("From must be UTC (Z).");
         RuleFor(r => r.To).Must(d => d is null || d.Value.Kind == DateTimeKind.Utc).WithMessage("To must be UTC (Z).");
         RuleFor(r => r.To).GreaterThan(r => r.From).When(r => r.From.HasValue && r.To.HasValue);
+        RuleFor(r => r.Page).InclusiveBetween(1, 1_000_000);
+        RuleFor(r => r.PageSize).InclusiveBetween(1, 100);
+    }
+}
+public sealed class GetTaskEvidenceQueryValidator : AbstractValidator<GetTaskEvidenceQuery>
+{
+    public GetTaskEvidenceQueryValidator()
+    {
+        RuleFor(r => r.TaskId).GreaterThan(0);
         RuleFor(r => r.Page).InclusiveBetween(1, 1_000_000);
         RuleFor(r => r.PageSize).InclusiveBetween(1, 100);
     }

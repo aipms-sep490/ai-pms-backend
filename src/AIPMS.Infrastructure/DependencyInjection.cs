@@ -22,6 +22,7 @@ using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Semesters.Abstractions;
 using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Application.Features.Tasks.Abstractions;
+using AIPMS.Application.Features.TaskComments.Abstractions;
 using AIPMS.Application.Features.Teams.Abstractions;
 using AIPMS.Infrastructure.Email;
 using AIPMS.Infrastructure.Identity;
@@ -185,6 +186,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectResultRepository, ProjectResultRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<IMilestoneTemplateRepository, MilestoneTemplateRepository>();
+        services.AddScoped<ITaskCommentRepository, TaskCommentRepository>();
         services.AddScoped<INotificationInboxRepository, NotificationInboxRepository>();
         services.AddScoped<IWorkflowNotificationWriter, WorkflowNotificationWriter>();
         services.AddScoped<IScheduledNotificationService, ScheduledNotificationService>();
