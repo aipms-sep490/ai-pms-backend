@@ -64,7 +64,9 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260920_add_team_leader_change_requests.sql"), ct);
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260921_add_student_qualifications.sql"), ct);\n            schema += "\\nGO\\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,\n                "db", "changes", "20260921_add_academic_profile_verification.sql"), ct);
+                "db", "changes", "20260921_add_student_qualifications.sql"), ct);
+            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
+                "db", "changes", "20260921_add_academic_profile_verification.sql"), ct);
             if (Regex.IsMatch(schema, @"\bUSE\s|\b(?:CREATE|DROP|ALTER)\s+DATABASE\b", RegexOptions.IgnoreCase))
                 throw new InvalidOperationException("Schema must not switch or manage databases.");
 
@@ -119,4 +121,5 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
         }
     }
 }
+
 
