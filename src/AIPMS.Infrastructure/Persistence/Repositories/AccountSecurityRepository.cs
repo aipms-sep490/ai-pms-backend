@@ -96,6 +96,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
             EmployeeCode = data.EmployeeCode,
             Title = data.Title,
             Status = "ACTIVE",
+            AcademicProfileStatus = "PENDING",
             AccessFailedCount = 0,
             PasswordChangedAt = utcNow,
             CreatedAt = utcNow,
@@ -104,6 +105,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         context.Users.Add(user);
         await SaveChangesAsync(cancellationToken);
 
+        if (await IsStudentAccountAsync(data.RoleIds, cancellationToken)) context.AcademicProfileVerifications.Add(new() { UserId = user.Id, Status = "PENDING" });
         context.UserRoles.AddRange(data.RoleIds.Select(roleId => new UserRole
         {
             UserId = user.Id,
@@ -123,6 +125,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         CancellationToken cancellationToken = default)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var studentRoleId = await context.Roles.Where(r => r.Code == AppRoles.Student).Select(r => (long?)r.Id).SingleOrDefaultAsync(cancellationToken);
         var pairs = accounts.Select(data => new
         {
             Data = data,
@@ -138,6 +141,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
                 EmployeeCode = data.EmployeeCode,
                 Title = data.Title,
                 Status = "ACTIVE",
+                AcademicProfileStatus = "PENDING",
                 AccessFailedCount = 0,
                 PasswordChangedAt = utcNow,
                 CreatedAt = utcNow,
@@ -147,6 +151,8 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
 
         context.Users.AddRange(pairs.Select(static pair => pair.Entity));
         await SaveChangesAsync(cancellationToken);
+        foreach (var pair in pairs.Where(p => studentRoleId.HasValue && p.Data.RoleIds.Contains(studentRoleId.Value)))
+            context.AcademicProfileVerifications.Add(new() { UserId = pair.Entity.Id, Status = "PENDING" });
         context.UserRoles.AddRange(pairs.SelectMany(pair =>
             pair.Data.RoleIds.Select(roleId => new UserRole
             {
@@ -165,6 +171,9 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         var byId = users.ToDictionary(static user => user.Id);
         return userIds.Select(userId => byId[userId].ToApplication()).ToArray();
     }
+
+    private Task<bool> IsStudentAccountAsync(IReadOnlyCollection<long> roleIds, CancellationToken ct) =>
+        context.Roles.AnyAsync(r => roleIds.Contains(r.Id) && r.Code == AppRoles.Student, ct);
 
     public async Task<AccountUser> UpdateProfileAsync(
         long userId,

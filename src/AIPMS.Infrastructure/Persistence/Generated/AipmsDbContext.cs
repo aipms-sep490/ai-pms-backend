@@ -97,11 +97,25 @@ public partial class AipmsDbContext : DbContext
     public virtual DbSet<TeamMember> TeamMembers { get; set; }
 
     public virtual DbSet<User> Users { get; set; }
+    public virtual DbSet<AcademicProfileVerification> AcademicProfileVerifications { get; set; }
 
     public virtual DbSet<UserRole> UserRoles { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AcademicProfileVerification>(entity =>
+        {
+            entity.ToTable("academic_profile_verifications");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Status).HasMaxLength(20).HasColumnName("status");
+            entity.Property(e => e.ReviewedBy).HasColumnName("reviewed_by");
+            entity.Property(e => e.ReviewedAt).HasPrecision(0).HasColumnName("reviewed_at");
+            entity.Property(e => e.RejectionReason).HasMaxLength(2000).HasColumnName("rejection_reason");
+            entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne<User>().WithMany().HasForeignKey(e => e.ReviewedBy).OnDelete(DeleteBehavior.NoAction);
+        });
         modelBuilder.Entity<AcademicSemester>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("pk_academic_semesters");
@@ -1922,6 +1936,10 @@ public partial class AipmsDbContext : DbContext
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.AccessFailedCount).HasColumnName("access_failed_count");
+            entity.Property(e => e.AcademicProfileStatus).HasMaxLength(20).HasDefaultValue("PENDING").HasColumnName("academic_profile_status");
+            entity.Property(e => e.AcademicProfileReviewedBy).HasColumnName("academic_profile_reviewed_by");
+            entity.Property(e => e.AcademicProfileReviewedAt).HasPrecision(0).HasColumnName("academic_profile_reviewed_at");
+            entity.Property(e => e.AcademicProfileRejectionReason).HasMaxLength(2000).HasColumnName("academic_profile_rejection_reason");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")

@@ -177,6 +177,10 @@ CREATE TABLE dbo.users (
     employee_code   NVARCHAR(50) NULL,
     title           NVARCHAR(100) NULL,
     status          NVARCHAR(20) NOT NULL CONSTRAINT df_users_status DEFAULT (N'ACTIVE'),
+    academic_profile_status NVARCHAR(20) NOT NULL CONSTRAINT df_users_academic_profile_status DEFAULT (N'PENDING'),
+    academic_profile_reviewed_by BIGINT NULL,
+    academic_profile_reviewed_at DATETIME2(0) NULL,
+    academic_profile_rejection_reason NVARCHAR(2000) NULL,
     access_failed_count INT NOT NULL CONSTRAINT df_users_access_failed_count DEFAULT (0),
     lockout_end_at  DATETIME2(0) NULL,
     password_changed_at DATETIME2(0) NULL,
@@ -186,11 +190,14 @@ CREATE TABLE dbo.users (
     CONSTRAINT pk_users PRIMARY KEY (id),
     CONSTRAINT uq_users_email UNIQUE (email),
     CONSTRAINT ck_users_status CHECK (status IN (N'ACTIVE', N'INACTIVE', N'SUSPENDED')),
+    CONSTRAINT ck_users_academic_profile_status CHECK (academic_profile_status IN (N'PENDING', N'VERIFIED', N'REJECTED')),
     CONSTRAINT ck_users_access_failed_count CHECK (access_failed_count >= 0),
     CONSTRAINT fk_users_department FOREIGN KEY (department_id)
         REFERENCES dbo.departments(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_users_major FOREIGN KEY (major_id)
-        REFERENCES dbo.majors(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+        REFERENCES dbo.majors(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_users_academic_profile_reviewer FOREIGN KEY (academic_profile_reviewed_by)
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
 GO
 
@@ -1124,3 +1131,18 @@ GO
 PRINT N'AI-PMS schema created successfully.';
 
 
+
+GO
+CREATE TABLE dbo.academic_profile_verifications (
+    id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_academic_profile_verifications PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    status NVARCHAR(20) NOT NULL,
+    reviewed_by BIGINT NULL,
+    reviewed_at DATETIME2(0) NULL,
+    rejection_reason NVARCHAR(2000) NULL,
+    CONSTRAINT ck_academic_profile_verifications_status CHECK (status IN (N'PENDING', N'VERIFIED', N'REJECTED')),
+    CONSTRAINT ck_academic_profile_verifications_reason CHECK (status <> N'REJECTED' OR (rejection_reason IS NOT NULL AND LEN(LTRIM(RTRIM(rejection_reason))) > 0)),
+    CONSTRAINT fk_academic_profile_verifications_user FOREIGN KEY (user_id) REFERENCES dbo.users(id),
+    CONSTRAINT fk_academic_profile_verifications_reviewer FOREIGN KEY (reviewed_by) REFERENCES dbo.users(id)
+);
+CREATE INDEX ix_academic_profile_verifications_user ON dbo.academic_profile_verifications(user_id, id);
