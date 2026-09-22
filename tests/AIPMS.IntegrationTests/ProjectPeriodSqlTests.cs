@@ -229,6 +229,7 @@ public class ProjectPeriodSqlTests
             }
 
             var oldRecord = await context.ProjectPeriods
+                .Select(p => new { p.Code, p.Name, p.PeriodType, p.Status, p.MinTeamSize, p.MaxTeamSize, p.MinDistinctMajors })
                 .SingleOrDefaultAsync(p => p.Code == "PRE_BE12");
 
             Assert.NotNull(oldRecord);
@@ -248,6 +249,7 @@ public class ProjectPeriodSqlTests
             }
 
             var secondCheck = await context.ProjectPeriods
+                .Select(p => new { p.Code })
                 .SingleOrDefaultAsync(p => p.Code == "PRE_BE12");
 
             Assert.NotNull(secondCheck);

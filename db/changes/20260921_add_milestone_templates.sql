@@ -65,11 +65,19 @@ IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_project_periods_
 IF COL_LENGTH(N'dbo.project_periods', N'milestone_template_version_id') IS NULL
     ALTER TABLE dbo.project_periods ADD milestone_template_version_id BIGINT NULL;
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_project_periods_milestone_template_version')
-    ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_milestone_template_version FOREIGN KEY (milestone_template_version_id) REFERENCES dbo.milestone_template_versions(id);
+    EXEC(N'ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_milestone_template_version FOREIGN KEY (milestone_template_version_id) REFERENCES dbo.milestone_template_versions(id)');
 IF COL_LENGTH(N'dbo.milestone_template_versions', N'locked_at') IS NULL
     ALTER TABLE dbo.milestone_template_versions ADD locked_at DATETIME2(0) NULL;
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'ix_milestone_template_versions_template_status' AND object_id = OBJECT_ID(N'dbo.milestone_template_versions'))
     CREATE INDEX ix_milestone_template_versions_template_status ON dbo.milestone_template_versions(milestone_template_id, status);
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'ix_milestone_template_items_version_sort' AND object_id = OBJECT_ID(N'dbo.milestone_template_items'))
     CREATE INDEX ix_milestone_template_items_version_sort ON dbo.milestone_template_items(milestone_template_version_id, sort_order);
+GO
+IF COL_LENGTH(N'dbo.projects', N'milestones_initialized') IS NULL
+BEGIN
+    ALTER TABLE dbo.projects ADD milestones_initialized BIT NOT NULL CONSTRAINT df_projects_milestones_initialized DEFAULT (0);
+    EXEC(N'UPDATE dbo.projects SET milestones_initialized = 1 WHERE status IN (N''ACTIVE'', N''FINAL_SUBMISSION'', N''COMPLETED'', N''ARCHIVED'')');
+END;
+GO
 COMMIT TRANSACTION;
+GO

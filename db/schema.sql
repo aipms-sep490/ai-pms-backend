@@ -1207,3 +1207,9 @@ CREATE TABLE dbo.academic_profile_verifications (
     CONSTRAINT fk_academic_profile_verifications_reviewer FOREIGN KEY (reviewed_by) REFERENCES dbo.users(id)
 );
 CREATE INDEX ix_academic_profile_verifications_user ON dbo.academic_profile_verifications(user_id, id);
+
+GO
+ALTER TABLE dbo.projects ADD milestones_initialized BIT NOT NULL CONSTRAINT df_projects_milestones_initialized DEFAULT (0);
+GO
+IF COL_LENGTH(N'dbo.milestone_template_versions', N'locked_at') IS NULL ALTER TABLE dbo.milestone_template_versions ADD locked_at DATETIME2(0) NULL;
+GO

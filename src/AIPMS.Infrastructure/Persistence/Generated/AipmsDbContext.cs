@@ -995,6 +995,7 @@ public partial class AipmsDbContext : DbContext
 
         modelBuilder.Entity<Project>(entity =>
         {
+            entity.Property(e => e.MilestonesInitialized).HasColumnName("milestones_initialized");
             entity.HasKey(e => e.Id).HasName("pk_projects");
 
             entity.ToTable("projects");
