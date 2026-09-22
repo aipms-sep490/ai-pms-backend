@@ -143,6 +143,75 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
         return periods.Count == 1 ? periods[0] : null;
     }
 
+    public async Task<StudentQualificationEligibility> GetQualificationEligibilityAsync(
+        long userId, long semesterId, DateTime now, CancellationToken ct)
+    {
+        var policy = await (
+            from period in context.ProjectPeriods.AsNoTracking()
+            where period.AcademicSemesterId == semesterId
+                && period.PeriodType == "REGISTRATION"
+                && period.Status != "ARCHIVED"
+            join qualificationPolicy in context.Set<ProjectPeriodQualificationPolicy>().AsNoTracking()
+                on period.Id equals qualificationPolicy.ProjectPeriodId into qualificationPolicies
+            from qualificationPolicy in qualificationPolicies.DefaultIfEmpty()
+            orderby (period.StartAt <= now && now < period.EndAt ? 0 : 1), period.StartAt descending, period.Id descending
+            select qualificationPolicy)
+            .FirstOrDefaultAsync(ct);
+
+        if (policy is null || !policy.RequireStudentQualification)
+            return new(false, true, "NOT_REQUIRED", null);
+
+        var currentOrganizationId = await context.Users.AsNoTracking()
+            .Where(u => u.Id == userId && u.Major != null)
+            .Select(u => (long?)u.Major!.Department.OrganizationId)
+            .SingleOrDefaultAsync(ct);
+
+        var qualification = await context.Set<StudentQualification>().AsNoTracking()
+            .Where(q => q.UserId == userId
+                && q.QualificationType == policy.QualificationType
+                && currentOrganizationId.HasValue
+                && q.OrganizationId == currentOrganizationId.Value)
+            .Select(q => new
+            {
+                q.TrainingStatus,
+                q.VerificationStatus,
+                q.CertificateNumber,
+                q.CertificateFileId,
+                q.ExpiresAt
+            })
+            .SingleOrDefaultAsync(ct);
+
+        if (qualification is null)
+            return new(true, false, "MISSING", "QUALIFICATION_REQUIRED");
+
+        if (qualification.TrainingStatus != "TRAINING_COMPLETED")
+            return new(true, false, qualification.TrainingStatus, "TRAINING_INCOMPLETE");
+
+        if (qualification.VerificationStatus == "PENDING_VERIFICATION")
+            return new(true, false, qualification.VerificationStatus, "QUALIFICATION_PENDING_VERIFICATION");
+
+        if (qualification.VerificationStatus == "REJECTED")
+            return new(true, false, qualification.VerificationStatus, "QUALIFICATION_REJECTED");
+
+        if (qualification.VerificationStatus == "EXPIRED")
+            return new(true, false, qualification.VerificationStatus, "CERTIFICATE_EXPIRED");
+
+        if (qualification.VerificationStatus != "VERIFIED")
+            return new(true, false, qualification.VerificationStatus, "QUALIFICATION_REQUIRED");
+
+        if (policy.RequireCertificate
+            && string.IsNullOrWhiteSpace(qualification.CertificateNumber)
+            && !qualification.CertificateFileId.HasValue)
+            return new(true, false, qualification.VerificationStatus, "CERTIFICATE_MISSING");
+
+        if (policy.CheckExpiration
+            && qualification.ExpiresAt.HasValue
+            && qualification.ExpiresAt.Value <= now)
+            return new(true, false, "EXPIRED", "CERTIFICATE_EXPIRED");
+
+        return new(true, true, qualification.VerificationStatus, null);
+    }
+
     private async Task SaveAsync(CancellationToken ct)
     {
         if (context.Database.CurrentTransaction is null)

@@ -79,6 +79,21 @@ public sealed class TeamWorkflow(
             throw new ConflictException("The student must have an active academic profile in the semester's organization.");
     }
 
+    private async Task RequireQualificationAsync(
+        TeamParticipant student,
+        long semesterId,
+        TeamFormationPolicy policy,
+        CancellationToken ct)
+    {
+        if (!policy.RequireStudentQualification) return;
+
+        var qualification = await repository.GetQualificationEligibilityAsync(
+            student.UserId, semesterId, Now, ct);
+        if (!qualification.Required || !qualification.Eligible)
+            throw new ConflictException(qualification.IssueCode
+                ?? "The student's required project qualification is not verified.");
+    }
+
     private async Task RequireNoTeamAsync(long semesterId, long userId, CancellationToken ct)
     {
         if (await repository.GetCurrentTeamIdAsync(semesterId, userId, ct) is not null)
@@ -97,9 +112,19 @@ public sealed class TeamWorkflow(
             || team.ProjectStatuses.Any(TeamRules.ProjectLocksRoster)) reasons.Add("ROSTER_LOCKED");
         var locked = reasons.Count > 0;
         if (window is not null && policy is { IsValid: true })
-            reasons.AddRange(EligibilityErrors(team, policy, window.OrganizationId));
+            reasons.AddRange(await EligibilityErrorsAsync(team, policy, window.OrganizationId, ct));
+        var memberDtos = new List<TeamMemberDto>(team.Members.Count);
+        foreach (var member in team.Members)
+        {
+            StudentQualificationEligibility? qualification = null;
+            if (policy is { RequireStudentQualification: true })
+                qualification = await repository.GetQualificationEligibilityAsync(
+                    member.UserId, team.SemesterId, Now, ct);
+            memberDtos.Add(member.ToDto(qualification));
+        }
+
         return new TeamDto(team.Id, team.SemesterId, team.Code, team.Name, team.Description,
-            team.Status, team.Members.Select(member => member.ToDto()).ToArray(),
+            team.Status, memberDtos,
             new TeamEligibilityDto(reasons.Count == 0, locked,
                 window?.PeriodId, policy?.Version, reasons.Distinct().ToArray()), team.AcademicScope is null ? null : TeamAcademicScopeDto.FromScope(team.AcademicScope));
     }
@@ -108,15 +133,36 @@ public sealed class TeamWorkflow(
     {
         var team = await TeamAsync(teamId, ct);
         var (window, policy) = await MutableAsync(team, ct);
-        var status = EligibilityErrors(team, policy, window.OrganizationId).Count == 0
+        var status = (await EligibilityErrorsAsync(team, policy, window.OrganizationId, ct)).Count == 0
             ? "ELIGIBLE" : "FORMING";
         await repository.UpdateAsync(team.Id, team.Name, team.Description, status, Now, ct);
         return await MapAsync(team with { Status = status }, ct);
     }
 
-    private static IReadOnlyList<string> EligibilityErrors(TeamSnapshot team, TeamFormationPolicy policy, long organizationId) =>
-        team.AcademicScope is null ? TeamRules.EligibilityErrors(team.Members, policy, organizationId)
-            : HybridTeamRules.EligibilityErrors(team.Members, policy, organizationId, team.AcademicScope);
+    private async Task<IReadOnlyList<string>> EligibilityErrorsAsync(
+        TeamSnapshot team,
+        TeamFormationPolicy policy,
+        long organizationId,
+        CancellationToken ct)
+    {
+        var errors = new List<string>(
+            team.AcademicScope is null
+                ? TeamRules.EligibilityErrors(team.Members, policy, organizationId)
+                : HybridTeamRules.EligibilityErrors(team.Members, policy, organizationId, team.AcademicScope));
+
+        if (policy.RequireStudentQualification)
+        {
+            foreach (var member in team.Members)
+            {
+                var qualification = await repository.GetQualificationEligibilityAsync(
+                    member.UserId, team.SemesterId, Now, ct);
+                if (!qualification.Required || !qualification.Eligible)
+                    errors.Add(qualification.IssueCode ?? "QUALIFICATION_REQUIRED");
+            }
+        }
+
+        return errors.Distinct(StringComparer.Ordinal).ToArray();
+    }
 
     private async Task SaveScopeAsync(TeamSnapshot team, TeamAcademicScopeRequest request,
         TeamRegistrationWindow window, TeamFormationPolicy policy, CancellationToken ct)
@@ -197,7 +243,7 @@ public sealed class TeamWorkflow(
         var team = await TeamAsync(teamId, ct);
         RequireMember(team, actor.UserId, true);
         var (window, policy) = await MutableAsync(team, ct);
-        var reasons = EligibilityErrors(team, policy, window.OrganizationId);
+        var reasons = await EligibilityErrorsAsync(team, policy, window.OrganizationId, ct);
         if (reasons.Count != 0)
             throw new ConflictException("The team is no longer eligible to register: " + string.Join(", ", reasons));
 
@@ -222,6 +268,7 @@ public sealed class TeamWorkflow(
             var actor = await ActorAsync(token);
             var (window, policy) = await ContextAsync(request.AcademicSemesterId, token, request.AcademicScope is null);
             RequireEligibleStudent(actor, window.OrganizationId);
+            await RequireQualificationAsync(actor, request.AcademicSemesterId, policy, token);
             await RequireNoTeamAsync(request.AcademicSemesterId, actor.UserId, token);
             var now = Now;
             var id = await repository.CreateAsync(request.AcademicSemesterId,
@@ -266,12 +313,15 @@ public sealed class TeamWorkflow(
         RequireMember(team, actor.UserId, true);
         var (window, policy) = await MutableAsync(team, ct);
         RequireEligibleStudent(actor, window.OrganizationId);
+        await RequireQualificationAsync(actor, team.SemesterId, policy, ct);
         RequireSameMajorAsLeader(team, actor, window.OrganizationId, policy);
         if (team.Members.Count >= policy.MaxMembers)
             throw new ConflictException("The team has reached its member limit.");
         var allowedMajors = team.AcademicScope?.Requirements
             .Where(r => team.Members.Count(m => m.MajorId == r.MajorId) < r.MaxMembers).Select(r => r.MajorId).ToArray();
-        return new(team.Id, team.SemesterId, actor.MajorId!.Value, window.OrganizationId, Now, allowedMajors);
+        return new(team.Id, team.SemesterId, actor.MajorId!.Value, window.OrganizationId, Now, allowedMajors,
+            policy.RequireStudentQualification, policy.RequiredQualificationType,
+            policy.RequireCertificate, policy.CheckQualificationExpiration);
     }
 
     public Task<TeamInvitationDto> InviteAsync(InviteTeamMemberCommand request, CancellationToken ct) =>
@@ -284,6 +334,7 @@ public sealed class TeamWorkflow(
             var invited = await repository.GetStudentAsync(request.InvitedUserId, token)
                 ?? throw new NotFoundException("Student", request.InvitedUserId);
             RequireEligibleStudent(invited, window.OrganizationId);
+            await RequireQualificationAsync(invited, team.SemesterId, policy, token);
             RequireSameMajorAsLeader(team, invited, window.OrganizationId, policy);
             await RequireNoTeamAsync(team.SemesterId, invited.UserId, token);
             if (team.Members.Count >= policy.MaxMembers)
@@ -314,6 +365,7 @@ public sealed class TeamWorkflow(
             var team = await TeamAsync(invitation.TeamId, token);
             var (window, policy) = await MutableAsync(team, token);
             RequireEligibleStudent(actor, window.OrganizationId);
+            await RequireQualificationAsync(actor, team.SemesterId, policy, token);
             RequireSameMajorAsLeader(team, actor, window.OrganizationId, policy);
             await RequireNoTeamAsync(team.SemesterId, actor.UserId, token);
             if (team.Members.Count >= policy.MaxMembers)
@@ -402,6 +454,9 @@ public sealed class TeamWorkflow(
         var member = team.Members.SingleOrDefault(m => m.UserId == request.NewLeaderUserId)
             ?? throw new ConflictException("The new leader must be an active member of this team.");
         RequireEligibleStudent(member, window.OrganizationId);
+        // Direct (pre-project) handover is still a command boundary. Do not trust
+        // eligibility calculated when the member joined the team.
+        await RequireQualificationAsync(member, team.SemesterId, policy, token);
         RequireSameMajorAsLeader(team, member, window.OrganizationId, policy);
         if (member.UserId == actor.UserId)
             throw new ConflictException("This student is already the leader.");
