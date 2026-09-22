@@ -45,22 +45,25 @@ public sealed class StudentQualificationWorkflow(
             && request.ExpiresAt.Value <= request.IssuedAt.Value)
             throw new ConflictException("Certificate expiration must be later than its issue time.");
 
-        var result = await repository.SubmitEvidenceAsync(
-            actorId, qualificationType, trainingStatus,
-            Trim(request.CertificateNumber), request.CertificateFileId,
-            request.IssuedAt, request.ExpiresAt, Now, cancellationToken);
+        return await repository.InTransactionAsync(async token =>
+        {
+            var result = await repository.SubmitEvidenceAsync(
+                actorId, qualificationType, trainingStatus,
+                Trim(request.CertificateNumber), request.CertificateFileId,
+                request.IssuedAt, request.ExpiresAt, Now, token);
 
-        await audit.RecordAsync(new AuditEntry(
-            actorId, "STUDENT_QUALIFICATION_EVIDENCE_SUBMITTED",
-            "STUDENT_QUALIFICATION", result.Id,
-            new Dictionary<string, object?>
-            {
-                ["qualificationType"] = result.QualificationType,
-                ["trainingStatus"] = result.TrainingStatus,
-                ["verificationStatus"] = result.VerificationStatus
-            }), cancellationToken);
+            await audit.RecordAsync(new AuditEntry(
+                actorId, "STUDENT_QUALIFICATION_EVIDENCE_SUBMITTED",
+                "STUDENT_QUALIFICATION", result.Id,
+                new Dictionary<string, object?>
+                {
+                    ["qualificationType"] = result.QualificationType,
+                    ["trainingStatus"] = result.TrainingStatus,
+                    ["verificationStatus"] = result.VerificationStatus
+                }), token);
 
-        return result.ToDto();
+            return result.ToDto();
+        }, cancellationToken);
     }
 
     public async Task<PagedResult<StudentQualificationDto>> QueueAsync(
@@ -122,27 +125,30 @@ public sealed class StudentQualificationWorkflow(
     {
         var actorId = RequireRole(AppRoles.Admin);
         var qualificationType = NormalizeType(request.QualificationType);
-        var result = await repository.SetPeriodPolicyAsync(
-            projectPeriodId,
-            request.RequireStudentQualification,
-            qualificationType,
-            request.RequireCertificate,
-            request.CheckExpiration,
-            Now,
-            cancellationToken);
+        return await repository.InTransactionAsync(async token =>
+        {
+            var result = await repository.SetPeriodPolicyAsync(
+                projectPeriodId,
+                request.RequireStudentQualification,
+                qualificationType,
+                request.RequireCertificate,
+                request.CheckExpiration,
+                Now,
+                token);
 
-        await audit.RecordAsync(new AuditEntry(
-            actorId, "PROJECT_PERIOD_QUALIFICATION_POLICY_UPDATED",
-            "PROJECT_PERIOD", projectPeriodId,
-            new Dictionary<string, object?>
-            {
-                ["requireStudentQualification"] = result.RequireStudentQualification,
-                ["qualificationType"] = result.QualificationType,
-                ["requireCertificate"] = result.RequireCertificate,
-                ["checkExpiration"] = result.CheckExpiration
-            }), cancellationToken);
+            await audit.RecordAsync(new AuditEntry(
+                actorId, "PROJECT_PERIOD_QUALIFICATION_POLICY_UPDATED",
+                "PROJECT_PERIOD", projectPeriodId,
+                new Dictionary<string, object?>
+                {
+                    ["requireStudentQualification"] = result.RequireStudentQualification,
+                    ["qualificationType"] = result.QualificationType,
+                    ["requireCertificate"] = result.RequireCertificate,
+                    ["checkExpiration"] = result.CheckExpiration
+                }), token);
 
-        return result.ToDto();
+            return result.ToDto();
+        }, cancellationToken);
     }
 
     private async Task<StudentQualificationDto> DecideAsync(

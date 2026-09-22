@@ -93,6 +93,55 @@ public sealed partial class TeamEndpointTests
     }
 
     [Fact]
+    public async Task Qualification_evidence_submission_rolls_back_when_audit_fails()
+    {
+        var scenario = await database.SeedAsync();
+        using var app = new TeamTestFactory(database, scenario,
+            failAuditAction: "STUDENT_QUALIFICATION_EVIDENCE_SUBMITTED");
+        using var student = app.CreateAuthenticatedClient(scenario.Students[0]);
+
+        var response = await student.PostAsJsonAsync("/api/v1/student-qualifications/me/evidence", new
+        {
+            qualificationType = "CAPSTONE_READINESS",
+            trainingStatus = "TRAINING_COMPLETED",
+            certificateNumber = "CERT-ATOMIC-EVIDENCE",
+            issuedAt = TeamDatabaseFixture.Now.AddDays(-1),
+            expiresAt = TeamDatabaseFixture.Now.AddYears(1)
+        });
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        await using var db = database.CreateContext();
+        Assert.False(await db.Set<StudentQualification>().AnyAsync(x => x.UserId == scenario.Students[0]
+            && x.QualificationType == "CAPSTONE_READINESS"));
+        Assert.False(await db.AuditLogs.AnyAsync(x => x.Action == "STUDENT_QUALIFICATION_EVIDENCE_SUBMITTED"));
+    }
+
+    [Fact]
+    public async Task Qualification_policy_update_rolls_back_when_audit_fails()
+    {
+        var scenario = await database.SeedAsync();
+        using var app = new TeamTestFactory(database, scenario,
+            failAuditAction: "PROJECT_PERIOD_QUALIFICATION_POLICY_UPDATED");
+        using var admin = app.CreateAuthenticatedClient(scenario.Students[0], roles: [AppRoles.Admin]);
+
+        var response = await admin.PutAsJsonAsync(
+            $"/api/v1/academic/project-periods/{scenario.PeriodId}/qualification-policy", new
+            {
+                requireStudentQualification = true,
+                qualificationType = "CAPSTONE_READINESS",
+                requireCertificate = true,
+                checkExpiration = true
+            });
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        await using var db = database.CreateContext();
+        Assert.False(await db.Set<ProjectPeriodQualificationPolicy>()
+            .AnyAsync(x => x.ProjectPeriodId == scenario.PeriodId));
+        Assert.False(await db.AuditLogs.AnyAsync(x => x.Action == "PROJECT_PERIOD_QUALIFICATION_POLICY_UPDATED"
+            && x.EntityId == scenario.PeriodId.ToString()));
+    }
+
+    [Fact]
     public async Task Qualification_verification_queue_is_scoped_filterable_and_stably_paged()
     {
         var scenario = await database.SeedAsync();
