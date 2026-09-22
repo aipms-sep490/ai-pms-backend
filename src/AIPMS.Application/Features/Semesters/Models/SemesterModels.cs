@@ -31,4 +31,5 @@ public sealed record ProjectPeriodModel(
     long? MilestoneTemplateId,
     long? RubricId,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    long? MilestoneTemplateVersionId = null);

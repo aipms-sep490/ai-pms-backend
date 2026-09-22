@@ -318,7 +318,7 @@ public sealed class SemesterEndpointTests
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         Assert.NotNull(problem);
         Assert.Equal(409, problem.Status);
-        Assert.Contains("Milestone Template module is not available yet", problem.Detail);
+        Assert.Contains("The milestone template must be active and have a published version.", problem.Detail);
     }
 
     [Fact]
@@ -339,7 +339,7 @@ public sealed class SemesterEndpointTests
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         Assert.NotNull(problem);
         Assert.Equal(409, problem.Status);
-        Assert.Contains("Milestone Template module is not available yet", problem.Detail);
+        Assert.Contains("The milestone template must be active and have a published version.", problem.Detail);
     }
 
     [Fact]
@@ -607,6 +607,9 @@ public sealed class SemesterEndpointTests
         public Task<bool> ValidateRubricUsableAsync(
             long rubricId, long semesterId, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
+
+        public Task<bool> ValidateMilestoneTemplateUsableAsync(long templateId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
 
         public Task<T> ExecuteInTransactionAsync<T>(
             Func<Task<T>> action, CancellationToken cancellationToken = default) =>

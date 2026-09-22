@@ -229,6 +229,7 @@ public class ProjectPeriodSqlTests
             }
 
             var oldRecord = await context.ProjectPeriods
+                .Select(p => new { p.Code, p.Name, p.PeriodType, p.Status, p.MinTeamSize, p.MaxTeamSize, p.MinDistinctMajors })
                 .SingleOrDefaultAsync(p => p.Code == "PRE_BE12");
 
             Assert.NotNull(oldRecord);
@@ -248,6 +249,7 @@ public class ProjectPeriodSqlTests
             }
 
             var secondCheck = await context.ProjectPeriods
+                .Select(p => new { p.Code })
                 .SingleOrDefaultAsync(p => p.Code == "PRE_BE12");
 
             Assert.NotNull(secondCheck);
@@ -2167,7 +2169,7 @@ public class ProjectPeriodSqlTests
             MilestoneTemplateId: 99);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
-        Assert.Contains("Milestone Template module is not available yet", ex.Message);
+        Assert.Contains("The milestone template must be active and have a published version.", ex.Message);
     }
 
     [Fact]
@@ -2196,7 +2198,7 @@ public class ProjectPeriodSqlTests
             MilestoneTemplateId: 99);
 
         var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(cmd, CancellationToken.None));
-        Assert.Contains("Milestone Template module is not available yet", ex.Message);
+        Assert.Contains("The milestone template must be active and have a published version.", ex.Message);
     }
 
     [Fact]

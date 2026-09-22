@@ -1,5 +1,6 @@
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
+using AIPMS.Application.Abstractions.Projects;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;

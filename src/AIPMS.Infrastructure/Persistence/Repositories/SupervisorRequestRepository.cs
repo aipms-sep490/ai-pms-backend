@@ -138,6 +138,7 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
             IsPrimary = true, AssignedAt = now, CreatedAt = now, UpdatedAt = now };
         context.SupervisorAssignments.Add(assignment);
         await context.SaveChangesAsync(ct);
+        await new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context).ApplyMilestoneTemplateAsync(request.ProjectId, actorId, now, ct);
         return assignment.Id;
     }
 

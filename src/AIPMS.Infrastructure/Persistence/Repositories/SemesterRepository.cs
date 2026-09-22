@@ -402,6 +402,7 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
         try
         {
+            await MilestoneTemplateLock.AcquireAsync(context, cancellationToken);
             var semLockKey = $"sem_lock_{semesterId}";
             await context.Database.ExecuteSqlRawAsync(
                 "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
@@ -469,6 +470,7 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                 MinDistinctMajors = minDistinctMajors,
                 MaxProjectsPerSupervisor = maxProjectsPerSupervisor,
                 MilestoneTemplateId = milestoneTemplateId,
+                MilestoneTemplateVersionId = await PinTemplateVersionAsync(milestoneTemplateId, utcNow, cancellationToken),
                 RubricId = rubricId,
                 Status = "DRAFT",
                 CreatedAt = utcNow,
@@ -528,6 +530,7 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
         try
         {
+            await MilestoneTemplateLock.AcquireAsync(context, cancellationToken);
             var initialEntity = await context.ProjectPeriods
                 .AsNoTracking()
                 .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
@@ -620,6 +623,8 @@ internal sealed class SemesterRepository(AipmsDbContext context)
             entity.MaxTeamSize = maxTeamSize;
             entity.MinDistinctMajors = minDistinctMajors;
             entity.MaxProjectsPerSupervisor = maxProjectsPerSupervisor;
+            if (entity.MilestoneTemplateId != milestoneTemplateId || !entity.MilestoneTemplateVersionId.HasValue)
+                entity.MilestoneTemplateVersionId = await PinTemplateVersionAsync(milestoneTemplateId, utcNow, cancellationToken);
             entity.MilestoneTemplateId = milestoneTemplateId;
             entity.RubricId = rubricId;
             entity.UpdatedAt = utcNow;
@@ -784,6 +789,20 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         return await context.Projects
             .AsNoTracking()
             .AnyAsync(p => p.Team.AcademicSemesterId == semesterId && activeStatuses.Contains(p.Status), cancellationToken);
+    }
+
+    public Task<bool> ValidateMilestoneTemplateUsableAsync(long templateId, CancellationToken cancellationToken = default) =>
+        context.MilestoneTemplates.AnyAsync(t => t.Id == templateId && t.Status == "ACTIVE" && t.Versions.Any(v => v.Status == "PUBLISHED"), cancellationToken);
+
+    private async Task<long?> PinTemplateVersionAsync(long? templateId, DateTime now, CancellationToken ct)
+    {
+        if (!templateId.HasValue) return null;
+        var version = await context.MilestoneTemplateVersions
+            .Where(v => v.MilestoneTemplateId == templateId && v.Status == "PUBLISHED" && v.MilestoneTemplate.Status == "ACTIVE")
+            .OrderByDescending(v => v.VersionNumber).FirstOrDefaultAsync(ct)
+            ?? throw new ConflictException("The milestone template has no published version.");
+        version.LockedAt ??= now;
+        return version.Id;
     }
 
     public async Task<bool> ValidateRubricUsableAsync(
