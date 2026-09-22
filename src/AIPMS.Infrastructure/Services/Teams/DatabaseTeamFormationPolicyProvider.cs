@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using AIPMS.Application.Features.Teams.Abstractions;
 using AIPMS.Domain.Teams;
 using AIPMS.Infrastructure.Persistence.Generated;
+using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -16,14 +17,21 @@ internal sealed class DatabaseTeamFormationPolicyProvider(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var period = await context.ProjectPeriods
-            .AsNoTracking()
-            .Where(p => p.Id == registrationPeriodId && p.PeriodType == "REGISTRATION")
-            .Select(p => new
+        var period = await (
+            from p in context.ProjectPeriods.AsNoTracking()
+            where p.Id == registrationPeriodId && p.PeriodType == "REGISTRATION"
+            join qp in context.Set<ProjectPeriodQualificationPolicy>().AsNoTracking()
+                on p.Id equals qp.ProjectPeriodId into policies
+            from qp in policies.DefaultIfEmpty()
+            select new
             {
                 p.MinTeamSize,
                 p.MaxTeamSize,
-                p.MinDistinctMajors
+                p.MinDistinctMajors,
+                RequireStudentQualification = qp != null && qp.RequireStudentQualification,
+                QualificationType = qp != null ? qp.QualificationType : "CAPSTONE_READINESS",
+                RequireCertificate = qp == null || qp.RequireCertificate,
+                CheckExpiration = qp == null || qp.CheckExpiration
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -45,7 +53,11 @@ internal sealed class DatabaseTeamFormationPolicyProvider(
             maxMembers,
             invitationHours,
             version,
-            minDistinctMajors);
+            minDistinctMajors,
+            period.RequireStudentQualification,
+            period.QualificationType,
+            period.RequireCertificate,
+            period.CheckExpiration);
 
         return policy.IsValid ? policy : null;
     }

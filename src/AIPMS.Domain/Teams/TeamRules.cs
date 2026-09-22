@@ -1,11 +1,16 @@
 namespace AIPMS.Domain.Teams;
 
 public sealed record TeamFormationPolicy(
-    int MinMembers, int MaxMembers, int InvitationHours, string Version, int MinDistinctMajors = 1)
+    int MinMembers, int MaxMembers, int InvitationHours, string Version, int MinDistinctMajors = 1,
+    bool RequireStudentQualification = false,
+    string RequiredQualificationType = "CAPSTONE_READINESS",
+    bool RequireCertificate = true,
+    bool CheckQualificationExpiration = true)
 {
     public bool IsValid => MinMembers >= 1 && MaxMembers >= MinMembers
         && InvitationHours is >= 1 and <= 720 && !string.IsNullOrWhiteSpace(Version)
-        && MinDistinctMajors >= 1 && MinDistinctMajors <= MaxMembers;
+        && MinDistinctMajors >= 1 && MinDistinctMajors <= MaxMembers
+        && (!RequireStudentQualification || !string.IsNullOrWhiteSpace(RequiredQualificationType));
 }
 
 public sealed record TeamParticipant(

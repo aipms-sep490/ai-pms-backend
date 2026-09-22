@@ -193,6 +193,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
         services.AddScoped<ITeamLeaderChangeRequestRepository, TeamLeaderChangeRequestRepository>();
+        services.AddScoped<AIPMS.Application.Features.StudentQualifications.Abstractions.IStudentQualificationRepository, StudentQualificationRepository>();
         services.AddScoped<ITeamInvitationCandidateReader, TeamInvitationCandidateReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, DatabaseTeamFormationPolicyProvider>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();

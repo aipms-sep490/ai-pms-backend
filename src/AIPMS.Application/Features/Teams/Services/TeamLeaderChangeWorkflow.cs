@@ -51,7 +51,7 @@ public sealed class TeamLeaderChangeWorkflow(
             RequireLeaderChangeState(team);
             var target = team.Members.SingleOrDefault(m => m.UserId == request.NewLeaderUserId)
                 ?? throw new ConflictException("The new leader must be an active member of this team.");
-            RequireReplacementAllowed(team, target);
+            await RequireReplacementAllowedAsync(team, target, token);
             if (target.UserId == actor.UserId)
                 throw new ConflictException("This student is already the leader.");
             var context = await requests.GetContextAsync(team.Id, target.UserId, token)
@@ -79,7 +79,7 @@ public sealed class TeamLeaderChangeWorkflow(
         if (context.ProjectId is not long projectId || context.MentorProfileId is not long mentorProfileId
             || context.MentorUserId is null)
             throw new ConflictException("An active project mentor must be assigned before changing the team leader.");
-        RequireReplacementAllowed(team, target);
+        await RequireReplacementAllowedAsync(team, target, token);
         if (context.CurrentLeaderUserId != actorId)
             throw new ConflictException("The team leadership changed. Reload and retry.");
         if (await requests.HasPendingAsync(team.Id, token))
@@ -115,7 +115,7 @@ public sealed class TeamLeaderChangeWorkflow(
                 RequireLeaderChangeState(team);
                 var member = team.Members.SingleOrDefault(m => m.UserId == request.NewLeaderUserId)
                     ?? throw new ConflictException("The requested new leader is no longer an active team member.");
-                RequireReplacementAllowed(team, member);
+                await RequireReplacementAllowedAsync(team, member, token);
                 if (team.Members.SingleOrDefault(m => m.IsLeader)?.UserId != request.CurrentLeaderUserId)
                     throw new ConflictException("The current team leader changed while this request was pending.");
                 var context = await requests.GetContextAsync(team.Id, request.NewLeaderUserId, token);
@@ -193,10 +193,19 @@ public sealed class TeamLeaderChangeWorkflow(
             throw new ForbiddenException("Only the current team leader can request a leader change.");
     }
 
-    private static void RequireReplacementAllowed(TeamSnapshot team, TeamParticipant target)
+    private async Task RequireReplacementAllowedAsync(
+        TeamSnapshot team,
+        TeamParticipant target,
+        CancellationToken ct)
     {
         if (!target.IsEligibleStudent || target.MajorId is null)
             throw new ConflictException("The new leader must have an active academic student profile.");
+
+        var qualification = await teams.GetQualificationEligibilityAsync(
+            target.UserId, team.SemesterId, Now, ct);
+        if (qualification.Required && !qualification.Eligible)
+            throw new ConflictException(qualification.IssueCode
+                ?? "The new leader's required project qualification is not verified.");
         if (team.AcademicScope is null)
         {
             var leader = team.Members.SingleOrDefault(m => m.IsLeader)
