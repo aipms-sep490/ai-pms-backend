@@ -59,13 +59,6 @@ BEGIN TRY
         PRINT 'Added column [rubric_id] to [dbo].[project_periods].';
     END
 
-    -- milestone_template_version_id (pinned template version; FK is added after template tables exist)
-    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'milestone_template_version_id')
-    BEGIN
-        ALTER TABLE dbo.project_periods ADD milestone_template_version_id BIGINT NULL;
-        PRINT 'Added column [milestone_template_version_id] to [dbo].[project_periods].';
-    END
-
     PRINT '2. Adding CHECK constraints to dbo.project_periods...';
 
     IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(N'dbo.project_periods') AND name = N'ck_project_periods_team_size')

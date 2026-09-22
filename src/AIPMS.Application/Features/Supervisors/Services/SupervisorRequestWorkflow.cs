@@ -16,7 +16,7 @@ namespace AIPMS.Application.Features.Supervisors.Services;
 public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repository,
     ISupervisorCandidateRepository candidates, ISupervisorProfileRepository profiles,
     SupervisorAccessService access, IProjectAccessService projectAccess, IAuditTrail audit, TimeProvider clock,
-    IPublisher events, IProjectActivationService? activation = null)
+    IPublisher events)
 {
     public Task<SupervisorRequestDto> SendAsync(long projectId, long profileId, string? message, CancellationToken ct) =>
         repository.InTransactionAsync(async token =>
@@ -80,8 +80,6 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
                 var project = await RequireEligibilityAsync(request.ProjectId, request.SupervisorProfileId, now, true, token);
                 previousProjectStatus = project.Status;
                 await repository.AssignAndActivateAsync(request, actor.UserId, now, token);
-                if (activation is not null)
-                    await activation.ApplyMilestoneTemplateAsync(request.ProjectId, actor.UserId, now, token);
                 foreach (var other in await repository.GetOtherPendingAsync(request.ProjectId, request.Id, token))
                 {
                     var cancelled = await repository.RespondAsync(other.Id, "CANCELLED", null, now, token);

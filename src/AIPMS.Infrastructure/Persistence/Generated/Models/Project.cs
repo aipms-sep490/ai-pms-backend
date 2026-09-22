@@ -18,6 +18,7 @@ public partial class Project
     public string? Objectives { get; set; }
 
     public string Status { get; set; } = null!;
+    public bool MilestonesInitialized { get; set; }
 
     public DateTime RegisteredAt { get; set; }
 

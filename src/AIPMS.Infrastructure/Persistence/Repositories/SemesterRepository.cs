@@ -402,6 +402,7 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
         try
         {
+            await MilestoneTemplateLock.AcquireAsync(context, cancellationToken);
             var semLockKey = $"sem_lock_{semesterId}";
             await context.Database.ExecuteSqlRawAsync(
                 "EXEC sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
@@ -529,6 +530,7 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
         try
         {
+            await MilestoneTemplateLock.AcquireAsync(context, cancellationToken);
             var initialEntity = await context.ProjectPeriods
                 .AsNoTracking()
                 .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
@@ -796,7 +798,7 @@ internal sealed class SemesterRepository(AipmsDbContext context)
     {
         if (!templateId.HasValue) return null;
         var version = await context.MilestoneTemplateVersions
-            .Where(v => v.MilestoneTemplateId == templateId && v.Status == "PUBLISHED")
+            .Where(v => v.MilestoneTemplateId == templateId && v.Status == "PUBLISHED" && v.MilestoneTemplate.Status == "ACTIVE")
             .OrderByDescending(v => v.VersionNumber).FirstOrDefaultAsync(ct)
             ?? throw new ConflictException("The milestone template has no published version.");
         version.LockedAt ??= now;

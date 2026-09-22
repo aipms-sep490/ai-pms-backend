@@ -79,6 +79,7 @@ public sealed partial class SupervisorRequestEndpointTests(SupervisorDatabaseFix
     {
         var s = await database.SeedAsync();
         var p = await SeedProject(s);
+        await SeedActivationTemplate(s.Admin, p.SemesterId);
         var secondProfile = await AddProfile(s.NewLecturer);
         using var app = new SupervisorFactory(database, clock: new Clock());
         using var leader = app.CreateAuthenticatedClient(p.LeaderId);
@@ -115,6 +116,8 @@ public sealed partial class SupervisorRequestEndpointTests(SupervisorDatabaseFix
         Assert.Equal(Now, (await db.SupervisorAssignments.AsNoTracking().SingleAsync(a => a.ProjectId == p.Id)).EndedAt);
         Assert.Equal(audits, await db.AuditLogs.CountAsync());
         Assert.Equal(2, await db.ProjectStatusHistories.CountAsync(h => h.ProjectId == p.Id));
+        Assert.Equal(1, await db.Milestones.CountAsync(m => m.ProjectId == p.Id));
+        Assert.Equal(1, await db.ProjectMilestoneTemplateApplications.CountAsync(a => a.ProjectId == p.Id));
     }
 
     [Fact]
@@ -189,6 +192,7 @@ public sealed partial class SupervisorRequestEndpointTests(SupervisorDatabaseFix
     {
         var s = await database.SeedAsync();
         var p = await SeedProject(s);
+        await SeedActivationTemplate(s.Admin, p.SemesterId);
         using var failing = new SupervisorFactory(database, failAudit: !failLastAudit,
             saveInterceptor: failLastAudit ? new FailActivationAudit() : null, clock: new Clock());
         using var failingLeader = failing.CreateAuthenticatedClient(p.LeaderId);
@@ -210,6 +214,9 @@ public sealed partial class SupervisorRequestEndpointTests(SupervisorDatabaseFix
         Assert.False(await db.ProjectStatusHistories.AnyAsync(h => h.ProjectId == p.Id));
         Assert.False(await db.AuditLogs.AnyAsync(a => a.Action == "SUPERVISOR_REQUEST_ACCEPTED" && a.EntityId == request.Id.ToString()));
         Assert.Equal(auditCount, await db.AuditLogs.CountAsync());
+        Assert.False(await db.Milestones.AnyAsync(m => m.ProjectId == p.Id));
+        Assert.False(await db.ProjectMilestoneTemplateApplications.AnyAsync(a => a.ProjectId == p.Id));
+        Assert.False((await db.Projects.FindAsync(p.Id))!.MilestonesInitialized);
     }
 
     [Fact]
@@ -217,6 +224,7 @@ public sealed partial class SupervisorRequestEndpointTests(SupervisorDatabaseFix
     {
         var s = await database.SeedAsync();
         var p = await SeedProject(s);
+        await SeedActivationTemplate(s.Admin, p.SemesterId);
         using var setup = new SupervisorFactory(database, clock: new Clock());
         using var leader = setup.CreateAuthenticatedClient(p.LeaderId);
         var request = await Body<SupervisorRequestDto>(await Send(leader, p.Id, s.ProfileId));
@@ -230,6 +238,8 @@ public sealed partial class SupervisorRequestEndpointTests(SupervisorDatabaseFix
         Assert.Equal(1, await db.SupervisorAssignments.CountAsync(a => a.ProjectId == p.Id));
         Assert.Equal(1, await db.AuditLogs.CountAsync(a => a.Action == "SUPERVISOR_REQUEST_ACCEPTED" && a.EntityId == request.Id.ToString()));
         Assert.Equal(1, await db.Notifications.CountAsync(n => n.NotificationType == "SUPERVISOR_REQUEST_ACCEPTED" && n.RelatedEntityId == request.Id));
+        Assert.Equal(1, await db.Milestones.CountAsync(m => m.ProjectId == p.Id));
+        Assert.Equal(1, await db.ProjectMilestoneTemplateApplications.CountAsync(a => a.ProjectId == p.Id));
     }
 
     [Fact]
@@ -398,6 +408,23 @@ public sealed partial class SupervisorRequestEndpointTests(SupervisorDatabaseFix
         db.SupervisorProfiles.Add(profile);
         await db.SaveChangesAsync();
         return profile.Id;
+    }
+
+    private async Task SeedActivationTemplate(long admin, long semesterId)
+    {
+        await using var db = database.CreateContext();
+        var version = new MilestoneTemplateVersion
+        {
+            MilestoneTemplate = new() { Name = "Supervisor activation plan", Status = "ACTIVE", CreatedBy = admin },
+            VersionNumber = 1, Status = "PUBLISHED", CreatedBy = admin, LockedAt = Now,
+            Items = [new() { Title = "Acceptance milestone", StartOffsetDays = 0, DueOffsetDays = 7, SortOrder = 1 }]
+        };
+        db.MilestoneTemplateVersions.Add(version);
+        await db.SaveChangesAsync();
+        db.ProjectPeriods.Add(new() { AcademicSemesterId = semesterId, Code = "EXEC", Name = "Execution", PeriodType = "EXECUTION",
+            Status = "UPCOMING", StartAt = Now.AddDays(2), EndAt = Now.AddDays(20), MilestoneTemplateId = version.MilestoneTemplateId,
+            MilestoneTemplateVersionId = version.Id });
+        await db.SaveChangesAsync();
     }
 
     private async Task<RequestProject> SeedProject(SupervisorScenario s, long? semesterId = null, int quota = 5)
