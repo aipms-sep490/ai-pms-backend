@@ -6,6 +6,7 @@ using AIPMS.Application.Features.TaskComments.DTOs;
 using AIPMS.Application.Features.TaskComments.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using TaskCommentEntity = AIPMS.Infrastructure.Persistence.Generated.Models.TaskComment;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
@@ -16,7 +17,22 @@ internal sealed class TaskCommentRepository(AipmsDbContext db) : ITaskCommentRep
     {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         try { var result = await action(ct); await tx.CommitAsync(ct); return result; }
-        catch { await tx.RollbackAsync(CancellationToken.None); db.ChangeTracker.Clear(); throw; }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync(CancellationToken.None);
+            db.ChangeTracker.Clear();
+            for (Exception? cause = ex; cause is not null; cause = cause.InnerException)
+                if (cause is DbUpdateConcurrencyException || cause is SqlException { Number: 1205 or 1222 or 547 })
+                    throw new ConflictException("The task or project changed. Reload and retry.");
+            throw;
+        }
+    }
+
+    public async System.Threading.Tasks.Task LockProjectAsync(long projectId, CancellationToken ct)
+    {
+        if (db.Database.CurrentTransaction is null) throw new InvalidOperationException("A transaction is required.");
+        var rows = await db.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.projects WITH (UPDLOCK, HOLDLOCK) WHERE id = {projectId}").ToListAsync(ct);
+        if (rows.Count == 0) throw new NotFoundException("Project", projectId);
     }
 
     public System.Threading.Tasks.Task<TaskCommentAccess?> GetAccessAsync(long taskId, long actorId, CancellationToken ct) =>

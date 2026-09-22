@@ -1746,7 +1746,7 @@ public partial class AipmsDbContext : DbContext
             entity.Property(e => e.Content).HasMaxLength(4000).HasColumnName("content");
             entity.Property(e => e.CreatedAt).HasPrecision(0).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasPrecision(0).HasColumnName("updated_at");
-            entity.HasOne(e => e.Task).WithMany(t => t.Comments).HasForeignKey(e => e.TaskId).OnDelete(DeleteBehavior.Cascade).HasConstraintName("fk_task_comments_task");
+            entity.HasOne(e => e.Task).WithMany(t => t.Comments).HasForeignKey(e => e.TaskId).OnDelete(DeleteBehavior.NoAction).HasConstraintName("fk_task_comments_task");
             entity.HasOne(e => e.Author).WithMany(u => u.TaskComments).HasForeignKey(e => e.AuthorId).HasConstraintName("fk_task_comments_author");
         });
 

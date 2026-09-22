@@ -212,13 +212,19 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
         if (entity is not null)
         {
+            if (await HasHistoricalDataAsync(id, cancellationToken))
+                throw new AIPMS.Application.Common.Exceptions.ConflictException("Task evidence and comments must be retained. Cancel the task instead.");
             context.Tasks.Remove(entity);
-            await context.SaveChangesAsync(cancellationToken);
+            try { await context.SaveChangesAsync(cancellationToken); }
+            catch (DbUpdateException ex) when (ex.InnerException is Microsoft.Data.SqlClient.SqlException { Number: 547 })
+            { throw new AIPMS.Application.Common.Exceptions.ConflictException("The task has related records and cannot be deleted."); }
         }
     }
 
     public async Task<bool> HasHistoricalDataAsync(long id, CancellationToken cancellationToken)
     {
+        if (await context.TaskComments.AnyAsync(c => c.TaskId == id, cancellationToken)
+            || await context.Files.AnyAsync(f => f.TaskId == id, cancellationToken)) return true;
         var hasHistory = await context.TaskStatusHistories.AnyAsync(h => h.TaskId == id, cancellationToken);
         if (hasHistory) return true;
 

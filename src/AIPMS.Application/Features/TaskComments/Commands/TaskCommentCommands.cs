@@ -4,14 +4,19 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.TaskComments.Abstractions;
 using AIPMS.Application.Features.TaskComments.DTOs;
 using MediatR;
+using AIPMS.Application.Features.Supervisors.Abstractions;
 namespace AIPMS.Application.Features.TaskComments.Commands;
 public sealed record CreateTaskCommentCommand(long TaskId, string Content) : IRequest<TaskCommentDto>;
-public sealed class CreateTaskCommentHandler(ITaskCommentRepository repository, ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock) : IRequestHandler<CreateTaskCommentCommand, TaskCommentDto>
+public sealed class CreateTaskCommentHandler(ITaskCommentRepository repository, ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock, ISupervisorProfileRepository accounts) : IRequestHandler<CreateTaskCommentCommand, TaskCommentDto>
 {
     public Task<TaskCommentDto> Handle(CreateTaskCommentCommand r, CancellationToken ct) => repository.InTransactionAsync(async token =>
     {
         var actor = currentUser.UserId ?? throw new UnauthorizedException();
         var access = await repository.GetAccessAsync(r.TaskId, actor, token) ?? throw new NotFoundException("Task", r.TaskId);
+        await repository.LockProjectAsync(access.ProjectId, token);
+        access = await repository.GetAccessAsync(r.TaskId, actor, token) ?? throw new NotFoundException("Task", r.TaskId);
+        var account = await accounts.GetAccountAsync(actor, token);
+        if (account is null || !account.IsActive || !account.HasActiveAcademicScope) throw new ForbiddenException("An active account and academic scope are required.");
         if (access.ProjectStatus != "ACTIVE") throw new ConflictException("Comments require an ACTIVE project.");
         if (!access.IsActiveMember && !access.IsLeader && !access.IsMentor) throw new ForbiddenException("You cannot comment on this task.");
         var content = r.Content?.Trim() ?? "";
