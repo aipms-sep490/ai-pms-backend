@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Threading.RateLimiting;
 using AIPMS.Api.Configuration;
 using AIPMS.Api.Security;
@@ -150,9 +151,10 @@ public static class DependencyInjection
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = async (context, cancellationToken) =>
             {
+                var isAuth = context.HttpContext.Request.Path.StartsWithSegments("/api/v1/auth");
                 await Results.Problem(
                     statusCode: StatusCodes.Status429TooManyRequests,
-                    title: "Too many authentication requests.",
+                    title: isAuth ? "Too many authentication requests." : "Too many requests.",
                     detail: "Wait before retrying this operation.",
                     instance: context.HttpContext.Request.Path)
                     .ExecuteAsync(context.HttpContext);
@@ -167,6 +169,34 @@ public static class DependencyInjection
                         QueueLimit = 0,
                         AutoReplenishment = true
                     }));
+            options.AddPolicy("ai-assistant", httpContext =>
+            {
+                string partitionKey;
+                if (httpContext.User.Identity?.IsAuthenticated == true)
+                {
+                    var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                        ?? httpContext.User.FindFirst("sub")?.Value;
+
+                    partitionKey = !string.IsNullOrWhiteSpace(userId)
+                        ? $"user:{userId}"
+                        : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+                }
+                else
+                {
+                    var ip = httpContext.Connection.RemoteIpAddress?.ToString();
+                    partitionKey = string.IsNullOrWhiteSpace(ip) ? "ip:unknown" : $"ip:{ip}";
+                }
+
+                return RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey,
+                    static _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 20,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    });
+            });
         });
 
         return services;
