@@ -3,6 +3,7 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.Models;
+using AIPMS.Application.Features.Evaluations.Services;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.Data.SqlClient;
@@ -101,7 +102,7 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
         v?.RootRubricId ?? r.Id, v?.VersionNumber ?? 1, v?.ConcurrencyToken.ToString("N") ?? "", referenced,
         r.CreatedAt, r.UpdatedAt, r.RubricCriteria.OrderBy(c => c.SortOrder).ThenBy(c => c.Id)
             .Select(c => new RubricCriterionRecord(c.Id, c.CriterionId, c.Criterion.Name, c.Criterion.Description,
-                c.WeightPercent, c.MaxScore, c.SortOrder, c.IsRequired)).ToArray());
+                c.WeightPercent, c.MaxScore, c.SortOrder, c.IsRequired) { ParentId = c.ParentId }).ToArray());
 
     public async Task<RubricRecord> CreateAsync(long departmentId, long semesterId, string code, string name,
         string? description, IReadOnlyList<RubricCriterionInput> criteria, long actorId, DateTime now,
@@ -122,22 +123,35 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
         return await Read(row.Id, ct);
     }
 
-    private static List<M.RubricCriterion> Criteria(IReadOnlyList<RubricCriterionInput> input, DateTime now) => input.Select(c =>
-        new M.RubricCriterion
+    private static List<M.RubricCriterion> Criteria(IReadOnlyList<RubricCriterionInput> input, DateTime now)
+    {
+        var result = new List<M.RubricCriterion>();
+        var pending = new Queue<(RubricCriterionInput Input, M.RubricCriterion? Parent)>();
+        foreach (var root in input) pending.Enqueue((root, null));
+        while (pending.TryDequeue(out var item))
         {
-            WeightPercent = c.WeightPercent, MaxScore = c.MaxScore, SortOrder = c.SortOrder,
-            IsRequired = c.IsRequired, CreatedAt = now, UpdatedAt = now,
-            // Own a distinct definition for every version; never mutate a shared criterion catalogue row.
-            Criterion = new M.EvaluationCriterion { Code = "RC_" + Guid.NewGuid().ToString("N"),
-                Name = c.Name.Trim(), Description = c.Description?.Trim(), IsActive = true, CreatedAt = now, UpdatedAt = now }
-        }).ToList();
+            var c = item.Input;
+            var row = new M.RubricCriterion
+            {
+                Parent = item.Parent, WeightPercent = c.WeightPercent, MaxScore = c.MaxScore, SortOrder = c.SortOrder,
+                IsRequired = c.IsRequired, CreatedAt = now, UpdatedAt = now,
+                // Own definitions for every version, including every descendant.
+                Criterion = new M.EvaluationCriterion { Code = "RC_" + Guid.NewGuid().ToString("N"),
+                    Name = c.Name.Trim(), Description = c.Description?.Trim(), IsActive = true, CreatedAt = now, UpdatedAt = now }
+            };
+            result.Add(row);
+            foreach (var child in c.Children) pending.Enqueue((child, row));
+        }
+        return result;
+    }
 
     private async Task RemoveCriteria(long id, CancellationToken ct)
     {
-        var old = await context.RubricCriteria.Where(c => c.RubricId == id).ToListAsync(ct);
+        var old = await context.RubricCriteria.AsNoTracking().Where(c => c.RubricId == id).ToListAsync(ct);
         var ids = old.Select(c => c.CriterionId).ToArray();
-        context.RubricCriteria.RemoveRange(old);
-        await context.SaveChangesAsync(ct);
+        // A single set-based delete removes descendants and roots together while satisfying
+        // the self-reference; deleting tracked rows individually can violate the parent FK.
+        await context.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM dbo.rubric_criteria WHERE rubric_id = {id}", ct);
         var unused = await context.EvaluationCriteria.Where(c => ids.Contains(c.Id) && !c.RubricCriteria.Any()).ToListAsync(ct);
         context.EvaluationCriteria.RemoveRange(unused);
         await context.SaveChangesAsync(ct);

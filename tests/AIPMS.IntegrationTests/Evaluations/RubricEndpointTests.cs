@@ -1,6 +1,7 @@
 using System.Net;
 using System.Data.Common;
 using System.Net.Http.Json;
+using System.Text.Json;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
@@ -19,7 +20,7 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.IntegrationTests.Evaluations;
 
-public sealed class RubricEndpointTests(RubricDatabaseFixture database) : IClassFixture<RubricDatabaseFixture>
+public sealed partial class RubricEndpointTests(RubricDatabaseFixture database) : IClassFixture<RubricDatabaseFixture>
 {
     private static readonly RubricCriterionInput[] ValidCriteria =
         [new("Design", "Design evidence", 60m, 10m, 0, true), new("Presentation", null, 40m, 20m, 1, false)];
@@ -75,7 +76,7 @@ public sealed class RubricEndpointTests(RubricDatabaseFixture database) : IClass
         Assert.Empty(next.Criteria.Select(c => c.CriterionId).Intersect(retired.Criteria.Select(c => c.CriterionId)));
         await Body<RubricDto>(await staff.PutAsJsonAsync($"/api/v1/rubrics/{next.Id}", Edit(next)));
         var old = await Body<RubricDto>(await staff.GetAsync($"/api/v1/rubrics/{retired.Id}"));
-        Assert.Equal(retired.Criteria, old.Criteria);
+        Assert.Equal(JsonSerializer.Serialize(retired.Criteria), JsonSerializer.Serialize(old.Criteria));
         await using var db = database.CreateContext();
         Assert.Equal(6, await db.AuditLogs.CountAsync(a => a.EntityType == "RUBRIC" &&
             (a.EntityId == draft.Id.ToString() || a.EntityId == next.Id.ToString())));
@@ -223,7 +224,7 @@ public sealed class RubricEndpointTests(RubricDatabaseFixture database) : IClass
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         var after = await Body<RubricDto>(await staff.GetAsync($"/api/v1/rubrics/{before.Id}"));
         Assert.Equal(before.ConcurrencyToken, after.ConcurrencyToken);
-        Assert.Equal(before.Criteria, after.Criteria);
+        Assert.Equal(JsonSerializer.Serialize(before.Criteria), JsonSerializer.Serialize(after.Criteria));
         Assert.Equal(before.Name, after.Name);
         Assert.Equal(before.Status, after.Status);
         await using var db = database.CreateContext();

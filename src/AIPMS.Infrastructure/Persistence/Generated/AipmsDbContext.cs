@@ -1392,6 +1392,14 @@ public partial class AipmsDbContext : DbContext
 
             entity.ToTable("rubric_criteria");
 
+            entity.Property(e => e.ParentId).HasColumnName("parent_id");
+            entity.HasIndex(e => e.ParentId, "ix_rubric_criteria_parent_id");
+            entity.HasAlternateKey(e => new { e.Id, e.RubricId }).HasName("uq_rubric_criteria_id_rubric");
+            entity.HasOne(e => e.Parent).WithMany(e => e.Children)
+                .HasForeignKey(e => new { e.ParentId, e.RubricId })
+                .HasPrincipalKey(e => new { e.Id, e.RubricId })
+                .OnDelete(DeleteBehavior.NoAction).HasConstraintName("fk_rubric_criteria_parent");
+
             entity.HasIndex(e => e.CriterionId, "ix_rubric_criteria_criterion_id");
 
             entity.HasIndex(e => new { e.RubricId, e.SortOrder }, "ix_rubric_criteria_rubric_sort");

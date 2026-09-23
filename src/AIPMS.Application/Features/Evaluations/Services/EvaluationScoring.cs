@@ -17,8 +17,9 @@ public static class EvaluationScoring
     public static EvaluationPreview Preview(IReadOnlyList<EvaluationScoreRecord> criteria, decimal scale)
     {
         if (scale is not (10m or 100m)) throw new ArgumentOutOfRangeException(nameof(scale));
+        // Deep hierarchical weights can accumulate tiny decimal products; allow only arithmetic noise.
         if (criteria.Count == 0 || criteria.Select(c => c.RubricCriterionId).Distinct().Count() != criteria.Count
-            || criteria.Sum(c => c.WeightPercent) != 100m || !criteria.Any(c => c.IsRequired)
+            || Math.Abs(criteria.Sum(c => c.WeightPercent) - 100m) > 0.000000000000000000000001m || !criteria.Any(c => c.IsRequired)
             || criteria.Any(c => c.WeightPercent <= 0 || c.MaxScore <= 0))
             throw new ConflictException("The rubric is not valid for scoring.");
         foreach (var criterion in criteria)

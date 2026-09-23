@@ -20,7 +20,7 @@ are not rewritten. Per-evaluator finalization is documented in [FINALIZATION.md]
 | Verify final submission and evaluation window | FINAL_SUBMISSION, nonempty locked BE-16 package and active academic scope/window enforced |
 | Published rubric version | New assignments resolve the period's PUBLISHED rubric, validate its criteria, and bind immutable rubric ID, department and period |
 | Assigned list and resource access | Active eligible evaluator sees own assignments/drafts; staff sees own department, admin can read/manage; students cannot read unpublished grades |
-| Score bounds | 0 <= score <= criterion.maxScore, <=2 decimal places, only the protected rubric's criterion IDs |
+| Score bounds | 0 <= score <= criterion.maxScore, <=2 decimal places, only the protected rubric's leaf criterion IDs |
 | Deterministic preview | Weighted decimal calculation on scale 10; one final rounding away from zero to 2 decimals; no client-provided total |
 | Missing criteria | Draft can be incomplete; missing scores return null total and missing/all-required ID lists; no implicit zeros or weight redistribution |
 | Save draft | Full score-set replacement plus comments, concurrency token and transactionally persisted audit |
@@ -76,9 +76,12 @@ IDs/null entries are invalid. Score comments <=2000, overall comments <=10000,
 scores <=100, pageSize <=100 (default20), page>=1 (default1).
 
 The detail response includes rubricName, rubricId, rootRubricId, rubricVersion,
-criterion descriptions/weights/maxima, stored score/comments, totalScore (preview),
+the recursive criterion tree with local and effective weights, leaf descriptions/
+maxima, stored score/comments, totalScore (preview),
 scoreScale, calculationRule, missingCriterionIds and missingRequiredCriterionIds.
-The evaluator does not need access to rubric-management APIs to render the rubric.
+Group nodes are returned for rendering but cannot receive scores. The evaluator
+does not need access to rubric-management APIs to render the rubric. Existing flat
+rubrics are represented as root leaves and keep their original criterion IDs.
 Latest concurrencyToken is required for Save and Revoke. Stale/duplicate operations
 return 409; foreign criterion/max-range errors return 409, malformed input returns
 400, unauthorized resources return 403 and missing/unmanaged IDs return 404.
@@ -90,14 +93,22 @@ MidpointRounding.AwayFromZero. This is a stated implementation policy, not a
 rounding rule quoted from the SRS. Rule ID is persisted as
 WEIGHTED_10_AWAY_FROM_ZERO_2DP_V1 and exposed in responses.
 
-`totalPreview = Round(sum(score / maxScore * weightPercent) / 10, 2, AwayFromZero)`
+`totalPreview = Round(sum(score / maxScore * effectiveWeightPercent) / 10, 2, AwayFromZero)`
 
 Use decimal arithmetic, stable criterion-ID summation order and no intermediate
-rounding. Example: 9/10 at 60% plus 16/20 at 40% gives 8.60/10. Zero is a score,
+rounding. For a nested rubric, a leaf's effective weight is the product of its
+local percentages through the tree (20% x 40% x 60% = 4.8%). Example: 9/10 at
+60% plus 16/20 at 40% gives 8.60/10. Zero is a score,
 not missing data. Total stays null whenever any criterion lacks a score, including
 optional criteria: this avoids silently deciding how unscored optional weights
 affect a final result. The user confirmed that finalization requires every weighted
 criterion to have an explicit score; see FINALIZATION.md.
+
+The score payload is limited to leaf IDs from the bound published rubric. Parent
+groups are structural only and are rejected if submitted as score entries. Deep
+trees use a tiny tolerance when checking that effective leaf weights sum to 100%
+to absorb decimal multiplication noise; the final displayed result still rounds
+once to two decimal places.
 
 Create/save requires project FINAL_SUBMISSION; active organization, departments
 and majors; active semester with current UTC date inside its dates; the assigned

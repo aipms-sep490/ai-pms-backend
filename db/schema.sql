@@ -972,13 +972,18 @@ CREATE TABLE dbo.rubric_criteria (
     id              BIGINT IDENTITY(1,1) NOT NULL,
     rubric_id       BIGINT NOT NULL,
     criterion_id    BIGINT NOT NULL,
+    parent_id       BIGINT NULL,
     weight_percent  DECIMAL(5,2) NOT NULL,
-    max_score       DECIMAL(8,2) NOT NULL,
+    max_score       DECIMAL(8,2) NULL,
     sort_order      INT NOT NULL CONSTRAINT df_rubric_criteria_sort_order DEFAULT (0),
     is_required     BIT NOT NULL CONSTRAINT df_rubric_criteria_is_required DEFAULT (1),
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_rubric_criteria_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_rubric_criteria_updated_at DEFAULT (SYSUTCDATETIME()),
     CONSTRAINT pk_rubric_criteria PRIMARY KEY (id),
+    CONSTRAINT uq_rubric_criteria_id_rubric UNIQUE (id, rubric_id),
+    CONSTRAINT ck_rubric_criteria_parent CHECK (parent_id <> id),
+    CONSTRAINT fk_rubric_criteria_parent FOREIGN KEY (parent_id, rubric_id)
+        REFERENCES dbo.rubric_criteria(id, rubric_id),
     CONSTRAINT uq_rubric_criteria_rubric_criterion UNIQUE (rubric_id, criterion_id),
     CONSTRAINT ck_rubric_criteria_weight CHECK (weight_percent >= 0 AND weight_percent <= 100),
     CONSTRAINT ck_rubric_criteria_max_score CHECK (max_score > 0),
@@ -1125,6 +1130,7 @@ CREATE INDEX ix_rubrics_department_active ON dbo.rubrics(department_id, is_activ
 CREATE INDEX ix_rubrics_semester_active ON dbo.rubrics(academic_semester_id, is_active) WHERE academic_semester_id IS NOT NULL;
 CREATE INDEX ix_rubric_criteria_rubric_sort ON dbo.rubric_criteria(rubric_id, sort_order);
 CREATE INDEX ix_rubric_criteria_criterion_id ON dbo.rubric_criteria(criterion_id);
+CREATE INDEX ix_rubric_criteria_parent_id ON dbo.rubric_criteria(parent_id);
 CREATE INDEX ix_evaluations_project_type_status ON dbo.evaluations(project_id, evaluation_type, status);
 CREATE INDEX ix_evaluations_evaluator_id ON dbo.evaluations(evaluator_id);
 CREATE INDEX ix_evaluations_rubric_id ON dbo.evaluations(rubric_id);

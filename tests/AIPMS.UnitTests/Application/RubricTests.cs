@@ -9,7 +9,7 @@ namespace AIPMS.UnitTests.Application;
 public sealed class RubricTests
 {
     private static RubricCriterionRecord Criterion(decimal weight, int order = 0) =>
-        new(1, 1, "Criterion", null, weight, 10m, order, true);
+        new(order + 1, order + 1, "Criterion", null, weight, 10m, order, true);
 
     [Fact]
     public void Publish_uses_exact_decimal_weights()

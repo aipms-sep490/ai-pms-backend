@@ -10,9 +10,16 @@ public static class RubricStatuses
 public sealed record RubricActor(long UserId, bool IsAdmin, long? DepartmentId);
 public sealed record RubricScope(long DepartmentId, long OrganizationId, string SemesterStatus);
 public sealed record RubricCriterionInput(string Name, string? Description, decimal WeightPercent,
-    decimal MaxScore, int SortOrder, bool IsRequired);
+    decimal? MaxScore, int SortOrder, bool IsRequired)
+{
+    public IReadOnlyList<RubricCriterionInput> Children { get; init; } = [];
+}
 public sealed record RubricCriterionRecord(long Id, long CriterionId, string Name, string? Description,
-    decimal WeightPercent, decimal MaxScore, int SortOrder, bool IsRequired);
+    decimal WeightPercent, decimal? MaxScore, int SortOrder, bool IsRequired)
+{
+    public long? ParentId { get; init; }
+    public decimal EffectiveWeightPercent { get; init; }
+}
 public sealed record RubricRecord(long Id, long? DepartmentId, long? AcademicSemesterId,
     string Code, string Name, string? Description, string Status, long RootRubricId, int Version,
     string ConcurrencyToken, bool IsReferenced, DateTime CreatedAt, DateTime UpdatedAt,

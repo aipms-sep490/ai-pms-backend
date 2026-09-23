@@ -34,6 +34,15 @@ public sealed class RubricDatabaseFixture : IAsyncLifetime
             await using var command = new SqlCommand(batch, connection);
             await command.ExecuteNonQueryAsync();
         }
+        var hierarchy = await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "changes", "20260922_add_rubric_hierarchy.sql"));
+        await using var hierarchyConnection = new SqlConnection(ConnectionString);
+        await hierarchyConnection.OpenAsync();
+        foreach (var batch in Regex.Split(hierarchy, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(batch)) continue;
+            await using var command = new SqlCommand(batch, hierarchyConnection);
+            await command.ExecuteNonQueryAsync();
+        }
     }
 
     public async Task<RubricScenario> Seed()

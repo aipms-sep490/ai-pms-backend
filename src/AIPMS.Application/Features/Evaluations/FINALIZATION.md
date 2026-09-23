@@ -64,7 +64,9 @@ finalize returns409 without a second snapshot/audit/notification. Deadline is
 checked again after audit/notification writes, rolling back the whole operation
 if it crosses the boundary. Deadlock/unique/FK/concurrency errors return409.
 
-Evidence is deterministic from the locked final package. Full progress/feedback/
+Evidence is deterministic from the locked final package. Finalization freezes the
+published rubric tree and all leaf effective weights used by the calculation;
+group nodes remain structural and never receive score details. Full progress/feedback/
 contribution dashboards and optional AI summaries remain separate; no AI scoring
 or publishing is introduced. Privileged DB/storage maintenance is outside the
 application immutability guarantee.

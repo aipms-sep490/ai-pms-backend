@@ -160,7 +160,7 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         Current(before.ConcurrencyToken, input.ConcurrencyToken);
         if (before.Status != "DRAFT") throw new ConflictException("Only draft evaluations can be edited.");
         var unknown = input.Scores.Any(s => before.Scores.All(c => c.RubricCriterionId != s.RubricCriterionId));
-        if (unknown) throw new ConflictException("A score refers to a criterion outside this rubric version.");
+        if (unknown) throw new ConflictException("Scores must refer to leaf criteria in this rubric version; groups cannot be scored.");
         var values = input.Scores.ToDictionary(s => s.RubricCriterionId);
         var scores = before.Scores.Select(c => c with { Score = values.GetValueOrDefault(c.RubricCriterionId)?.Score,
             Comments = values.GetValueOrDefault(c.RubricCriterionId)?.Comments?.Trim() }).ToArray();

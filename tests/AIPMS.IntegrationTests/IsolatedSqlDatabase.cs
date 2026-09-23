@@ -71,10 +71,14 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                 "db", "changes", "20260921_add_milestone_templates.sql"), ct);
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260921_add_task_evidence_comments.sql"), ct);
+            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
+                "db", "changes", "20260922_add_rubric_hierarchy.sql"), ct);
             if (Regex.IsMatch(schema, @"\bUSE\s|\b(?:CREATE|DROP|ALTER)\s+DATABASE\b", RegexOptions.IgnoreCase))
                 throw new InvalidOperationException("Schema must not switch or manage databases.");
 
-            await using var target = new SqlConnection(ConnectionString);
+            // Some migrations span GO batches inside a transaction, which MARS does not permit.
+            var bootstrapConnection = new SqlConnectionStringBuilder(ConnectionString) { MultipleActiveResultSets = false };
+            await using var target = new SqlConnection(bootstrapConnection.ConnectionString);
             await target.OpenAsync(ct);
             foreach (var batch in Regex.Split(schema, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
             {
