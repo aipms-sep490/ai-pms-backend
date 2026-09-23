@@ -101,8 +101,7 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         await Scope(actor, rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct);
         var created = await repository.CreateAsync(rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value,
             input.Code.Trim().ToUpperInvariant(), rubric.Name, rubric.Description,
-            rubric.Criteria.Select(c => new RubricCriterionInput(c.Name, c.Description, c.WeightPercent,
-                c.MaxScore, c.SortOrder, c.IsRequired)).ToArray(), actor.UserId, clock.GetUtcNow().UtcDateTime, id, ct);
+            RubricHierarchy.ToInputs(rubric.Criteria), actor.UserId, clock.GetUtcNow().UtcDateTime, id, ct);
         await Audit("RUBRIC_VERSION_CREATED", created, actor.UserId, ct);
         return created.ToDto();
     }, ct);

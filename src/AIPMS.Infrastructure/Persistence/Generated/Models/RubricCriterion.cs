@@ -11,9 +11,15 @@ public partial class RubricCriterion
 
     public long CriterionId { get; set; }
 
+    public long? ParentId { get; set; }
+
+    public virtual RubricCriterion? Parent { get; set; }
+
+    public virtual ICollection<RubricCriterion> Children { get; set; } = new List<RubricCriterion>();
+
     public decimal WeightPercent { get; set; }
 
-    public decimal MaxScore { get; set; }
+    public decimal? MaxScore { get; set; }
 
     public int SortOrder { get; set; }
 

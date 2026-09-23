@@ -17,7 +17,7 @@ and the later evaluation lifecycle.
 | Requirement | Implementation / boundary |
 | --- | --- |
 | Create/edit DRAFT rubric | POST and aggregate PUT; incomplete criteria totals allowed in draft |
-| Criteria, weights, max score, order | Scoped criterion definitions with exact two-decimal inputs and unique nonnegative ordering |
+| Criteria, weights, max score, order | Recursive scoped criterion tree with exact two-decimal inputs, local sibling weights and unique nonnegative ordering |
 | Controlled publication | DRAFT -> PUBLISHED; at least one required criterion, positive weights/max scores and total weight exactly 100 |
 | Protected published version | Published content, scope, criteria and weights are immutable even after retirement and before any evaluation exists |
 | Publish/Retire actions | PUBLISHED -> RETIRED is terminal; create a new draft version to change or republish |
@@ -55,17 +55,25 @@ their own project authorization.
 | DELETE | /{id}?concurrencyToken=... | Delete an unreferenced draft; 204 |
 
 Criteria input: name, optional description, weightPercent, maxScore, sortOrder,
-isRequired. PUT replaces the full draft set (omit a criterion to remove it; change
-sortOrder to reorder). Draft criterion IDs can change after PUT. IDs become
-protected at publication. The API owns criterion definitions and never exposes a
-shared catalogue-edit endpoint that could mutate an older rubric indirectly.
+isRequired and recursive children. A node with children is a group: it has no
+maxScore and cannot be required. A leaf has a positive maxScore and may be
+required. Sibling weights are local percentages; root siblings and every child
+group must total 100% when the rubric is published. Responses include the tree,
+parentId and effectiveWeightPercent (the product of local weights along the path).
+PUT replaces the full draft tree (omitting a node removes it; sortOrder controls
+sibling order). Draft criterion IDs can change after PUT. IDs become protected at
+publication. The API owns criterion definitions and never exposes a shared
+catalogue-edit endpoint that could mutate an older rubric indirectly.
 
 New rubrics require BOTH departmentId and academicSemesterId. Their department
 must belong to the semester's active organization. Code is normalized uppercase
 and globally unique (max 50 characters, letters/digits/underscore/dot/hyphen).
 Scope and code stay fixed; create a separate rubric for a different semester or
-department. Name <=255, description <=1000, criteria <=100, maxScore <=999999.99,
-weightPercent >0 and <=100, sortOrder 0..9999; decimal input is not silently rounded.
+department. Name <=255, description <=1000, criteria requests are capped at 1000 total nodes,
+maxScore <=999999.99, weightPercent >0 and <=100, sortOrder 0..9999; decimal input
+is not silently rounded. The JSON reader allows the recursive request shape, while
+the validator walks it iteratively. Effective weights must remain positive at
+publication, which is the practical numeric limit for extremely deep decimal trees.
 
 List status is DRAFT, PUBLISHED or RETIRED; default page=1/pageSize=20 (max 100).
 Results order by ID descending; criteria by sortOrder then ID. Staff can only list
@@ -88,6 +96,10 @@ metadata and audit together. Failed audit/persistence writes roll back the whole
 mutation. Concurrent duplicate codes and stale edits return 409; family locking
 serializes version allocation. Database lock conflicts return 409 for retry.
 Reads keep rubric content and its token consistent across repository queries.
+Published and referenced rubrics are immutable; edits require a new version that
+copies the complete tree. Evaluation drafts expose and accept only leaf criteria;
+group nodes cannot be scored. Existing flat rubrics remain valid with a null
+parentId and continue to use their original criterion IDs.
 
 The existing `rubrics.is_active` remains BE-12's compatibility field: false for
 DRAFT/RETIRED, true only after successful publication for API-created rubrics.
@@ -103,11 +115,12 @@ endpoint and does not authorize assignment/finalization.
 
 ## Database deployment
 
-Review and apply `db/changes/20260911_add_rubric_versions.sql` before deploying
-this API. On a clean database run `db/schema.sql` first, then this change script.
-The additive script creates `rubric_versions` and can be rerun. EF mapping uses a
-partial context outside Persistence/Generated; schema.sql and generated files
-remain unchanged. The application does not auto-run migrations at startup.
+Review and apply `db/changes/20260911_add_rubric_versions.sql` and
+`db/changes/20260922_add_rubric_hierarchy.sql` before deploying this API. On a
+clean database run `db/schema.sql` first, then both change scripts. The additive
+scripts are rerunnable. The hierarchy script adds nullable `parent_id`, nullable
+leaf `max_score`, a same-rubric foreign key, index and guard constraints. The
+application does not auto-run migrations at startup.
 
 Legacy rubric IDs, criteria, active flags, period links and evaluations are
 preserved. Existing active rubrics are backfilled as PUBLISHED; inactive ones as
@@ -117,7 +130,10 @@ drafts. Reruns preserve already-managed state and concurrency tokens. Legacy row
 inserted by other tools after deployment need metadata backfill before mutation.
 Unscoped legacy rows remain admin-readable and protected; create a scoped rubric
 instead of silently moving historical data. Migration preserves legacy eligibility;
-it does not retrospectively certify old weights/criteria against the new publish rules.
+it does not retrospectively certify old weights/criteria against the new publish rules. Existing
+flat criteria receive `parent_id = NULL`; their stored evaluation details remain
+unchanged. The hierarchy migration is safe to rerun and does not create duplicate
+columns, constraints or indexes.
 
 Integration tests apply the migration only to isolated databases. Deployment
 requires reviewing and applying this script to the target environment before

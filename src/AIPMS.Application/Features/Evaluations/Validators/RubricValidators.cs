@@ -2,6 +2,7 @@ using AIPMS.Application.Features.Evaluations.Commands;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.Evaluations.Queries;
+using AIPMS.Application.Features.Evaluations.Services;
 using FluentValidation;
 
 namespace AIPMS.Application.Features.Evaluations.Validators;
@@ -13,8 +14,42 @@ public sealed class RubricCriterionInputValidator : AbstractValidator<RubricCrit
         RuleFor(x => x.Name).NotEmpty().MaximumLength(255);
         RuleFor(x => x.Description).MaximumLength(1000);
         RuleFor(x => x.WeightPercent).GreaterThan(0).LessThanOrEqualTo(100).PrecisionScale(5, 2, true);
-        RuleFor(x => x.MaxScore).GreaterThan(0).LessThanOrEqualTo(999999.99m).PrecisionScale(8, 2, true);
+        RuleFor(x => x.MaxScore).NotNull().GreaterThan(0).LessThanOrEqualTo(999999.99m).PrecisionScale(8, 2, true)
+            .When(x => x.Children is { Count: 0 });
+        RuleFor(x => x.MaxScore).Null().When(x => x.Children is { Count: > 0 });
+        RuleFor(x => x.IsRequired).Equal(false).When(x => x.Children is { Count: > 0 });
         RuleFor(x => x.SortOrder).InclusiveBetween(0, 9999);
+    }
+}
+
+public sealed class RubricTreeInputValidator : AbstractValidator<IReadOnlyList<RubricCriterionInput>>
+{
+    public RubricTreeInputValidator()
+    {
+        RuleFor(x => x).Custom((roots, context) =>
+        {
+            if (roots is null) { context.AddFailure("Criteria are required."); return; }
+            var seen = new HashSet<RubricCriterionInput>(ReferenceEqualityComparer.Instance);
+            var pending = new Stack<IReadOnlyList<RubricCriterionInput>>();
+            var nodeValidator = new RubricCriterionInputValidator();
+            pending.Push(roots);
+            while (pending.TryPop(out var siblings))
+            {
+                var orders = new HashSet<int>();
+                foreach (var node in siblings)
+                {
+                    if (node is null || !seen.Add(node) || seen.Count > RubricHierarchy.MaxNodes)
+                    {
+                        context.AddFailure("Criteria must form a tree without null nodes, cycles or shared nodes, with at most 1000 nodes.");
+                        return;
+                    }
+                    if (!orders.Add(node.SortOrder)) context.AddFailure("Sibling criteria must have unique sort orders.");
+                    foreach (var error in nodeValidator.Validate(node).Errors) context.AddFailure(error);
+                    if (node.Children is null) context.AddFailure("Children cannot be null; use an empty array for a leaf.");
+                    else pending.Push(node.Children);
+                }
+            }
+        });
     }
 }
 
@@ -27,10 +62,7 @@ public sealed class CreateRubricRequestValidator : AbstractValidator<CreateRubri
         RuleFor(x => x.Code).NotEmpty().MaximumLength(50).Matches("^[A-Za-z0-9][A-Za-z0-9_.-]*$");
         RuleFor(x => x.Name).NotEmpty().MaximumLength(255);
         RuleFor(x => x.Description).MaximumLength(1000);
-        RuleFor(x => x.Criteria).NotNull().Must(x => x is null || x.Count <= 100)
-            .Must(x => x is null || (x.All(c => c is not null) && x.Select(c => c.SortOrder).Distinct().Count() == x.Count))
-            .WithMessage("Criteria must be non-null and have unique sort orders.");
-        RuleForEach(x => x.Criteria).SetValidator(new RubricCriterionInputValidator());
+        RuleFor(x => x.Criteria).NotNull().SetValidator(new RubricTreeInputValidator());
     }
 }
 
@@ -41,10 +73,7 @@ public sealed class UpdateRubricRequestValidator : AbstractValidator<UpdateRubri
         RuleFor(x => x.Name).NotEmpty().MaximumLength(255);
         RuleFor(x => x.Description).MaximumLength(1000);
         RuleFor(x => x.ConcurrencyToken).Must(x => Guid.TryParse(x, out _)).WithMessage("A valid concurrency token is required.");
-        RuleFor(x => x.Criteria).NotNull().Must(x => x is null || x.Count <= 100)
-            .Must(x => x is null || (x.All(c => c is not null) && x.Select(c => c.SortOrder).Distinct().Count() == x.Count))
-            .WithMessage("Criteria must be non-null and have unique sort orders.");
-        RuleForEach(x => x.Criteria).SetValidator(new RubricCriterionInputValidator());
+        RuleFor(x => x.Criteria).NotNull().SetValidator(new RubricTreeInputValidator());
     }
 }
 

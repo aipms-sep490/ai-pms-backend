@@ -3,6 +3,9 @@ using AIPMS.Api.Configuration;
 using AIPMS.Api.Security;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Security;
+using AIPMS.Application.Features.Evaluations.Models;
+using AIPMS.Application.Features.Evaluations.Services;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors.Infrastructure;
@@ -103,7 +106,11 @@ public static class DependencyInjection
         });
 
         services.AddProblemDetails();
-        services.AddControllers();
+        services.AddControllers(options =>
+        {
+            // The iterative FluentValidation tree validator handles rubric descendants.
+            options.ModelMetadataDetailsProviders.Add(new SuppressChildValidationMetadataProvider(typeof(RubricCriterionInput)));
+        }).AddJsonOptions(options => options.JsonSerializerOptions.MaxDepth = 2 * RubricHierarchy.MaxNodes + 16);
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {

@@ -5,6 +5,7 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.Models;
+using AIPMS.Application.Features.Evaluations.Services;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.Data.SqlClient;
@@ -170,13 +171,18 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
             throw new ConflictException("Evaluation metadata does not match its protected assignment.");
         var criteria = await db.RubricCriteria.AsNoTracking().Include(c => c.Criterion).Where(c => c.RubricId == row.RubricId)
             .OrderBy(c => c.SortOrder).ThenBy(c => c.Id).ToListAsync(ct);
-        if (row.EvaluationDetails.Any(d => criteria.All(c => c.Id != d.RubricCriterionId)))
+        var rubricCriteria = criteria.Select(c => new RubricCriterionRecord(c.Id, c.CriterionId,
+            c.Criterion.Name, c.Criterion.Description, c.WeightPercent, c.MaxScore, c.SortOrder, c.IsRequired)
+            { ParentId = c.ParentId }).ToArray();
+        RubricRules.EnsurePublishable(rubricCriteria);
+        var leaves = RubricHierarchy.Leaves(rubricCriteria);
+        if (row.EvaluationDetails.Any(d => leaves.All(c => c.Id != d.RubricCriterionId)))
             throw new ConflictException("Evaluation contains a score outside its protected rubric.");
         var details = row.EvaluationDetails.ToDictionary(d => d.RubricCriterionId);
         return new(row.Id, state.AssignmentId, row.ProjectId, row.EvaluatorId, row.RubricId, row.Rubric.Name,
             rubricVersion.RootRubricId, rubricVersion.VersionNumber, row.EvaluationType,
             row.Status, row.Comments, row.TotalScore, state.ConcurrencyToken.ToString("N"), row.CreatedAt, row.UpdatedAt,
-            criteria.Select(c => new EvaluationScoreRecord(c.Id, c.Criterion.Name, c.Criterion.Description, c.WeightPercent, c.MaxScore,
+            leaves.Select(c => new EvaluationScoreRecord(c.Id, c.Name, c.Description, c.EffectiveWeightPercent, c.MaxScore!.Value,
                 c.SortOrder, c.IsRequired, details.GetValueOrDefault(c.Id)?.Score, details.GetValueOrDefault(c.Id)?.Comments)).ToArray());
     }
 
