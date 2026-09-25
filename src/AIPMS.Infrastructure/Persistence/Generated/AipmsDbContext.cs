@@ -1115,6 +1115,19 @@ public partial class AipmsDbContext : DbContext
             entity.Property(e => e.MaxProjectsPerSupervisor)
                 .HasDefaultValue(5)
                 .HasColumnName("max_projects_per_supervisor");
+            entity.Property(e => e.AllowedProjectModes)
+                .HasMaxLength(200)
+                .IsUnicode(false)
+                .HasDefaultValue("SINGLE_MAJOR,INTERDISCIPLINARY")
+                .HasColumnName("allowed_project_modes");
+            entity.Property(e => e.AllowedProposalSources)
+                .HasMaxLength(200)
+                .IsUnicode(false)
+                .HasDefaultValue("PUBLISHED_TOPIC,STUDENT_PROPOSAL")
+                .HasColumnName("allowed_proposal_sources");
+            entity.Property(e => e.PolicyVersion)
+                .HasDefaultValue(1)
+                .HasColumnName("policy_version");
             entity.Property(e => e.MaxTeamSize)
                 .HasDefaultValue(5)
                 .HasColumnName("max_team_size");
@@ -1457,6 +1470,8 @@ public partial class AipmsDbContext : DbContext
                 .HasFilter("([is_primary]=(1) AND [ended_at] IS NULL)");
 
             entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.AssignmentType).HasMaxLength(30).IsUnicode(false).HasDefaultValue("PRIMARY").HasColumnName("assignment_type");
+            entity.Property(e => e.MajorId).HasColumnName("major_id");
             entity.Property(e => e.AssignedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
@@ -1617,6 +1632,8 @@ public partial class AipmsDbContext : DbContext
                 .HasFilter("([status]=N'PENDING')");
 
             entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.AssignmentType).HasMaxLength(30).IsUnicode(false).HasDefaultValue("PRIMARY").HasColumnName("assignment_type");
+            entity.Property(e => e.MajorId).HasColumnName("major_id");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")

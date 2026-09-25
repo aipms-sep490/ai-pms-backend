@@ -21,7 +21,8 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
                 context.SupervisorAssignments.Any(a => a.ProjectId == p.Id && a.EndedAt == null),
                 p.ProjectMajors.Where(m => !p.Team.TeamMembers.Any(tm => tm.LeftAt == null && (tm.User.AcademicProfileStatus != "VERIFIED" || tm.User.Status != "ACTIVE")) && m.Major.IsActive && m.Major.Department.IsActive
                     && m.Major.Department.OrganizationId == p.Team.AcademicSemester.OrganizationId)
-                    .Select(m => m.Major.DepartmentId).Distinct().ToList()))
+                    .Select(m => m.Major.DepartmentId).Distinct().ToList(),
+                p.ProjectMajors.Select(m => m.MajorId).Distinct().ToList()))
             .SingleOrDefaultAsync(ct);
     }
 
@@ -45,6 +46,8 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
             profiles = profiles.Where(p => p.User.FullName.Contains(search.Search));
         if (!string.IsNullOrWhiteSpace(search.Expertise))
             profiles = profiles.Where(p => p.SupervisorExpertises.Any(e => e.ExpertiseName.Contains(search.Expertise)));
+        if (search.AssignmentType == "DISCIPLINE_MENTOR" && search.MajorId is long majorId)
+            profiles = profiles.Where(p => p.User.Department!.Majors.Any(m => m.Id == majorId));
 
         // Count unended assignments across all semesters for the profile cap, and within
         // this semester for BE-12. Pending requests do not reserve a capacity slot.

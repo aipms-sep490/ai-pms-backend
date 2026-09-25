@@ -21,7 +21,9 @@ public sealed record CreateProjectPeriodCommand(
     int? MinDistinctMajors = 1,
     int? MaxProjectsPerSupervisor = 5,
     long? MilestoneTemplateId = null,
-    long? RubricId = null) : IRequest<ProjectPeriodDto>;
+    long? RubricId = null,
+    string? AllowedProjectModes = null,
+    string? AllowedProposalSources = null) : IRequest<ProjectPeriodDto>;
 
 public sealed class CreateProjectPeriodCommandHandler(
     ISemesterRepository repository,
@@ -150,6 +152,9 @@ public sealed class CreateProjectPeriodCommandHandler(
                 request.RubricId,
                 timeProvider.GetUtcNow().UtcDateTime,
                 cancellationToken);
+            if (request.AllowedProjectModes is not null || request.AllowedProposalSources is not null)
+                period = await repository.SetProjectPeriodGovernanceAsync(period.Id, request.AllowedProjectModes,
+                    request.AllowedProposalSources, cancellationToken);
 
             await auditTrail.RecordAsync(
                 new AuditEntry(
@@ -188,7 +193,9 @@ public sealed record UpdateProjectPeriodCommand(
     int? MinDistinctMajors = null,
     int? MaxProjectsPerSupervisor = null,
     long? MilestoneTemplateId = null,
-    long? RubricId = null) : IRequest<ProjectPeriodDto>;
+    long? RubricId = null,
+    string? AllowedProjectModes = null,
+    string? AllowedProposalSources = null) : IRequest<ProjectPeriodDto>;
 
 public sealed class UpdateProjectPeriodCommandHandler(
     ISemesterRepository repository,
@@ -367,6 +374,9 @@ public sealed class UpdateProjectPeriodCommandHandler(
                 request.RubricId ?? existing.RubricId,
                 timeProvider.GetUtcNow().UtcDateTime,
                 cancellationToken);
+            if (request.AllowedProjectModes is not null || request.AllowedProposalSources is not null)
+                period = await repository.SetProjectPeriodGovernanceAsync(period.Id, request.AllowedProjectModes,
+                    request.AllowedProposalSources, cancellationToken);
 
             await auditTrail.RecordAsync(
                 new AuditEntry(

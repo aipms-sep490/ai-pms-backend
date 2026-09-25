@@ -110,6 +110,10 @@ public interface ISemesterRepository
         DateTime utcNow,
         CancellationToken cancellationToken = default);
 
+    async Task<ProjectPeriodModel> SetProjectPeriodGovernanceAsync(long periodId, string? allowedProjectModes,
+        string? allowedProposalSources, CancellationToken cancellationToken = default) =>
+        (await GetProjectPeriodAsync(periodId, cancellationToken))!;
+
     Task<bool> HasActiveProjectsAsync(
         long semesterId,
         CancellationToken cancellationToken = default);

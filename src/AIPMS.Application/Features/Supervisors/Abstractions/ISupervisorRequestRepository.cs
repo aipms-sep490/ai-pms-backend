@@ -15,6 +15,9 @@ public interface ISupervisorRequestRepository
     Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct);
     Task<SupervisorRequestModel> CreateAsync(long projectId, long profileId, long actorId,
         string? message, DateTime now, CancellationToken ct);
+    async Task<SupervisorRequestModel> CreateAsync(long projectId, long profileId, long actorId,
+        string? message, DateTime now, CancellationToken ct, string assignmentType, long? majorId) =>
+        await CreateAsync(projectId, profileId, actorId, message, now, ct);
     Task<SupervisorRequestModel> RespondAsync(long requestId, string status, string? message, DateTime now, CancellationToken ct);
     Task<long> AssignAndActivateAsync(SupervisorRequestModel request, long actorId, DateTime now, CancellationToken ct);
     Task<IReadOnlyList<SupervisorRequestModel>> GetOtherPendingAsync(long projectId, long requestId, CancellationToken ct);

@@ -15,6 +15,10 @@ public partial class SupervisorAssignment
 
     public bool IsPrimary { get; set; }
 
+    public string AssignmentType { get; set; } = "PRIMARY";
+
+    public long? MajorId { get; set; }
+
     public DateTime AssignedAt { get; set; }
 
     public DateTime? EndedAt { get; set; }

@@ -18,17 +18,22 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
     SupervisorAccessService access, IProjectAccessService projectAccess, IAuditTrail audit, TimeProvider clock,
     IPublisher events)
 {
-    public Task<SupervisorRequestDto> SendAsync(long projectId, long profileId, string? message, CancellationToken ct) =>
+    public Task<SupervisorRequestDto> SendAsync(long projectId, long profileId, string? message,
+        string assignmentType, long? majorId, CancellationToken ct) =>
         repository.InTransactionAsync(async token =>
         {
             var actor = await access.EnsureCanReadAsync(token);
             await RequireLeaderAsync(actor, projectId, token);
+            assignmentType = assignmentType == "DISCIPLINE_MENTOR" ? "DISCIPLINE_MENTOR" : "PRIMARY";
+            if (assignmentType == "DISCIPLINE_MENTOR" && majorId is null)
+                throw new ConflictException("A discipline mentor request requires a majorId.");
             await repository.LockSupervisorAndProjectAsync(profileId, projectId, token);
             var now = clock.GetUtcNow().UtcDateTime;
-            await RequireEligibilityAsync(projectId, profileId, now, false, token);
+            await RequireEligibilityAsync(projectId, profileId, now, false, assignmentType == "PRIMARY", majorId, token);
             if (await repository.HasPendingAsync(projectId, profileId, token))
                 throw new ConflictException("A pending request already exists for this project and supervisor.");
-            var request = await repository.CreateAsync(projectId, profileId, actor.UserId, message?.Trim(), now, token);
+            var request = await repository.CreateAsync(projectId, profileId, actor.UserId, message?.Trim(), now, token,
+                assignmentType, majorId);
             await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.SupervisorRequestSent,
                 request.Id, actor.UserId, now), token);
             await AuditAsync("SUPERVISOR_REQUEST_SENT", actor.UserId, null, request, token);
@@ -77,7 +82,8 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             {
                 await repository.LockSupervisorAndProjectAsync(request.SupervisorProfileId, request.ProjectId, token);
                 now = clock.GetUtcNow().UtcDateTime;
-                var project = await RequireEligibilityAsync(request.ProjectId, request.SupervisorProfileId, now, true, token);
+                var project = await RequireEligibilityAsync(request.ProjectId, request.SupervisorProfileId, now,
+                    true, request.AssignmentType == "PRIMARY", request.MajorId, token);
                 previousProjectStatus = project.Status;
                 await repository.AssignAndActivateAsync(request, actor.UserId, now, token);
                 foreach (var other in await repository.GetOtherPendingAsync(request.ProjectId, request.Id, token))
@@ -98,9 +104,10 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
                 await audit.RecordAsync(new AuditEntry(actor.UserId, "SUPERVISOR_ASSIGNED", "SUPERVISOR_ASSIGNMENT",
                     result.AssignmentId, new Dictionary<string, object?> { ["requestId"] = request.Id,
                         ["projectId"] = request.ProjectId, ["supervisorProfileId"] = request.SupervisorProfileId }), token);
-                await audit.RecordAsync(new AuditEntry(actor.UserId, "PROJECT_ACTIVATED", "PROJECT",
-                    request.ProjectId, new Dictionary<string, object?> { ["requestId"] = request.Id,
-                        ["assignmentId"] = result.AssignmentId, ["oldStatus"] = previousProjectStatus, ["newStatus"] = "ACTIVE" }), token);
+                if (request.AssignmentType == "PRIMARY")
+                    await audit.RecordAsync(new AuditEntry(actor.UserId, "PROJECT_ACTIVATED", "PROJECT",
+                        request.ProjectId, new Dictionary<string, object?> { ["requestId"] = request.Id,
+                            ["assignmentId"] = result.AssignmentId, ["oldStatus"] = previousProjectStatus, ["newStatus"] = "ACTIVE" }), token);
             }
             return result.ToDto();
         }, ct);
@@ -129,12 +136,16 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             throw new ForbiddenException("Only the current student team leader can send or cancel supervisor requests.");
     }
 
-    private async Task<SupervisorCandidateProject> RequireEligibilityAsync(long projectId, long profileId, DateTime now, bool accepting, CancellationToken ct)
+    private async Task<SupervisorCandidateProject> RequireEligibilityAsync(long projectId, long profileId, DateTime now,
+        bool accepting, bool primary, long? majorId, CancellationToken ct)
     {
         var project = await candidates.GetProjectAsync(projectId, now, ct) ?? throw new NotFoundException("Project", projectId);
-        if ((project.Status != "APPROVED" && !(accepting && project.Status == "SUPERVISOR_PENDING"))
-            || project.HasActiveAssignment || !project.HasActiveSemester || project.DepartmentIds.Count == 0)
+        if (((primary && project.Status != "APPROVED" && !(accepting && project.Status == "SUPERVISOR_PENDING"))
+                || (!primary && project.Status != "ACTIVE"))
+            || (primary && project.HasActiveAssignment) || !project.HasActiveSemester || project.DepartmentIds.Count == 0)
             throw new ConflictException("The project is not eligible for supervisor selection.");
+        if (!primary && (majorId is null || project.RequiredMajorIds is null || !project.RequiredMajorIds.Contains(majorId.Value)))
+            throw new ConflictException("The discipline mentor major must be required by the project.");
         var policies = await candidates.GetSelectionPoliciesAsync(project.AcademicSemesterId, now, ct);
         if (policies.Count != 1 || policies[0].MaxProjectsPerSupervisor is not > 0)
             throw new ConflictException("One active supervisor-selection period with a configured quota is required.");

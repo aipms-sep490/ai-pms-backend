@@ -12,7 +12,8 @@ using MediatR;
 namespace AIPMS.Application.Features.Supervisors.Queries;
 
 public sealed record GetSupervisorCandidatesQuery(long ProjectId, string? Search = null,
-    string? Expertise = null, int Page = 1, int PageSize = 20)
+    string? Expertise = null, int Page = 1, int PageSize = 20,
+    string AssignmentType = "PRIMARY", long? MajorId = null)
     : IRequest<PagedResult<SupervisorCandidateDto>>;
 
 public sealed class GetSupervisorCandidatesQueryHandler(ISupervisorCandidateRepository repository,
@@ -29,7 +30,12 @@ public sealed class GetSupervisorCandidatesQueryHandler(ISupervisorCandidateRepo
         var now = clock.GetUtcNow().UtcDateTime;
         var project = await repository.GetProjectAsync(request.ProjectId, now, ct)
             ?? throw new NotFoundException("Project", request.ProjectId);
-        if (project.Status != "APPROVED" || project.HasActiveAssignment)
+        if (request.AssignmentType == "DISCIPLINE_MENTOR")
+        {
+            if (project.Status != "ACTIVE")
+                throw new ConflictException("Discipline mentor selection requires an ACTIVE project.");
+        }
+        else if (project.Status != "APPROVED" || project.HasActiveAssignment)
             throw new ConflictException("Supervisor selection requires an approved project without an active assignment.");
         if (!project.HasActiveSemester || project.DepartmentIds.Count == 0)
             throw new ConflictException("The project must have an active semester and active majors in its organization.");
@@ -41,7 +47,8 @@ public sealed class GetSupervisorCandidatesQueryHandler(ISupervisorCandidateRepo
         var limit = policy.MaxProjectsPerSupervisor!.Value;
         var result = await repository.SearchAsync(new SupervisorCandidateSearch(project.Id,
             project.AcademicSemesterId, project.DepartmentIds, limit, request.Search?.Trim(),
-            request.Expertise?.Trim(), request.Page, request.PageSize), ct);
+            request.Expertise?.Trim(), request.Page, request.PageSize,
+            request.AssignmentType == "DISCIPLINE_MENTOR" ? "DISCIPLINE_MENTOR" : "PRIMARY", request.MajorId), ct);
         return new(result.Items.Select(candidate =>
         {
             var profile = candidate.Profile.ToDto();

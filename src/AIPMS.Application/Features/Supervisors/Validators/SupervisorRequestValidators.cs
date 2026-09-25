@@ -11,6 +11,9 @@ public sealed class SendSupervisorRequestCommandValidator : AbstractValidator<Se
         RuleFor(r => r.ProjectId).GreaterThan(0);
         RuleFor(r => r.SupervisorProfileId).GreaterThan(0);
         RuleFor(r => r.Message).MaximumLength(2000);
+        RuleFor(r => r.AssignmentType).Must(x => x is "PRIMARY" or "DISCIPLINE_MENTOR");
+        RuleFor(r => r).Must(r => r.AssignmentType != "DISCIPLINE_MENTOR" || r.MajorId is > 0)
+            .WithMessage("majorId is required for discipline mentor requests.");
     }
 }
 public sealed class CancelSupervisorRequestCommandValidator : AbstractValidator<CancelSupervisorRequestCommand>

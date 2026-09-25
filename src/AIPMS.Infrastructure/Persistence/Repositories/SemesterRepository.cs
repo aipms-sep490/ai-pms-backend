@@ -469,6 +469,9 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                 MaxTeamSize = maxTeamSize,
                 MinDistinctMajors = minDistinctMajors,
                 MaxProjectsPerSupervisor = maxProjectsPerSupervisor,
+                AllowedProjectModes = "SINGLE_MAJOR,INTERDISCIPLINARY",
+                AllowedProposalSources = "PUBLISHED_TOPIC,STUDENT_PROPOSAL",
+                PolicyVersion = 1,
                 MilestoneTemplateId = milestoneTemplateId,
                 MilestoneTemplateVersionId = await PinTemplateVersionAsync(milestoneTemplateId, utcNow, cancellationToken),
                 RubricId = rubricId,
@@ -656,6 +659,27 @@ internal sealed class SemesterRepository(AipmsDbContext context)
             }
             throw;
         }
+    }
+
+    public async Task<ProjectPeriodModel> SetProjectPeriodGovernanceAsync(long periodId,
+        string? allowedProjectModes, string? allowedProposalSources, CancellationToken cancellationToken = default)
+    {
+        var entity = await context.ProjectPeriods.SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
+            ?? throw new NotFoundException("ProjectPeriod", periodId);
+        static string Normalize(string? value, string fallback) =>
+            string.Join(',', (value ?? fallback).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(static item => item.ToUpperInvariant()).Distinct(StringComparer.Ordinal).OrderBy(static item => item));
+        var modes = Normalize(allowedProjectModes, entity.AllowedProjectModes);
+        var sources = Normalize(allowedProposalSources, entity.AllowedProposalSources);
+        if (entity.AllowedProjectModes != modes || entity.AllowedProposalSources != sources)
+        {
+            entity.AllowedProjectModes = modes;
+            entity.AllowedProposalSources = sources;
+            entity.PolicyVersion++;
+            entity.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        return (await GetProjectPeriodAsync(periodId, cancellationToken))!;
     }
 
     public async Task<ProjectPeriodModel> SetProjectPeriodStatusAsync(

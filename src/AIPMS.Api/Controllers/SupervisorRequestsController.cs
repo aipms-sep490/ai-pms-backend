@@ -21,7 +21,8 @@ public sealed class SupervisorRequestsController(ISender sender) : ControllerBas
     [HttpPost("/api/v1/projects/{projectId:long}/supervisor-requests")]
     [ProducesResponseType<SupervisorRequestDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<SupervisorRequestDto>> Send(long projectId, SendSupervisorRequest request, CancellationToken ct) =>
-        Ok(await sender.Send(new SendSupervisorRequestCommand(projectId, request.SupervisorProfileId, request.Message), ct));
+        Ok(await sender.Send(new SendSupervisorRequestCommand(projectId, request.SupervisorProfileId, request.Message,
+            request.AssignmentType, request.MajorId), ct));
 
     [HttpGet("/api/v1/projects/{projectId:long}/supervisor-requests")]
     [ProducesResponseType<PagedResult<SupervisorRequestDto>>(StatusCodes.Status200OK)]
