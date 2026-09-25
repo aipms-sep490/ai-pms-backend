@@ -258,7 +258,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         string domain,
         IReadOnlyList<string> technologies,
         IReadOnlyList<string> keywords,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, long? topicId = null)
     {
         await using var transaction = context.Database.CurrentTransaction is null
             ? await context.Database.BeginTransactionAsync(cancellationToken)
@@ -266,6 +266,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         try
         {
             await ValidateProjectMajorsAsync(teamId, majorIds, cancellationToken);
+            await ValidateGovernanceAsync(teamId, majorIds, topicId.HasValue ? "PUBLISHED_TOPIC" : "STUDENT_PROPOSAL", cancellationToken);
             var utcNow = Now;
             var project = new Project
             {
@@ -362,6 +363,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             if (project.Status is not ("DRAFT" or "REVISION_REQUIRED"))
                 throw new ConflictException("Only an editable proposal can be updated.");
             await ValidateProjectMajorsAsync(project.TeamId, majorIds, cancellationToken);
+            await ValidateGovernanceAsync(project.TeamId, majorIds, project.ProposalSource, cancellationToken);
             var utcNow = Now;
             project.Title = title.Trim();
             project.Description = description?.Trim();

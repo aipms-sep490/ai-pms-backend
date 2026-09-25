@@ -79,15 +79,16 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
         return new(items, search.Page, search.PageSize, count);
     }
 
-    public Task<bool> HasPendingAsync(long projectId, long profileId, CancellationToken ct) =>
+    public Task<bool> HasPendingAsync(long projectId, long profileId, CancellationToken ct, string assignmentType = "PRIMARY", long? majorId = null) =>
         context.SupervisorRequests.AnyAsync(r => r.ProjectId == projectId
-            && r.SupervisorProfileId == profileId && r.Status == "PENDING", ct);
+            && r.SupervisorProfileId == profileId && r.Status == "PENDING"
+            && r.AssignmentType == assignmentType && r.MajorId == majorId, ct);
 
-    public async Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct) =>
+    public async Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct, long? excludeProjectId = null) =>
         await context.SupervisorProfiles.AsNoTracking().Where(p => p.Id == profileId)
             .Select(p => new SupervisorWorkload(p.MaxActiveProjects,
-                p.SupervisorAssignments.Where(a => a.EndedAt == null).Select(a => a.ProjectId).Distinct().Count(),
-                p.SupervisorAssignments.Where(a => a.EndedAt == null && a.Project.Team.AcademicSemesterId == semesterId)
+                p.SupervisorAssignments.Where(a => a.EndedAt == null && a.ProjectId != excludeProjectId).Select(a => a.ProjectId).Distinct().Count(),
+                p.SupervisorAssignments.Where(a => a.EndedAt == null && a.ProjectId != excludeProjectId && a.Project.Team.AcademicSemesterId == semesterId)
                     .Select(a => a.ProjectId).Distinct().Count())).SingleOrDefaultAsync(ct)
             ?? throw new NotFoundException("SupervisorProfile", profileId);
 
@@ -101,7 +102,7 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
         RequireTransaction();
         var request = new SupervisorRequest { ProjectId = projectId, SupervisorProfileId = profileId,
             RequestedBy = actorId, Status = "PENDING", RequestMessage = message,
-            AssignmentType = assignmentType is "DISCIPLINE_MENTOR" ? "DISCIPLINE_MENTOR" : "PRIMARY",
+            AssignmentType = assignmentType,
             MajorId = majorId,
             RequestedAt = now, CreatedAt = now, UpdatedAt = now };
         context.SupervisorRequests.Add(request);
@@ -145,7 +146,7 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
         var assignment = new SupervisorAssignment { ProjectId = request.ProjectId,
             SupervisorProfileId = request.SupervisorProfileId, SupervisorRequestId = request.Id,
             IsPrimary = request.AssignmentType == "PRIMARY", AssignmentType = request.AssignmentType,
-            MajorId = request.MajorId, AssignedAt = now, CreatedAt = now, UpdatedAt = now };
+            MajorId = request.MajorId, AssignedBy = actorId, AssignedAt = now, CreatedAt = now, UpdatedAt = now };
         context.SupervisorAssignments.Add(assignment);
         await context.SaveChangesAsync(ct);
         if (request.AssignmentType == "PRIMARY")

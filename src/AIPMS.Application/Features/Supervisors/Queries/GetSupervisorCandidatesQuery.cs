@@ -23,6 +23,8 @@ public sealed class GetSupervisorCandidatesQueryHandler(ISupervisorCandidateRepo
     public async Task<PagedResult<SupervisorCandidateDto>> Handle(GetSupervisorCandidatesQuery request, CancellationToken ct)
     {
         var actor = await access.EnsureCanReadAsync(ct);
+        if (actor.Roles.Contains(AppRoles.Admin) && await repository.GetProjectAsync(request.ProjectId, clock.GetUtcNow().UtcDateTime, ct) is null)
+            throw new NotFoundException("Project", request.ProjectId);
         if ((!actor.Roles.Contains(AppRoles.Admin) && !actor.HasActiveAcademicScope)
             || !await projectAccess.CanAccessAsync(actor.UserId, request.ProjectId, ct))
             throw new ForbiddenException("You cannot view supervisor candidates for this project.");
@@ -32,7 +34,9 @@ public sealed class GetSupervisorCandidatesQueryHandler(ISupervisorCandidateRepo
             ?? throw new NotFoundException("Project", request.ProjectId);
         if (request.AssignmentType == "DISCIPLINE_MENTOR")
         {
-            if (project.Status != "ACTIVE")
+            if (project.Status != "ACTIVE" || !project.HasActiveAssignment
+                || project.RequiredMajorIds?.Contains(request.MajorId ?? 0) != true
+                || project.OccupiedMentorMajors?.Contains(request.MajorId ?? 0) == true)
                 throw new ConflictException("Discipline mentor selection requires an ACTIVE project.");
         }
         else if (project.Status != "APPROVED" || project.HasActiveAssignment)
@@ -40,7 +44,7 @@ public sealed class GetSupervisorCandidatesQueryHandler(ISupervisorCandidateRepo
         if (!project.HasActiveSemester || project.DepartmentIds.Count == 0)
             throw new ConflictException("The project must have an active semester and active majors in its organization.");
 
-        var policies = await repository.GetSelectionPoliciesAsync(project.AcademicSemesterId, now, ct);
+        var policies = await repository.GetSelectionPoliciesAsync(project.AcademicSemesterId, now, ct, request.AssignmentType == "DISCIPLINE_MENTOR");
         if (policies.Count != 1 || policies[0].MaxProjectsPerSupervisor is not > 0)
             throw new ConflictException("One active supervisor-selection period with a configured quota is required.");
         var policy = policies[0];

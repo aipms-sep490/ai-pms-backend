@@ -11,7 +11,7 @@ using Task = System.Threading.Tasks.Task;
 
 namespace AIPMS.IntegrationTests.Teams;
 
-public sealed class InterdisciplinaryWorkflowTests(TeamDatabaseFixture database) : IClassFixture<TeamDatabaseFixture>
+public sealed partial class InterdisciplinaryWorkflowTests(TeamDatabaseFixture database) : IClassFixture<TeamDatabaseFixture>
 {
     private sealed record Scenario(TeamScenario Team, long LeadDepartment, long OtherDepartment, long LeadStaff, long OtherStaff);
 
@@ -191,6 +191,8 @@ public sealed class InterdisciplinaryWorkflowTests(TeamDatabaseFixture database)
         project = await Transition(lead, project, "start-review");
         var next = await Review(leader, project.Id);
         Assert.NotEqual(review.LatestSubmission!.Id, next.LatestSubmission!.Id);
+        Assert.Equal(2, next.SubmissionHistory!.Count);
+        Assert.Equal("REJECTED", next.SubmissionHistory.Single(x => x.Id == review.LatestSubmission.Id).Decisions.Single(d => d.DepartmentId == s.OtherDepartment).Decision);
         Assert.All(next.LatestSubmission.Decisions, d => Assert.Equal("PENDING", d.Decision));
         Assert.Equal(HttpStatusCode.Conflict, (await other.PostAsJsonAsync($"/api/v1/projects/{project.Id}/department-decisions",
             new DepartmentDecisionRequest(review.LatestSubmission.Id, next.ConcurrencyToken, "APPROVED", null))).StatusCode);

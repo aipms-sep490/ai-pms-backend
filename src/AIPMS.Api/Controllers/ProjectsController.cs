@@ -46,7 +46,7 @@ public sealed class ProjectsController(ISender sender) : ControllerBase
             request.RequiredMajorIds,
             request.Domain,
             request.Technologies,
-            request.Keywords);
+            request.Keywords, request.TopicId);
 
         var result = await sender.Send(command, cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);

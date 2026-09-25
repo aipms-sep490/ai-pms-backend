@@ -41,7 +41,8 @@ public sealed class ProjectAccessServicePersistenceTests
         var role = new Role { Id = 2, Code = AppRoles.DepartmentStaff, Name = "Department Staff" };
         var userRole = new UserRole { Id = 1, UserId = 100, RoleId = 2 };
 
-        var department = new Department { Id = 10, Code = "SE", Name = "Software Engineering" };
+        var department = new Department { Id = 10, Code = "SE", Name = "Software Engineering", IsActive = true,
+            Organization = new() { Id = 1, Code = "UNI", Name = "University", IsActive = true } };
         var major = new Major { Id = 100, DepartmentId = 10, Code = "SE_MAJ", Name = "Software Engineering Major" };
 
         var project = new Project { Id = 1, Code = "PRJ-01", Title = "SE Project", Status = "ACTIVE", RowVersion = new byte[] { 1 } };
@@ -123,6 +124,8 @@ public sealed class ProjectAccessServicePersistenceTests
         using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
 
         var studentUser = CreateUser(50, "student@test.com");
+        studentUser.Department = new() { Id = 10, Code = "SE", Name = "SE", IsActive = true,
+            Organization = new() { Id = 1, Code = "UNI", Name = "University", IsActive = true } };
         var studentRole = new Role { Id = 3, Code = AppRoles.Student, Name = "Student" };
         var userRole = new UserRole { Id = 4, UserId = 50, RoleId = 3 };
 

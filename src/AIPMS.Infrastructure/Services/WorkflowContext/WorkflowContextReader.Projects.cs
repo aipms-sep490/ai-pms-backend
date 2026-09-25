@@ -26,11 +26,12 @@ internal sealed partial class WorkflowContextReader
         var hasScope = project.AcademicScope is not null;
         var reviewer = hasScope
             ? actor.Staff && actor.Academic.HasActiveDepartmentScope && snapshot?.Evidence.Scope.LeadDepartmentId == staffDepartment
-            : actor.Admin || actor.Staff && staffDepartment.HasValue && departmentIds.Contains(staffDepartment.Value);
+            : actor.Staff && actor.Academic.HasActiveDepartmentScope && staffDepartment.HasValue
+                && departmentIds.Count == 1 && departmentIds.Contains(staffDepartment.Value);
         var reviewGate = (reviewer, hasScope ? "LEAD_DEPARTMENT_REVIEWER_REQUIRED" : "REVIEWER_SCOPE_REQUIRED");
         var reviewEvidence = (!hasScope || snapshot is not null, "SUBMISSION_SNAPSHOT_REQUIRED");
         var myDecision = snapshot?.Decisions.SingleOrDefault(d => d.DepartmentId == staffDepartment);
-        var hybrid = snapshot?.Evidence.Scope.ProjectMode == "INTERDISCIPLINARY";
+        var hybrid = team.Team.AcademicScope is not null && snapshot?.Evidence.Scope.ProjectMode == "INTERDISCIPLINARY";
         var departmentsApproved = !hybrid || (snapshot!.Decisions.Count == snapshot.Evidence.DepartmentIds.Count
             && snapshot.Decisions.All(d => d.Decision == "APPROVED"));
         var canTransition = Enum.TryParse<ProjectStatus>(project.Status.Replace("_", ""), true, out var status);
@@ -45,6 +46,15 @@ internal sealed partial class WorkflowContextReader
         if (team.Team.AcademicScope is not null && !project.Majors.Select(m => m.MajorId).Order()
             .SequenceEqual(team.Team.AcademicScope.Requirements.Select(r => r.MajorId).Order()))
             proposalIssues.Add("PROJECT_MAJOR_SCOPE_MISMATCH");
+        var registration = await teams.GetOpenWindowAsync(team.Team.SemesterId, now.UtcDateTime, ct);
+        if (registration is not null)
+        {
+            var mode = team.Team.AcademicScope?.ProjectMode ?? (project.Majors.Count > 1 ? "INTERDISCIPLINARY" : "SINGLE_MAJOR");
+            if (!AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.Allows(registration.AllowedProjectModes, mode))
+                proposalIssues.Add("PROJECT_MODE_NOT_ALLOWED_BY_PERIOD");
+            if (!AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.Allows(registration.AllowedProposalSources, project.ProposalSource))
+                proposalIssues.Add("PROPOSAL_SOURCE_NOT_ALLOWED_BY_PERIOD");
+        }
         var submissionIssues = team.EligibilityIssues.Concat(proposalIssues).ToArray();
         var candidateProject = await candidateReader.GetProjectAsync(projectId, now.UtcDateTime, ct);
         var selectionPolicies = await candidateReader.GetSelectionPoliciesAsync(team.Team.SemesterId, now.UtcDateTime, ct);

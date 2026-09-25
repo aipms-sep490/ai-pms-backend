@@ -24,13 +24,13 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
         {
             var actor = await access.EnsureCanReadAsync(token);
             await RequireLeaderAsync(actor, projectId, token);
-            assignmentType = assignmentType == "DISCIPLINE_MENTOR" ? "DISCIPLINE_MENTOR" : "PRIMARY";
-            if (assignmentType == "DISCIPLINE_MENTOR" && majorId is null)
-                throw new ConflictException("A discipline mentor request requires a majorId.");
+            if (assignmentType is not ("PRIMARY" or "DISCIPLINE_MENTOR")
+                || (assignmentType == "PRIMARY" ? majorId is not null : majorId is not > 0))
+                throw new ConflictException("PRIMARY requires no majorId; DISCIPLINE_MENTOR requires a positive majorId.");
             await repository.LockSupervisorAndProjectAsync(profileId, projectId, token);
             var now = clock.GetUtcNow().UtcDateTime;
             await RequireEligibilityAsync(projectId, profileId, now, false, assignmentType == "PRIMARY", majorId, token);
-            if (await repository.HasPendingAsync(projectId, profileId, token))
+            if (await repository.HasPendingAsync(projectId, profileId, token, assignmentType, majorId))
                 throw new ConflictException("A pending request already exists for this project and supervisor.");
             var request = await repository.CreateAsync(projectId, profileId, actor.UserId, message?.Trim(), now, token,
                 assignmentType, majorId);
@@ -86,7 +86,8 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
                     true, request.AssignmentType == "PRIMARY", request.MajorId, token);
                 previousProjectStatus = project.Status;
                 await repository.AssignAndActivateAsync(request, actor.UserId, now, token);
-                foreach (var other in await repository.GetOtherPendingAsync(request.ProjectId, request.Id, token))
+                foreach (var other in (await repository.GetOtherPendingAsync(request.ProjectId, request.Id, token))
+                    .Where(r => r.AssignmentType == request.AssignmentType && r.MajorId == request.MajorId))
                 {
                     var cancelled = await repository.RespondAsync(other.Id, "CANCELLED", null, now, token);
                     await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.SupervisorRequestCancelled,
@@ -146,13 +147,23 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             throw new ConflictException("The project is not eligible for supervisor selection.");
         if (!primary && (majorId is null || project.RequiredMajorIds is null || !project.RequiredMajorIds.Contains(majorId.Value)))
             throw new ConflictException("The discipline mentor major must be required by the project.");
-        var policies = await candidates.GetSelectionPoliciesAsync(project.AcademicSemesterId, now, ct);
+        if (!primary && (project.OccupiedMentorMajors?.Contains(majorId!.Value) == true || !project.HasActiveAssignment))
+            throw new ConflictException("The mentor slot is occupied or the project has no primary supervisor.");
+        var policies = await candidates.GetSelectionPoliciesAsync(project.AcademicSemesterId, now, ct, !primary);
         if (policies.Count != 1 || policies[0].MaxProjectsPerSupervisor is not > 0)
             throw new ConflictException("One active supervisor-selection period with a configured quota is required.");
         var profile = await profiles.GetAsync(profileId, ct) ?? throw new NotFoundException("SupervisorProfile", profileId);
         if (!profile.IsAvailable || !project.DepartmentIds.Contains(profile.DepartmentId))
             throw new ConflictException("The supervisor is unavailable or outside the project's academic scope.");
-        var workload = await repository.GetWorkloadAsync(profileId, project.AcademicSemesterId, ct);
+        if (!primary)
+        {
+            var major = project.MajorScopes?.SingleOrDefault(m => m.Id == majorId);
+            if (major is null || major.DepartmentId != profile.DepartmentId
+                || !profile.Expertise.Any(e => string.Equals(e.Name, major.Code, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(e.Name, major.Name, StringComparison.OrdinalIgnoreCase)))
+                throw new ConflictException("A discipline mentor must belong to the major's department and have matching expertise.");
+        }
+        var workload = await repository.GetWorkloadAsync(profileId, project.AcademicSemesterId, ct, projectId);
         if (new SupervisorCapacity(workload.ProfileLimit, policies[0].MaxProjectsPerSupervisor!.Value,
                 workload.ActiveProjects, workload.SemesterActiveProjects).RemainingSlots == 0)
             throw new ConflictException("The supervisor has reached the profile or semester capacity limit.");

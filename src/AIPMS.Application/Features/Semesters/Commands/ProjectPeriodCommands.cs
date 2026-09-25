@@ -170,7 +170,10 @@ public sealed class CreateProjectPeriodCommandHandler(
                         ["periodType"] = period.PeriodType,
                         ["minTeamSize"] = period.MinTeamSize,
                         ["maxTeamSize"] = period.MaxTeamSize,
-                        ["minDistinctMajors"] = period.MinDistinctMajors
+                        ["minDistinctMajors"] = period.MinDistinctMajors,
+                        ["allowedProjectModes"] = period.AllowedProjectModes,
+                        ["allowedProposalSources"] = period.AllowedProposalSources,
+                        ["policyVersion"] = period.PolicyVersion
                     }),
                 cancellationToken);
 
@@ -401,7 +404,10 @@ public sealed class UpdateProjectPeriodCommandHandler(
                             ["minDistinctMajors"] = existing.MinDistinctMajors,
                             ["maxProjectsPerSupervisor"] = existing.MaxProjectsPerSupervisor,
                             ["milestoneTemplateId"] = existing.MilestoneTemplateId,
-                            ["rubricId"] = existing.RubricId
+                            ["rubricId"] = existing.RubricId,
+                            ["allowedProjectModes"] = existing.AllowedProjectModes,
+                            ["allowedProposalSources"] = existing.AllowedProposalSources,
+                            ["policyVersion"] = existing.PolicyVersion
                         },
                         ["after"] = new Dictionary<string, object?>
                         {
@@ -415,7 +421,10 @@ public sealed class UpdateProjectPeriodCommandHandler(
                             ["minDistinctMajors"] = period.MinDistinctMajors,
                             ["maxProjectsPerSupervisor"] = period.MaxProjectsPerSupervisor,
                             ["milestoneTemplateId"] = period.MilestoneTemplateId,
-                            ["rubricId"] = period.RubricId
+                            ["rubricId"] = period.RubricId,
+                            ["allowedProjectModes"] = period.AllowedProjectModes,
+                            ["allowedProposalSources"] = period.AllowedProposalSources,
+                            ["policyVersion"] = period.PolicyVersion
                         }
                     }),
                 cancellationToken);

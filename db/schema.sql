@@ -554,6 +554,8 @@ CREATE TABLE dbo.supervisor_requests (
     CONSTRAINT pk_supervisor_requests PRIMARY KEY (id),
     CONSTRAINT ck_supervisor_requests_status CHECK (status IN (N'PENDING', N'ACCEPTED', N'REJECTED', N'CANCELLED')),
     CONSTRAINT ck_supervisor_requests_assignment_type CHECK (assignment_type IN ('PRIMARY','DISCIPLINE_MENTOR')),
+    CONSTRAINT ck_supervisor_requests_assignment_slot CHECK ((assignment_type = 'PRIMARY' AND major_id IS NULL)
+        OR (assignment_type = 'DISCIPLINE_MENTOR' AND major_id IS NOT NULL)),
     CONSTRAINT fk_supervisor_requests_project FOREIGN KEY (project_id)
         REFERENCES dbo.projects(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_supervisor_requests_profile FOREIGN KEY (supervisor_profile_id)
@@ -566,7 +568,7 @@ CREATE TABLE dbo.supervisor_requests (
 GO
 
 CREATE UNIQUE INDEX ux_supervisor_requests_pending
-ON dbo.supervisor_requests(project_id, supervisor_profile_id)
+ON dbo.supervisor_requests(project_id, supervisor_profile_id, assignment_type, major_id)
 WHERE status = N'PENDING';
 GO
 
@@ -578,15 +580,23 @@ CREATE TABLE dbo.supervisor_assignments (
     is_primary              BIT NOT NULL CONSTRAINT df_supervisor_assignments_is_primary DEFAULT (0),
     assignment_type         VARCHAR(30) NOT NULL CONSTRAINT df_supervisor_assignments_assignment_type DEFAULT ('PRIMARY'),
     major_id                BIGINT NULL,
+    assigned_by             BIGINT NULL,
+    ended_by                BIGINT NULL,
+    end_reason              NVARCHAR(2000) NULL,
+    replaces_assignment_id  BIGINT NULL,
     assigned_at             DATETIME2(0) NOT NULL CONSTRAINT df_supervisor_assignments_assigned_at DEFAULT (SYSUTCDATETIME()),
     ended_at                DATETIME2(0) NULL,
     created_at              DATETIME2(0) NOT NULL CONSTRAINT df_supervisor_assignments_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at              DATETIME2(0) NOT NULL CONSTRAINT df_supervisor_assignments_updated_at DEFAULT (SYSUTCDATETIME()),
     CONSTRAINT pk_supervisor_assignments PRIMARY KEY (id),
     CONSTRAINT uq_supervisor_assignments_request UNIQUE (supervisor_request_id),
-    CONSTRAINT uq_supervisor_assignments_project_supervisor UNIQUE (project_id, supervisor_profile_id),
     CONSTRAINT ck_supervisor_assignments_dates CHECK (ended_at IS NULL OR ended_at >= assigned_at),
     CONSTRAINT ck_supervisor_assignments_assignment_type CHECK (assignment_type IN ('PRIMARY','DISCIPLINE_MENTOR')),
+    CONSTRAINT ck_supervisor_assignments_assignment_slot CHECK ((assignment_type = 'PRIMARY' AND major_id IS NULL)
+        OR (assignment_type = 'DISCIPLINE_MENTOR' AND major_id IS NOT NULL AND is_primary = 0)),
+    CONSTRAINT fk_supervisor_assignments_assigned_by FOREIGN KEY (assigned_by) REFERENCES dbo.users(id),
+    CONSTRAINT fk_supervisor_assignments_ended_by FOREIGN KEY (ended_by) REFERENCES dbo.users(id),
+    CONSTRAINT fk_supervisor_assignments_replaces_assignment_id FOREIGN KEY (replaces_assignment_id) REFERENCES dbo.supervisor_assignments(id),
     CONSTRAINT fk_supervisor_assignments_project FOREIGN KEY (project_id)
         REFERENCES dbo.projects(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_supervisor_assignments_profile FOREIGN KEY (supervisor_profile_id)
@@ -596,6 +606,10 @@ CREATE TABLE dbo.supervisor_assignments (
     CONSTRAINT fk_supervisor_assignments_major FOREIGN KEY (major_id)
         REFERENCES dbo.majors(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
+GO
+
+CREATE UNIQUE INDEX ux_supervisor_assignments_replacement
+ON dbo.supervisor_assignments(replaces_assignment_id) WHERE replaces_assignment_id IS NOT NULL;
 GO
 
 CREATE UNIQUE INDEX ux_supervisor_assignments_active_major_mentor

@@ -15,7 +15,7 @@ BEGIN TRY
 
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_project_periods_policy_version'
                    AND parent_object_id = OBJECT_ID(N'dbo.project_periods'))
-        ALTER TABLE dbo.project_periods ADD CONSTRAINT ck_project_periods_policy_version CHECK (policy_version >= 1);
+        EXEC(N'ALTER TABLE dbo.project_periods ADD CONSTRAINT ck_project_periods_policy_version CHECK (policy_version >= 1)');
 
     COMMIT TRANSACTION;
 END TRY

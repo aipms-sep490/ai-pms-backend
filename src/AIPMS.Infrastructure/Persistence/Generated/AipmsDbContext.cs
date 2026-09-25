@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using Microsoft.EntityFrameworkCore;
@@ -1461,7 +1461,13 @@ public partial class AipmsDbContext : DbContext
 
             entity.HasIndex(e => e.SupervisorProfileId, "ix_supervisor_assignments_supervisor");
 
-            entity.HasIndex(e => new { e.ProjectId, e.SupervisorProfileId }, "uq_supervisor_assignments_project_supervisor").IsUnique();
+            entity.HasIndex(e => new { e.ProjectId, e.MajorId }, "ux_supervisor_assignments_active_major_mentor")
+                .IsUnique().HasFilter("[assignment_type] = 'DISCIPLINE_MENTOR' AND [ended_at] IS NULL");
+            entity.HasIndex(e => e.ReplacesAssignmentId, "ux_supervisor_assignments_replacement").IsUnique().HasFilter("[replaces_assignment_id] IS NOT NULL");
+            entity.Property(e => e.AssignedBy).HasColumnName("assigned_by");
+            entity.Property(e => e.EndedBy).HasColumnName("ended_by");
+            entity.Property(e => e.EndReason).HasMaxLength(2000).HasColumnName("end_reason");
+            entity.Property(e => e.ReplacesAssignmentId).HasColumnName("replaces_assignment_id");
 
             entity.HasIndex(e => e.SupervisorRequestId, "uq_supervisor_assignments_request").IsUnique();
 
@@ -1492,8 +1498,8 @@ public partial class AipmsDbContext : DbContext
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("updated_at");
 
-            entity.HasOne(d => d.Project).WithOne(p => p.SupervisorAssignment)
-                .HasForeignKey<SupervisorAssignment>(d => d.ProjectId)
+            entity.HasOne(d => d.Project).WithMany(p => p.SupervisorAssignments)
+                .HasForeignKey(d => d.ProjectId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_supervisor_assignments_project");
 
@@ -1627,7 +1633,7 @@ public partial class AipmsDbContext : DbContext
 
             entity.HasIndex(e => new { e.SupervisorProfileId, e.Status }, "ix_supervisor_requests_supervisor_status");
 
-            entity.HasIndex(e => new { e.ProjectId, e.SupervisorProfileId }, "ux_supervisor_requests_pending")
+            entity.HasIndex(e => new { e.ProjectId, e.SupervisorProfileId, e.AssignmentType, e.MajorId }, "ux_supervisor_requests_pending")
                 .IsUnique()
                 .HasFilter("([status]=N'PENDING')");
 

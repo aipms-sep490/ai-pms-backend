@@ -35,6 +35,11 @@ public sealed class SupervisorAssignmentsController(ISender sender) : Controller
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) =>
         Ok(await sender.Send(new GetSupervisorAssignmentsQuery(null, status, page, pageSize), ct));
 
+    [HttpPost("{assignmentId:long}/replace")]
+    [ProducesResponseType<SupervisorAssignmentDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<SupervisorAssignmentDto>> Replace(long assignmentId, ReplaceSupervisorAssignmentRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new ReplaceSupervisorAssignmentCommand(assignmentId, request.SupervisorProfileId, request.Reason), ct));
+
     [HttpPost("{assignmentId:long}/end")]
     [ProducesResponseType<SupervisorAssignmentDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<SupervisorAssignmentDto>> End(long assignmentId, EndSupervisorAssignmentRequest request, CancellationToken ct) =>

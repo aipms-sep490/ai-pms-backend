@@ -585,9 +585,7 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
             .AsNoTracking()
             .Where(p => p.Id == projectId)
             .AnyAsync(p => p.Team.TeamMembers.Any(m => m.UserId == userId && m.LeftAt == null)
-                || (p.SupervisorAssignment != null
-                    && p.SupervisorAssignment.EndedAt == null
-                    && p.SupervisorAssignment.SupervisorProfile.UserId == userId),
+                || p.SupervisorAssignments.Any(a => a.EndedAt == null && a.SupervisorProfile.UserId == userId),
                 cancellationToken);
     }
 
@@ -597,9 +595,7 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
             .AsNoTracking()
             .Where(p => p.Id == projectId)
             .AnyAsync(p => p.Team.TeamMembers.Any(m => m.UserId == userId && m.IsLeader && m.LeftAt == null)
-                || (p.SupervisorAssignment != null
-                    && p.SupervisorAssignment.EndedAt == null
-                    && p.SupervisorAssignment.SupervisorProfile.UserId == userId),
+                || p.SupervisorAssignments.Any(a => a.EndedAt == null && a.SupervisorProfile.UserId == userId),
                 cancellationToken);
     }
 
@@ -610,9 +606,7 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
             .Where(m => m.Id == meetingId)
             .AnyAsync(m => m.CreatedBy == userId
                 || m.Project.Team.TeamMembers.Any(tm => tm.UserId == userId && tm.IsLeader && tm.LeftAt == null)
-                || (m.Project.SupervisorAssignment != null
-                    && m.Project.SupervisorAssignment.EndedAt == null
-                    && m.Project.SupervisorAssignment.SupervisorProfile.UserId == userId),
+                || m.Project.SupervisorAssignments.Any(a => a.EndedAt == null && a.SupervisorProfile.UserId == userId),
                 cancellationToken);
     }
 

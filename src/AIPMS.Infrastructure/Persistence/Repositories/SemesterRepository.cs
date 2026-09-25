@@ -617,6 +617,10 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                 }
             }
 
+            if (entity.PeriodType != periodType || entity.StartAt != startAt || entity.EndAt != endAt
+                || entity.MinTeamSize != minTeamSize || entity.MaxTeamSize != maxTeamSize
+                || entity.MinDistinctMajors != minDistinctMajors || entity.MaxProjectsPerSupervisor != maxProjectsPerSupervisor)
+                entity.PolicyVersion++;
             entity.Code = code;
             entity.Name = name;
             entity.PeriodType = periodType;
@@ -664,14 +668,21 @@ internal sealed class SemesterRepository(AipmsDbContext context)
     public async Task<ProjectPeriodModel> SetProjectPeriodGovernanceAsync(long periodId,
         string? allowedProjectModes, string? allowedProposalSources, CancellationToken cancellationToken = default)
     {
-        var entity = await context.ProjectPeriods.SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
-            ?? throw new NotFoundException("ProjectPeriod", periodId);
-        static string Normalize(string? value, string fallback) =>
-            string.Join(',', (value ?? fallback).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(static item => item.ToUpperInvariant()).Distinct(StringComparer.Ordinal).OrderBy(static item => item));
-        var modes = Normalize(allowedProjectModes, entity.AllowedProjectModes);
-        var sources = Normalize(allowedProposalSources, entity.AllowedProposalSources);
-        if (entity.AllowedProjectModes != modes || entity.AllowedProposalSources != sources)
+        if (context.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Governance updates require a transaction.");
+        var entity = await context.ProjectPeriods.FromSqlInterpolated($"SELECT * FROM dbo.project_periods WITH (UPDLOCK, HOLDLOCK) WHERE id = {periodId}")
+            .SingleOrDefaultAsync(cancellationToken) ?? throw new NotFoundException("ProjectPeriod", periodId);
+        await context.Entry(entity).ReloadAsync(cancellationToken);
+        if (await context.AcademicSemesters.AnyAsync(s => s.Id == entity.AcademicSemesterId && (s.Status == "CLOSED" || s.Status == "ARCHIVED"), cancellationToken))
+            throw new ConflictException("The semester is closed.");
+        if (entity.Status is "CLOSED" or "ARCHIVED") throw new ConflictException("The period is closed.");
+        if (!AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.IsValid(allowedProjectModes, true)
+            || !AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.IsValid(allowedProposalSources, false))
+            throw new ConflictException("Invalid project mode or proposal source policy.");
+        var modes = AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.Normalize(allowedProjectModes ?? entity.AllowedProjectModes);
+        var sources = AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.Normalize(allowedProposalSources ?? entity.AllowedProposalSources);
+        if (AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.Normalize(entity.AllowedProjectModes) != modes
+            || AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.Normalize(entity.AllowedProposalSources) != sources)
         {
             entity.AllowedProjectModes = modes;
             entity.AllowedProposalSources = sources;
@@ -754,6 +765,7 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                     .Where(p => p.Id == periodId && p.Status == expectedStatus)
                     .ExecuteUpdateAsync(p => p
                         .SetProperty(b => b.Status, status)
+                        .SetProperty(b => b.PolicyVersion, b => b.PolicyVersion + 1)
                         .SetProperty(b => b.UpdatedAt, utcNow), cancellationToken);
 
                 if (affected == 0)
@@ -778,6 +790,7 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                     .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
                     ?? throw new NotFoundException("ProjectPeriod", periodId);
 
+                if (trackedEntity.Status != status) trackedEntity.PolicyVersion++;
                 trackedEntity.Status = status;
                 trackedEntity.UpdatedAt = utcNow;
                 await context.SaveChangesAsync(cancellationToken);
