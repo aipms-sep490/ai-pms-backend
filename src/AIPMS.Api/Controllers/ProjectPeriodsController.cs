@@ -59,7 +59,9 @@ public sealed class ProjectPeriodsController(ISender sender) : ControllerBase
                 request.MinDistinctMajors,
                 request.MaxProjectsPerSupervisor,
                 request.MilestoneTemplateId,
-                request.RubricId),
+                request.RubricId,
+                request.AllowedProjectModes,
+                request.AllowedProposalSources),
             cancellationToken);
 
         return CreatedAtAction(
@@ -91,7 +93,9 @@ public sealed class ProjectPeriodsController(ISender sender) : ControllerBase
                 request.MinDistinctMajors,
                 request.MaxProjectsPerSupervisor,
                 request.MilestoneTemplateId,
-                request.RubricId),
+                request.RubricId,
+                request.AllowedProjectModes,
+                request.AllowedProposalSources),
             cancellationToken));
 
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]

@@ -79,24 +79,31 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
         return new(items, search.Page, search.PageSize, count);
     }
 
-    public Task<bool> HasPendingAsync(long projectId, long profileId, CancellationToken ct) =>
+    public Task<bool> HasPendingAsync(long projectId, long profileId, CancellationToken ct, string assignmentType = "PRIMARY", long? majorId = null) =>
         context.SupervisorRequests.AnyAsync(r => r.ProjectId == projectId
-            && r.SupervisorProfileId == profileId && r.Status == "PENDING", ct);
+            && r.SupervisorProfileId == profileId && r.Status == "PENDING"
+            && r.AssignmentType == assignmentType && r.MajorId == majorId, ct);
 
-    public async Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct) =>
+    public async Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct, long? excludeProjectId = null) =>
         await context.SupervisorProfiles.AsNoTracking().Where(p => p.Id == profileId)
             .Select(p => new SupervisorWorkload(p.MaxActiveProjects,
-                p.SupervisorAssignments.Where(a => a.EndedAt == null).Select(a => a.ProjectId).Distinct().Count(),
-                p.SupervisorAssignments.Where(a => a.EndedAt == null && a.Project.Team.AcademicSemesterId == semesterId)
+                p.SupervisorAssignments.Where(a => a.EndedAt == null && a.ProjectId != excludeProjectId).Select(a => a.ProjectId).Distinct().Count(),
+                p.SupervisorAssignments.Where(a => a.EndedAt == null && a.ProjectId != excludeProjectId && a.Project.Team.AcademicSemesterId == semesterId)
                     .Select(a => a.ProjectId).Distinct().Count())).SingleOrDefaultAsync(ct)
             ?? throw new NotFoundException("SupervisorProfile", profileId);
 
     public async Task<SupervisorRequestModel> CreateAsync(long projectId, long profileId, long actorId,
         string? message, DateTime now, CancellationToken ct)
+        => await CreateAsync(projectId, profileId, actorId, message, now, ct, "PRIMARY", null);
+
+    public async Task<SupervisorRequestModel> CreateAsync(long projectId, long profileId, long actorId,
+        string? message, DateTime now, CancellationToken ct, string assignmentType, long? majorId)
     {
         RequireTransaction();
         var request = new SupervisorRequest { ProjectId = projectId, SupervisorProfileId = profileId,
             RequestedBy = actorId, Status = "PENDING", RequestMessage = message,
+            AssignmentType = assignmentType,
+            MajorId = majorId,
             RequestedAt = now, CreatedAt = now, UpdatedAt = now };
         context.SupervisorRequests.Add(request);
         await context.SaveChangesAsync(ct);
@@ -130,15 +137,20 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
                 NewStatus = next, ChangedBy = actorId, ChangedAt = now, Reason = $"Supervisor request {request.Id} accepted." });
             project.Status = next;
         }
-        if (project.Status == "APPROVED") Transition("SUPERVISOR_PENDING");
-        Transition("ACTIVE");
+        if (request.AssignmentType == "PRIMARY")
+        {
+            if (project.Status == "APPROVED") Transition("SUPERVISOR_PENDING");
+            Transition("ACTIVE");
+        }
         project.UpdatedAt = now;
         var assignment = new SupervisorAssignment { ProjectId = request.ProjectId,
             SupervisorProfileId = request.SupervisorProfileId, SupervisorRequestId = request.Id,
-            IsPrimary = true, AssignedAt = now, CreatedAt = now, UpdatedAt = now };
+            IsPrimary = request.AssignmentType == "PRIMARY", AssignmentType = request.AssignmentType,
+            MajorId = request.MajorId, AssignedBy = actorId, AssignedAt = now, CreatedAt = now, UpdatedAt = now };
         context.SupervisorAssignments.Add(assignment);
         await context.SaveChangesAsync(ct);
-        await new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context).ApplyMilestoneTemplateAsync(request.ProjectId, actorId, now, ct);
+        if (request.AssignmentType == "PRIMARY")
+            await new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context).ApplyMilestoneTemplateAsync(request.ProjectId, actorId, now, ct);
         return assignment.Id;
     }
 

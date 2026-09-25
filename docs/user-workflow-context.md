@@ -153,7 +153,8 @@ The response supplies `concurrencyToken`, `submissionSnapshotId` and
 | `send_supervisor_request` | Student leader, active department, same general selection gates; lecturer-specific checks occur on submission |
 
 For configured proposals, the reviewer is active staff of the snapshot lead
-department. ADMIN alone does not acquire this role. Interdisciplinary approval
+department. Legacy proposals require active staff of their responsible department.
+ADMIN alone does not acquire either academic review role. Interdisciplinary approval
 also requires every snapshot department decision to be APPROVED. Revision and
 resubmission create fresh decisions through the existing write workflow.
 
@@ -180,3 +181,8 @@ SUBMITTED. Those write contracts are unchanged.
 Nonpositive IDs return 400. Anonymous/inactive accounts return 401. Unauthorized
 resource readers return 403; nonexistent resources or foreign semester selection
 return 404. Responses use the application's existing ProblemDetails middleware.
+
+The #75 governance extension adds `PROJECT_MODE_NOT_ALLOWED_BY_PERIOD` and
+`PROPOSAL_SOURCE_NOT_ALLOWED_BY_PERIOD` reasons to applicable team/submission
+eligibility. Supervisor actions here still describe primary selection; mentor and
+replacement APIs use the contracts in [project-period-governance.md](project-period-governance.md).

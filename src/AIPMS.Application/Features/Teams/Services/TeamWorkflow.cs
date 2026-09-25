@@ -111,6 +111,8 @@ public sealed class TeamWorkflow(
         if (team.Status is not ("FORMING" or "ELIGIBLE")
             || team.ProjectStatuses.Any(TeamRules.ProjectLocksRoster)) reasons.Add("ROSTER_LOCKED");
         var locked = reasons.Count > 0;
+        if (window is not null && !ProjectPeriodGovernancePolicy.Allows(window.AllowedProjectModes, team.AcademicScope?.ProjectMode ?? "SINGLE_MAJOR"))
+            reasons.Add("PROJECT_MODE_NOT_ALLOWED_BY_PERIOD");
         if (window is not null && policy is { IsValid: true })
             reasons.AddRange(await EligibilityErrorsAsync(team, policy, window.OrganizationId, ct));
         var memberDtos = new List<TeamMemberDto>(team.Members.Count);
@@ -164,10 +166,17 @@ public sealed class TeamWorkflow(
         return errors.Distinct(StringComparer.Ordinal).ToArray();
     }
 
+    private static void RequireMode(TeamRegistrationWindow window, string mode)
+    {
+        if (!ProjectPeriodGovernancePolicy.Allows(window.AllowedProjectModes, mode))
+            throw new ConflictException("PROJECT_MODE_NOT_ALLOWED_BY_PERIOD");
+    }
+
     private async Task SaveScopeAsync(TeamSnapshot team, TeamAcademicScopeRequest request,
         TeamRegistrationWindow window, TeamFormationPolicy policy, CancellationToken ct)
     {
         var scope = request.ToScope();
+        RequireMode(window, scope.ProjectMode);
         var errors = HybridTeamRules.EligibilityErrors(team.Members, policy, window.OrganizationId, scope, false);
         if (errors.Count != 0) throw new ConflictException(string.Join(", ", errors));
         await repository.ValidateAcademicScopeAsync(scope, window.OrganizationId, ct);
@@ -267,6 +276,7 @@ public sealed class TeamWorkflow(
         {
             var actor = await ActorAsync(token);
             var (window, policy) = await ContextAsync(request.AcademicSemesterId, token, request.AcademicScope is null);
+            RequireMode(window, request.AcademicScope?.ProjectMode ?? "SINGLE_MAJOR");
             RequireEligibleStudent(actor, window.OrganizationId);
             await RequireQualificationAsync(actor, request.AcademicSemesterId, policy, token);
             await RequireNoTeamAsync(request.AcademicSemesterId, actor.UserId, token);

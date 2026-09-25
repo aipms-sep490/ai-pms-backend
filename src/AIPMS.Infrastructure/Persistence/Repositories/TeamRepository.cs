@@ -138,7 +138,8 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
                 && p.AcademicSemester.StartDate <= today && today <= p.AcademicSemester.EndDate
                 && p.AcademicSemester.Organization.IsActive)
             .OrderBy(p => p.Id).Select(p => new TeamRegistrationWindow(
-                p.Id, p.AcademicSemesterId, p.AcademicSemester.OrganizationId, p.EndAt))
+                p.Id, p.AcademicSemesterId, p.AcademicSemester.OrganizationId, p.EndAt,
+                p.AllowedProjectModes, p.AllowedProposalSources, p.PolicyVersion))
             .Take(2).ToListAsync(ct);
         return periods.Count == 1 ? periods[0] : null;
     }

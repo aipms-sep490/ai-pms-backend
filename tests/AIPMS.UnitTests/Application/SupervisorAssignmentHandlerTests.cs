@@ -142,7 +142,7 @@ public sealed class SupervisorAssignmentHandlerTests
             LastSearch = search;
             return Task.FromResult(new PagedResult<SupervisorAssignmentModel>([Assignment], search.Page, search.PageSize, 1));
         }
-        public Task<SupervisorAssignmentModel> EndAsync(long id, DateTime now, CancellationToken ct)
+        public Task<SupervisorAssignmentModel> EndAsync(long id, DateTime now, CancellationToken ct, long? actorId = null, string? reason = null)
         {
             Assert.True(InTransaction);
             Writes++;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace AIPMS.Infrastructure.Persistence.Generated.Models;
@@ -14,6 +14,15 @@ public partial class SupervisorAssignment
     public long SupervisorRequestId { get; set; }
 
     public bool IsPrimary { get; set; }
+
+    public string AssignmentType { get; set; } = "PRIMARY";
+
+    public long? MajorId { get; set; }
+
+    public long? AssignedBy { get; set; }
+    public long? EndedBy { get; set; }
+    public string? EndReason { get; set; }
+    public long? ReplacesAssignmentId { get; set; }
 
     public DateTime AssignedAt { get; set; }
 

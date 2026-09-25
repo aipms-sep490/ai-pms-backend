@@ -29,6 +29,12 @@ public partial class ProjectPeriod
 
     public int? MaxProjectsPerSupervisor { get; set; }
 
+    public string AllowedProjectModes { get; set; } = "SINGLE_MAJOR,INTERDISCIPLINARY";
+
+    public string AllowedProposalSources { get; set; } = "PUBLISHED_TOPIC,STUDENT_PROPOSAL";
+
+    public int PolicyVersion { get; set; } = 1;
+
     public long? MilestoneTemplateId { get; set; }
 
     public long? MilestoneTemplateVersionId { get; set; }

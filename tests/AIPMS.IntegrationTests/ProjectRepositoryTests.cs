@@ -143,6 +143,13 @@ public class ProjectDbTestCollection : ICollectionFixture<DbFixture> { }
 [Collection("ProjectDbTests")]
 public class ProjectRepositoryTests
 {
+    private static async Task RemoveRegistrationEvidence(AipmsDbContext db, long projectId)
+    {
+        var snapshots = db.Set<ProjectRegistrationSnapshot>().Where(s => s.ProjectId == projectId).Select(s => s.Id);
+        await db.Set<ProjectDepartmentDecision>().Where(d => snapshots.Contains(d.SnapshotId)).ExecuteDeleteAsync();
+        await db.Set<ProjectRegistrationSnapshot>().Where(s => s.ProjectId == projectId).ExecuteDeleteAsync();
+    }
+
     private readonly DbFixture _fixture;
 
     public ProjectRepositoryTests(DbFixture fixture)
@@ -285,6 +292,7 @@ public class ProjectRepositoryTests
         // Cleanup
         using var cleanupContext = _fixture.CreateContext();
         var cleanupProject = await cleanupContext.Projects.SingleAsync(p => p.Id == project1.Id);
+        await RemoveRegistrationEvidence(cleanupContext, cleanupProject.Id);
         cleanupContext.Projects.Remove(cleanupProject);
         await cleanupContext.SaveChangesAsync();
     }
@@ -322,8 +330,8 @@ public class ProjectRepositoryTests
             project1.ConcurrencyToken,
             "DRAFT",
             "REJECTED",
-            studentId,
-            "Rejected by admin",
+            await contextTransition.Users.Where(u => u.Email == "staff@aipms.test").Select(u => u.Id).SingleAsync(),
+            "Rejected by department staff",
             default);
 
         Assert.Equal("REJECTED", updated1.Status);
@@ -354,7 +362,9 @@ public class ProjectRepositoryTests
         cleanupContext.ProjectStatusHistories.RemoveRange(histories);
         var p1 = await cleanupContext.Projects.SingleAsync(p => p.Id == project1.Id);
         var p2 = await cleanupContext.Projects.SingleAsync(p => p.Id == project2.Id);
+        await RemoveRegistrationEvidence(cleanupContext, p1.Id);
         cleanupContext.Projects.Remove(p1);
+        await RemoveRegistrationEvidence(cleanupContext, p2.Id);
         cleanupContext.Projects.Remove(p2);
         await cleanupContext.SaveChangesAsync();
     }
@@ -408,6 +418,7 @@ public class ProjectRepositoryTests
         var historyEntities = await cleanupContext.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
         cleanupContext.ProjectStatusHistories.RemoveRange(historyEntities);
         var pEntity = await cleanupContext.Projects.SingleAsync(p => p.Id == project.Id);
+        await RemoveRegistrationEvidence(cleanupContext, pEntity.Id);
         cleanupContext.Projects.Remove(pEntity);
         await cleanupContext.SaveChangesAsync();
     }
@@ -460,6 +471,7 @@ public class ProjectRepositoryTests
         // Cleanup
         using var cleanupContext = _fixture.CreateContext();
         var pEntity = await cleanupContext.Projects.SingleAsync(p => p.Id == project.Id);
+        await RemoveRegistrationEvidence(cleanupContext, pEntity.Id);
         cleanupContext.Projects.Remove(pEntity);
         await cleanupContext.SaveChangesAsync();
     }
@@ -512,6 +524,7 @@ public class ProjectRepositoryTests
         Assert.Equal("Updated by A", finalProject.Title);
 
         // Cleanup
+        await RemoveRegistrationEvidence(verifyContext, finalProject.Id);
         verifyContext.Projects.Remove(finalProject);
         await verifyContext.SaveChangesAsync();
     }
@@ -600,6 +613,7 @@ public class ProjectRepositoryTests
         var histories = await cleanupContext.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
         cleanupContext.ProjectStatusHistories.RemoveRange(histories);
         var pEntity = await cleanupContext.Projects.SingleAsync(p => p.Id == project.Id);
+        await RemoveRegistrationEvidence(cleanupContext, pEntity.Id);
         cleanupContext.Projects.Remove(pEntity);
         await cleanupContext.SaveChangesAsync();
     }
@@ -678,6 +692,7 @@ public class ProjectRepositoryTests
 
         // Cleanup
         verifyContext.ProjectStatusHistories.RemoveRange(histories);
+        await RemoveRegistrationEvidence(verifyContext, finalProject.Id);
         verifyContext.Projects.Remove(finalProject);
         await verifyContext.SaveChangesAsync();
     }
@@ -745,6 +760,7 @@ public class ProjectRepositoryTests
         // Cleanup
         var histories = await verifyContext.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
         verifyContext.ProjectStatusHistories.RemoveRange(histories);
+        await RemoveRegistrationEvidence(verifyContext, finalProject.Id);
         verifyContext.Projects.Remove(finalProject);
         await verifyContext.SaveChangesAsync();
     }
@@ -804,6 +820,7 @@ public class ProjectRepositoryTests
         var histories = await cleanupContext.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
         cleanupContext.ProjectStatusHistories.RemoveRange(histories);
         var p = await cleanupContext.Projects.SingleAsync(p => p.Id == project.Id);
+        await RemoveRegistrationEvidence(cleanupContext, p.Id);
         cleanupContext.Projects.Remove(p);
         await cleanupContext.SaveChangesAsync();
     }
@@ -891,6 +908,7 @@ public class ProjectRepositoryTests
         // Cleanup
         var histories = await verifyContext.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
         verifyContext.ProjectStatusHistories.RemoveRange(histories);
+        await RemoveRegistrationEvidence(verifyContext, finalProject.Id);
         verifyContext.Projects.Remove(finalProject);
         var t = await verifyContext.Set<ProjectTopic>().SingleAsync(x => x.Id == topic.Id);
         verifyContext.Set<ProjectTopic>().Remove(t);
@@ -988,6 +1006,7 @@ public class ProjectRepositoryTests
         // Cleanup
         using var cleanupCtx = _fixture.CreateContext();
         var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
+        await RemoveRegistrationEvidence(cleanupCtx, p.Id);
         cleanupCtx.Projects.Remove(p);
         var t1 = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic1.Id);
         var t2 = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic2.Id);
@@ -1058,6 +1077,7 @@ public class ProjectRepositoryTests
         // Cleanup
         using var cleanupCtx = _fixture.CreateContext();
         var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
+        await RemoveRegistrationEvidence(cleanupCtx, p.Id);
         cleanupCtx.Projects.Remove(p);
         var t = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic.Id);
         cleanupCtx.Set<ProjectTopic>().Remove(t);
@@ -1142,6 +1162,7 @@ public class ProjectRepositoryTests
         // Cleanup
         using var cleanupCtx = _fixture.CreateContext();
         var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
+        await RemoveRegistrationEvidence(cleanupCtx, p.Id);
         cleanupCtx.Projects.Remove(p);
         var t1 = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic1.Id);
         var t2 = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic2.Id);
@@ -1210,6 +1231,7 @@ public class ProjectRepositoryTests
         var histories = await cleanupCtx.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).ToListAsync();
         cleanupCtx.ProjectStatusHistories.RemoveRange(histories);
         var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
+        await RemoveRegistrationEvidence(cleanupCtx, p.Id);
         cleanupCtx.Projects.Remove(p);
         var t = await cleanupCtx.Set<ProjectTopic>().SingleAsync(x => x.Id == topic.Id);
         cleanupCtx.Set<ProjectTopic>().Remove(t);
@@ -1305,6 +1327,7 @@ public class ProjectRepositoryTests
         Assert.Empty(auditLogs);
 
         // Cleanup
+        await RemoveRegistrationEvidence(verifyContext, rolledBackProject.Id);
         verifyContext.Projects.Remove(rolledBackProject);
         var t = await verifyContext.Set<ProjectTopic>().SingleAsync(x => x.Id == topic.Id);
         verifyContext.Set<ProjectTopic>().Remove(t);
@@ -1347,6 +1370,7 @@ public class ProjectRepositoryTests
         // Cleanup
         using var cleanupCtx = _fixture.CreateContext();
         var p = await cleanupCtx.Projects.SingleAsync(x => x.Id == project.Id);
+        await RemoveRegistrationEvidence(cleanupCtx, p.Id);
         cleanupCtx.Projects.Remove(p);
         await cleanupCtx.SaveChangesAsync();
     }
@@ -1589,7 +1613,7 @@ public class ProjectRepositoryTests
             // Cleanup
             using var cleanupCtx = _fixture.CreateContext();
             var p = await cleanupCtx.Projects.SingleOrDefaultAsync(x => x.Id == project.Id);
-            if (p != null) cleanupCtx.Projects.Remove(p);
+            if (p != null) { await RemoveRegistrationEvidence(cleanupCtx, p.Id); cleanupCtx.Projects.Remove(p); }
             var t = await cleanupCtx.Set<ProjectTopic>().Include(x => x.Requirements).SingleOrDefaultAsync(x => x.Id == topic.Id);
             if (t != null)
             {
@@ -1805,7 +1829,7 @@ public class ProjectRepositoryTests
             // Cleanup
             using var cleanupCtx = _fixture.CreateContext();
             var p = await cleanupCtx.Projects.SingleOrDefaultAsync(x => x.Id == project.Id);
-            if (p != null) cleanupCtx.Projects.Remove(p);
+            if (p != null) { await RemoveRegistrationEvidence(cleanupCtx, p.Id); cleanupCtx.Projects.Remove(p); }
             var t = await cleanupCtx.Set<ProjectTopic>().Include(x => x.Requirements).SingleOrDefaultAsync(x => x.Id == topic.Id);
             if (t != null)
             {
@@ -2027,7 +2051,7 @@ public class ProjectRepositoryTests
             // Cleanup
             using var cleanupCtx = _fixture.CreateContext();
             var p = await cleanupCtx.Projects.SingleOrDefaultAsync(x => x.Id == project.Id);
-            if (p != null) cleanupCtx.Projects.Remove(p);
+            if (p != null) { await RemoveRegistrationEvidence(cleanupCtx, p.Id); cleanupCtx.Projects.Remove(p); }
             var t = await cleanupCtx.Set<ProjectTopic>().Include(x => x.Requirements).SingleOrDefaultAsync(x => x.Id == topic.Id);
             if (t != null)
             {

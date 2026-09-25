@@ -21,7 +21,9 @@ public sealed record CreateProjectPeriodCommand(
     int? MinDistinctMajors = 1,
     int? MaxProjectsPerSupervisor = 5,
     long? MilestoneTemplateId = null,
-    long? RubricId = null) : IRequest<ProjectPeriodDto>;
+    long? RubricId = null,
+    string? AllowedProjectModes = null,
+    string? AllowedProposalSources = null) : IRequest<ProjectPeriodDto>;
 
 public sealed class CreateProjectPeriodCommandHandler(
     ISemesterRepository repository,
@@ -150,6 +152,9 @@ public sealed class CreateProjectPeriodCommandHandler(
                 request.RubricId,
                 timeProvider.GetUtcNow().UtcDateTime,
                 cancellationToken);
+            if (request.AllowedProjectModes is not null || request.AllowedProposalSources is not null)
+                period = await repository.SetProjectPeriodGovernanceAsync(period.Id, request.AllowedProjectModes,
+                    request.AllowedProposalSources, cancellationToken);
 
             await auditTrail.RecordAsync(
                 new AuditEntry(
@@ -165,7 +170,10 @@ public sealed class CreateProjectPeriodCommandHandler(
                         ["periodType"] = period.PeriodType,
                         ["minTeamSize"] = period.MinTeamSize,
                         ["maxTeamSize"] = period.MaxTeamSize,
-                        ["minDistinctMajors"] = period.MinDistinctMajors
+                        ["minDistinctMajors"] = period.MinDistinctMajors,
+                        ["allowedProjectModes"] = period.AllowedProjectModes,
+                        ["allowedProposalSources"] = period.AllowedProposalSources,
+                        ["policyVersion"] = period.PolicyVersion
                     }),
                 cancellationToken);
 
@@ -188,7 +196,9 @@ public sealed record UpdateProjectPeriodCommand(
     int? MinDistinctMajors = null,
     int? MaxProjectsPerSupervisor = null,
     long? MilestoneTemplateId = null,
-    long? RubricId = null) : IRequest<ProjectPeriodDto>;
+    long? RubricId = null,
+    string? AllowedProjectModes = null,
+    string? AllowedProposalSources = null) : IRequest<ProjectPeriodDto>;
 
 public sealed class UpdateProjectPeriodCommandHandler(
     ISemesterRepository repository,
@@ -367,6 +377,9 @@ public sealed class UpdateProjectPeriodCommandHandler(
                 request.RubricId ?? existing.RubricId,
                 timeProvider.GetUtcNow().UtcDateTime,
                 cancellationToken);
+            if (request.AllowedProjectModes is not null || request.AllowedProposalSources is not null)
+                period = await repository.SetProjectPeriodGovernanceAsync(period.Id, request.AllowedProjectModes,
+                    request.AllowedProposalSources, cancellationToken);
 
             await auditTrail.RecordAsync(
                 new AuditEntry(
@@ -391,7 +404,10 @@ public sealed class UpdateProjectPeriodCommandHandler(
                             ["minDistinctMajors"] = existing.MinDistinctMajors,
                             ["maxProjectsPerSupervisor"] = existing.MaxProjectsPerSupervisor,
                             ["milestoneTemplateId"] = existing.MilestoneTemplateId,
-                            ["rubricId"] = existing.RubricId
+                            ["rubricId"] = existing.RubricId,
+                            ["allowedProjectModes"] = existing.AllowedProjectModes,
+                            ["allowedProposalSources"] = existing.AllowedProposalSources,
+                            ["policyVersion"] = existing.PolicyVersion
                         },
                         ["after"] = new Dictionary<string, object?>
                         {
@@ -405,7 +421,10 @@ public sealed class UpdateProjectPeriodCommandHandler(
                             ["minDistinctMajors"] = period.MinDistinctMajors,
                             ["maxProjectsPerSupervisor"] = period.MaxProjectsPerSupervisor,
                             ["milestoneTemplateId"] = period.MilestoneTemplateId,
-                            ["rubricId"] = period.RubricId
+                            ["rubricId"] = period.RubricId,
+                            ["allowedProjectModes"] = period.AllowedProjectModes,
+                            ["allowedProposalSources"] = period.AllowedProposalSources,
+                            ["policyVersion"] = period.PolicyVersion
                         }
                     }),
                 cancellationToken);

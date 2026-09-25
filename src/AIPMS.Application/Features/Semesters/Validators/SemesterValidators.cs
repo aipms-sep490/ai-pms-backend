@@ -95,6 +95,10 @@ public sealed class CreateProjectPeriodCommandValidator : AbstractValidator<Crea
 {
     public CreateProjectPeriodCommandValidator()
     {
+        RuleFor(c => c.AllowedProjectModes).Must(value => AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.IsValid(value, true))
+            .WithMessage("AllowedProjectModes must contain supported project modes.");
+        RuleFor(c => c.AllowedProposalSources).Must(value => AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.IsValid(value, false))
+            .WithMessage("AllowedProposalSources must contain supported proposal sources.");
         RuleFor(static c => c.AcademicSemesterId).GreaterThan(0);
         RuleFor(static c => c.Code).NotEmpty().MaximumLength(50)
             .Matches("^[A-Za-z0-9][A-Za-z0-9_-]*$")
@@ -138,6 +142,10 @@ public sealed class UpdateProjectPeriodCommandValidator : AbstractValidator<Upda
 {
     public UpdateProjectPeriodCommandValidator()
     {
+        RuleFor(c => c.AllowedProjectModes).Must(value => AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.IsValid(value, true))
+            .WithMessage("AllowedProjectModes must contain supported project modes.");
+        RuleFor(c => c.AllowedProposalSources).Must(value => AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.IsValid(value, false))
+            .WithMessage("AllowedProposalSources must contain supported proposal sources.");
         RuleFor(static c => c.PeriodId).GreaterThan(0);
         RuleFor(static c => c.Code).NotEmpty().MaximumLength(50)
             .Matches("^[A-Za-z0-9][A-Za-z0-9_-]*$")

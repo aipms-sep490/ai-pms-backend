@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using Microsoft.EntityFrameworkCore;
@@ -1115,6 +1115,19 @@ public partial class AipmsDbContext : DbContext
             entity.Property(e => e.MaxProjectsPerSupervisor)
                 .HasDefaultValue(5)
                 .HasColumnName("max_projects_per_supervisor");
+            entity.Property(e => e.AllowedProjectModes)
+                .HasMaxLength(200)
+                .IsUnicode(false)
+                .HasDefaultValue("SINGLE_MAJOR,INTERDISCIPLINARY")
+                .HasColumnName("allowed_project_modes");
+            entity.Property(e => e.AllowedProposalSources)
+                .HasMaxLength(200)
+                .IsUnicode(false)
+                .HasDefaultValue("PUBLISHED_TOPIC,STUDENT_PROPOSAL")
+                .HasColumnName("allowed_proposal_sources");
+            entity.Property(e => e.PolicyVersion)
+                .HasDefaultValue(1)
+                .HasColumnName("policy_version");
             entity.Property(e => e.MaxTeamSize)
                 .HasDefaultValue(5)
                 .HasColumnName("max_team_size");
@@ -1448,7 +1461,13 @@ public partial class AipmsDbContext : DbContext
 
             entity.HasIndex(e => e.SupervisorProfileId, "ix_supervisor_assignments_supervisor");
 
-            entity.HasIndex(e => new { e.ProjectId, e.SupervisorProfileId }, "uq_supervisor_assignments_project_supervisor").IsUnique();
+            entity.HasIndex(e => new { e.ProjectId, e.MajorId }, "ux_supervisor_assignments_active_major_mentor")
+                .IsUnique().HasFilter("[assignment_type] = 'DISCIPLINE_MENTOR' AND [ended_at] IS NULL");
+            entity.HasIndex(e => e.ReplacesAssignmentId, "ux_supervisor_assignments_replacement").IsUnique().HasFilter("[replaces_assignment_id] IS NOT NULL");
+            entity.Property(e => e.AssignedBy).HasColumnName("assigned_by");
+            entity.Property(e => e.EndedBy).HasColumnName("ended_by");
+            entity.Property(e => e.EndReason).HasMaxLength(2000).HasColumnName("end_reason");
+            entity.Property(e => e.ReplacesAssignmentId).HasColumnName("replaces_assignment_id");
 
             entity.HasIndex(e => e.SupervisorRequestId, "uq_supervisor_assignments_request").IsUnique();
 
@@ -1457,6 +1476,8 @@ public partial class AipmsDbContext : DbContext
                 .HasFilter("([is_primary]=(1) AND [ended_at] IS NULL)");
 
             entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.AssignmentType).HasMaxLength(30).IsUnicode(false).HasDefaultValue("PRIMARY").HasColumnName("assignment_type");
+            entity.Property(e => e.MajorId).HasColumnName("major_id");
             entity.Property(e => e.AssignedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
@@ -1477,8 +1498,8 @@ public partial class AipmsDbContext : DbContext
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("updated_at");
 
-            entity.HasOne(d => d.Project).WithOne(p => p.SupervisorAssignment)
-                .HasForeignKey<SupervisorAssignment>(d => d.ProjectId)
+            entity.HasOne(d => d.Project).WithMany(p => p.SupervisorAssignments)
+                .HasForeignKey(d => d.ProjectId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_supervisor_assignments_project");
 
@@ -1612,11 +1633,13 @@ public partial class AipmsDbContext : DbContext
 
             entity.HasIndex(e => new { e.SupervisorProfileId, e.Status }, "ix_supervisor_requests_supervisor_status");
 
-            entity.HasIndex(e => new { e.ProjectId, e.SupervisorProfileId }, "ux_supervisor_requests_pending")
+            entity.HasIndex(e => new { e.ProjectId, e.SupervisorProfileId, e.AssignmentType, e.MajorId }, "ux_supervisor_requests_pending")
                 .IsUnique()
                 .HasFilter("([status]=N'PENDING')");
 
             entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.AssignmentType).HasMaxLength(30).IsUnicode(false).HasDefaultValue("PRIMARY").HasColumnName("assignment_type");
+            entity.Property(e => e.MajorId).HasColumnName("major_id");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")

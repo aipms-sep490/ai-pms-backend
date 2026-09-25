@@ -27,11 +27,26 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         var projectResult = entityType == "PROJECT_RESULT";
         var projectStateEvent = entityType is "PROJECT_APPROVED" or "PROJECT_REJECTED" or "PROJECT_REVISION";
         var feedbackEvent = entityType == "SUPERVISOR_FEEDBACK";
+        var replacementEvent = entityType == "SUPERVISOR_ASSIGNMENT";
+        long[] replacementLecturers = [];
         var leaderChangeEvent = entityType == "TEAM_LEADER_CHANGE_REQUEST";
         var departmentEvent = finalSubmission || entityType == "EVALUATION";
 
         // A source-row lock serializes duplicate event handling; inbox and transition commit together.
-        if (projectStateEvent)
+        if (replacementEvent)
+        {
+            var source = await context.SupervisorAssignments.AsNoTracking()
+                .Where(a => a.Id == notification.SourceId && a.ReplacesAssignmentId != null)
+                .Select(a => new { a.ProjectId, a.SupervisorProfile.UserId, a.ReplacesAssignmentId }).SingleOrDefaultAsync(ct);
+            if (source is null) return;
+            var previousUser = await context.SupervisorAssignments.Where(a => a.Id == source.ReplacesAssignmentId)
+                .Select(a => a.SupervisorProfile.UserId).SingleAsync(ct);
+            replacementLecturers = [source.UserId, previousUser];
+            projectId = source.ProjectId;
+            teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
+            role = AppRoles.Student;
+        }
+        else if (projectStateEvent)
         {
             var project = await context.Projects.FromSqlInterpolated(
                 $"SELECT * FROM dbo.projects WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
@@ -150,10 +165,14 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         var organizationId = await context.Teams.Where(t => t.Id == teamId)
             .Select(t => t.AcademicSemester.OrganizationId).SingleAsync(ct);
         var recipients = context.Users.Where(u => u.Id != notification.ActorId && u.Status == "ACTIVE"
-            && u.UserRoleUsers.Any(r => r.Role.Code == role)
+            && (u.UserRoleUsers.Any(r => r.Role.Code == role)
+                || (replacementEvent && replacementLecturers.Contains(u.Id) && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Lecturer)))
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
             && u.Department.OrganizationId == organizationId);
-        if (targetUser.HasValue)
+        if (replacementEvent)
+            recipients = recipients.Where(u => replacementLecturers.Contains(u.Id)
+                || u.TeamMembers.Any(m => m.TeamId == teamId && m.LeftAt == null));
+        else if (targetUser.HasValue)
             recipients = recipients.Where(u => u.Id == targetUser.Value);
         else if (projectResult || projectStateEvent || feedbackEvent)
             recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.LeftAt == null));
@@ -172,7 +191,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         if (ids.Count == 0) return;
 
         // No user-supplied messages or project details are copied into the inbox.
-        context.Notifications.Add(new M.Notification
+        var inbox = new M.Notification
         {
             CreatedBy = notification.ActorId, NotificationType = type, Title = title, Content = title + ".",
             RelatedEntityType = relatedEntityType, RelatedEntityId = relatedEntityId,
@@ -182,12 +201,13 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
                 UserId = id, CreatedAt = notification.OccurredAt, UpdatedAt = notification.OccurredAt,
                 DeliveredAt = notification.OccurredAt
             }).ToArray()
-        });
+        };
+        context.Notifications.Add(inbox);
         await context.SaveChangesAsync(ct);
         context.Set<EmailDeliveryRow>().AddRange(ids.Select(id => new EmailDeliveryRow
         {
             NotificationRecipientId = context.NotificationRecipients.Local
-                .Single(r => r.NotificationId == context.Notifications.Local.Single(n => n.NotificationType == type).Id && r.UserId == id).Id,
+                .Single(r => r.NotificationId == inbox.Id && r.UserId == id).Id,
             NextAttemptAt = notification.OccurredAt
         }));
         await context.SaveChangesAsync(ct);
@@ -195,6 +215,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
 
     private static (string Entity, string Status, string Type, string Title) Describe(WorkflowNotificationKind kind) => kind switch
     {
+        WorkflowNotificationKind.SupervisorReplaced => ("SUPERVISOR_ASSIGNMENT", "REPLACED", "SUPERVISOR_REPLACED", "A project supervisor assignment was replaced"),
         WorkflowNotificationKind.ProjectResultPublished => ("PROJECT_RESULT", "PUBLISHED", "PROJECT_RESULT_PUBLISHED", "Your project's final result has been published"),
         WorkflowNotificationKind.ProjectApproved => ("PROJECT_APPROVED", "APPROVED", "PROJECT_APPROVED", "Your project proposal has been approved"),
         WorkflowNotificationKind.ProjectRejected => ("PROJECT_REJECTED", "REJECTED", "PROJECT_REJECTED", "Your project proposal was rejected"),

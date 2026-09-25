@@ -25,6 +25,7 @@ public sealed class CreateProjectDraftCommandValidator : AbstractValidator<Creat
 {
     public CreateProjectDraftCommandValidator()
     {
+        RuleFor(c => c.TopicId).GreaterThan(0).When(c => c.TopicId.HasValue);
         RuleFor(x => x.Title)
             .NotEmpty().WithMessage("Title is required.")
             .Must(x => !string.IsNullOrWhiteSpace(x)).WithMessage("Title must not be whitespace.")

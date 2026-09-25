@@ -167,6 +167,8 @@ public static class DependencyInjection
         services.AddScoped<IAcademicProfileRepository, AcademicProfileRepository>();
         services.AddScoped<Application.Features.Supervisors.Abstractions.ISupervisorProfileRepository, SupervisorProfileRepository>();
         services.AddScoped<ISupervisorCandidateRepository, SupervisorCandidateRepository>();
+        services.AddScoped<AIPMS.Application.Features.Supervisors.Abstractions.ISupervisorReplacementService,
+            AIPMS.Infrastructure.Services.Projects.SupervisorReplacementService>();
         services.AddScoped<ISupervisorRequestRepository, SupervisorRequestRepository>();
         services.AddScoped<ISupervisorAssignmentRepository, SupervisorAssignmentRepository>();
         services.AddScoped<IDeliverableRepository, DeliverableRepository>();
