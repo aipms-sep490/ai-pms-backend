@@ -47,6 +47,21 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
+        services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
+            {
+                settings.Enabled = bool.TryParse(config["GoogleAuth:Enabled"], out var enabled) && enabled;
+                settings.ClientId = config["GoogleAuth:ClientId"] ?? "";
+                settings.DriveClientId = config["GoogleDrive:ClientId"] ?? "";
+                settings.AllowedOrigins = config.GetSection("GoogleAuth:AllowedOrigins").GetChildren()
+                    .Select(x => x.Value ?? "").ToArray();
+            })
+            .Validate(static settings => settings.IsValid(), "GoogleAuth requires a Web Client ID and explicit secure origins.")
+            .ValidateOnStart();
+        services.AddSingleton<IGoogleSigningKeys>(sp => new GoogleSigningKeys(
+            new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) },
+            sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<IGoogleIdentityVerifier, GoogleIdentityVerifier>();
+        services.AddScoped<IGoogleAuthService, GoogleAuthService>();
         services.AddOptions<DatabaseSettings>()
             .Configure<IConfiguration>(static (settings, configuration) =>
             {

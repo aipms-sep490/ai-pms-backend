@@ -19,6 +19,7 @@ public partial class AipmsDbContext
         ConfigureContributions(modelBuilder);
         ConfigureScheduledNotifications(modelBuilder);
         ConfigureNotificationEmail(modelBuilder);
+        ConfigureExternalLogins(modelBuilder);
         ConfigureStudentQualifications(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
         {
