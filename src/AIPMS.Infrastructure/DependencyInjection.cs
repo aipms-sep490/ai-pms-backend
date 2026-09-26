@@ -47,8 +47,6 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
-        services.AddSingleton<IValidateOptions<EmailSettings>, IntegrationConfigurationValidator>();
-        services.AddSingleton<ISmtpTransport, SmtpTransport>();
         services.AddOptions<DatabaseSettings>()
             .Configure<IConfiguration>(static (settings, configuration) =>
             {
@@ -113,6 +111,8 @@ public static class DependencyInjection
                 "AccountSecurity:PasswordResetMinutes must be between 5 and 1440.")
             .ValidateOnStart();
 
+        services.AddSingleton<IValidateOptions<EmailSettings>, IntegrationConfigurationValidator>();
+        services.AddSingleton<ISmtpTransport, SmtpTransport>();
         services.AddOptions<EmailSettings>()
             .Configure<IConfiguration>(static (settings, configuration) =>
             {
