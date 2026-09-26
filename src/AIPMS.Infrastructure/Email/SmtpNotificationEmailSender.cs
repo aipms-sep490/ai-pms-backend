@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace AIPMS.Infrastructure.Email;
 
 internal sealed class SmtpNotificationEmailSender(IOptions<EmailSettings> options,
-    ILogger<SmtpNotificationEmailSender> logger) : INotificationEmailSender
+    ILogger<SmtpNotificationEmailSender> logger, ISmtpTransport transport) : INotificationEmailSender
 {
     private readonly EmailSettings settings = options.Value;
 
@@ -29,14 +29,19 @@ internal sealed class SmtpNotificationEmailSender(IOptions<EmailSettings> option
                 IsBodyHtml = false
             };
             message.To.Add(new MailAddress(delivery.Email, delivery.RecipientName));
-            using var client = new SmtpClient(settings.Host, settings.Port) { EnableSsl = settings.EnableSsl };
-            if (!string.IsNullOrWhiteSpace(settings.Username)) client.Credentials = new NetworkCredential(settings.Username, settings.Password);
-            await client.SendMailAsync(message, ct);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(settings.TimeoutSeconds));
+            await transport.SendAsync(settings, message, timeout.Token);
             return true;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning("Notification email timed out; remote delivery may be unknown.");
+            return false;
         }
         catch (Exception ex) when (ex is SmtpException or InvalidOperationException or FormatException)
         {
-            logger.LogWarning(ex, "Notification email delivery failed for {RecipientDomain}.", Domain(delivery.Email));
+            logger.LogWarning("Notification email delivery failed for {RecipientDomain}.", Domain(delivery.Email));
             return false;
         }
     }

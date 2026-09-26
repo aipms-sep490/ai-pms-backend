@@ -111,6 +111,8 @@ public static class DependencyInjection
                 "AccountSecurity:PasswordResetMinutes must be between 5 and 1440.")
             .ValidateOnStart();
 
+        services.AddSingleton<IValidateOptions<EmailSettings>, IntegrationConfigurationValidator>();
+        services.AddSingleton<ISmtpTransport, SmtpTransport>();
         services.AddOptions<EmailSettings>()
             .Configure<IConfiguration>(static (settings, configuration) =>
             {
@@ -124,11 +126,15 @@ public static class DependencyInjection
                 settings.SenderName = configuration["Email:SenderName"] ?? settings.SenderName;
                 settings.Username = configuration["Email:Username"] ?? settings.Username;
                 settings.Password = configuration["Email:Password"] ?? settings.Password;
+                settings.TimeoutSeconds = int.TryParse(configuration["Email:TimeoutSeconds"], out var timeout)
+                    ? timeout : settings.TimeoutSeconds;
                 settings.PasswordResetUrl =
                     configuration["Email:PasswordResetUrl"] ?? settings.PasswordResetUrl;
             })
             .Validate(static settings => settings.Port is >= 1 and <= 65535,
                 "Email:Port must be a valid TCP port.")
+            .Validate(static settings => settings.TimeoutSeconds is >= 1 and <= 300,
+                "Email:TimeoutSeconds must be between 1 and 300.")
             .Validate(
                 static settings => Uri.TryCreate(
                     settings.PasswordResetUrl,
