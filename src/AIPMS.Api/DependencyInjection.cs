@@ -30,6 +30,7 @@ public static class DependencyInjection
             .ValidateDataAnnotations().ValidateOnStart();
         services.AddHostedService<Services.ScheduledNotificationWorker>();
         services.AddHostedService<Services.NotificationEmailWorker>();
+        services.AddHostedService<Services.GoogleChallengeCleanupWorker>();
         services.AddOptions<CorsSettings>()
             .BindConfiguration(CorsSettings.SectionName)
             .ValidateDataAnnotations()
