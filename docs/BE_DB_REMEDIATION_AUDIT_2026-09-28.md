@@ -1,8 +1,8 @@
 # AI-PMS — Canonical Backend and Database Remediation Audit
 
-**Audit date:** 2026-09-28  
-**Backend baseline:** `develop` / `3749b8b082d38f3f6da89fffd4071245b4ed0a73`  
-**Audience:** Backend, Database, QA and release owners  
+**Audit date:** 2026-09-28
+**Backend baseline:** `develop` / `3749b8b082d38f3f6da89fffd4071245b4ed0a73`
+**Audience:** Backend, Database, QA and release owners
 **Replaces:** `BE_DB_IMPLEMENTATION_BACKLOG.md`, `PHASE6_PHASE7_BE_DB_AUDIT_2026-09-28.md`, `PHASE7_EVALUATOR_ASSIGNMENTS_BE_DB_AUDIT.md`, and the obsolete FE copy `BE_DATABASE_GAPS_AUDIT_2026-09-27.md`.
 
 ## 1. Executive decision
@@ -74,7 +74,7 @@ The application does not prove that these scripts have been applied in every env
 
 ### P0.1 Isolated E2E database and seed path
 
-**Owner:** DB + BE + QA  
+**Owner:** DB + BE + QA
 **Why:** the shared live database has no valid Phase 6/7 test path. Do not repair this through direct ad-hoc `UPDATE` statements.
 
 Create a dedicated, disposable E2E database and an idempotent seed procedure that uses supported domain commands whenever possible. It must include:
@@ -90,7 +90,7 @@ Create a dedicated, disposable E2E database and an idempotent seed procedure tha
 
 ### P0.2 Release migration ledger and capability check
 
-**Owner:** DB release owner + BE  
+**Owner:** DB release owner + BE
 **Required change:** use the database-first release process: ordered, rerunnable SQL scripts; deployment record; backup/rollback/forward-fix plan; scaffold generated persistence models after schema acceptance. Do not use application startup as the migration runner and do not hand-edit generated DB-first models.
 
 Add an admin-protected readiness endpoint or release report that states migration/version capabilities and configuration blockers without leaking schema details to anonymous users.
@@ -99,7 +99,7 @@ Add an admin-protected readiness endpoint or release report that states migratio
 
 ### P0.3 Evaluator candidate discovery and stable errors
 
-**Owner:** BE  
+**Owner:** BE
 **Missing contract:**
 
 `GET /api/v1/projects/{projectId}/eligible-evaluators`
@@ -129,7 +129,7 @@ The create endpoint must still revalidate every rule transactionally. Add stable
 
 ### P0.4 Archive eligibility must be backend-derived
 
-**Owner:** BE  
+**Owner:** BE
 **Gap:** `GET /workflow-context/projects/{id}/actions` currently lists registration/review/supervisor actions but no archive action. FE therefore cannot satisfy the requirement “show archive only when Backend policy allows it” without guessing from `COMPLETED`.
 
 Add an `archive_project` action with `allowed` and reason codes. Its evaluation must match `ArchiveProjectCommand`: authenticated admin or scoped department staff, valid project visibility, and `COMPLETED` status. The POST remains the final authorization and concurrency authority.
