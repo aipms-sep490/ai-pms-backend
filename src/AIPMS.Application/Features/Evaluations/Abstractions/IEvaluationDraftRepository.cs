@@ -1,10 +1,13 @@
 using AIPMS.Application.Common.Models;
+using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
 
 namespace AIPMS.Application.Features.Evaluations.Abstractions;
 
 public interface IEvaluationDraftRepository
 {
+    Task<PagedResult<EligibleEvaluatorDto>> GetEligibleEvaluatorsAsync(
+        long projectId, long departmentId, int page, int pageSize, CancellationToken ct);
     Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken ct);
     Task<EvaluationActor?> GetActorAsync(long id, CancellationToken ct);
     Task<EvaluationProject?> GetProjectAsync(long id, CancellationToken ct);

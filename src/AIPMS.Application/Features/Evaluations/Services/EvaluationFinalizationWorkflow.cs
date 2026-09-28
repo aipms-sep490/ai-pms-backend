@@ -21,7 +21,7 @@ public sealed partial class EvaluationDraftWorkflow
         before = await Draft(id, ct);
         Current(before.ConcurrencyToken, input.ConcurrencyToken);
         if (before.Status != "DRAFT" || before.Finalization is not null)
-            throw new ConflictException("Only a draft evaluation can be finalized.");
+            throw new ConflictException("Only a draft evaluation can be finalized.", WorkflowErrorCodes.FinalizedAssignment);
         await Window(project, assignment.PeriodId, ct);
         var policy = await results.PolicyAsync(project.Id, ct);
         if (policy is null || policy.Assignments.Count == 0 || policy.Assignments.Sum(i => i.WeightPercent) != 100m)
@@ -34,9 +34,9 @@ public sealed partial class EvaluationDraftWorkflow
         }
         await Rubric(before.RubricId, project, assignment.DepartmentId, false, ct);
         var package = await submissions.GetAsync(project.Id, ct)
-            ?? throw new ConflictException("A locked final-submission package is required.");
+            ?? throw new ConflictException("A locked final-submission package is required.", WorkflowErrorCodes.FinalPackageRequired);
         if (package.Items.Count == 0 || package.Items.Any(i => i.Files.Count == 0))
-            throw new ConflictException("The locked final-submission package has no usable evidence.");
+            throw new ConflictException("The locked final-submission package has no usable evidence.", WorkflowErrorCodes.FinalPackageRequired);
         var total = EvaluationScoring.FinalTotal(before.Scores);
         var evidence = new EvaluationEvidenceRecord(package.Id, package.ProjectPeriodId, package.SubmittedAt,
             package.Items.Count, package.Items.Sum(i => i.Files.Count), package.Items.Select(i => i.DeliverableVersionId).Order().ToArray());
