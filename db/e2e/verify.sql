@@ -5,6 +5,11 @@ IF OBJECT_ID(N'dbo.e2e_aliases', N'U') IS NULL OR (SELECT COUNT(*) FROM dbo.e2e_
 IF (SELECT COUNT(*) FROM dbo.users WHERE email LIKE N'%@e2e.invalid') < 9 THROW 51004, 'E2E account seed is incomplete.', 1;
 IF (SELECT COUNT(*) FROM dbo.projects WHERE code IN (N'E2E-SINGLE-P',N'E2E-INTER-P')) <> 2 THROW 51005, 'E2E project seed is incomplete.', 1;
 IF (SELECT COUNT(*) FROM dbo.team_academic_configurations WHERE project_mode=N'INTERDISCIPLINARY') < 1 THROW 51006, 'Interdisciplinary fixture is missing.', 1;
+IF EXISTS (SELECT 1 FROM dbo.teams t WHERE t.code IN (N'E2E-SINGLE',N'E2E-INTER') AND
+    (SELECT COUNT(*) FROM dbo.team_members m WHERE m.team_id=t.id AND m.left_at IS NULL) <> 3) THROW 51013, 'Expected three active members per fixture team.', 1;
+IF EXISTS (SELECT 1 FROM dbo.team_members tm JOIN dbo.teams t ON t.id=tm.team_id JOIN dbo.users u ON u.id=tm.user_id
+    WHERE t.code IN (N'E2E-SINGLE',N'E2E-INTER') AND tm.left_at IS NULL
+    AND NOT EXISTS (SELECT 1 FROM dbo.team_major_requirements r WHERE r.team_id=t.id AND r.major_id=u.major_id)) THROW 51014, 'Roster is outside required major scope.', 1;
 IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE is_disabled=1 OR is_not_trusted=1) THROW 51007, 'Disabled or untrusted foreign key found.', 1;
 IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE is_disabled=1 OR is_not_trusted=1) THROW 51009, 'Disabled or untrusted check found.', 1;
 IF EXISTS (SELECT 1 FROM (VALUES ('tasks'),('milestones'),('progress_reports'),('meetings')) t(name)

@@ -24,9 +24,9 @@ Passwords use runtime ASP.NET Identity V3 hashes. Optionally supply `AIPMS_E2E_P
 
 ## Fixtures and evidence boundaries
 
-`dbo.e2e_aliases` resolves semantic names to database IDs. Accounts include Admin, staff from both departments, primary supervisor candidate, discipline mentor candidate, evaluator, student leaders/members and an outsider. Supervisor/mentor are lecturer capabilities, not separate application roles. Discipline assignment remains dependent on PR #76.
+`dbo.e2e_aliases` resolves semantic names to database IDs. Accounts include Admin, staff from both participating departments and an outside department, primary supervisor candidate, discipline mentor candidate, evaluator, inactive/outside lecturers, student leaders/members and an outsider. Supervisor/mentor are lecturer capabilities, not separate application roles. Discipline assignment remains dependent on PR #76.
 
-Both `single-project` and `inter-project` begin in DRAFT with persisted team/major scope and separate rosters. No final package, grade, approval or ACTIVE state is invented by this seed. Registration/execution/final/evaluation windows are sequential, not simultaneously open. API acceptance fixtures use their own controlled clock and database to prove transitions.
+Both `single-project` and `inter-project` begin in DRAFT with persisted team/major scope and separate rosters of three students. No final package, grade, approval or ACTIVE state is invented by this seed. Registration/review/supervisor-selection/execution/final/evaluation windows are sequential, not simultaneously open. API acceptance fixtures use their own controlled clock and database to prove transitions; changing a fixture clock also requires opening the intended period status explicitly.
 
 Existing SQL suites cover final package upload/locking/download, evaluator assignments/scoring, deterministic result publication, scope denial, stale tokens and transactional rollback. The additional acceptance journey must join these steps through API before claiming end-to-end completion. Registration/eligibility snapshot integration awaits the production implementation from issue #74; schema-only PR #80 does not establish completion.
 
