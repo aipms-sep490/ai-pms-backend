@@ -222,6 +222,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         entity.PlannedWork = plannedWork;
         entity.IssuesAndRisks = issuesAndRisks;
         entity.UpdatedAt = now;
+        entity.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -285,6 +286,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         entity.SubmittedBy = actorId;
         entity.SubmittedAt = now;
         entity.UpdatedAt = now;
+        entity.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -347,6 +349,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         context.SupervisorFeedbacks.Add(feedback);
         report.Status = "REVIEWED";
         report.UpdatedAt = now;
+        report.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
 

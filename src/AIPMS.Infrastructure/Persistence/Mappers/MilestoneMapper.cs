@@ -19,5 +19,6 @@ internal static class MilestoneMapper
             milestone.CreatedBy,
             milestone.CreatedByNavigation?.FullName ?? string.Empty,
             milestone.CreatedAt,
-            milestone.UpdatedAt);
+            milestone.UpdatedAt,
+            milestone.ConcurrencyToken.ToString("N"));
 }

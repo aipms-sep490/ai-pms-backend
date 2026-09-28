@@ -200,6 +200,7 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
         entity.StartAt = startAt;
         entity.DueAt = dueAt;
         entity.UpdatedAt = DateTime.UtcNow;
+        entity.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -243,6 +244,9 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
         long assignedByUserId,
         CancellationToken cancellationToken)
     {
+        var aggregate = await context.Tasks.SingleAsync(t => t.Id == taskId, cancellationToken);
+        aggregate.ConcurrencyToken = Guid.NewGuid();
+
         var existing = await context.TaskAssignees
             .Where(ta => ta.TaskId == taskId)
             .ToListAsync(cancellationToken);
@@ -274,6 +278,9 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
         string dependencyType,
         CancellationToken cancellationToken)
     {
+        var aggregate = await context.Tasks.SingleAsync(t => t.Id == taskId, cancellationToken);
+        aggregate.ConcurrencyToken = Guid.NewGuid();
+
         context.TaskDependencies.Add(new TaskDependency
         {
             TaskId = taskId,
@@ -290,13 +297,16 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
         long dependsOnTaskId,
         CancellationToken cancellationToken)
     {
+        var aggregate = await context.Tasks.SingleAsync(t => t.Id == taskId, cancellationToken);
+        aggregate.ConcurrencyToken = Guid.NewGuid();
+
         var dep = await context.TaskDependencies
             .FirstOrDefaultAsync(d => d.TaskId == taskId && d.DependsOnTaskId == dependsOnTaskId, cancellationToken);
         if (dep is not null)
         {
             context.TaskDependencies.Remove(dep);
-            await context.SaveChangesAsync(cancellationToken);
         }
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task UpdateStatusAsync(
@@ -321,6 +331,7 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
             task.CompletedAt = null;
         }
         task.UpdatedAt = DateTime.UtcNow;
+        task.ConcurrencyToken = Guid.NewGuid();
 
         context.TaskStatusHistories.Add(new TaskStatusHistory
         {

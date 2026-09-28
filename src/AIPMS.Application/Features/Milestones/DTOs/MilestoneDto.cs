@@ -14,4 +14,5 @@ public sealed record MilestoneDto(
     long CreatedBy,
     string CreatedByFullName,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    string? ConcurrencyToken = null);

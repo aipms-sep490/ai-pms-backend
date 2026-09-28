@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,7 +14,11 @@ namespace AIPMS.Application.Features.Meetings.Commands;
 
 public sealed record UpdateMeetingNotesCommand(
     long Id,
-    UpdateMeetingNotesRequest Request) : IRequest<MeetingDto>;
+    UpdateMeetingNotesRequest Request, string? ConcurrencyToken = null) : IRequest<MeetingDto>, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Meeting, Id, ConcurrencyToken ?? Request.ConcurrencyToken)];
+}
 
 public sealed class UpdateMeetingNotesCommandHandler(
     IMeetingRepository repository,

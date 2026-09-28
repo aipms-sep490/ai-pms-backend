@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -12,7 +13,11 @@ namespace AIPMS.Application.Features.Tasks.Commands;
 
 public sealed record RemoveTaskDependencyCommand(
     long TaskId,
-    long DependsOnTaskId) : IRequest<TaskDto>;
+    long DependsOnTaskId, string? ConcurrencyToken = null) : IRequest<TaskDto>, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Task, TaskId, ConcurrencyToken)];
+}
 
 public sealed class RemoveTaskDependencyCommandHandler(
     ITaskRepository repository,

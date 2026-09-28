@@ -77,9 +77,10 @@ public sealed class MeetingsController(ISender sender) : ControllerBase
     [ProducesResponseType<MeetingDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<MeetingDto>> Cancel(
         long id,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken)
     {
-        var result = await sender.Send(new CancelMeetingCommand(id), cancellationToken);
+        var result = await sender.Send(new CancelMeetingCommand(id, concurrencyToken), cancellationToken);
         return Ok(result);
     }
 
@@ -90,9 +91,10 @@ public sealed class MeetingsController(ISender sender) : ControllerBase
     [ProducesResponseType<MeetingDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<MeetingDto>> Complete(
         long id,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken)
     {
-        var result = await sender.Send(new CompleteMeetingCommand(id), cancellationToken);
+        var result = await sender.Send(new CompleteMeetingCommand(id, concurrencyToken), cancellationToken);
         return Ok(result);
     }
 
@@ -104,9 +106,10 @@ public sealed class MeetingsController(ISender sender) : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Delete(
         long id,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken)
     {
-        await sender.Send(new CancelMeetingCommand(id), cancellationToken);
+        await sender.Send(new CancelMeetingCommand(id, concurrencyToken), cancellationToken);
         return NoContent();
     }
 
@@ -126,9 +129,10 @@ public sealed class MeetingsController(ISender sender) : ControllerBase
     public async Task<ActionResult<MeetingParticipantDto>> AddParticipant(
         long id,
         [FromBody] AddMeetingParticipantRequest request,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken)
     {
-        var result = await sender.Send(new AddMeetingParticipantCommand(id, request), cancellationToken);
+        var result = await sender.Send(new AddMeetingParticipantCommand(id, request, concurrencyToken), cancellationToken);
         return Created(string.Empty, result);
     }
 
@@ -137,9 +141,10 @@ public sealed class MeetingsController(ISender sender) : ControllerBase
     public async Task<IActionResult> RemoveParticipant(
         long id,
         long userId,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken)
     {
-        await sender.Send(new RemoveMeetingParticipantCommand(id, userId), cancellationToken);
+        await sender.Send(new RemoveMeetingParticipantCommand(id, userId, concurrencyToken), cancellationToken);
         return NoContent();
     }
 
@@ -148,9 +153,10 @@ public sealed class MeetingsController(ISender sender) : ControllerBase
     public async Task<ActionResult<MeetingFeedbackDto>> AddFeedback(
         long id,
         [FromBody] AddMeetingFeedbackRequest request,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken)
     {
-        var result = await sender.Send(new AddMeetingFeedbackCommand(id, request), cancellationToken);
+        var result = await sender.Send(new AddMeetingFeedbackCommand(id, request, concurrencyToken), cancellationToken);
         return Created(string.Empty, result);
     }
 }

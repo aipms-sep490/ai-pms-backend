@@ -25,7 +25,8 @@ internal static class MeetingMapper
             meeting.CreatedByNavigation?.FullName ?? string.Empty,
             meeting.MeetingParticipants.Count,
             meeting.CreatedAt,
-            meeting.UpdatedAt);
+            meeting.UpdatedAt,
+            meeting.ConcurrencyToken.ToString("N"));
 
     public static MeetingDetailDto ToDetailDto(this MeetingEntity meeting)
     {
@@ -55,7 +56,8 @@ internal static class MeetingMapper
             participants,
             feedbacks,
             meeting.CreatedAt,
-            meeting.UpdatedAt);
+            meeting.UpdatedAt,
+            meeting.ConcurrencyToken.ToString("N"));
     }
 
     public static MeetingParticipantDto ToDto(this ParticipantEntity participant) =>

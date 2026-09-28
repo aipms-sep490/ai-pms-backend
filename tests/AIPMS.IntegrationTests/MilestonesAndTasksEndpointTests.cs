@@ -37,6 +37,9 @@ public sealed class MilestonesAndTasksEndpointTests : IClassFixture<MilestonesAn
             base.ConfigureWebHost(builder);
             builder.ConfigureServices(services =>
             {
+                // This suite uses in-memory repositories; SQL atomicity is tested separately.
+                foreach (var descriptor in services.Where(d => d.ImplementationType == typeof(AIPMS.Infrastructure.Services.Projects.ExecutionConcurrencyBehavior<,>)).ToArray())
+                    services.Remove(descriptor);
                 services.RemoveAll<IMilestoneRepository>();
                 services.AddSingleton<IMilestoneRepository>(MilestoneRepository);
 
