@@ -150,25 +150,42 @@ public sealed class TeamEligibilityEvaluationService(
         CancellationToken cancellationToken)
     {
         var utcNow = timeProvider.GetUtcNow().UtcDateTime;
-        var contextInput = await eligibilityRepository.BuildContextInputAsync(teamId, utcNow, cancellationToken);
-        var hashes = hasher.ComputeHashes(contextInput, utcNow);
 
-        var evaluationContext = new TeamEligibilityEvaluationContext(
-            TeamId: contextInput.TeamId,
-            ProjectPeriodId: contextInput.ProjectPeriodId,
-            ProjectId: contextInput.ProjectId,
-            RoundType: contextInput.RoundType,
-            RevisionHistoryId: contextInput.RevisionHistoryId,
-            ProjectMode: contextInput.ProjectMode,
-            PolicyVersion: contextInput.PolicyVersion,
-            RuleVersion: contextInput.RuleVersion,
-            Hashes: hashes);
-
+        // 1. Load immutable stored snapshots first
         var history = await eligibilityRepository.GetHistoryAsync(teamId, cancellationToken);
+        if (history.Count == 0) return Array.Empty<TeamEligibilityCheckDto>();
 
+        // 2. Try resolving current evaluation context if an active registration window is open
+        TeamEligibilityEvaluationContext? currentEvaluationContext = null;
+        try
+        {
+            var contextInput = await eligibilityRepository.BuildContextInputAsync(teamId, utcNow, cancellationToken);
+            var hashes = hasher.ComputeHashes(contextInput, utcNow);
+            currentEvaluationContext = new TeamEligibilityEvaluationContext(
+                TeamId: contextInput.TeamId,
+                ProjectPeriodId: contextInput.ProjectPeriodId,
+                ProjectId: contextInput.ProjectId,
+                RoundType: contextInput.RoundType,
+                RevisionHistoryId: contextInput.RevisionHistoryId,
+                ProjectMode: contextInput.ProjectMode,
+                PolicyVersion: contextInput.PolicyVersion,
+                RuleVersion: contextInput.RuleVersion,
+                Hashes: hashes);
+        }
+        catch (ConflictException)
+        {
+            // When registration window is closed or no active registration window exists,
+            // no check is CURRENT anyway; all historical snapshots are STALE.
+            currentEvaluationContext = null;
+        }
+
+        // 3. Evaluate freshness against current context (or STALE if window is closed)
         return history.Select(s =>
         {
-            var freshness = freshnessEvaluator.EvaluateFreshness(s, evaluationContext, utcNow);
+            var freshness = currentEvaluationContext is not null
+                ? freshnessEvaluator.EvaluateFreshness(s, currentEvaluationContext, utcNow)
+                : FreshnessStatus.Stale;
+
             return MapToDto(s, freshness);
         }).ToList();
     }
