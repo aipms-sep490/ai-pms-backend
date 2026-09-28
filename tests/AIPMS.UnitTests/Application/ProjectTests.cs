@@ -905,6 +905,17 @@ internal sealed class StubProjectRepository : IProjectRepository
         long projectId,
         CancellationToken cancellationToken) =>
         Task.FromResult(new ProjectTimelineDataDto(projectId, Array.Empty<TimelineMilestoneDto>()));
+
+    public Task<IReadOnlyList<(long ProjectId, string Status)>> GetTeamProjectStatusesAsync(
+        long teamId,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<(long ProjectId, string Status)> list = Projects.Values
+            .Where(p => p.TeamId == teamId)
+            .Select(p => (p.Id, p.Status))
+            .ToList();
+        return Task.FromResult(list);
+    }
 }
 
 internal sealed class FakeTimeProvider(DateTime fixedNow) : TimeProvider

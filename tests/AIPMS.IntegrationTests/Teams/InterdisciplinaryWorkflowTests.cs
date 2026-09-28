@@ -57,9 +57,15 @@ public sealed class InterdisciplinaryWorkflowTests(TeamDatabaseFixture database)
             "Hybrid proposal", "Description", "Objectives", "Problem", "Expected output",
             [s.Team.SeMajorId, s.Team.IsMajorId], "Education", ["Dotnet"], ["Capstone"])));
 
-    private static async System.Threading.Tasks.Task<ProjectDto> Transition(HttpClient client, ProjectDto project, string action) =>
-        await Body<ProjectDto>(await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/{action}",
+    private static async System.Threading.Tasks.Task<ProjectDto> Transition(HttpClient client, ProjectDto project, string action)
+    {
+        if (action is "submit" or "resubmit")
+        {
+            await client.PostAsync($"/api/v1/teams/{project.TeamId}/eligibility/check", null);
+        }
+        return await Body<ProjectDto>(await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/{action}",
             new { concurrencyToken = project.ConcurrencyToken, reason = "Please revise the scope" }));
+    }
 
     private static async System.Threading.Tasks.Task<ProjectAcademicReviewDto> Review(HttpClient client, long id) =>
         await Body<ProjectAcademicReviewDto>(await client.GetAsync($"/api/v1/projects/{id}/academic-review"));
@@ -223,6 +229,8 @@ public sealed class InterdisciplinaryWorkflowTests(TeamDatabaseFixture database)
         using var failing = new TeamTestFactory(database, s.Team, failAuditAction: auditAction);
         using var client = failing.CreateAuthenticatedClient(operation == "submit" ? s.Team.Students[0] : s.LeadStaff,
             roles: operation == "submit" ? ["STUDENT"] : ["DEPARTMENT_STAFF"]);
+        if (operation == "submit")
+            await client.PostAsync($"/api/v1/teams/{project.TeamId}/eligibility/check", null);
         var response = operation == "decision"
             ? await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/department-decisions", new DepartmentDecisionRequest(before.LatestSubmission!.Id, before.ConcurrencyToken, "APPROVED", null))
             : await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/{operation}", new { concurrencyToken = before.ConcurrencyToken });

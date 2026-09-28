@@ -229,6 +229,7 @@ public sealed class WorkflowContextTests(TeamDatabaseFixture database) : IClassF
         Allowed(actions.Actions, "resubmit_project", false);
         Allowed((await Body<ProjectWorkflowActionsDto>(await member.GetAsync(url))).Actions, "submit_project", false, "TEAM_LEADER_REQUIRED");
         Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(url)).StatusCode);
+        await leader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
         project = await Body<ProjectDto>(await leader.PostAsJsonAsync($"/api/v1/projects/{project.Id}/submit", new { concurrencyToken = project.ConcurrencyToken }));
         actions = await Body<ProjectWorkflowActionsDto>(await leader.GetAsync(url));
         Assert.Equal(project.ConcurrencyToken, actions.ConcurrencyToken);

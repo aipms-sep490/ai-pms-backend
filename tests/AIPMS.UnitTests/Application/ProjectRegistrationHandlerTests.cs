@@ -81,6 +81,9 @@ public sealed class ProjectRegistrationHandlerTests
         public int Calls { get; private set; }
         public Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken = default)
         {
+            if (entry.Outcome == "DENIED" || entry.Action.EndsWith("_DENIED"))
+                return Task.CompletedTask;
+
             Assert.True(guard.InTransaction);
             Assert.False(guard.Committed);
             Calls++;

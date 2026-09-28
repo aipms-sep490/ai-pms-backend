@@ -541,6 +541,22 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             if (newStatus == "ACTIVE")
                 await new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context).ApplyMilestoneTemplateAsync(projectId, actorUserId, utcNow, cancellationToken);
 
+            if (newStatus == "REVISION_REQUIRED")
+            {
+                var team = await context.Teams.SingleOrDefaultAsync(t => t.Id == project.TeamId, cancellationToken);
+                if (team is not null && team.Status == "LOCKED")
+                {
+                    var hasOtherLockingProject = await context.Projects.AnyAsync(
+                        p => p.TeamId == project.TeamId && p.Id != project.Id && (p.Status != "DRAFT" && p.Status != "REVISION_REQUIRED" && p.Status != "REJECTED"),
+                        cancellationToken);
+                    if (!hasOtherLockingProject)
+                    {
+                        team.Status = "FORMING";
+                        team.UpdatedAt = utcNow;
+                    }
+                }
+            }
+
             await context.SaveChangesAsync(cancellationToken);
             if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
@@ -839,5 +855,17 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         }
 
         return new ProjectTimelineDataDto(projectId, timelineMilestones);
+    }
+
+    public async Task<IReadOnlyList<(long ProjectId, string Status)>> GetTeamProjectStatusesAsync(
+        long teamId,
+        CancellationToken cancellationToken)
+    {
+        var list = await context.Projects.AsNoTracking()
+            .Where(p => p.TeamId == teamId)
+            .Select(p => new { p.Id, p.Status })
+            .ToListAsync(cancellationToken);
+
+        return list.Select(p => (p.Id, p.Status)).ToList();
     }
 }

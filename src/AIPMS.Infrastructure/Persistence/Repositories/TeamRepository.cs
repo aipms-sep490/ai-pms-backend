@@ -207,9 +207,9 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
         if (policy.CheckExpiration
             && qualification.ExpiresAt.HasValue
             && qualification.ExpiresAt.Value <= now)
-            return new(true, false, "EXPIRED", "CERTIFICATE_EXPIRED");
+            return new(true, false, "EXPIRED", "CERTIFICATE_EXPIRED", qualification.ExpiresAt);
 
-        return new(true, true, qualification.VerificationStatus, null);
+        return new(true, true, qualification.VerificationStatus, null, qualification.ExpiresAt);
     }
 
     private async Task SaveAsync(CancellationToken ct)

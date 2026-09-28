@@ -1835,6 +1835,12 @@ public class ProjectRepositoryTests
         public Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) =>
             teamRepo.InTransactionAsync(action, ct);
         public Task ValidateAsync(long teamId, CancellationToken ct) => Task.CompletedTask;
+        public Task ValidateSubmissionEligibilityAsync(
+            long teamId,
+            long projectId,
+            string roundType,
+            long? revisionHistoryId,
+            CancellationToken ct) => Task.CompletedTask;
     }
 
     [Fact]
@@ -2046,6 +2052,8 @@ public class ProjectRepositoryTests
             if (tm != null) cleanupCtx.Teams.Remove(tm);
             var urus = await cleanupCtx.UserRoles.Where(x => x.UserId == leader.Id).ToListAsync();
             cleanupCtx.UserRoles.RemoveRange(urus);
+            var audits = await cleanupCtx.AuditLogs.Where(x => x.ActorUserId == leader.Id || x.EntityId == project.Id.ToString()).ToListAsync();
+            cleanupCtx.AuditLogs.RemoveRange(audits);
             var u = await cleanupCtx.Users.SingleOrDefaultAsync(x => x.Id == leader.Id);
             if (u != null) cleanupCtx.Users.Remove(u);
             await cleanupCtx.SaveChangesAsync();
