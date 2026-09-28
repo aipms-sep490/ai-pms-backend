@@ -1,6 +1,10 @@
 /* Disposable E2E fixture. Values are stable by alias, never by identity id. */
 SET XACT_ABORT ON;
 SET NOCOUNT ON;
+IF DB_NAME() NOT LIKE N'AI_PMS_E2E[_]%' OR NOT EXISTS (
+    SELECT 1 FROM sys.extended_properties WHERE class=0 AND name=N'AIPMS_E2E_OWNER'
+    AND CONVERT(nvarchar(100),value)=N'remediation-v1')
+    THROW 51000, 'Seed requires an owned disposable E2E database.', 1;
 BEGIN TRANSACTION;
 
 IF OBJECT_ID(N'dbo.e2e_aliases', N'U') IS NULL
