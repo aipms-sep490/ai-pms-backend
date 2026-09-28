@@ -10,7 +10,10 @@ using AIPMS.Application.Features.Teams.DTOs;
 using AIPMS.Domain.Teams;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
+using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 using Task = System.Threading.Tasks.Task;
 
@@ -381,7 +384,7 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
     // ==========================================
 
     [Fact]
-    public async Task History_ReturnsSnapshots_AfterRegistrationWindowCloses()
+    public async Task History_SnapshotRemainsCurrent_WhenRegistrationWindowClosesWithoutFactChanges()
     {
         var s = await database.SeedAsync();
         using var app = new TeamTestFactory(database, s, minMembers: 1, maxMembers: 3);
@@ -393,8 +396,9 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
 
         var check = await BodyAsync<TeamEligibilityCheckDto>(await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null));
         Assert.Equal("PASS", check.Result);
+        Assert.Equal("CURRENT", check.Freshness);
 
-        // Close registration window in DB
+        // Close registration window in DB (without changing any eligibility facts)
         await using (var ctx = database.CreateContext())
         {
             await ctx.ProjectPeriods
@@ -402,7 +406,7 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
                 .ExecuteUpdateAsync(p => p.SetProperty(x => x.EndAt, TeamDatabaseFixture.Now.AddDays(-1)));
         }
 
-        // GET /eligibility/history succeeds and returns the historical snapshot
+        // GET /eligibility/history succeeds and snapshot freshness remains CURRENT
         var histRes = await clientLeader.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
         Assert.Equal(HttpStatusCode.OK, histRes.StatusCode);
 
@@ -410,6 +414,127 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
         Assert.Single(history);
         Assert.Equal(check.CheckId, history[0].CheckId);
         Assert.Equal("PASS", history[0].Result);
+        Assert.Equal("CURRENT", history[0].Freshness);
+    }
+
+    [Fact]
+    public async Task History_SnapshotBecomesStale_WhenFactsChangeAfterWindowClosed()
+    {
+        var s = await database.SeedAsync();
+        using var app = new TeamTestFactory(database, s, minMembers: 1, maxMembers: 3);
+        using var clientLeader = app.CreateAuthenticatedClient(s.Students[0]);
+
+        var team = await BodyAsync<TeamDto>(await clientLeader.PostAsJsonAsync("/api/v1/teams",
+            new { academicSemesterId = s.SemesterId, code = "THIST_FACT", name = "History Facts Team", description = "Test" }));
+
+        var check = await BodyAsync<TeamEligibilityCheckDto>(await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null));
+        Assert.Equal("PASS", check.Result);
+        Assert.Equal("CURRENT", check.Freshness);
+
+        // Close registration window
+        await using (var ctx = database.CreateContext())
+        {
+            await ctx.ProjectPeriods
+                .Where(p => p.Id == s.PeriodId)
+                .ExecuteUpdateAsync(p => p.SetProperty(x => x.EndAt, TeamDatabaseFixture.Now.AddDays(-1)));
+        }
+
+        // Invalidate an eligibility fact after window is closed (e.g. mutate academic profile status)
+        await using (var ctx = database.CreateContext())
+        {
+            await ctx.Users
+                .Where(u => u.Id == s.Students[0])
+                .ExecuteUpdateAsync(u => u.SetProperty(x => x.AcademicProfileStatus, "REJECTED"));
+        }
+
+        // GET history succeeds, and snapshot is STALE because facts changed, NOT because window closed
+        var histRes = await clientLeader.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.OK, histRes.StatusCode);
+
+        var history = await BodyAsync<IReadOnlyList<TeamEligibilityCheckDto>>(histRes);
+        Assert.Single(history);
+        Assert.Equal(check.CheckId, history[0].CheckId);
+        Assert.Equal("STALE", history[0].Freshness);
+    }
+
+    [Fact]
+    public async Task History_SnapshotBecomesStale_WhenTemporalQualificationExpiresAfterWindowClosed()
+    {
+        var s = await database.SeedAsync();
+
+        // Seed qualification policy requiring student qualification with expiration check
+        await using (var ctx = database.CreateContext())
+        {
+            var orgId = await ctx.AcademicSemesters.Where(x => x.Id == s.SemesterId)
+                .Select(x => x.OrganizationId).SingleAsync();
+
+            ctx.Set<ProjectPeriodQualificationPolicy>().Add(new ProjectPeriodQualificationPolicy
+            {
+                ProjectPeriodId = s.PeriodId,
+                RequireStudentQualification = true,
+                QualificationType = "CAPSTONE_READINESS",
+                RequireCertificate = false,
+                CheckExpiration = true,
+                UpdatedAt = TeamDatabaseFixture.Now
+            });
+
+            // Student 0 qualification expires in 2 hours
+            ctx.Set<StudentQualification>().Add(new StudentQualification
+            {
+                UserId = s.Students[0],
+                OrganizationId = orgId,
+                QualificationType = "CAPSTONE_READINESS",
+                TrainingStatus = "TRAINING_COMPLETED",
+                VerificationStatus = "VERIFIED",
+                CertificateNumber = "CERT-" + s.Students[0],
+                IssuedAt = TeamDatabaseFixture.Now.AddDays(-1),
+                ExpiresAt = TeamDatabaseFixture.Now.AddHours(2),
+                VerifiedBy = s.Students[0],
+                VerifiedAt = TeamDatabaseFixture.Now,
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedAt = TeamDatabaseFixture.Now,
+                UpdatedAt = TeamDatabaseFixture.Now
+            });
+
+            await ctx.SaveChangesAsync();
+        }
+
+        var clock = new ManualClock(TeamDatabaseFixture.Now);
+        using var app = new TeamTestFactory(database, s, minMembers: 1, maxMembers: 3, customizeServices: services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+        });
+        using var clientLeader = app.CreateAuthenticatedClient(s.Students[0]);
+
+        var team = await BodyAsync<TeamDto>(await clientLeader.PostAsJsonAsync("/api/v1/teams",
+            new { academicSemesterId = s.SemesterId, code = "THIST_EXP", name = "History Exp Team", description = "Test" }));
+
+        // Check eligibility at T0: qualification valid until Now + 2h -> PASS, CURRENT
+        var check = await BodyAsync<TeamEligibilityCheckDto>(await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null));
+        Assert.Equal("PASS", check.Result);
+        Assert.Equal("CURRENT", check.Freshness);
+        Assert.NotNull(check.ValidUntilAt);
+
+        // Close registration window
+        await using (var ctx = database.CreateContext())
+        {
+            await ctx.ProjectPeriods
+                .Where(p => p.Id == s.PeriodId)
+                .ExecuteUpdateAsync(p => p.SetProperty(x => x.EndAt, TeamDatabaseFixture.Now.AddDays(-1)));
+        }
+
+        // Advance time to 3 hours later (past qualification expiry)
+        clock.CurrentTime = TeamDatabaseFixture.Now.AddHours(3);
+
+        // GET history succeeds and reports STALE due to actual temporal expiry
+        var histRes = await clientLeader.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.OK, histRes.StatusCode);
+
+        var history = await BodyAsync<IReadOnlyList<TeamEligibilityCheckDto>>(histRes);
+        Assert.Single(history);
+        Assert.Equal(check.CheckId, history[0].CheckId);
+        Assert.Equal("STALE", history[0].Freshness);
     }
 
     [Fact]
@@ -432,13 +557,14 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
                 .ExecuteUpdateAsync(p => p.SetProperty(x => x.Status, "CLOSED"));
         }
 
-        // GET history must remain readable
+        // GET history must remain readable with CURRENT freshness when facts unchanged
         var histRes = await clientLeader.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
         Assert.Equal(HttpStatusCode.OK, histRes.StatusCode);
 
         var history = await BodyAsync<IReadOnlyList<TeamEligibilityCheckDto>>(histRes);
         Assert.Single(history);
         Assert.Equal(check.CheckId, history[0].CheckId);
+        Assert.Equal("CURRENT", history[0].Freshness);
     }
 
     [Fact]
@@ -511,5 +637,11 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
         // Matching department staff succeeds with 200 OK
         var matchHistRes = await clientMatchingStaff.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
         Assert.Equal(HttpStatusCode.OK, matchHistRes.StatusCode);
+    }
+
+    private sealed class ManualClock(DateTime now) : TimeProvider
+    {
+        public DateTime CurrentTime { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => new(CurrentTime);
     }
 }

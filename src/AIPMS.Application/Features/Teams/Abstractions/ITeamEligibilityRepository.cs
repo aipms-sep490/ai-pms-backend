@@ -35,4 +35,10 @@ public interface ITeamEligibilityRepository
         long teamId,
         DateTime utcNow,
         CancellationToken cancellationToken);
+
+    Task<TeamEligibilityContextInput?> BuildHistoricalContextInputAsync(
+        long teamId,
+        long projectPeriodId,
+        DateTime utcNow,
+        CancellationToken cancellationToken);
 }

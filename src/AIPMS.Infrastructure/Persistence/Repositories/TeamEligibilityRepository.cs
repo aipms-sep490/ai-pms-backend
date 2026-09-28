@@ -207,6 +207,34 @@ public sealed class TeamEligibilityRepository(
             throw new ConflictException(TeamWorkflow.UnsupportedHybridPolicyMessage);
         }
 
+        var result = await BuildHistoricalContextInputAsync(teamId, period.Id, utcNow, cancellationToken);
+        return result ?? throw new ConflictException("Team formation policy is not configured for this registration period (BE-12).");
+    }
+
+    public async Task<TeamEligibilityContextInput?> BuildHistoricalContextInputAsync(
+        long teamId,
+        long projectPeriodId,
+        DateTime utcNow,
+        CancellationToken cancellationToken)
+    {
+        var team = await context.Teams.AsNoTracking()
+            .SingleOrDefaultAsync(t => t.Id == teamId, cancellationToken);
+        if (team is null) return null;
+
+        var period = await context.ProjectPeriods.AsNoTracking()
+            .SingleOrDefaultAsync(p => p.Id == projectPeriodId, cancellationToken);
+        if (period is null) return null;
+
+        var policy = await policyProvider.GetAsync(period.Id, cancellationToken);
+        if (policy is null || !policy.IsValid) return null;
+
+        var scopeEntity = await context.Set<TeamAcademicConfiguration>()
+            .Include(c => c.Requirements)
+            .AsNoTracking()
+            .SingleOrDefaultAsync(c => c.TeamId == teamId, cancellationToken);
+
+        if (scopeEntity is null && policy.MinDistinctMajors > 1) return null;
+
         AcademicScopeInput? scopeInput = null;
         if (scopeEntity is not null)
         {

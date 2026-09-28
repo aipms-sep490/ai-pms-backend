@@ -155,39 +155,47 @@ public sealed class TeamEligibilityEvaluationService(
         var history = await eligibilityRepository.GetHistoryAsync(teamId, cancellationToken);
         if (history.Count == 0) return Array.Empty<TeamEligibilityCheckDto>();
 
-        // 2. Try resolving current evaluation context if an active registration window is open
-        TeamEligibilityEvaluationContext? currentEvaluationContext = null;
-        try
-        {
-            var contextInput = await eligibilityRepository.BuildContextInputAsync(teamId, utcNow, cancellationToken);
-            var hashes = hasher.ComputeHashes(contextInput, utcNow);
-            currentEvaluationContext = new TeamEligibilityEvaluationContext(
-                TeamId: contextInput.TeamId,
-                ProjectPeriodId: contextInput.ProjectPeriodId,
-                ProjectId: contextInput.ProjectId,
-                RoundType: contextInput.RoundType,
-                RevisionHistoryId: contextInput.RevisionHistoryId,
-                ProjectMode: contextInput.ProjectMode,
-                PolicyVersion: contextInput.PolicyVersion,
-                RuleVersion: contextInput.RuleVersion,
-                Hashes: hashes);
-        }
-        catch (ConflictException)
-        {
-            // When registration window is closed or no active registration window exists,
-            // no check is CURRENT anyway; all historical snapshots are STALE.
-            currentEvaluationContext = null;
-        }
+        // Cache evaluation contexts by ProjectPeriodId to avoid redundant DB reads
+        var contextCache = new Dictionary<long, TeamEligibilityEvaluationContext?>();
 
-        // 3. Evaluate freshness against current context (or STALE if window is closed)
-        return history.Select(s =>
+        var result = new List<TeamEligibilityCheckDto>(history.Count);
+        foreach (var s in history)
         {
-            var freshness = currentEvaluationContext is not null
-                ? freshnessEvaluator.EvaluateFreshness(s, currentEvaluationContext, utcNow)
+            if (!contextCache.TryGetValue(s.ProjectPeriodId, out var evaluationContext))
+            {
+                var historicalInput = await eligibilityRepository.BuildHistoricalContextInputAsync(
+                    teamId, s.ProjectPeriodId, utcNow, cancellationToken);
+
+                if (historicalInput is not null)
+                {
+                    var hashes = hasher.ComputeHashes(historicalInput, utcNow);
+                    evaluationContext = new TeamEligibilityEvaluationContext(
+                        TeamId: historicalInput.TeamId,
+                        ProjectPeriodId: historicalInput.ProjectPeriodId,
+                        ProjectId: historicalInput.ProjectId,
+                        RoundType: historicalInput.RoundType,
+                        RevisionHistoryId: historicalInput.RevisionHistoryId,
+                        ProjectMode: historicalInput.ProjectMode,
+                        PolicyVersion: historicalInput.PolicyVersion,
+                        RuleVersion: historicalInput.RuleVersion,
+                        Hashes: hashes);
+                }
+                else
+                {
+                    evaluationContext = null;
+                }
+
+                contextCache[s.ProjectPeriodId] = evaluationContext;
+            }
+
+            var freshness = evaluationContext is not null
+                ? freshnessEvaluator.EvaluateFreshness(s, evaluationContext, utcNow)
                 : FreshnessStatus.Stale;
 
-            return MapToDto(s, freshness);
-        }).ToList();
+            result.Add(MapToDto(s, freshness));
+        }
+
+        return result;
     }
 
     public TeamEligibilityCheckDto MapToDto(TeamEligibilitySnapshotData snapshot, FreshnessStatus freshness)
