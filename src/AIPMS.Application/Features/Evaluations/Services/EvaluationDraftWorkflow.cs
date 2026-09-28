@@ -8,6 +8,7 @@ using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.FinalSubmissions.Abstractions;
 using AIPMS.Application.Features.Results.Abstractions;
 using MediatR;
+using AIPMS.Application.Features.Notifications.Events;
 
 namespace AIPMS.Application.Features.Evaluations.Services;
 
@@ -33,7 +34,7 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
     private static void Current(string expected, string supplied)
     {
         if (!Guid.TryParse(supplied, out var token) || !Guid.TryParse(expected, out var current) || token != current)
-            throw new ConflictException("The evaluation or assignment has changed. Reload before retrying.");
+            throw new ConflictException("The evaluation or assignment has changed. Reload before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);
     }
 
     private async Task<EvaluationAssignmentRecord> Assignment(long id, CancellationToken ct) =>
@@ -56,28 +57,44 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
     private async Task<EvaluationPeriod> Window(EvaluationProject project, long periodId, CancellationToken ct)
     {
         if (project.Status != "FINAL_SUBMISSION" || !project.ActiveScope)
-            throw new ConflictException("Draft evaluation requires a project in FINAL_SUBMISSION with active academic scope.");
+            throw new ConflictException("Draft evaluation requires a project in FINAL_SUBMISSION with active academic scope.", WorkflowErrorCodes.FinalPackageRequired);
         if (!await repository.HasLockedSubmissionAsync(project.Id, ct))
-            throw new ConflictException("A locked final-submission package is required before assignment or draft scoring.");
+            throw new ConflictException("A locked final-submission package is required before assignment or draft scoring.", WorkflowErrorCodes.FinalPackageRequired);
         var period = await repository.GetPeriodAsync(periodId, clock.GetUtcNow().UtcDateTime, ct);
         if (period is null || period.SemesterId != project.SemesterId || !period.IsOpen)
-            throw new ConflictException("A single active evaluation window in the project's semester is required.");
+            throw new ConflictException("A single active evaluation window in the project's semester is required.", WorkflowErrorCodes.EvaluationWindowClosed);
         return period;
     }
 
     private async Task<RubricRecord> Rubric(long id, EvaluationProject project, long department, bool newAssignment, CancellationToken ct)
     {
         var rubric = await rubrics.GetAsync(id, new RubricActor(0, true, null), true, ct)
-            ?? throw new ConflictException("The assigned rubric no longer exists.");
+            ?? throw new ConflictException("The assigned rubric no longer exists.", WorkflowErrorCodes.PublishedRubricRequired);
         if (rubric.DepartmentId != department || rubric.AcademicSemesterId != project.SemesterId
             || (newAssignment ? rubric.Status != "PUBLISHED" : rubric.Status is not ("PUBLISHED" or "RETIRED")))
-            throw new ConflictException("A protected rubric in the project's department and semester is required.");
+            throw new ConflictException("A protected rubric in the project's department and semester is required.", WorkflowErrorCodes.PublishedRubricRequired);
         RubricRules.EnsurePublishable(rubric.Criteria);
         return rubric;
     }
 
     private Task Audit(long actor, string action, string entity, long id, Dictionary<string, object?> details, CancellationToken ct) =>
         audit.RecordAsync(new AuditEntry(actor, action, entity, id, details), ct);
+
+    public Task<PagedResult<EligibleEvaluatorDto>> Candidates(long projectId, long periodId, int page, int pageSize, CancellationToken ct) => repository.InTransactionAsync(async () =>
+    {
+        var actor = await Actor(ct);
+        var project = await Project(projectId, ct);
+        if (!Manages(actor, project)) throw new ForbiddenException();
+        var period = await Window(project, periodId, ct);
+        if (period.RubricId is not long rubricId)
+            throw new ConflictException("The evaluation period has no configured rubric.", WorkflowErrorCodes.PublishedRubricRequired);
+        var rubric = await rubrics.GetAsync(rubricId, new RubricActor(0, true, null), true, ct);
+        if (rubric?.DepartmentId is not long department || !project.DepartmentIds.Contains(department))
+            throw new ConflictException("A published rubric in the project scope is required.", WorkflowErrorCodes.PublishedRubricRequired);
+        if (!Manages(actor, project, department)) throw new ForbiddenException();
+        await Rubric(rubricId, project, department, true, ct);
+        return await repository.GetEligibleEvaluatorsAsync(projectId, department, page, pageSize, ct);
+    }, ct);
 
     public Task<EvaluationAssignmentDto> Assign(long projectId, AssignEvaluatorRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
     {
@@ -91,15 +108,18 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         if (evaluator is null || !evaluator.IsLecturer || evaluator.DepartmentId is null
             || !project.DepartmentIds.Contains(evaluator.DepartmentId.Value)
             || !Manages(actor, project, evaluator.DepartmentId))
-            throw new ConflictException("The evaluator must be an active lecturer in the managed project department.");
+            throw new ConflictException("The evaluator must be an active lecturer in the managed project department.", WorkflowErrorCodes.EvaluatorIneligible);
         if (input.EvaluationType == "SUPERVISOR" && !await repository.IsCurrentSupervisorAsync(projectId, evaluator.Id, ct))
-            throw new ConflictException("SUPERVISOR evaluation requires the active project supervisor.");
-        if (period.RubricId is not long rubricId) throw new ConflictException("The evaluation period has no configured rubric.");
+            throw new ConflictException("SUPERVISOR evaluation requires the active project supervisor.", WorkflowErrorCodes.SupervisorRequired);
+        if (period.RubricId is not long rubricId) throw new ConflictException("The evaluation period has no configured rubric.", WorkflowErrorCodes.PublishedRubricRequired);
         await Rubric(rubricId, project, evaluator.DepartmentId.Value, true, ct);
         var assigned = await repository.AssignAsync(projectId, evaluator.Id, period.Id, rubricId,
             evaluator.DepartmentId.Value, input.EvaluationType, actor.Id, clock.GetUtcNow().UtcDateTime, ct);
         await Audit(actor.Id, "EVALUATOR_ASSIGNED", "EVALUATION_ASSIGNMENT", assigned.Id,
             new() { ["projectId"] = projectId, ["evaluatorId"] = evaluator.Id, ["rubricId"] = rubricId, ["periodId"] = period.Id }, ct);
+        await publisher.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.EvaluatorAssigned, assigned.Id,
+            actor.Id, assigned.AssignedAt), ct);
+        await Window(project, period.Id, ct);
         return assigned.ToDto();
     }, ct);
 
@@ -116,9 +136,9 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         if (project.Status is "COMPLETED" or "ARCHIVED") throw new ConflictException("Completed or archived projects are read-only.");
         if (before.Status == "REVOKED") return before.ToDto();
         if (await results.IsRequiredAsync(id, ct) && await results.AnyFinalizedAsync(project.Id, ct))
-            throw new ConflictException("Required evaluators are frozen after the first finalized evaluation.");
+            throw new ConflictException("Required evaluators are frozen after the first finalized evaluation.", WorkflowErrorCodes.FinalizedAssignment);
         var draft = await repository.FindDraftAsync(id, ct);
-        if (draft is not null && draft.Status != "DRAFT") throw new ConflictException("Submitted or finalized evaluations cannot be revoked through the draft workflow.");
+        if (draft is not null && draft.Status != "DRAFT") throw new ConflictException("Submitted or finalized evaluations cannot be revoked through the draft workflow.", WorkflowErrorCodes.FinalizedAssignment);
         var result = await repository.RevokeAsync(id, input.Reason.Trim(), clock.GetUtcNow().UtcDateTime, ct);
         await Audit(actor.Id, "EVALUATOR_REVOKED", "EVALUATION_ASSIGNMENT", id,
             new() { ["projectId"] = before.ProjectId, ["reason"] = input.Reason.Trim() }, ct);
@@ -158,7 +178,7 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         await Rubric(before.RubricId, project, assignment.DepartmentId, false, ct);
         before = await Draft(id, ct);
         Current(before.ConcurrencyToken, input.ConcurrencyToken);
-        if (before.Status != "DRAFT") throw new ConflictException("Only draft evaluations can be edited.");
+        if (before.Status != "DRAFT") throw new ConflictException("Only draft evaluations can be edited.", WorkflowErrorCodes.FinalizedAssignment);
         var unknown = input.Scores.Any(s => before.Scores.All(c => c.RubricCriterionId != s.RubricCriterionId));
         if (unknown) throw new ConflictException("Scores must refer to leaf criteria in this rubric version; groups cannot be scored.");
         var values = input.Scores.ToDictionary(s => s.RubricCriterionId);

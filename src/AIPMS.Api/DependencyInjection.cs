@@ -116,6 +116,7 @@ public static class DependencyInjection
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {
+            options.SchemaFilter<AIPMS.Api.OpenApi.WorkflowProblemDetailsSchemaFilter>();
             options.SwaggerDoc("v1", new OpenApiInfo
             {
                 Title = "AI-PMS API",

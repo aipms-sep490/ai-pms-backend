@@ -100,6 +100,8 @@ dotnet tool restore
 
 ## Error responses
 
+Evaluator discovery, assignment inbox notifications, archive actions and optional workflow error codes are documented in [Evaluation remediation](docs/evaluation-remediation.md).
+
 The global exception middleware returns RFC-compatible `ProblemDetails` with a trace id. Application exceptions map consistently: validation to 400, forbidden to 403, not found to 404, conflict to 409, domain-rule violations to 422 and unexpected failures to 500.
 
 ## Validation and dependency injection

@@ -54,7 +54,7 @@ internal sealed class ExecutionConcurrencyBehavior<TRequest, TResponse>(
             {
                 if (!required && write.ConcurrencyToken is null) continue;
                 if (!Guid.TryParse(write.ConcurrencyToken, out var expected))
-                    throw new ConflictException("A current concurrencyToken is required. Reload the resource.");
+                    throw new ConflictException("A current concurrencyToken is required. Reload the resource.", WorkflowErrorCodes.StaleConcurrencyToken);
                 var table = write.Resource switch
                 {
                     ExecutionResource.Task => "tasks", ExecutionResource.Milestone => "milestones",
@@ -67,7 +67,7 @@ internal sealed class ExecutionConcurrencyBehavior<TRequest, TResponse>(
                     $"UPDATE dbo.{table} SET concurrency_token=NEWID() WHERE id=@id AND concurrency_token=@token",
                     [new SqlParameter("@id", write.Id), new SqlParameter("@token", expected)], ct);
                 #pragma warning restore EF1002
-                if (changed != 1) throw new ConflictException("The resource changed. Reload before saving.");
+                if (changed != 1) throw new ConflictException("The resource changed. Reload before saving.", WorkflowErrorCodes.StaleConcurrencyToken);
             }
             var result = await next();
             if (tx is not null) await tx.CommitAsync(ct);
@@ -78,7 +78,7 @@ internal sealed class ExecutionConcurrencyBehavior<TRequest, TResponse>(
             if (tx is not null) await tx.RollbackAsync(CancellationToken.None);
             db.ChangeTracker.Clear();
             if (ex is DbUpdateConcurrencyException || ex is SqlException { Number: 1205 })
-                throw new ConflictException("The resource changed concurrently. Reload before saving.");
+                throw new ConflictException("The resource changed concurrently. Reload before saving.", WorkflowErrorCodes.StaleConcurrencyToken);
             throw;
         }
     }

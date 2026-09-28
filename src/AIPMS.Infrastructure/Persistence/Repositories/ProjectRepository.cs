@@ -356,7 +356,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             var existingToken = Convert.ToBase64String(project.RowVersion);
             if (existingToken != concurrencyToken)
             {
-                throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+                throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
             }
 
             if (project.Status is not ("DRAFT" or "REVISION_REQUIRED"))
@@ -403,7 +403,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         catch (DbUpdateConcurrencyException)
         {
             if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
-            throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+            throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
         }
         catch (DbUpdateException exception)
             when (exception.InnerException is Microsoft.Data.SqlClient.SqlException sqlException 
@@ -445,7 +445,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             var existingToken = Convert.ToBase64String(project.RowVersion);
             if (existingToken != concurrencyToken)
             {
-                throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+                throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
             }
 
             if (project.Status is not ("DRAFT" or "REVISION_REQUIRED"))
@@ -472,7 +472,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         catch (DbUpdateConcurrencyException)
         {
             if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
-            throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+            throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
         }
         catch
         {
@@ -503,7 +503,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             var existingToken = Convert.ToBase64String(project.RowVersion);
             if (existingToken != concurrencyToken)
             {
-                throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+                throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
             }
 
             if (project.Status != oldStatus) throw new ConflictException("Project status changed. Refresh and retry.");
@@ -549,7 +549,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         catch (DbUpdateConcurrencyException)
         {
             if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
-            throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+            throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
         }
         catch
         {

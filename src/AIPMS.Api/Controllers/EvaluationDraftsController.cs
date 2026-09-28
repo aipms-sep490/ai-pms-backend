@@ -18,6 +18,13 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(409)]
 public sealed class EvaluationDraftsController(ISender sender) : ControllerBase
 {
+    /// <summary>Lists assignable evaluators for the selected evaluation period, in persisted academic scope.</summary>
+    [HttpGet("api/v1/projects/{projectId:long}/eligible-evaluators")]
+    [ProducesResponseType<PagedResult<EligibleEvaluatorDto>>(200)]
+    public async Task<ActionResult<PagedResult<EligibleEvaluatorDto>>> EligibleEvaluators(long projectId,
+        [FromQuery] long periodId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) =>
+        Ok(await sender.Send(new GetEligibleEvaluatorsQuery(projectId, periodId, page, pageSize), ct));
+
     [HttpPost("api/v1/projects/{projectId:long}/evaluation-assignments")]
     [ProducesResponseType<EvaluationAssignmentDto>(201)]
     public async Task<ActionResult<EvaluationAssignmentDto>> Assign(long projectId, AssignEvaluatorRequest request, CancellationToken ct) =>
