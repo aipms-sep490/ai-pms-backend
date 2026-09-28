@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,7 +13,11 @@ namespace AIPMS.Application.Features.ProgressReports.Commands;
 
 public sealed record UpdateProgressReportCommand(
     long Id,
-    UpdateProgressReportRequest Request) : IRequest<ProgressReportDto>;
+    UpdateProgressReportRequest Request, string? ConcurrencyToken = null) : IRequest<ProgressReportDto>, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.ProgressReport, Id, ConcurrencyToken ?? Request.ConcurrencyToken)];
+}
 
 public sealed class UpdateProgressReportCommandHandler(
     IProgressReportRepository repository,

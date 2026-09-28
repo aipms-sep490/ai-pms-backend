@@ -90,6 +90,7 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
         entity.Status = status;
         entity.SortOrder = sortOrder;
         entity.UpdatedAt = DateTime.UtcNow;
+        entity.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -124,6 +125,7 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
             {
                 entity.SortOrder = newSortOrder;
                 entity.UpdatedAt = DateTime.UtcNow;
+                entity.ConcurrencyToken = Guid.NewGuid();
             }
         }
 

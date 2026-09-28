@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,7 +21,11 @@ public sealed record UpdateTaskCommand(
     string? Description,
     string? Priority,
     DateTime? StartAt,
-    DateTime? DueAt) : IRequest<TaskDto>;
+    DateTime? DueAt, string? ConcurrencyToken = null) : IRequest<TaskDto>, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Task, Id, ConcurrencyToken)];
+}
 
 public sealed class UpdateTaskCommandHandler(
     ITaskRepository repository,

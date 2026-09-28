@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -16,7 +17,11 @@ namespace AIPMS.Application.Features.Tasks.Commands;
 public sealed record UpdateTaskStatusCommand(
     long TaskId,
     string NewStatus,
-    string? Reason) : IRequest<TaskDto>;
+    string? Reason, string? ConcurrencyToken = null) : IRequest<TaskDto>, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Task, TaskId, ConcurrencyToken)];
+}
 
 public sealed class UpdateTaskStatusCommandHandler(
     ITaskRepository repository,

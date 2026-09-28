@@ -30,7 +30,8 @@ internal static class ProgressReportMapper
             report.SubmittedAt,
             isLate,
             report.CreatedAt,
-            report.UpdatedAt);
+            report.UpdatedAt,
+            report.ConcurrencyToken.ToString("N"));
     }
 
     public static ProgressReportDetailDto ToDetailDto(this ReportEntity report)
@@ -61,7 +62,8 @@ internal static class ProgressReportMapper
             isLate,
             report.CreatedAt,
             report.UpdatedAt,
-            feedbacks);
+            feedbacks,
+            report.ConcurrencyToken.ToString("N"));
     }
 
     public static ProgressReportFeedbackDto ToDto(this FeedbackEntity feedback) =>
