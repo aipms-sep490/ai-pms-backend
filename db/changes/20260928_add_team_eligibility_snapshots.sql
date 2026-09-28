@@ -43,7 +43,7 @@ BEGIN TRY
         -- B. Column compatibility verification if table already exists
         IF EXISTS (
             SELECT 1
-            WHERE NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.team_eligibility_checks') AND name = 'id' AND TYPE_NAME(user_type_id) = 'bigint' AND is_nullable = 0)
+            WHERE NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.team_eligibility_checks') AND name = 'id' AND TYPE_NAME(user_type_id) = 'bigint' AND is_nullable = 0 AND is_identity = 1)
                OR NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.team_eligibility_checks') AND name = 'team_id' AND TYPE_NAME(user_type_id) = 'bigint' AND is_nullable = 0)
                OR NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.team_eligibility_checks') AND name = 'project_period_id' AND TYPE_NAME(user_type_id) = 'bigint' AND is_nullable = 0)
                OR NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.team_eligibility_checks') AND name = 'project_id' AND TYPE_NAME(user_type_id) = 'bigint' AND is_nullable = 1)
@@ -72,7 +72,7 @@ BEGIN TRY
     -- C. Self-healing constraints for dbo.team_eligibility_checks
     IF NOT EXISTS (
         SELECT 1 FROM sys.key_constraints
-        WHERE name = N'pk_team_eligibility_checks'
+        WHERE type = 'PK'
           AND parent_object_id = OBJECT_ID(N'dbo.team_eligibility_checks')
     )
     BEGIN
@@ -257,7 +257,7 @@ BEGIN TRY
         -- B. Column compatibility verification if table already exists
         IF EXISTS (
             SELECT 1
-            WHERE NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.team_eligibility_issues') AND name = 'id' AND TYPE_NAME(user_type_id) = 'bigint' AND is_nullable = 0)
+            WHERE NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.team_eligibility_issues') AND name = 'id' AND TYPE_NAME(user_type_id) = 'bigint' AND is_nullable = 0 AND is_identity = 1)
                OR NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.team_eligibility_issues') AND name = 'eligibility_check_id' AND TYPE_NAME(user_type_id) = 'bigint' AND is_nullable = 0)
                OR NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.team_eligibility_issues') AND name = 'sort_order' AND TYPE_NAME(user_type_id) = 'int' AND is_nullable = 0)
                OR NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.team_eligibility_issues') AND name = 'rule_code' AND TYPE_NAME(user_type_id) = 'varchar' AND max_length >= 50 AND is_nullable = 0)
@@ -277,7 +277,7 @@ BEGIN TRY
     -- C. Self-healing constraints for dbo.team_eligibility_issues
     IF NOT EXISTS (
         SELECT 1 FROM sys.key_constraints
-        WHERE name = N'pk_team_eligibility_issues'
+        WHERE type = 'PK'
           AND parent_object_id = OBJECT_ID(N'dbo.team_eligibility_issues')
     )
     BEGIN

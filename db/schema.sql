@@ -1260,3 +1260,73 @@ BEGIN CATCH
     IF @@TRANCOUNT > 0 ROLLBACK;
     THROW;
 END CATCH;
+GO
+
+GO
+SET XACT_ABORT ON;
+BEGIN TRY
+    BEGIN TRANSACTION;
+    IF OBJECT_ID(N'dbo.team_eligibility_checks', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.team_eligibility_checks (
+            id                   bigint IDENTITY NOT NULL CONSTRAINT pk_team_eligibility_checks PRIMARY KEY,
+            team_id              bigint NOT NULL REFERENCES dbo.teams(id),
+            project_period_id    bigint NOT NULL REFERENCES dbo.project_periods(id),
+            project_id           bigint NULL REFERENCES dbo.projects(id),
+            round_type           varchar(20) NOT NULL,
+            revision_history_id  bigint NULL REFERENCES dbo.project_status_history(id),
+            project_mode         varchar(30) NOT NULL,
+            policy_version       nvarchar(100) NOT NULL,
+            rule_version         varchar(50) NOT NULL,
+            roster_hash          varchar(64) NOT NULL,
+            academic_scope_hash  varchar(64) NOT NULL,
+            project_context_hash varchar(64) NOT NULL,
+            fingerprint          varchar(64) NOT NULL,
+            temporal_state_hash  varchar(64) NOT NULL,
+            evaluation_key       varchar(64) NOT NULL,
+            result               varchar(10) NOT NULL,
+            valid_until_at       datetime2(0) NULL,
+            checked_by           bigint NOT NULL REFERENCES dbo.users(id),
+            checked_at           datetime2(0) NOT NULL CONSTRAINT df_team_eligibility_checks_checked_at DEFAULT (SYSUTCDATETIME()),
+            trigger_source       varchar(30) NOT NULL,
+            CONSTRAINT ck_team_eligibility_checks_round_type CHECK (round_type IN ('FORMATION', 'INITIAL', 'REVISION')),
+            CONSTRAINT ck_team_eligibility_checks_round_integrity CHECK (
+                (round_type = 'FORMATION' AND project_id IS NULL AND revision_history_id IS NULL)
+                OR (round_type = 'INITIAL' AND project_id IS NOT NULL AND revision_history_id IS NULL)
+                OR (round_type = 'REVISION' AND project_id IS NOT NULL AND revision_history_id IS NOT NULL)
+            ),
+            CONSTRAINT ck_team_eligibility_checks_mode CHECK (project_mode IN ('SINGLE_MAJOR', 'INTERDISCIPLINARY')),
+            CONSTRAINT ck_team_eligibility_checks_result CHECK (result IN ('PASS', 'FAIL')),
+            CONSTRAINT ck_team_eligibility_checks_trigger CHECK (trigger_source IN ('MANUAL_CHECK', 'REFRESH_ALIAS'))
+        );
+        CREATE UNIQUE INDEX ux_team_eligibility_checks_team_evaluation_key ON dbo.team_eligibility_checks(team_id, evaluation_key);
+        CREATE INDEX ix_team_eligibility_checks_round_lookup ON dbo.team_eligibility_checks(team_id, project_id, round_type, revision_history_id, id DESC);
+        CREATE INDEX ix_team_eligibility_checks_team_fingerprint ON dbo.team_eligibility_checks(team_id, fingerprint, id DESC);
+    END;
+
+    IF OBJECT_ID(N'dbo.team_eligibility_issues', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.team_eligibility_issues (
+            id                   bigint IDENTITY NOT NULL CONSTRAINT pk_team_eligibility_issues PRIMARY KEY,
+            eligibility_check_id bigint NOT NULL REFERENCES dbo.team_eligibility_checks(id),
+            sort_order           int NOT NULL,
+            rule_code            varchar(50) NOT NULL,
+            severity             varchar(10) NOT NULL CONSTRAINT df_team_eligibility_issues_severity DEFAULT ('ERROR'),
+            major_id             bigint NULL REFERENCES dbo.majors(id),
+            user_id              bigint NULL REFERENCES dbo.users(id),
+            expected_value       nvarchar(255) NULL,
+            actual_value         nvarchar(255) NULL,
+            message              nvarchar(1000) NOT NULL,
+            created_at           datetime2(0) NOT NULL CONSTRAINT df_team_eligibility_issues_created_at DEFAULT (SYSUTCDATETIME()),
+            CONSTRAINT ck_team_eligibility_issues_sort_order CHECK (sort_order >= 0),
+            CONSTRAINT ck_team_eligibility_issues_severity CHECK (severity IN ('ERROR', 'WARNING'))
+        );
+        CREATE UNIQUE INDEX ux_team_eligibility_issues_check_sort ON dbo.team_eligibility_issues(eligibility_check_id, sort_order);
+        CREATE INDEX ix_team_eligibility_issues_check ON dbo.team_eligibility_issues(eligibility_check_id);
+    END;
+    COMMIT;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK;
+    THROW;
+END CATCH;

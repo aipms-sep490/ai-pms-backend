@@ -21,6 +21,7 @@ public partial class AipmsDbContext
         ConfigureNotificationEmail(modelBuilder);
         ConfigureExternalLogins(modelBuilder);
         ConfigureStudentQualifications(modelBuilder);
+        ConfigureTeamEligibilitySnapshots(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
         {
             entity.ToTable("rubric_versions", table =>

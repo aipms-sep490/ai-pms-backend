@@ -99,6 +99,8 @@ public sealed class EligibilitySnapshotMigrationTests
             await using (var createCmd = connection.CreateCommand())
             {
                 createCmd.CommandText = @"
+                    IF OBJECT_ID('dbo.team_eligibility_issues', 'U') IS NOT NULL DROP TABLE dbo.team_eligibility_issues;
+                    IF OBJECT_ID('dbo.team_eligibility_checks', 'U') IS NOT NULL DROP TABLE dbo.team_eligibility_checks;
                     CREATE TABLE dbo.team_eligibility_checks (
                         id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
                         team_id BIGINT NOT NULL,
@@ -113,6 +115,98 @@ public sealed class EligibilitySnapshotMigrationTests
             var ex = await Assert.ThrowsAsync<SqlException>(() => ExecuteMigrationAsync(connection, sql));
             Assert.Equal(50001, ex.Number);
             Assert.Contains("incompatible column definitions", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            await database.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Migration_Throws_50001_When_TeamEligibilityChecks_Id_Is_Not_Identity_And_Preserves_Data()
+    {
+        var database = new SupervisorDatabaseFixture();
+        await database.InitializeAsync();
+        try
+        {
+            var sql = await ReadMigrationSqlAsync();
+            await using var connection = new SqlConnection(database.ConnectionString);
+            await connection.OpenAsync();
+
+            await using (var createCmd = connection.CreateCommand())
+            {
+                createCmd.CommandText = @"
+                    IF OBJECT_ID('dbo.team_eligibility_issues', 'U') IS NOT NULL DROP TABLE dbo.team_eligibility_issues;
+                    IF OBJECT_ID('dbo.team_eligibility_checks', 'U') IS NOT NULL DROP TABLE dbo.team_eligibility_checks;
+                    CREATE TABLE dbo.team_eligibility_checks (
+                        id BIGINT NOT NULL PRIMARY KEY,
+                        team_id BIGINT NOT NULL,
+                        project_period_id BIGINT NOT NULL
+                    );
+                    INSERT INTO dbo.team_eligibility_checks (id, team_id, project_period_id) VALUES (42, 1, 1);
+                ";
+                await createCmd.ExecuteNonQueryAsync();
+            }
+
+            var ex = await Assert.ThrowsAsync<SqlException>(() => ExecuteMigrationAsync(connection, sql));
+            Assert.Equal(50001, ex.Number);
+            Assert.Contains("incompatible column definitions", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+            // Verify data remains intact
+            await using (var verifyCmd = connection.CreateCommand())
+            {
+                verifyCmd.CommandText = "SELECT COUNT(1) FROM dbo.team_eligibility_checks WHERE id = 42";
+                var count = (int)(await verifyCmd.ExecuteScalarAsync())!;
+                Assert.Equal(1, count);
+            }
+        }
+        finally
+        {
+            await database.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Migration_Throws_50002_When_TeamEligibilityIssues_Id_Is_Not_Identity_And_Preserves_Data()
+    {
+        var database = new SupervisorDatabaseFixture();
+        await database.InitializeAsync();
+        try
+        {
+            var sql = await ReadMigrationSqlAsync();
+            await using var connection = new SqlConnection(database.ConnectionString);
+            await connection.OpenAsync();
+
+            await using (var createCmd = connection.CreateCommand())
+            {
+                createCmd.CommandText = @"
+                    IF OBJECT_ID('dbo.team_eligibility_issues', 'U') IS NOT NULL DROP TABLE dbo.team_eligibility_issues;
+                    CREATE TABLE dbo.team_eligibility_issues (
+                        id BIGINT NOT NULL PRIMARY KEY,
+                        eligibility_check_id BIGINT NOT NULL,
+                        sort_order INT NOT NULL,
+                        rule_code VARCHAR(50) NOT NULL,
+                        severity VARCHAR(10) NOT NULL,
+                        message NVARCHAR(1000) NOT NULL,
+                        created_at DATETIME2(0) NOT NULL
+                    );
+                    INSERT INTO dbo.team_eligibility_issues (id, eligibility_check_id, sort_order, rule_code, severity, message, created_at)
+                    VALUES (99, 1, 1, 'R1', 'ERROR', 'msg', SYSUTCDATETIME());
+                ";
+                await createCmd.ExecuteNonQueryAsync();
+            }
+
+            var ex = await Assert.ThrowsAsync<SqlException>(() => ExecuteMigrationAsync(connection, sql));
+            Assert.Equal(50002, ex.Number);
+            Assert.Contains("incompatible column definitions", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+            // Verify data remains intact
+            await using (var verifyCmd = connection.CreateCommand())
+            {
+                verifyCmd.CommandText = "SELECT COUNT(1) FROM dbo.team_eligibility_issues WHERE id = 99";
+                var count = (int)(await verifyCmd.ExecuteScalarAsync())!;
+                Assert.Equal(1, count);
+            }
         }
         finally
         {
