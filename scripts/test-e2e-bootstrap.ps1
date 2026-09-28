@@ -26,6 +26,7 @@ SELECT CONCAT((SELECT COUNT(*) FROM dbo.users),':',(SELECT COUNT(*) FROM dbo.pro
 try {
     & $script -ConnectionString $ConnectionString -DatabaseName $name | Out-Null
     $before = Snapshot
+    & (Join-Path $PSScriptRoot 'test-schema-readiness.ps1') -ConnectionString $builder.ConnectionString | Out-Null
     & $script -ConnectionString $ConnectionString -DatabaseName $name -VerifyRerun | Out-Null
     if ($before -cne (Snapshot)) { throw 'Rerun changed seeded identities, counts or password hashes.' }
     foreach ($invalid in @('AI_PMS','master','AI_PMS_E2E_not-a-guid')) {
@@ -45,5 +46,20 @@ try {
     try { & $script -ConnectionString $ConnectionString -DatabaseName $name -VerifyRerun | Out-Null }
     catch { if ($_.Exception.Message -like '*checksum changed*') { $refused = $true } else { throw } }
     if (-not $refused) { throw 'Changed checksum was accepted.' }
-    Write-Output 'PASS: create, reconnect, rerun, stable aliases/password hashes, unsafe-name refusal, checksum guard.'
+    $connection = [System.Data.SqlClient.SqlConnection]::new($builder.ConnectionString)
+    try {
+        $connection.Open(); $command = $connection.CreateCommand()
+        $command.CommandText = "EXEC sys.sp_dropextendedproperty @name=N'AIPMS_E2E_OWNER'"
+        [void]$command.ExecuteNonQuery()
+        try {
+            $refused = $false
+            try { & $script -ConnectionString $ConnectionString -DatabaseName $name -Drop | Out-Null }
+            catch { if ($_.Exception.Message -like '*ownership marker missing*') { $refused = $true } else { throw } }
+            if (-not $refused) { throw 'Database without owner marker was accepted.' }
+        } finally {
+            $command.CommandText = "EXEC sys.sp_addextendedproperty @name=N'AIPMS_E2E_OWNER', @value=N'remediation-v1'"
+            [void]$command.ExecuteNonQuery(); $command.Dispose()
+        }
+    } finally { $connection.Dispose() }
+    Write-Output 'PASS: create, schema readiness, reconnect, rerun, stable aliases/password hashes, unsafe-name and ownership refusal, checksum guard.'
 } finally { & $script -ConnectionString $ConnectionString -DatabaseName $name -Drop }

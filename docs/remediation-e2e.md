@@ -11,9 +11,12 @@ $database = ./scripts/new-e2e-database.ps1
 ./scripts/new-e2e-database.ps1 -DatabaseName $database -VerifyRerun
 ./scripts/new-e2e-database.ps1 -DatabaseName $database -Drop
 ./scripts/test-e2e-bootstrap.ps1
+./scripts/test-schema-readiness.ps1
 ```
 
 Only matching database names with the `AIPMS_E2E_OWNER=remediation-v1` marker may be replayed or dropped. Failed runs are retained for diagnosis. Cleanup affects only the named disposable database.
+
+`test-schema-readiness.ps1` is SELECT-only and reads the explicitly configured catalog. Its JSON report covers required workflow tables, token type/nullability/defaults, indexes and trusted constraints, with a UTC timestamp. It exits with an error for missing capabilities. It prints no credentials, usernames, row data or server names. This is a schema report, not proof that provider configuration or all workflow acceptance scenarios passed.
 
 The ordered manifest is `db/e2e/migrations.json`. Each schema/migration/seed is recorded in `e2e_script_ledger` with SHA-256, UTC application time and SQL login. Hashes normalize CRLF to LF. Changed applied scripts are rejected; create a fresh database or add a migration. This ledger covers disposable fixtures, not historical production deployments. No application startup migration is added.
 

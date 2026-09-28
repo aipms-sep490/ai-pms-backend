@@ -76,6 +76,8 @@ To start SQL Server and Redis, copy `.env.example` to `.env`, change the local p
 
 ## Database First workflow
 
+For disposable SQL acceptance databases, ordered migration checksums, stable seed aliases and read-only schema reports, see [Remediation E2E](docs/remediation-e2e.md).
+
 The SQL Server schema is the source of truth. EF Core reverse engineering writes only to `Infrastructure/Persistence/Generated`; do not use migrations to create or update the shared database.
 
 Generated models stay inside Infrastructure. Repositories use them for persistence and mappers convert them to Domain entities or Application projections. Never add business logic to a generated file.
