@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,7 +16,11 @@ namespace AIPMS.Application.Features.Tasks.Commands;
 
 public sealed record SetTaskAssigneesCommand(
     long TaskId,
-    IReadOnlyList<long> AssigneeUserIds) : IRequest<TaskDto>;
+    IReadOnlyList<long> AssigneeUserIds, string? ConcurrencyToken = null) : IRequest<TaskDto>, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Task, TaskId, ConcurrencyToken)];
+}
 
 public sealed class SetTaskAssigneesCommandHandler(
     ITaskRepository repository,

@@ -30,6 +30,7 @@ public partial class Task
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+    public Guid ConcurrencyToken { get; set; }
 
     public virtual User CreatedByNavigation { get; set; } = null!;
 

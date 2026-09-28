@@ -21,7 +21,7 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.IntegrationTests.FinalSubmissions;
 
-public sealed class FinalSubmissionEndpointTests(FinalSubmissionDraftDatabaseFixture database) : IClassFixture<FinalSubmissionDraftDatabaseFixture>
+public sealed partial class FinalSubmissionEndpointTests(FinalSubmissionDraftDatabaseFixture database) : IClassFixture<FinalSubmissionDraftDatabaseFixture>
 {
     private static DateTime Now => FinalSubmissionDraftDatabaseFixture.Now;
     private static string Route(long id) => $"/api/v1/projects/{id}/final-submission";
@@ -486,7 +486,7 @@ public sealed class FinalSubmissionEndpointTests(FinalSubmissionDraftDatabaseFix
     {
         public async Task RecordAsync(AuditEntry entry, CancellationToken ct = default)
         {
-            if (entry.Action == "FINAL_SUBMISSION_LOCKED" && app.FailAudit) throw new InvalidOperationException("Injected audit failure");
+            if ((entry.Action is "FINAL_SUBMISSION_LOCKED" or "PROJECT_ARCHIVED") && app.FailAudit) throw new InvalidOperationException("Injected audit failure");
             db.AuditLogs.Add(new() { ActorUserId = entry.ActorUserId, Action = entry.Action, EntityType = entry.EntityType,
                 EntityId = entry.EntityId?.ToString(), OccurredAt = Now, Outcome = "SUCCESS" });
             await db.SaveChangesAsync(ct);

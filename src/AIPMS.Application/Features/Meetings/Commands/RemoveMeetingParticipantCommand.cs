@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,7 +13,11 @@ namespace AIPMS.Application.Features.Meetings.Commands;
 
 public sealed record RemoveMeetingParticipantCommand(
     long Id,
-    long UserId) : IRequest;
+    long UserId, string? ConcurrencyToken = null) : IRequest, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Meeting, Id, ConcurrencyToken)];
+}
 
 public sealed class RemoveMeetingParticipantCommandHandler(
     IMeetingRepository repository,

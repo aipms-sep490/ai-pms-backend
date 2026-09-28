@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,7 +12,11 @@ using MediatR;
 
 namespace AIPMS.Application.Features.Meetings.Commands;
 
-public sealed record CancelMeetingCommand(long Id) : IRequest<MeetingDto>;
+public sealed record CancelMeetingCommand(long Id, string? ConcurrencyToken = null) : IRequest<MeetingDto>, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Meeting, Id, ConcurrencyToken)];
+}
 
 public sealed class CancelMeetingCommandHandler(
     IMeetingRepository repository,

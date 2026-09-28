@@ -223,6 +223,7 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         meeting.Location = location;
         meeting.OnlineUrl = onlineUrl;
         meeting.UpdatedAt = now;
+        meeting.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -264,6 +265,7 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
 
         meeting.Status = "CANCELLED";
         meeting.UpdatedAt = now;
+        meeting.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -311,6 +313,7 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
 
         meeting.Status = "COMPLETED";
         meeting.UpdatedAt = now;
+        meeting.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
 
@@ -374,6 +377,7 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         }
 
         meeting.UpdatedAt = now;
+        meeting.ConcurrencyToken = Guid.NewGuid();
         await context.SaveChangesAsync(cancellationToken);
 
         var result = (await GetByIdAsync(id, cancellationToken))!;
@@ -424,6 +428,7 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         };
 
         context.MeetingParticipants.Add(participant);
+        meeting.ConcurrencyToken = Guid.NewGuid();
         try
         {
             await context.SaveChangesAsync(cancellationToken);
@@ -480,8 +485,9 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         if (participant != null)
         {
             context.MeetingParticipants.Remove(participant);
-            await context.SaveChangesAsync(cancellationToken);
         }
+        meeting.ConcurrencyToken = Guid.NewGuid();
+        await context.SaveChangesAsync(cancellationToken);
 
         if (onRemoved != null)
         {
@@ -529,6 +535,7 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
 
         context.SupervisorFeedbacks.Add(feedback);
         meeting.UpdatedAt = now;
+        meeting.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
 

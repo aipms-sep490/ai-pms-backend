@@ -47,6 +47,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
+        services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ExecutionConcurrencyBehavior<,>));
+        services.AddScoped<IMeetingGovernanceService, MeetingGovernanceService>();
         services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
             {
                 settings.Enabled = bool.TryParse(config["GoogleAuth:Enabled"], out var enabled) && enabled;

@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,7 +18,11 @@ public sealed record UpdateMilestoneCommand(
     DateOnly? StartDate,
     DateOnly? DueDate,
     string Status,
-    int SortOrder) : IRequest<MilestoneDto>;
+    int SortOrder, string? ConcurrencyToken = null) : IRequest<MilestoneDto>, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Milestone, Id, ConcurrencyToken)];
+}
 
 public sealed class UpdateMilestoneCommandHandler(
     IMilestoneRepository repository,

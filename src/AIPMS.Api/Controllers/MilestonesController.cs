@@ -65,7 +65,7 @@ public sealed class MilestonesController(ISender sender) : ControllerBase
             request.StartDate,
             request.DueDate,
             request.Status,
-            request.SortOrder);
+            request.SortOrder, request.ConcurrencyToken);
 
         return Ok(await sender.Send(command, cancellationToken));
     }
@@ -76,9 +76,10 @@ public sealed class MilestonesController(ISender sender) : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Delete(
         long id,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken)
     {
-        await sender.Send(new DeleteMilestoneCommand(id), cancellationToken);
+        await sender.Send(new DeleteMilestoneCommand(id, concurrencyToken), cancellationToken);
         return NoContent();
     }
 

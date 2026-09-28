@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -9,7 +10,11 @@ using MediatR;
 
 namespace AIPMS.Application.Features.Tasks.Commands;
 
-public sealed record DeleteTaskCommand(long Id) : IRequest;
+public sealed record DeleteTaskCommand(long Id, string? ConcurrencyToken = null) : IRequest, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Task, Id, ConcurrencyToken)];
+}
 
 public sealed class DeleteTaskCommandHandler(
     ITaskRepository repository,

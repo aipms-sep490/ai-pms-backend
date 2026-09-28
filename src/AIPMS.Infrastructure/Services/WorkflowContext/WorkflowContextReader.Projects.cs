@@ -1,4 +1,5 @@
 using AIPMS.Application.Common.Exceptions;
+using AIPMS.Application.Features.Projects.Services;
 using AIPMS.Application.Features.WorkflowContext.DTOs;
 using AIPMS.Domain.Projects;
 using System.Threading.Tasks;
@@ -59,6 +60,9 @@ internal sealed partial class WorkflowContextReader
         var actions = new[]
         {
             Action("view_project"), Action("view_project_history"), Action("view_academic_review"),
+            Action("archive_project",
+                (ProjectArchivePolicy.HasScope(actor.Admin, actor.Staff, staffDepartment, departmentIds), "ARCHIVE_SCOPE_REQUIRED"),
+                (ProjectArchivePolicy.HasState(project.Status), "ARCHIVE_NOT_ALLOWED")),
             Action("edit_project_draft", leader, (project.Status is "DRAFT" or "REVISION_REQUIRED", "PROJECT_NOT_EDITABLE")),
             Action("set_project_majors", leader, (project.Status is "DRAFT" or "REVISION_REQUIRED", "PROJECT_NOT_EDITABLE")),
             WithIssues("submit_project", submissionIssues, leader, (project.Status == "DRAFT" && Transition(ProjectStatus.Submitted), "INVALID_PROJECT_STATE")),

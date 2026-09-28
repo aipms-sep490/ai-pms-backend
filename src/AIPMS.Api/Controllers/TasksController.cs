@@ -90,7 +90,7 @@ public sealed class TasksController(ISender sender) : ControllerBase
             request.Description,
             request.Priority,
             request.StartAt,
-            request.DueAt);
+            request.DueAt, request.ConcurrencyToken);
 
         return Ok(await sender.Send(command, cancellationToken));
     }
@@ -101,9 +101,10 @@ public sealed class TasksController(ISender sender) : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Delete(
         long id,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken)
     {
-        await sender.Send(new DeleteTaskCommand(id), cancellationToken);
+        await sender.Send(new DeleteTaskCommand(id, concurrencyToken), cancellationToken);
         return NoContent();
     }
 
@@ -113,8 +114,9 @@ public sealed class TasksController(ISender sender) : ControllerBase
     public async Task<ActionResult<TaskDto>> SetAssignees(
         long id,
         [FromBody] IReadOnlyList<long> assigneeUserIds,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken) =>
-        Ok(await sender.Send(new SetTaskAssigneesCommand(id, assigneeUserIds), cancellationToken));
+        Ok(await sender.Send(new SetTaskAssigneesCommand(id, assigneeUserIds, concurrencyToken), cancellationToken));
 
     [HttpPost("dependency")]
     [ProducesResponseType<TaskDto>(StatusCodes.Status200OK)]
@@ -131,8 +133,9 @@ public sealed class TasksController(ISender sender) : ControllerBase
     public async Task<ActionResult<TaskDto>> RemoveDependency(
         long id,
         long dependsOnTaskId,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken) =>
-        Ok(await sender.Send(new RemoveTaskDependencyCommand(id, dependsOnTaskId), cancellationToken));
+        Ok(await sender.Send(new RemoveTaskDependencyCommand(id, dependsOnTaskId, concurrencyToken), cancellationToken));
 
     [HttpPut("{id}/status")]
     [ProducesResponseType<TaskDto>(StatusCodes.Status200OK)]
@@ -141,7 +144,7 @@ public sealed class TasksController(ISender sender) : ControllerBase
         long id,
         [FromBody] UpdateTaskStatusRequest request,
         CancellationToken cancellationToken) =>
-        Ok(await sender.Send(new UpdateTaskStatusCommand(id, request.NewStatus, request.Reason), cancellationToken));
+        Ok(await sender.Send(new UpdateTaskStatusCommand(id, request.NewStatus, request.Reason, request.ConcurrencyToken), cancellationToken));
 
     [HttpGet("{id}/history")]
     [ProducesResponseType<IReadOnlyList<TaskStatusHistoryDto>>(StatusCodes.Status200OK)]
@@ -172,4 +175,4 @@ public sealed class TasksController(ISender sender) : ControllerBase
         Ok(await sender.Send(new GetProjectProgressSummaryQuery(projectId), cancellationToken));
 }
 
-public sealed record UpdateTaskStatusRequest(string NewStatus, string? Reason);
+public sealed record UpdateTaskStatusRequest(string NewStatus, string? Reason, string? ConcurrencyToken = null);

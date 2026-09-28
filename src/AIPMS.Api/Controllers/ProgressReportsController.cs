@@ -75,9 +75,10 @@ public sealed class ProgressReportsController(ISender sender) : ControllerBase
     [ProducesResponseType<ProgressReportDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ProgressReportDto>> Submit(
         long id,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken)
     {
-        var result = await sender.Send(new SubmitProgressReportCommand(id), cancellationToken);
+        var result = await sender.Send(new SubmitProgressReportCommand(id, concurrencyToken), cancellationToken);
         return Ok(result);
     }
 
@@ -86,9 +87,10 @@ public sealed class ProgressReportsController(ISender sender) : ControllerBase
     public async Task<ActionResult<ProgressReportFeedbackDto>> AddFeedback(
         long id,
         [FromBody] AddProgressReportFeedbackRequest request,
+        [FromQuery] string? concurrencyToken,
         CancellationToken cancellationToken)
     {
-        var result = await sender.Send(new AddProgressReportFeedbackCommand(id, request), cancellationToken);
+        var result = await sender.Send(new AddProgressReportFeedbackCommand(id, request, concurrencyToken), cancellationToken);
         return Created(string.Empty, result);
     }
 }

@@ -76,6 +76,8 @@ To start SQL Server and Redis, copy `.env.example` to `.env`, change the local p
 
 ## Database First workflow
 
+For disposable SQL acceptance databases, ordered migration checksums, stable seed aliases and read-only schema reports, see [Remediation E2E](docs/remediation-e2e.md).
+
 The SQL Server schema is the source of truth. EF Core reverse engineering writes only to `Infrastructure/Persistence/Generated`; do not use migrations to create or update the shared database.
 
 Generated models stay inside Infrastructure. Repositories use them for persistence and mappers convert them to Domain entities or Application projections. Never add business logic to a generated file.
@@ -97,6 +99,8 @@ dotnet tool restore
 - Override nested settings with environment variables such as `Cors__AllowedOrigins__0` and `Observability__MinimumLevel`.
 
 ## Error responses
+
+Evaluator discovery, assignment inbox notifications, archive actions and optional workflow error codes are documented in [Evaluation remediation](docs/evaluation-remediation.md).
 
 The global exception middleware returns RFC-compatible `ProblemDetails` with a trace id. Application exceptions map consistently: validation to 400, forbidden to 403, not found to 404, conflict to 409, domain-rule violations to 422 and unexpected failures to 500.
 
