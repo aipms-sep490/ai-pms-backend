@@ -82,14 +82,6 @@ public sealed class LockTeamEligibilityCommandHandler(
         var utcNow = timeProvider.GetUtcNow().UtcDateTime;
         var contextInput = await eligibilityRepository.BuildContextInputAsync(team.Id, utcNow, ct);
 
-        var snapshot = await eligibilityRepository.GetLatestCheckAsync(
-            team.Id, contextInput.RoundType, contextInput.RevisionHistoryId, ct);
-
-        if (snapshot is null)
-        {
-            throw new ConflictException("An explicit eligibility check must be run before locking the team.");
-        }
-
         var hashes = hasher.ComputeHashes(contextInput, utcNow);
         var evalContext = new TeamEligibilityEvaluationContext(
             TeamId: contextInput.TeamId,
@@ -101,6 +93,29 @@ public sealed class LockTeamEligibilityCommandHandler(
             PolicyVersion: contextInput.PolicyVersion,
             RuleVersion: contextInput.RuleVersion,
             Hashes: hashes);
+
+        // Resolve current qualifying snapshot matching current evaluation key and context
+        var snapshot = await eligibilityRepository.GetCurrentSnapshotAsync(
+            team.Id,
+            contextInput.ProjectPeriodId,
+            contextInput.ProjectId,
+            contextInput.RoundType,
+            contextInput.RevisionHistoryId,
+            hashes.EvaluationKey,
+            ct);
+
+        if (snapshot is null)
+        {
+            var fallback = await eligibilityRepository.GetLatestCheckAsync(
+                team.Id, contextInput.RoundType, contextInput.RevisionHistoryId, ct);
+            if (fallback is not null)
+            {
+                var fallbackFreshness = freshnessEvaluator.EvaluateFreshness(fallback, evalContext, utcNow);
+                throw new ConflictException($"Team cannot be locked. Requires a CURRENT PASS snapshot. Current snapshot is {fallbackFreshness.ToString().ToUpperInvariant()} {fallback.Result}.");
+            }
+
+            throw new ConflictException("An explicit eligibility check must be run before locking the team.");
+        }
 
         var freshness = freshnessEvaluator.EvaluateFreshness(snapshot, evalContext, utcNow);
 

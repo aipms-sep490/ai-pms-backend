@@ -47,43 +47,7 @@ public sealed class TeamRegistrationGuard(
 
         var utcNow = (timeProvider ?? TimeProvider.System).GetUtcNow().UtcDateTime;
 
-        // 1. Load latest explicit snapshot for current round
-        var snapshot = await eligibilityRepository.GetLatestCheckAsync(
-            teamId, roundType, revisionHistoryId, cancellationToken);
-
-        if (snapshot is null)
-        {
-            var reasons = new List<string>();
-            try
-            {
-                var input = await eligibilityRepository.BuildContextInputAsync(teamId, utcNow, cancellationToken);
-                var participants = input.Members
-                    .Select(m => new TeamParticipant(m.UserId, m.FullName, m.MajorId, m.OrganizationId, m.IsEligibleStudent, m.IsLeader))
-                    .ToList();
-                var orgId = input.Members.FirstOrDefault(m => m.OrganizationId.HasValue)?.OrganizationId ?? 0;
-                if (input.Scope is null)
-                    reasons.AddRange(Domain.Teams.TeamRules.EligibilityErrors(participants, input.Policy, orgId));
-                else
-                {
-                    var academicScope = new TeamAcademicScope(
-                        input.Scope.ProjectMode,
-                        input.Scope.PrimaryMajorId,
-                        input.Scope.LeadDepartmentId,
-                        input.Scope.Requirements.Select(r => new MajorRequirement(r.MajorId, r.MinMembers, r.MaxMembers, r.Responsibility)).ToList(),
-                        Guid.Empty);
-                    reasons.AddRange(Domain.Teams.HybridTeamRules.EligibilityErrors(participants, input.Policy, orgId, academicScope));
-                }
-            }
-            catch
-            {
-                // Ignore any failure during diagnostic error collection
-            }
-
-            var extra = reasons.Count > 0 ? " (" + string.Join(", ", reasons.Distinct()) + ")" : "";
-            throw new ConflictException($"An active eligibility check snapshot is required before project submission.{extra}");
-        }
-
-        // 2. Rebuild current eligibility context
+        // 1. Rebuild current eligibility context
         var contextInput = await eligibilityRepository.BuildContextInputAsync(teamId, utcNow, cancellationToken);
 
         // Aggregate consistency check
@@ -106,13 +70,77 @@ public sealed class TeamRegistrationGuard(
             RuleVersion: contextInput.RuleVersion,
             Hashes: hashes);
 
+        // 2. Resolve current qualifying snapshot matching current evaluation key and context
+        var snapshot = await eligibilityRepository.GetCurrentSnapshotAsync(
+            teamId,
+            contextInput.ProjectPeriodId,
+            contextInput.ProjectId,
+            roundType,
+            revisionHistoryId,
+            hashes.EvaluationKey,
+            cancellationToken);
+
+        if (snapshot is null)
+        {
+            var fallback = await eligibilityRepository.GetLatestCheckAsync(
+                teamId, roundType, revisionHistoryId, cancellationToken);
+            if (fallback is not null)
+            {
+                var fallbackFreshness = freshnessEvaluator.EvaluateFreshness(fallback, evaluationContext, utcNow);
+                var reasons = new List<string>();
+                if (fallback.Issues != null)
+                    reasons.AddRange(fallback.Issues.Select(i => i.RuleCode));
+
+                var participants = contextInput.Members
+                    .Select(m => new TeamParticipant(m.UserId, m.FullName, m.MajorId, m.OrganizationId, m.IsEligibleStudent, m.IsLeader))
+                    .ToList();
+                var orgId = contextInput.Members.FirstOrDefault(m => m.OrganizationId.HasValue)?.OrganizationId ?? 0;
+                if (contextInput.Scope is null)
+                    reasons.AddRange(Domain.Teams.TeamRules.EligibilityErrors(participants, contextInput.Policy, orgId));
+                else
+                {
+                    var academicScope = new TeamAcademicScope(
+                        contextInput.Scope.ProjectMode,
+                        contextInput.Scope.PrimaryMajorId,
+                        contextInput.Scope.LeadDepartmentId,
+                        contextInput.Scope.Requirements.Select(r => new MajorRequirement(r.MajorId, r.MinMembers, r.MaxMembers, r.Responsibility)).ToList(),
+                        Guid.Empty);
+                    reasons.AddRange(Domain.Teams.HybridTeamRules.EligibilityErrors(participants, contextInput.Policy, orgId, academicScope));
+                }
+
+                var extra = reasons.Count > 0 ? " (" + string.Join(", ", reasons.Distinct()) + ")" : "";
+                throw new ConflictException($"Project submission requires a CURRENT PASS eligibility snapshot. Current snapshot is {fallbackFreshness.ToString().ToUpperInvariant()} {fallback.Result}.{extra}");
+            }
+
+            var diagnosticReasons = new List<string>();
+            var diagParticipants = contextInput.Members
+                .Select(m => new TeamParticipant(m.UserId, m.FullName, m.MajorId, m.OrganizationId, m.IsEligibleStudent, m.IsLeader))
+                .ToList();
+            var diagOrgId = contextInput.Members.FirstOrDefault(m => m.OrganizationId.HasValue)?.OrganizationId ?? 0;
+            if (contextInput.Scope is null)
+                diagnosticReasons.AddRange(Domain.Teams.TeamRules.EligibilityErrors(diagParticipants, contextInput.Policy, diagOrgId));
+            else
+            {
+                var academicScope = new TeamAcademicScope(
+                    contextInput.Scope.ProjectMode,
+                    contextInput.Scope.PrimaryMajorId,
+                    contextInput.Scope.LeadDepartmentId,
+                    contextInput.Scope.Requirements.Select(r => new MajorRequirement(r.MajorId, r.MinMembers, r.MaxMembers, r.Responsibility)).ToList(),
+                    Guid.Empty);
+                diagnosticReasons.AddRange(Domain.Teams.HybridTeamRules.EligibilityErrors(diagParticipants, contextInput.Policy, diagOrgId, academicScope));
+            }
+
+            var diagExtra = diagnosticReasons.Count > 0 ? " (" + string.Join(", ", diagnosticReasons.Distinct()) + ")" : "";
+            throw new ConflictException($"An active eligibility check snapshot is required before project submission.{diagExtra}");
+        }
+
         // 3. Evaluate freshness
         var freshness = freshnessEvaluator.EvaluateFreshness(snapshot, evaluationContext, utcNow);
 
         // 4. Require CURRENT PASS
         if (freshness != FreshnessStatus.Current || snapshot.Result != "PASS")
         {
-            var reasons = new System.Collections.Generic.List<string>();
+            var reasons = new List<string>();
             if (snapshot.Issues != null)
                 reasons.AddRange(snapshot.Issues.Select(i => i.RuleCode));
 
@@ -129,7 +157,7 @@ public sealed class TeamRegistrationGuard(
                     contextInput.Scope.PrimaryMajorId,
                     contextInput.Scope.LeadDepartmentId,
                     contextInput.Scope.Requirements.Select(r => new MajorRequirement(r.MajorId, r.MinMembers, r.MaxMembers, r.Responsibility)).ToList(),
-                    System.Guid.Empty);
+                    Guid.Empty);
                 reasons.AddRange(Domain.Teams.HybridTeamRules.EligibilityErrors(participants, contextInput.Policy, orgId, academicScope));
             }
 

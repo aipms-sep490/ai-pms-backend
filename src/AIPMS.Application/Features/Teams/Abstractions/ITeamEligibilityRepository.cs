@@ -18,6 +18,15 @@ public interface ITeamEligibilityRepository
         long? revisionHistoryId,
         CancellationToken cancellationToken);
 
+    Task<TeamEligibilitySnapshotData?> GetCurrentSnapshotAsync(
+        long teamId,
+        long projectPeriodId,
+        long? projectId,
+        string roundType,
+        long? revisionHistoryId,
+        string evaluationKey,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<TeamEligibilitySnapshotData>> GetHistoryAsync(
         long teamId,
         CancellationToken cancellationToken);

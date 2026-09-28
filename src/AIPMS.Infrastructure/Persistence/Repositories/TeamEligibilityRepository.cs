@@ -134,6 +134,29 @@ public sealed class TeamEligibilityRepository(
         return entity is null ? null : MapToSnapshotData(entity);
     }
 
+    public async Task<TeamEligibilitySnapshotData?> GetCurrentSnapshotAsync(
+        long teamId,
+        long projectPeriodId,
+        long? projectId,
+        string roundType,
+        long? revisionHistoryId,
+        string evaluationKey,
+        CancellationToken cancellationToken)
+    {
+        var entity = await context.TeamEligibilityChecks
+            .Include(c => c.TeamEligibilityIssues)
+            .AsNoTracking()
+            .Where(c => c.TeamId == teamId
+                        && c.EvaluationKey == evaluationKey
+                        && c.ProjectPeriodId == projectPeriodId
+                        && c.ProjectId == projectId
+                        && c.RoundType == roundType
+                        && c.RevisionHistoryId == revisionHistoryId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return entity is null ? null : MapToSnapshotData(entity);
+    }
+
     public async Task<IReadOnlyList<TeamEligibilitySnapshotData>> GetHistoryAsync(
         long teamId,
         CancellationToken cancellationToken)
@@ -201,54 +224,7 @@ public sealed class TeamEligibilityRepository(
         var projectMode = scopeInput?.ProjectMode ?? "SINGLE_MAJOR";
 
         // 4. Resolve Roster Members & Qualifications
-        var memberships = await context.TeamMembers.AsNoTracking()
-            .Where(m => m.TeamId == teamId && m.LeftAt == null)
-            .Select(m => new { m.UserId, m.IsLeader })
-            .ToListAsync(cancellationToken);
-
-        var memberUserIds = memberships.Select(m => m.UserId).ToArray();
-
-        var users = await context.Users.AsNoTracking()
-            .Include(u => u.Major)
-                .ThenInclude(m => m!.Department)
-                    .ThenInclude(d => d.Organization)
-            .Include(u => u.UserRoleUsers)
-                .ThenInclude(r => r.Role)
-            .Where(u => memberUserIds.Contains(u.Id))
-            .ToListAsync(cancellationToken);
-
-        var memberInputs = new List<RosterMemberInput>();
-        foreach (var membership in memberships)
-        {
-            var user = users.SingleOrDefault(u => u.Id == membership.UserId);
-            if (user is null) continue;
-
-            var isEligibleStudent = user.Status == "ACTIVE"
-                && user.AcademicProfileStatus == "VERIFIED"
-                && user.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")
-                && user.Major != null
-                && user.Major.IsActive
-                && user.Major.Department != null
-                && user.Major.Department.IsActive
-                && user.Major.Department.Organization != null
-                && user.Major.Department.Organization.IsActive
-                && user.DepartmentId == user.Major.DepartmentId;
-
-            var qualification = await teamRepository.GetQualificationEligibilityAsync(
-                user.Id, team.AcademicSemesterId, utcNow, cancellationToken);
-
-            memberInputs.Add(new RosterMemberInput(
-                UserId: user.Id,
-                FullName: user.FullName,
-                MajorId: user.MajorId,
-                OrganizationId: user.Major?.Department?.OrganizationId,
-                IsEligibleStudent: isEligibleStudent,
-                IsLeader: membership.IsLeader,
-                QualificationRequired: qualification.Required,
-                QualificationEligible: qualification.Eligible,
-                QualificationIssueCode: qualification.IssueCode,
-                QualificationValidUntilAt: qualification.ExpiresAt));
-        }
+        var memberInputs = await BuildMemberInputsAsync(teamId, team.AcademicSemesterId, utcNow, cancellationToken);
 
         // 5. Resolve Project Context & Round
         var project = await context.Projects.AsNoTracking()
@@ -319,6 +295,64 @@ public sealed class TeamEligibilityRepository(
             Scope: scopeInput,
             Project: projectContextInput,
             Policy: policy);
+    }
+
+    private async Task<List<RosterMemberInput>> BuildMemberInputsAsync(
+        long teamId,
+        long semesterId,
+        DateTime utcNow,
+        CancellationToken cancellationToken)
+    {
+        var memberships = await context.TeamMembers.AsNoTracking()
+            .Where(m => m.TeamId == teamId && m.LeftAt == null)
+            .Select(m => new { m.UserId, m.IsLeader })
+            .ToListAsync(cancellationToken);
+
+        var memberUserIds = memberships.Select(m => m.UserId).ToArray();
+
+        var users = await context.Users.AsNoTracking()
+            .Include(u => u.Major)
+                .ThenInclude(m => m!.Department)
+                    .ThenInclude(d => d.Organization)
+            .Include(u => u.UserRoleUsers)
+                .ThenInclude(r => r.Role)
+            .Where(u => memberUserIds.Contains(u.Id))
+            .ToListAsync(cancellationToken);
+
+        var memberInputs = new List<RosterMemberInput>();
+        foreach (var membership in memberships)
+        {
+            var user = users.SingleOrDefault(u => u.Id == membership.UserId);
+            if (user is null) continue;
+
+            var isEligibleStudent = user.Status == "ACTIVE"
+                && user.AcademicProfileStatus == "VERIFIED"
+                && user.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")
+                && user.Major != null
+                && user.Major.IsActive
+                && user.Major.Department != null
+                && user.Major.Department.IsActive
+                && user.Major.Department.Organization != null
+                && user.Major.Department.Organization.IsActive
+                && user.DepartmentId == user.Major.DepartmentId;
+
+            var qualification = await teamRepository.GetQualificationEligibilityAsync(
+                user.Id, semesterId, utcNow, cancellationToken);
+
+            memberInputs.Add(new RosterMemberInput(
+                UserId: user.Id,
+                FullName: user.FullName,
+                MajorId: user.MajorId,
+                OrganizationId: user.Major?.Department?.OrganizationId,
+                IsEligibleStudent: isEligibleStudent,
+                IsLeader: membership.IsLeader,
+                QualificationRequired: qualification.Required,
+                QualificationEligible: qualification.Eligible,
+                QualificationIssueCode: qualification.IssueCode,
+                QualificationValidUntilAt: qualification.ExpiresAt));
+        }
+
+        return memberInputs;
     }
 
     private static TeamEligibilitySnapshotData MapToSnapshotData(TeamEligibilityCheck entity)

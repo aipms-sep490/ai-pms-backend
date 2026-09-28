@@ -122,7 +122,18 @@ public sealed class TeamEligibilityEvaluationService(
             RuleVersion: contextInput.RuleVersion,
             Hashes: hashes);
 
-        var snapshot = await eligibilityRepository.GetLatestCheckAsync(
+        // 1. Resolve current qualifying snapshot matching current evaluation key and context
+        var snapshot = await eligibilityRepository.GetCurrentSnapshotAsync(
+            teamId,
+            contextInput.ProjectPeriodId,
+            contextInput.ProjectId,
+            contextInput.RoundType,
+            contextInput.RevisionHistoryId,
+            hashes.EvaluationKey,
+            cancellationToken);
+
+        // 2. Fall back to latest check for this round (which will evaluate to STALE)
+        snapshot ??= await eligibilityRepository.GetLatestCheckAsync(
             teamId,
             contextInput.RoundType,
             contextInput.RevisionHistoryId,
