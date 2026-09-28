@@ -868,4 +868,32 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
 
         return list.Select(p => (p.Id, p.Status)).ToList();
     }
+
+    public async Task<IReadOnlyList<long>?> GetAuthoritativeDepartmentIdsForTeamAsync(
+        long teamId,
+        CancellationToken cancellationToken)
+    {
+        var projects = await context.Projects
+            .AsNoTracking()
+            .Where(p => p.TeamId == teamId)
+            .Select(p => new { p.Id, p.Status })
+            .ToListAsync(cancellationToken);
+
+        if (projects.Count == 0)
+            return null;
+
+        var relevant = projects
+            .Where(p => p.Status != "REJECTED" && p.Status != "ARCHIVED")
+            .OrderByDescending(p => p.Id)
+            .FirstOrDefault();
+
+        if (relevant is null)
+            return null;
+
+        var deptIds = await GetProjectMajorDepartmentIdsAsync(relevant.Id, cancellationToken);
+        if (deptIds.Count > 0)
+            return deptIds;
+
+        return null;
+    }
 }

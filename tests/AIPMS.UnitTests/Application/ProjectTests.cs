@@ -888,6 +888,11 @@ internal sealed class StubProjectRepository : IProjectRepository
         CancellationToken cancellationToken) =>
         Task.FromResult((IReadOnlyList<long>)ProjectDeptIds);
 
+    public Task<IReadOnlyList<long>?> GetAuthoritativeDepartmentIdsForTeamAsync(
+        long teamId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<long>?>(ProjectDeptIds.Count > 0 ? (IReadOnlyList<long>)ProjectDeptIds : null);
+
     public Task<bool> CanUserViewProjectAsync(
         long projectId,
         long userId,

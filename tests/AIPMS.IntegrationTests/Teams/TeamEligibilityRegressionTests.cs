@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Projects.DTOs;
@@ -254,6 +255,486 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
 
         var histRes = await clientInactiveStaff.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
         Assert.Equal(HttpStatusCode.Forbidden, histRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Auth_SubmittedSingleMajor_MemberMajorChangeToForeignDepartment_DoesNotWidenReadScope()
+    {
+        var s = await database.SeedAsync();
+        var staffRoleId = await EnsureRoleAsync(AppRoles.DepartmentStaff, "Department Staff");
+
+        long deptAId;
+        long staffAUserId;
+        long deptBId;
+        long deptBMajorId;
+        long staffBUserId;
+
+        await using (var ctx = database.CreateContext())
+        {
+            var majorA = await ctx.Majors.Include(m => m.Department).SingleAsync(m => m.Id == s.SeMajorId);
+            deptAId = majorA.DepartmentId;
+
+            var staffA = new User
+            {
+                Email = $"staffA-{Guid.NewGuid():N}@example.test",
+                FullName = "Staff Dept A",
+                PasswordHash = "hash",
+                Status = "ACTIVE",
+                AcademicProfileStatus = "VERIFIED",
+                DepartmentId = deptAId,
+                UserRoleUsers = new List<UserRole> { new() { RoleId = staffRoleId } }
+            };
+            ctx.Users.Add(staffA);
+
+            var org = await ctx.Organizations.FirstAsync();
+            var deptB = new Department { Code = $"DEP_{Guid.NewGuid():N}"[..10], Name = "Department B", OrganizationId = org.Id, IsActive = true };
+            ctx.Departments.Add(deptB);
+            await ctx.SaveChangesAsync();
+            deptBId = deptB.Id;
+
+            var majorB = new Major { Code = $"MB_{Guid.NewGuid():N}"[..10], Name = "Major B", DepartmentId = deptBId, IsActive = true };
+            ctx.Majors.Add(majorB);
+            await ctx.SaveChangesAsync();
+            deptBMajorId = majorB.Id;
+
+            var staffB = new User
+            {
+                Email = $"staffB-{Guid.NewGuid():N}@example.test",
+                FullName = "Staff Dept B",
+                PasswordHash = "hash",
+                Status = "ACTIVE",
+                AcademicProfileStatus = "VERIFIED",
+                DepartmentId = deptBId,
+                UserRoleUsers = new List<UserRole> { new() { RoleId = staffRoleId } }
+            };
+            ctx.Users.Add(staffB);
+            await ctx.SaveChangesAsync();
+
+            staffAUserId = staffA.Id;
+            staffBUserId = staffB.Id;
+        }
+
+        using var app = new TeamTestFactory(database, s, minMembers: 1, maxMembers: 3);
+        using var clientLeader = app.CreateAuthenticatedClient(s.Students[0]);
+        using var clientStaffA = app.CreateAuthenticatedClient(staffAUserId, roles: [AppRoles.DepartmentStaff]);
+        using var clientStaffB = app.CreateAuthenticatedClient(staffBUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var team = await BodyAsync<TeamDto>(await clientLeader.PostAsJsonAsync("/api/v1/teams",
+            new { academicSemesterId = s.SemesterId, code = "TSINGLE1", name = "Single Major Team", description = "Test" }));
+
+        // Create a submitted project with registration snapshot scoped only to Dept A
+        long projectId;
+        await using (var ctx = database.CreateContext())
+        {
+            var project = new Project
+            {
+                TeamId = team.Id,
+                Code = "PRJ-SM1",
+                Title = "Single Major Project",
+                Status = "SUBMITTED",
+                RegisteredAt = DateTime.UtcNow,
+                CreatedBy = s.Students[0],
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            ctx.Projects.Add(project);
+            await ctx.SaveChangesAsync();
+            projectId = project.Id;
+
+            var evidence = new RegistrationEvidence(
+                new TeamAcademicScopeDto("SINGLE_MAJOR", s.SeMajorId, deptAId, [new MajorRequirementDto(s.SeMajorId, 1, 3, "All")], Guid.NewGuid()),
+                new RegistrationPolicyDto(1, 3, 1, "v1"),
+                (await ctx.Organizations.FirstAsync()).Id,
+                DateTime.UtcNow.AddDays(-1),
+                DateTime.UtcNow.AddDays(7),
+                [new RegisteredMemberDto(s.Students[0], "Leader", s.SeMajorId, true)],
+                [deptAId]
+            );
+
+            var snapshot = new ProjectRegistrationSnapshot
+            {
+                ProjectId = project.Id,
+                ProjectPeriodId = s.PeriodId,
+                SubmittedBy = s.Students[0],
+                SubmittedAt = DateTime.UtcNow,
+                LeadDepartmentId = deptAId,
+                SnapshotJson = JsonSerializer.Serialize(evidence),
+                Decisions = []
+            };
+            ctx.Add(snapshot);
+            await ctx.SaveChangesAsync();
+        }
+
+        await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
+
+        // Before member major change: Staff A allowed (200), Staff B denied (403)
+        var getA = await clientStaffA.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.OK, getA.StatusCode);
+        var histA = await clientStaffA.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.OK, histA.StatusCode);
+
+        var getB = await clientStaffB.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.Forbidden, getB.StatusCode);
+        var histB = await clientStaffB.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.Forbidden, histB.StatusCode);
+
+        // Mutate member's CURRENT major to Department B in DB
+        await using (var ctx = database.CreateContext())
+        {
+            var leaderUser = await ctx.Users.SingleAsync(u => u.Id == s.Students[0]);
+            leaderUser.MajorId = deptBMajorId;
+            leaderUser.DepartmentId = deptBId;
+            await ctx.SaveChangesAsync();
+        }
+
+        // Assert: ProjectRegistrationSnapshot in DB was NOT changed
+        await using (var ctx = database.CreateContext())
+        {
+            var snapshot = await ctx.Set<ProjectRegistrationSnapshot>().SingleAsync(x => x.ProjectId == projectId);
+            var parsed = JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!;
+            Assert.Single(parsed.DepartmentIds);
+            Assert.Equal(deptAId, parsed.DepartmentIds[0]);
+        }
+
+        // After member major change: Staff A remains 200, Staff B remains STRICTLY 403 (no widening)
+        getA = await clientStaffA.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.OK, getA.StatusCode);
+        histA = await clientStaffA.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.OK, histA.StatusCode);
+
+        getB = await clientStaffB.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.Forbidden, getB.StatusCode);
+        histB = await clientStaffB.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.Forbidden, histB.StatusCode);
+    }
+
+    [Fact]
+    public async Task Auth_SubmittedInterdisciplinary_MemberMajorChangeToForeignDepartment_DoesNotWidenReadScope()
+    {
+        var s = await database.SeedAsync();
+        var staffRoleId = await EnsureRoleAsync(AppRoles.DepartmentStaff, "Department Staff");
+
+        long deptAId;
+        long staffAUserId;
+        long deptBId;
+        long deptBMajorId;
+        long staffBUserId;
+        long deptCId;
+        long deptCMajorId;
+        long staffCUserId;
+
+        await using (var ctx = database.CreateContext())
+        {
+            var org = await ctx.Organizations.FirstAsync();
+            var majorA = await ctx.Majors.Include(m => m.Department).SingleAsync(m => m.Id == s.SeMajorId);
+            deptAId = majorA.DepartmentId;
+
+            var staffA = new User
+            {
+                Email = $"staffA-inter-{Guid.NewGuid():N}@example.test",
+                FullName = "Staff Dept A",
+                PasswordHash = "hash",
+                Status = "ACTIVE",
+                AcademicProfileStatus = "VERIFIED",
+                DepartmentId = deptAId,
+                UserRoleUsers = new List<UserRole> { new() { RoleId = staffRoleId } }
+            };
+            ctx.Users.Add(staffA);
+
+            var deptB = new Department { Code = $"DB_{Guid.NewGuid():N}"[..10], Name = "Department B", OrganizationId = org.Id, IsActive = true };
+            ctx.Departments.Add(deptB);
+            await ctx.SaveChangesAsync();
+            deptBId = deptB.Id;
+
+            var majorB = new Major { Code = $"MB_{Guid.NewGuid():N}"[..10], Name = "Major B", DepartmentId = deptBId, IsActive = true };
+            ctx.Majors.Add(majorB);
+            await ctx.SaveChangesAsync();
+            deptBMajorId = majorB.Id;
+
+            var staffB = new User
+            {
+                Email = $"staffB-inter-{Guid.NewGuid():N}@example.test",
+                FullName = "Staff Dept B",
+                PasswordHash = "hash",
+                Status = "ACTIVE",
+                AcademicProfileStatus = "VERIFIED",
+                DepartmentId = deptBId,
+                UserRoleUsers = new List<UserRole> { new() { RoleId = staffRoleId } }
+            };
+            ctx.Users.Add(staffB);
+
+            var deptC = new Department { Code = $"DC_{Guid.NewGuid():N}"[..10], Name = "Department C", OrganizationId = org.Id, IsActive = true };
+            ctx.Departments.Add(deptC);
+            await ctx.SaveChangesAsync();
+            deptCId = deptC.Id;
+
+            var majorC = new Major { Code = $"MC_{Guid.NewGuid():N}"[..10], Name = "Major C", DepartmentId = deptCId, IsActive = true };
+            ctx.Majors.Add(majorC);
+            await ctx.SaveChangesAsync();
+            deptCMajorId = majorC.Id;
+
+            var staffC = new User
+            {
+                Email = $"staffC-inter-{Guid.NewGuid():N}@example.test",
+                FullName = "Staff Dept C",
+                PasswordHash = "hash",
+                Status = "ACTIVE",
+                AcademicProfileStatus = "VERIFIED",
+                DepartmentId = deptCId,
+                UserRoleUsers = new List<UserRole> { new() { RoleId = staffRoleId } }
+            };
+            ctx.Users.Add(staffC);
+            await ctx.SaveChangesAsync();
+
+            staffAUserId = staffA.Id;
+            staffBUserId = staffB.Id;
+            staffCUserId = staffC.Id;
+        }
+
+        using var app = new TeamTestFactory(database, s, minMembers: 1, maxMembers: 3);
+        using var clientLeader = app.CreateAuthenticatedClient(s.Students[0]);
+        using var clientStaffA = app.CreateAuthenticatedClient(staffAUserId, roles: [AppRoles.DepartmentStaff]);
+        using var clientStaffB = app.CreateAuthenticatedClient(staffBUserId, roles: [AppRoles.DepartmentStaff]);
+        using var clientStaffC = app.CreateAuthenticatedClient(staffCUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var team = await BodyAsync<TeamDto>(await clientLeader.PostAsJsonAsync("/api/v1/teams",
+            new { academicSemesterId = s.SemesterId, code = "TINTER1", name = "Inter Team", description = "Test" }));
+
+        // Create an interdisciplinary submitted project with snapshot containing Dept A and Dept B
+        long projectId;
+        await using (var ctx = database.CreateContext())
+        {
+            var project = new Project
+            {
+                TeamId = team.Id,
+                Code = "PRJ-INT1",
+                Title = "Inter Project",
+                Status = "SUBMITTED",
+                RegisteredAt = DateTime.UtcNow,
+                CreatedBy = s.Students[0],
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            ctx.Projects.Add(project);
+            await ctx.SaveChangesAsync();
+            projectId = project.Id;
+
+            var evidence = new RegistrationEvidence(
+                new TeamAcademicScopeDto("INTERDISCIPLINARY", null, deptAId, [
+                    new MajorRequirementDto(s.SeMajorId, 1, 2, "Backend"),
+                    new MajorRequirementDto(deptBMajorId, 1, 2, "Frontend")
+                ], Guid.NewGuid()),
+                new RegistrationPolicyDto(2, 4, 2, "v1"),
+                (await ctx.Organizations.FirstAsync()).Id,
+                DateTime.UtcNow.AddDays(-1),
+                DateTime.UtcNow.AddDays(7),
+                [new RegisteredMemberDto(s.Students[0], "Leader", s.SeMajorId, true)],
+                [deptAId, deptBId]
+            );
+
+            var snapshot = new ProjectRegistrationSnapshot
+            {
+                ProjectId = project.Id,
+                ProjectPeriodId = s.PeriodId,
+                SubmittedBy = s.Students[0],
+                SubmittedAt = DateTime.UtcNow,
+                LeadDepartmentId = deptAId,
+                SnapshotJson = JsonSerializer.Serialize(evidence),
+                Decisions =
+                [
+                    new ProjectDepartmentDecision { DepartmentId = deptAId },
+                    new ProjectDepartmentDecision { DepartmentId = deptBId }
+                ]
+            };
+            ctx.Add(snapshot);
+            await ctx.SaveChangesAsync();
+        }
+
+        await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
+
+        // Before member major mutation: Staff A (200), Staff B (200), Staff C (403)
+        var getA = await clientStaffA.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.OK, getA.StatusCode);
+        var histA = await clientStaffA.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.OK, histA.StatusCode);
+
+        var getB = await clientStaffB.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.OK, getB.StatusCode);
+        var histB = await clientStaffB.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.OK, histB.StatusCode);
+
+        var getC = await clientStaffC.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.Forbidden, getC.StatusCode);
+        var histC = await clientStaffC.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.Forbidden, histC.StatusCode);
+
+        // Mutate member's CURRENT major to Department C in DB
+        await using (var ctx = database.CreateContext())
+        {
+            var leaderUser = await ctx.Users.SingleAsync(u => u.Id == s.Students[0]);
+            leaderUser.MajorId = deptCMajorId;
+            leaderUser.DepartmentId = deptCId;
+            await ctx.SaveChangesAsync();
+        }
+
+        // Assert: ProjectRegistrationSnapshot in DB was NOT changed
+        await using (var ctx = database.CreateContext())
+        {
+            var snapshot = await ctx.Set<ProjectRegistrationSnapshot>().SingleAsync(x => x.ProjectId == projectId);
+            var parsed = JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!;
+            Assert.Equal(2, parsed.DepartmentIds.Count);
+            Assert.Contains(deptAId, parsed.DepartmentIds);
+            Assert.Contains(deptBId, parsed.DepartmentIds);
+            Assert.DoesNotContain(deptCId, parsed.DepartmentIds);
+        }
+
+        // After mutation: Staff A remains 200, Staff B remains 200, Staff C remains STRICTLY 403
+        getA = await clientStaffA.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.OK, getA.StatusCode);
+        histA = await clientStaffA.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.OK, histA.StatusCode);
+
+        getB = await clientStaffB.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.OK, getB.StatusCode);
+        histB = await clientStaffB.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.OK, histB.StatusCode);
+
+        getC = await clientStaffC.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.Forbidden, getC.StatusCode);
+        histC = await clientStaffC.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.Forbidden, histC.StatusCode);
+    }
+
+    [Fact]
+    public async Task Auth_Supervisor_AssignedToTeamProject_CanReadEligibilityAndHistory()
+    {
+        var s = await database.SeedAsync();
+        var lecturerRoleId = await EnsureRoleAsync(AppRoles.Lecturer, "Lecturer");
+
+        long supervisorUserId;
+        long otherSupervisorUserId;
+
+        await using (var ctx = database.CreateContext())
+        {
+            var major = await ctx.Majors.Include(m => m.Department).SingleAsync(m => m.Id == s.SeMajorId);
+
+            var supervisorUser = new User
+            {
+                Email = $"supervisor-{Guid.NewGuid():N}@example.test",
+                FullName = "Assigned Supervisor",
+                PasswordHash = "hash",
+                Status = "ACTIVE",
+                AcademicProfileStatus = "VERIFIED",
+                DepartmentId = major.DepartmentId,
+                UserRoleUsers = new List<UserRole> { new() { RoleId = lecturerRoleId } }
+            };
+            ctx.Users.Add(supervisorUser);
+
+            var otherSupervisorUser = new User
+            {
+                Email = $"supervisor-other-{Guid.NewGuid():N}@example.test",
+                FullName = "Other Supervisor",
+                PasswordHash = "hash",
+                Status = "ACTIVE",
+                AcademicProfileStatus = "VERIFIED",
+                DepartmentId = major.DepartmentId,
+                UserRoleUsers = new List<UserRole> { new() { RoleId = lecturerRoleId } }
+            };
+            ctx.Users.Add(otherSupervisorUser);
+            await ctx.SaveChangesAsync();
+
+            var profile = new SupervisorProfile
+            {
+                UserId = supervisorUser.Id,
+                IsAvailable = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            ctx.SupervisorProfiles.Add(profile);
+
+            var otherProfile = new SupervisorProfile
+            {
+                UserId = otherSupervisorUser.Id,
+                IsAvailable = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            ctx.SupervisorProfiles.Add(otherProfile);
+            await ctx.SaveChangesAsync();
+
+            supervisorUserId = supervisorUser.Id;
+            otherSupervisorUserId = otherSupervisorUser.Id;
+        }
+
+        using var app = new TeamTestFactory(database, s, minMembers: 1, maxMembers: 3);
+        using var clientLeader = app.CreateAuthenticatedClient(s.Students[0]);
+        using var clientSupervisor = app.CreateAuthenticatedClient(supervisorUserId, roles: [AppRoles.Lecturer]);
+        using var clientOtherSupervisor = app.CreateAuthenticatedClient(otherSupervisorUserId, roles: [AppRoles.Lecturer]);
+
+        var team = await BodyAsync<TeamDto>(await clientLeader.PostAsJsonAsync("/api/v1/teams",
+            new { academicSemesterId = s.SemesterId, code = "TSUP1", name = "Supervisor Team", description = "Test" }));
+
+        // Attach a project and assign the supervisor
+        await using (var ctx = database.CreateContext())
+        {
+            var profile = await ctx.SupervisorProfiles.SingleAsync(p => p.UserId == supervisorUserId);
+            var project = new Project
+            {
+                TeamId = team.Id,
+                Code = "PRJ-SUP1",
+                Title = "Supervisor Project",
+                Status = "SUBMITTED",
+                RegisteredAt = DateTime.UtcNow,
+                CreatedBy = s.Students[0],
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            ctx.Projects.Add(project);
+            await ctx.SaveChangesAsync();
+
+            var supervisorRequest = new SupervisorRequest
+            {
+                Project = project,
+                SupervisorProfile = profile,
+                RequestedBy = s.Students[0],
+                Status = "ACCEPTED",
+                RequestedAt = DateTime.UtcNow,
+                RespondedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            var assignment = new SupervisorAssignment
+            {
+                Project = project,
+                SupervisorProfile = profile,
+                SupervisorRequest = supervisorRequest,
+                IsPrimary = true,
+                AssignedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            ctx.SupervisorAssignments.Add(assignment);
+            await ctx.SaveChangesAsync();
+        }
+
+        await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
+
+        // Assigned supervisor receives 200 OK on both endpoints
+        var getSup = await clientSupervisor.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.OK, getSup.StatusCode);
+
+        var histSup = await clientSupervisor.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.OK, histSup.StatusCode);
+        var histData = await BodyAsync<IReadOnlyList<TeamEligibilityCheckDto>>(histSup);
+        Assert.NotEmpty(histData);
+
+        // Unassigned supervisor receives 403 Forbidden
+        var getOther = await clientOtherSupervisor.GetAsync($"/api/v1/teams/{team.Id}/eligibility");
+        Assert.Equal(HttpStatusCode.Forbidden, getOther.StatusCode);
+
+        var histOther = await clientOtherSupervisor.GetAsync($"/api/v1/teams/{team.Id}/eligibility/history");
+        Assert.Equal(HttpStatusCode.Forbidden, histOther.StatusCode);
     }
 
     // ==========================================

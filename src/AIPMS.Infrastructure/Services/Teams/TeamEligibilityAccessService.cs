@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Security;
+using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Teams.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
@@ -13,7 +14,8 @@ namespace AIPMS.Infrastructure.Services.Teams;
 
 internal sealed class TeamEligibilityAccessService(
     AipmsDbContext context,
-    ICurrentUser currentUser) : ITeamEligibilityAccessService
+    ICurrentUser currentUser,
+    IProjectRepository projectRepository) : ITeamEligibilityAccessService
 {
     public async Task ValidateCanReadEligibilityAsync(long teamId, CancellationToken cancellationToken)
     {
@@ -58,12 +60,11 @@ internal sealed class TeamEligibilityAccessService(
             return;
 
         // 3. Authorized Supervisor for team project
-        var isSupervisor = await context.Projects
+        var isSupervisor = await context.SupervisorAssignments
             .AsNoTracking()
-            .AnyAsync(p => p.TeamId == teamId
-                           && p.SupervisorAssignment != null
-                           && p.SupervisorAssignment.EndedAt == null
-                           && p.SupervisorAssignment.SupervisorProfile.UserId == actorId,
+            .AnyAsync(sa => sa.Project.TeamId == teamId
+                           && sa.EndedAt == null
+                           && sa.SupervisorProfile.UserId == actorId,
                       cancellationToken);
         if (isSupervisor)
             return;
@@ -78,7 +79,17 @@ internal sealed class TeamEligibilityAccessService(
 
         var staffDeptId = user.DepartmentId.Value;
 
-        // Check Team Academic Configuration (Lead department or required majors)
+        // 1. Authoritative project-level scope (if team has a relevant active or submitted project)
+        var projectDeptIds = await projectRepository.GetAuthoritativeDepartmentIdsForTeamAsync(teamId, cancellationToken);
+        if (projectDeptIds is not null)
+        {
+            if (projectDeptIds.Contains(staffDeptId))
+                return;
+
+            throw new ForbiddenException("You do not have access to view this team's eligibility.");
+        }
+
+        // 2. Team-formation scope (team has no relevant project yet)
         var config = await context.Set<TeamAcademicConfiguration>()
             .AsNoTracking()
             .Include(c => c.Requirements)
@@ -98,40 +109,18 @@ internal sealed class TeamEligibilityAccessService(
                 if (matchesReq)
                     return;
             }
+
+            throw new ForbiddenException("You do not have access to view this team's eligibility.");
         }
 
-        // Check active team members' majors
+        // 3. Unconfigured team formation: active members' majors determine department staff access
         var matchesMemberMajor = await context.TeamMembers
             .AsNoTracking()
             .Where(m => m.TeamId == teamId && m.LeftAt == null)
             .AnyAsync(m => m.User.Major != null && m.User.Major.DepartmentId == staffDeptId, cancellationToken);
+
         if (matchesMemberMajor)
             return;
-
-        // Check team projects' majors and snapshots
-        var teamProjectIds = await context.Projects
-            .AsNoTracking()
-            .Where(p => p.TeamId == teamId)
-            .Select(p => p.Id)
-            .ToListAsync(cancellationToken);
-
-        if (teamProjectIds.Count > 0)
-        {
-            var matchesProjectMajor = await context.ProjectMajors
-                .AsNoTracking()
-                .AnyAsync(pm => teamProjectIds.Contains(pm.ProjectId) && pm.Major.DepartmentId == staffDeptId, cancellationToken);
-            if (matchesProjectMajor)
-                return;
-
-            var matchesSnapshot = await context.Set<ProjectRegistrationSnapshot>()
-                .AsNoTracking()
-                .Include(s => s.Decisions)
-                .AnyAsync(s => teamProjectIds.Contains(s.ProjectId) &&
-                    (s.LeadDepartmentId == staffDeptId || s.Decisions.Any(d => d.DepartmentId == staffDeptId)),
-                    cancellationToken);
-            if (matchesSnapshot)
-                return;
-        }
 
         throw new ForbiddenException("You do not have access to view this team's eligibility.");
     }
