@@ -74,9 +74,9 @@ The fixture creates and deletes only its own `AI_PMS_TEST_<guid>` databases; the
 supplied catalog is not a mutation or cleanup target. Without that setting it uses
 Testcontainers. Bootstrap also replays the additive migration to check rerunnability.
 
-The broader P0 lifecycle/mentor seed acceptance and PR2 submit/revision/resubmit
-acceptance remain pending integration with issue #74 and PR #76. They are not
-claimed as completed by this PR.
+Issue #74 and PR #76 are now merged. PR2 submit/revision/resubmit integration is
+documented in [Project requirements and review history](project-requirements-review-history.md).
+The validation numbers below describe PR1 at its original merge date.
 
 Validation on 2026-09-28: solution build with warnings as errors passed with
 0 warnings/errors; 790 unit tests and 842 integration tests passed, none skipped.

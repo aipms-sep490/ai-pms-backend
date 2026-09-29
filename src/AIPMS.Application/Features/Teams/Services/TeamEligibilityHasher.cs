@@ -131,7 +131,11 @@ public sealed class TeamEligibilityHasher : ITeamEligibilityHasher
                 .ToList()
         };
 
-        return Sha256(JsonSerializer.Serialize(obj, JsonOptions));
+        var original = JsonSerializer.Serialize(obj, JsonOptions);
+        // Preserve legacy fingerprints until a project explicitly configures requirements.
+        if (project.Requirements is not { Count: > 0 }) return Sha256(original);
+        return Sha256(JsonSerializer.Serialize(new { context = original,
+            requirements = project.Requirements.OrderBy(x => x.MajorId).ToArray() }, JsonOptions));
     }
 
     private static string ComputeFingerprint(

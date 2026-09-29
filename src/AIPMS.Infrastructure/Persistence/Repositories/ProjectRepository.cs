@@ -362,6 +362,8 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
 
             if (project.Status is not ("DRAFT" or "REVISION_REQUIRED"))
                 throw new ConflictException("Only an editable proposal can be updated.");
+            if (await context.ProjectMajorRequirements.AnyAsync(x => x.ProjectId == projectId && !majorIds.Contains(x.MajorId), cancellationToken))
+                throw new ConflictException("Remove the project major requirement before removing that major from the proposal.");
             await ValidateProjectMajorsAsync(project.TeamId, majorIds, cancellationToken);
             await ValidateGovernanceAsync(project.TeamId, majorIds, project.ProposalSource, cancellationToken);
             var utcNow = Now;

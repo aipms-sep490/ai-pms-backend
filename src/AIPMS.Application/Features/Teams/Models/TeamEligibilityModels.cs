@@ -43,7 +43,8 @@ public sealed record ProjectContextInput(
     string? Objectives,
     string? ExpectedOutput,
     IReadOnlyList<long> MajorIds,
-    IReadOnlyList<ProjectTagInput> Tags);
+    IReadOnlyList<ProjectTagInput> Tags,
+    IReadOnlyList<AIPMS.Application.Features.Projects.DTOs.ProjectMajorRequirementDto>? Requirements = null);
 
 public sealed record TeamEligibilityContextInput(
     long TeamId,

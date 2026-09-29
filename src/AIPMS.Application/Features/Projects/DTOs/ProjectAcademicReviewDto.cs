@@ -10,7 +10,9 @@ public sealed record RegistrationEvidence(TeamAcademicScopeDto Scope, Registrati
     IReadOnlyList<RegisteredMemberDto> Members, IReadOnlyList<long> DepartmentIds,
     int PolicyVersion = 1, string AllowedProjectModes = "SINGLE_MAJOR,INTERDISCIPLINARY",
     string AllowedProposalSources = "PUBLISHED_TOPIC,STUDENT_PROPOSAL", string ProposalSource = "STUDENT_PROPOSAL",
-    IReadOnlyDictionary<long, long>? MajorDepartmentIds = null);
+    IReadOnlyDictionary<long, long>? MajorDepartmentIds = null,
+    ProjectProposalSnapshotDto? Proposal = null,
+    IReadOnlyList<ProjectMajorRequirementDto>? ProjectRequirements = null);
 
 public sealed record DepartmentDecisionDto(long DepartmentId, string Decision, long? DecidedBy,
     DateTime? DecidedAt, string? Reason);
