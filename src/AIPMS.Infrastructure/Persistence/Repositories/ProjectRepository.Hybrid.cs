@@ -125,7 +125,7 @@ public sealed partial class ProjectRepository
             team.Members.Select(m => new RegisteredMemberDto(m.UserId, m.FullName, m.MajorId!.Value, m.IsLeader)).ToArray(), departments,
             period.PolicyVersion, period.AllowedProjectModes, period.AllowedProposalSources, project.ProposalSource,
             await context.Majors.Where(m => requiredIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.DepartmentId, ct),
-            await ReadProposalSnapshotAsync(project, ct), projectRequirements);
+            await ReadProposalSnapshotAsync(project, ct), projectRequirements, await ReadResponsibilitiesAsync(project.TeamId, ct));
         context.Add(new ProjectRegistrationSnapshot
         {
             ProjectId = project.Id, ProjectPeriodId = period.Id, SubmittedBy = actorId, SubmittedAt = now,
@@ -157,7 +157,7 @@ public sealed partial class ProjectRepository
                 $"v-{period.Id}-{period.MinTeamSize ?? 3}-{max}-{period.MinDistinctMajors ?? 1}-g{period.PolicyVersion}"),
             window.OrganizationId, period.StartAt, period.EndAt, members, departmentIds,
             period.PolicyVersion, period.AllowedProjectModes, period.AllowedProposalSources, project.ProposalSource, departments,
-            await ReadProposalSnapshotAsync(project, ct), await ReadProjectRequirementsAsync(project.Id, ct));
+            await ReadProposalSnapshotAsync(project, ct), await ReadProjectRequirementsAsync(project.Id, ct), await ReadResponsibilitiesAsync(project.TeamId, ct));
         context.Add(new ProjectRegistrationSnapshot { ProjectId = project.Id, ProjectPeriodId = period.Id,
             SubmittedBy = actorId, SubmittedAt = now, LeadDepartmentId = departmentIds[0], SnapshotJson = JsonSerializer.Serialize(evidence) });
     }
@@ -177,6 +177,10 @@ public sealed partial class ProjectRepository
         return new(project.Title, project.Description, project.ProblemStatement, project.Objectives, project.ExpectedOutput,
             project.ProposalSource, project.TopicId, dto.Majors.Select(x => x.MajorId).Order().ToArray(), dto.Tags);
     }
+
+    private async Task<IReadOnlyList<AIPMS.Application.Features.Disciplines.DTOs.ResponsibilityDto>> ReadResponsibilitiesAsync(long teamId, CancellationToken ct) =>
+        await context.TeamMajorResponsibilities.AsNoTracking().Where(x => x.TeamId == teamId).OrderBy(x => x.MajorId).ThenBy(x => x.SortOrder)
+            .Select(x => new AIPMS.Application.Features.Disciplines.DTOs.ResponsibilityDto(x.Id, x.MajorId, x.Content, x.SortOrder, x.ConcurrencyToken.ToString("N"))).ToArrayAsync(ct);
 
     private IQueryable<long> DepartmentProjectIds(long? departmentId)
     {

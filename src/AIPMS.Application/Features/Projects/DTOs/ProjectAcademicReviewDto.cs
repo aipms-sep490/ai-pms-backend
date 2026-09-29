@@ -12,7 +12,8 @@ public sealed record RegistrationEvidence(TeamAcademicScopeDto Scope, Registrati
     string AllowedProposalSources = "PUBLISHED_TOPIC,STUDENT_PROPOSAL", string ProposalSource = "STUDENT_PROPOSAL",
     IReadOnlyDictionary<long, long>? MajorDepartmentIds = null,
     ProjectProposalSnapshotDto? Proposal = null,
-    IReadOnlyList<ProjectMajorRequirementDto>? ProjectRequirements = null);
+    IReadOnlyList<ProjectMajorRequirementDto>? ProjectRequirements = null,
+    IReadOnlyList<AIPMS.Application.Features.Disciplines.DTOs.ResponsibilityDto>? TeamResponsibilities = null);
 
 public sealed record DepartmentDecisionDto(long DepartmentId, string Decision, long? DecidedBy,
     DateTime? DecidedAt, string? Reason);

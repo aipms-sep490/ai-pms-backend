@@ -20,6 +20,11 @@
   "20260921_add_milestone_templates.sql",
   "20260921_add_task_evidence_comments.sql",
   "20260922_add_rubric_hierarchy.sql",
+  "20260925_add_project_period_governance_policy.sql",
+  "20260925_add_supervisor_assignment_types.sql",
   "20260926_add_google_external_logins.sql",
-  "20260927_add_governance_baseline_v3.sql"
+  "20260927_add_governance_baseline_v3.sql",
+  "20260928_add_team_eligibility_snapshots.sql",
+  "20260929_add_project_major_requirements.sql",
+  "20260929_add_discipline_evidence.sql"
 ]

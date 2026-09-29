@@ -133,3 +133,7 @@ See [project period governance and mentor assignments](docs/project-period-gover
 for allowed proposal modes/sources, department review history, discipline mentors,
 and supervisor replacement. Apply the two `20260925` SQL scripts before deploying
 this API version; run SQL integration against an isolated test database.
+
+See [discipline responsibilities and evidence ledger](docs/discipline-evidence.md)
+for Baseline v3 PR3 routes, writer scope, task classification, snapshot behavior,
+concurrency, and the additive `20260929_add_discipline_evidence.sql` migration.

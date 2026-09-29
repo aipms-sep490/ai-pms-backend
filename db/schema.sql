@@ -1447,3 +1447,147 @@ BEGIN
 END;
 -- No speculative backfill from team quotas or current proposals into old snapshots.
 COMMIT;
+
+GO
+-- Additive migration. Run in the intended AI-PMS database; no historical approvals are inferred.
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+IF OBJECT_ID(N'dbo.team_academic_configurations', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.team_academic_configurations (
+        team_id bigint NOT NULL CONSTRAINT pk_team_academic_configurations PRIMARY KEY,
+        project_mode varchar(30) NOT NULL,
+        primary_major_id bigint NULL,
+        lead_department_id bigint NOT NULL,
+        concurrency_token uniqueidentifier NOT NULL,
+        CONSTRAINT fk_team_academic_team FOREIGN KEY (team_id) REFERENCES dbo.teams(id),
+        CONSTRAINT fk_team_academic_primary FOREIGN KEY (primary_major_id) REFERENCES dbo.majors(id),
+        CONSTRAINT fk_team_academic_lead FOREIGN KEY (lead_department_id) REFERENCES dbo.departments(id),
+        CONSTRAINT ck_team_academic_mode CHECK (
+            (project_mode = 'SINGLE_MAJOR' AND primary_major_id IS NOT NULL)
+            OR (project_mode = 'INTERDISCIPLINARY' AND primary_major_id IS NULL))
+    );
+END;
+IF OBJECT_ID(N'dbo.team_major_requirements', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.team_major_requirements (
+        team_id bigint NOT NULL,
+        major_id bigint NOT NULL,
+        min_members int NOT NULL,
+        max_members int NOT NULL,
+        responsibility nvarchar(1000) NOT NULL,
+        CONSTRAINT pk_team_major_requirements PRIMARY KEY (team_id, major_id),
+        CONSTRAINT fk_team_requirement_team FOREIGN KEY (team_id) REFERENCES dbo.team_academic_configurations(team_id),
+        CONSTRAINT fk_team_requirement_major FOREIGN KEY (major_id) REFERENCES dbo.majors(id),
+        CONSTRAINT ck_team_requirement_quota CHECK (min_members >= 1 AND max_members >= min_members),
+        CONSTRAINT ck_team_requirement_responsibility CHECK (LEN(LTRIM(RTRIM(responsibility))) > 0)
+    );
+END;
+IF OBJECT_ID(N'dbo.project_registration_snapshots', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.project_registration_snapshots (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_project_registration_snapshots PRIMARY KEY,
+        project_id bigint NOT NULL,
+        project_period_id bigint NOT NULL,
+        lead_department_id bigint NOT NULL,
+        submitted_by bigint NOT NULL,
+        submitted_at datetime2(0) NOT NULL,
+        snapshot_json nvarchar(max) NOT NULL,
+        CONSTRAINT fk_project_registration_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_project_registration_period FOREIGN KEY (project_period_id) REFERENCES dbo.project_periods(id),
+        CONSTRAINT fk_project_registration_lead FOREIGN KEY (lead_department_id) REFERENCES dbo.departments(id),
+        CONSTRAINT fk_project_registration_submitter FOREIGN KEY (submitted_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_project_registration_json CHECK (ISJSON(snapshot_json) = 1)
+    );
+    CREATE INDEX ix_project_registration_latest ON dbo.project_registration_snapshots(project_id, id);
+END;
+IF OBJECT_ID(N'dbo.project_department_decisions', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.project_department_decisions (
+        snapshot_id bigint NOT NULL,
+        department_id bigint NOT NULL,
+        decision varchar(20) NOT NULL,
+        decided_by bigint NULL,
+        decided_at datetime2(0) NULL,
+        reason nvarchar(2000) NULL,
+        CONSTRAINT pk_project_department_decisions PRIMARY KEY (snapshot_id, department_id),
+        CONSTRAINT fk_project_decision_snapshot FOREIGN KEY (snapshot_id) REFERENCES dbo.project_registration_snapshots(id),
+        CONSTRAINT fk_project_decision_department FOREIGN KEY (department_id) REFERENCES dbo.departments(id),
+        CONSTRAINT fk_project_decision_actor FOREIGN KEY (decided_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_project_decision_state CHECK (
+            (decision = 'PENDING' AND decided_by IS NULL AND decided_at IS NULL)
+            OR (decision IN ('APPROVED','REJECTED') AND decided_by IS NOT NULL AND decided_at IS NOT NULL)),
+        CONSTRAINT ck_project_decision_reason CHECK (decision <> 'REJECTED' OR (reason IS NOT NULL AND LEN(LTRIM(RTRIM(reason))) > 0))
+    );
+END;
+COMMIT TRANSACTION;
+
+GO
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+IF COL_LENGTH('dbo.team_academic_configurations', 'responsibility_version') IS NULL
+    ALTER TABLE dbo.team_academic_configurations ADD responsibility_version UNIQUEIDENTIFIER NULL;
+IF OBJECT_ID('dbo.team_major_responsibilities', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.team_major_responsibilities (
+        id BIGINT IDENTITY PRIMARY KEY,
+        team_id BIGINT NOT NULL, major_id BIGINT NOT NULL,
+        content NVARCHAR(2000) NOT NULL, sort_order INT NOT NULL,
+        concurrency_token UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+        created_by BIGINT NOT NULL, created_at DATETIME2(7) NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT fk_responsibility_requirement FOREIGN KEY(team_id,major_id) REFERENCES dbo.team_major_requirements(team_id,major_id) ON DELETE CASCADE,
+        CONSTRAINT fk_responsibility_actor FOREIGN KEY(created_by) REFERENCES dbo.users(id),
+        CONSTRAINT uq_responsibility_order UNIQUE(team_id,major_id,sort_order),
+        CONSTRAINT ck_responsibility_content CHECK(LEN(LTRIM(RTRIM(content)))>0 AND sort_order>=0)
+    );
+END;
+IF OBJECT_ID('dbo.task_disciplines', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.task_disciplines (
+        task_id BIGINT NOT NULL, major_id BIGINT NOT NULL,
+        role VARCHAR(20) NOT NULL,
+        created_by BIGINT NOT NULL, created_at DATETIME2(7) NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT pk_task_disciplines PRIMARY KEY(task_id,major_id),
+        CONSTRAINT fk_task_discipline_task FOREIGN KEY(task_id) REFERENCES dbo.tasks(id) ON DELETE CASCADE,
+        CONSTRAINT fk_task_discipline_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id),
+        CONSTRAINT fk_task_discipline_actor FOREIGN KEY(created_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_task_discipline_role CHECK(role IN ('PRIMARY','SUPPORTING'))
+    );
+    CREATE UNIQUE INDEX uq_task_discipline_primary ON dbo.task_disciplines(task_id) WHERE role='PRIMARY';
+    CREATE INDEX ix_task_discipline_major ON dbo.task_disciplines(major_id,task_id);
+END;
+IF OBJECT_ID('dbo.project_evidence', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.project_evidence (
+        id BIGINT IDENTITY PRIMARY KEY,
+        project_id BIGINT NOT NULL, major_id BIGINT NULL,
+        source_type VARCHAR(30) NOT NULL, source_id BIGINT NOT NULL,
+        task_id BIGINT NULL, deliverable_id BIGINT NULL, meeting_id BIGINT NULL, progress_report_id BIGINT NULL, file_id BIGINT NULL,
+        notes NVARCHAR(2000) NULL,
+        verification_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+        submitted_by BIGINT NOT NULL, submitted_at DATETIME2(7) NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT fk_evidence_project FOREIGN KEY(project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_evidence_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id),
+        CONSTRAINT fk_evidence_actor FOREIGN KEY(submitted_by) REFERENCES dbo.users(id),
+        CONSTRAINT fk_evidence_task FOREIGN KEY(task_id) REFERENCES dbo.tasks(id),
+        CONSTRAINT fk_evidence_deliverable FOREIGN KEY(deliverable_id) REFERENCES dbo.deliverables(id),
+        CONSTRAINT fk_evidence_meeting FOREIGN KEY(meeting_id) REFERENCES dbo.meetings(id),
+        CONSTRAINT fk_evidence_report FOREIGN KEY(progress_report_id) REFERENCES dbo.progress_reports(id),
+        CONSTRAINT fk_evidence_file FOREIGN KEY(file_id) REFERENCES dbo.files(id),
+        CONSTRAINT uq_evidence_source UNIQUE(project_id,source_type,source_id,major_id),
+        CONSTRAINT ck_evidence_status CHECK(verification_status IN ('PENDING','UNKNOWN')),
+        CONSTRAINT ck_evidence_source CHECK(
+            (CASE WHEN task_id IS NULL THEN 0 ELSE 1 END + CASE WHEN deliverable_id IS NULL THEN 0 ELSE 1 END +
+             CASE WHEN meeting_id IS NULL THEN 0 ELSE 1 END + CASE WHEN progress_report_id IS NULL THEN 0 ELSE 1 END +
+             CASE WHEN file_id IS NULL THEN 0 ELSE 1 END)=1 AND
+            ((source_type='TASK' AND task_id IS NOT NULL AND source_id=task_id) OR
+             (source_type='DELIVERABLE' AND deliverable_id IS NOT NULL AND source_id=deliverable_id) OR
+             (source_type='MEETING' AND meeting_id IS NOT NULL AND source_id=meeting_id) OR
+             (source_type='PROGRESS_REPORT' AND progress_report_id IS NOT NULL AND source_id=progress_report_id) OR
+             (source_type='FILE' AND file_id IS NOT NULL AND source_id=file_id)))
+    );
+    CREATE INDEX ix_evidence_project_time ON dbo.project_evidence(project_id,submitted_at DESC,id DESC);
+    CREATE INDEX ix_evidence_project_major ON dbo.project_evidence(project_id,major_id,verification_status);
+END;
+-- Legacy tasks/files are not assigned guessed majors or verification outcomes.
+COMMIT;

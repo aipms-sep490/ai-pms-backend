@@ -246,7 +246,7 @@ public sealed class TeamEligibilityRepository(
                 Requirements: scopeEntity.Requirements
                     .OrderBy(r => r.MajorId)
                     .Select(r => new MajorRequirementInput(r.MajorId, r.MinMembers, r.MaxMembers, r.Responsibility))
-                    .ToList());
+                    .ToList(), ResponsibilityVersion: scopeEntity.ResponsibilityVersion);
         }
 
         var projectMode = scopeInput?.ProjectMode ?? "SINGLE_MAJOR";

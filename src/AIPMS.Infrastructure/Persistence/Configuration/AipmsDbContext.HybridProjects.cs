@@ -16,6 +16,7 @@ public partial class AipmsDbContext
             e.Property(x => x.PrimaryMajorId).HasColumnName("primary_major_id");
             e.Property(x => x.LeadDepartmentId).HasColumnName("lead_department_id");
             e.Property(x => x.ConcurrencyToken).HasColumnName("concurrency_token").IsConcurrencyToken();
+            e.Property(x => x.ResponsibilityVersion).HasColumnName("responsibility_version");
             e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Major>().WithMany().HasForeignKey(x => x.PrimaryMajorId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Department>().WithMany().HasForeignKey(x => x.LeadDepartmentId).OnDelete(DeleteBehavior.NoAction);

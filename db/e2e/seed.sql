@@ -108,6 +108,15 @@ INSERT dbo.team_major_requirements(team_id,major_id,min_members,max_members,resp
 SELECT @interTeam,v.major_id,1,5,v.responsibility FROM (VALUES(@majorSe,N'Engineering'),(@majorDs,N'Data science')) v(major_id,responsibility)
 WHERE NOT EXISTS (SELECT 1 FROM dbo.team_major_requirements WHERE team_id=@interTeam AND major_id=v.major_id);
 
+-- Formation-only sample; execution disciplines/evidence are created through
+-- authenticated APIs in DisciplineEvidenceEndpointTests, not by bypassing lifecycle.
+INSERT dbo.team_major_responsibilities(team_id,major_id,content,sort_order,created_by)
+SELECT @interTeam,v.major_id,v.content,0,(SELECT id FROM dbo.users WHERE email=N'leader@e2e.invalid')
+FROM (VALUES(@majorSe,N'Design and implement the service'),(@majorDs,N'Validate the analysis methodology')) v(major_id,content)
+WHERE NOT EXISTS (SELECT 1 FROM dbo.team_major_responsibilities WHERE team_id=@interTeam AND major_id=v.major_id AND sort_order=0);
+UPDATE dbo.team_academic_configurations SET responsibility_version=NEWID()
+WHERE team_id=@interTeam AND responsibility_version IS NULL;
+
 MERGE dbo.projects AS t USING (VALUES
  (N'E2E-SINGLE-P',@singleTeam,N'E2E Single Project',N'DRAFT'),(N'E2E-INTER-P',@interTeam,N'E2E Interdisciplinary Project',N'DRAFT')) s(code,team_id,title,status)
 ON t.code=s.code WHEN NOT MATCHED THEN INSERT(team_id,code,title,description,objectives,problem_statement,expected_output,status,created_by) VALUES(s.team_id,s.code,s.title,N'E2E fixture',N'Validate workflow',N'E2E problem',N'E2E output',s.status,(SELECT id FROM dbo.users WHERE email=CASE WHEN s.team_id=@singleTeam THEN N'single.leader@e2e.invalid' ELSE N'leader@e2e.invalid' END));
