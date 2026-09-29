@@ -202,6 +202,7 @@ public static class DependencyInjection
                 ? new GoogleDriveFileStorage(sp.GetRequiredService<IConfiguration>())
                 : new LocalFileStorage(sp.GetRequiredService<IConfiguration>()));
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IProjectRequirementsService, ProjectRequirementsService>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();
         services.AddScoped<IRubricRepository, RubricRepository>();
         services.AddScoped<Application.Features.Topics.Abstractions.ITopicRepository, TopicRepository>();

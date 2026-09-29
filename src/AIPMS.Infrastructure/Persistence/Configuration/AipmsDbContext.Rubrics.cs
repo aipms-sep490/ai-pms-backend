@@ -8,6 +8,7 @@ public partial class AipmsDbContext
 {
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
+        ConfigureProjectRequirements(modelBuilder);
         ConfigureExecutionConcurrency(modelBuilder);
         ConfigureGovernanceBaseline(modelBuilder);
         ConfigureTeamLeaderChangeRequests(modelBuilder);

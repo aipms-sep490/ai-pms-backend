@@ -84,6 +84,16 @@ public sealed partial class ProjectRepository
 
     private async System.Threading.Tasks.Task CaptureRegistrationAsync(Project project, long actorId, DateTime now, CancellationToken ct)
     {
+        var projectRequirements = await ReadProjectRequirementsAsync(project.Id, ct);
+        if (projectRequirements.Count > 0)
+        {
+            var members = await context.TeamMembers.Where(x => x.TeamId == project.TeamId && x.LeftAt == null)
+                .Select(x => x.User.MajorId).ToListAsync(ct);
+            var proposalMajorIds = await context.ProjectMajors.Where(x => x.ProjectId == project.Id).Select(x => x.MajorId).ToListAsync(ct);
+            if (members.Any(m => projectRequirements.All(r => r.MajorId != m)) || projectRequirements.Any(r => !proposalMajorIds.Contains(r.MajorId)
+                || members.Count(m => m == r.MajorId) < r.MinMembers || members.Count(m => m == r.MajorId) > r.MaxMembers))
+                throw new ConflictException("Project major quotas are not satisfied by the active roster and proposal scope.");
+        }
         if (await context.TeamMembers.AnyAsync(m => m.TeamId == project.TeamId && m.LeftAt == null
             && (m.User.AcademicProfileStatus != "VERIFIED" || m.User.Status != "ACTIVE"), ct))
             throw new ConflictException("Every active team member must have a verified academic profile before submission.");
@@ -114,7 +124,8 @@ public sealed partial class ProjectRepository
             window.OrganizationId, period.StartAt, period.EndAt,
             team.Members.Select(m => new RegisteredMemberDto(m.UserId, m.FullName, m.MajorId!.Value, m.IsLeader)).ToArray(), departments,
             period.PolicyVersion, period.AllowedProjectModes, period.AllowedProposalSources, project.ProposalSource,
-            await context.Majors.Where(m => requiredIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.DepartmentId, ct));
+            await context.Majors.Where(m => requiredIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.DepartmentId, ct),
+            await ReadProposalSnapshotAsync(project, ct), projectRequirements);
         context.Add(new ProjectRegistrationSnapshot
         {
             ProjectId = project.Id, ProjectPeriodId = period.Id, SubmittedBy = actorId, SubmittedAt = now,
@@ -145,7 +156,8 @@ public sealed partial class ProjectRepository
         var evidence = new RegistrationEvidence(scope, new(period.MinTeamSize ?? 3, max, period.MinDistinctMajors ?? 1,
                 $"v-{period.Id}-{period.MinTeamSize ?? 3}-{max}-{period.MinDistinctMajors ?? 1}-g{period.PolicyVersion}"),
             window.OrganizationId, period.StartAt, period.EndAt, members, departmentIds,
-            period.PolicyVersion, period.AllowedProjectModes, period.AllowedProposalSources, project.ProposalSource, departments);
+            period.PolicyVersion, period.AllowedProjectModes, period.AllowedProposalSources, project.ProposalSource, departments,
+            await ReadProposalSnapshotAsync(project, ct), await ReadProjectRequirementsAsync(project.Id, ct));
         context.Add(new ProjectRegistrationSnapshot { ProjectId = project.Id, ProjectPeriodId = period.Id,
             SubmittedBy = actorId, SubmittedAt = now, LeadDepartmentId = departmentIds[0], SnapshotJson = JsonSerializer.Serialize(evidence) });
     }
@@ -153,6 +165,18 @@ public sealed partial class ProjectRepository
     private Task<ProjectRegistrationSnapshot?> LatestRegistrationAsync(long projectId, CancellationToken ct) =>
         context.Set<ProjectRegistrationSnapshot>().Include(s => s.Decisions)
             .Where(s => s.ProjectId == projectId).OrderByDescending(s => s.Id).FirstOrDefaultAsync(ct);
+
+    private async Task<IReadOnlyList<ProjectMajorRequirementDto>> ReadProjectRequirementsAsync(long projectId, CancellationToken ct) =>
+        await context.ProjectMajorRequirements.AsNoTracking().Where(x => x.ProjectId == projectId).OrderBy(x => x.MajorId)
+            .Select(x => new ProjectMajorRequirementDto(x.Id, x.MajorId, x.MinMembers, x.MaxMembers, x.Responsibility,
+                x.ConcurrencyToken.ToString("N"))).ToArrayAsync(ct);
+
+    private async Task<ProjectProposalSnapshotDto> ReadProposalSnapshotAsync(Project project, CancellationToken ct)
+    {
+        var dto = (await GetByIdAsync(project.Id, ct))!;
+        return new(project.Title, project.Description, project.ProblemStatement, project.Objectives, project.ExpectedOutput,
+            project.ProposalSource, project.TopicId, dto.Majors.Select(x => x.MajorId).Order().ToArray(), dto.Tags);
+    }
 
     private IQueryable<long> DepartmentProjectIds(long? departmentId)
     {

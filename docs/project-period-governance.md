@@ -28,6 +28,11 @@ Omit `topicId` for the existing student-proposal flow.
 
 ## Department decisions
 
+Baseline PR2 adds explicit project quotas/responsibilities and paginated review
+history, while retaining these registration snapshots as the authoritative store.
+See [Project requirements and review history](project-requirements-review-history.md)
+for API payloads, eligibility invalidation, immutable proposal capture and rollout.
+
 `GET /api/v1/projects/{id}/academic-review` retains `latestSubmission` and adds
 `submissionHistory` (newest round first). Each round includes the immutable evidence
 and department decisions. Existing decision endpoints continue to require both the

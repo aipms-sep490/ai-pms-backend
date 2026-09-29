@@ -319,6 +319,20 @@ public sealed class TeamEligibilityEvaluationService(
             }
         }
 
+        if (input.Project?.Requirements is { Count: > 0 } requirements)
+        {
+            foreach (var requirement in requirements)
+            {
+                var count = participants.Count(m => m.IsEligibleStudent && m.MajorId == requirement.MajorId && m.OrganizationId == organizationId);
+                if (!input.Project.MajorIds.Contains(requirement.MajorId) || count < requirement.MinMembers || count > requirement.MaxMembers)
+                    issues.Add(new(sortOrder++, "PROJECT_MAJOR_QUOTA", "ERROR", requirement.MajorId, null,
+                        $"{requirement.MinMembers}-{requirement.MaxMembers}", count.ToString(), "Project major requirement is not satisfied or is outside the proposal scope."));
+            }
+            if (participants.Any(m => requirements.All(r => r.MajorId != m.MajorId)))
+                issues.Add(new(sortOrder++, "PROJECT_MEMBER_MAJOR_NOT_ALLOWED", "ERROR", null, null, null, null,
+                    "An active member's major is missing from project requirements."));
+        }
+
         if (input.Policy.RequireStudentQualification)
         {
             foreach (var member in input.Members)

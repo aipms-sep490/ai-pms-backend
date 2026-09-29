@@ -301,7 +301,10 @@ public sealed class TeamEligibilityRepository(
                 Objectives: project.Objectives,
                 ExpectedOutput: project.ExpectedOutput,
                 MajorIds: majorIds,
-                Tags: tags);
+                Tags: tags,
+                Requirements: await context.ProjectMajorRequirements.AsNoTracking().Where(x => x.ProjectId == project.Id)
+                    .OrderBy(x => x.MajorId).Select(x => new AIPMS.Application.Features.Projects.DTOs.ProjectMajorRequirementDto(
+                        x.Id, x.MajorId, x.MinMembers, x.MaxMembers, x.Responsibility, x.ConcurrencyToken.ToString("N"))).ToArrayAsync(cancellationToken));
         }
         else
         {
