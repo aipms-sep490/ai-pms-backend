@@ -93,6 +93,7 @@ public sealed class ReportingCycleRepository(AipmsDbContext context) : IReportin
         string latePolicy,
         long createdBy,
         DateTime now,
+        Func<ReportingCycleDto, Task>? onCreated = null,
         CancellationToken cancellationToken = default)
     {
         // Open a SERIALIZABLE transaction so the overlap range-scan (ExistsOverlapAsync) and the
@@ -133,9 +134,14 @@ public sealed class ReportingCycleRepository(AipmsDbContext context) : IReportin
 
             context.ProgressReportPeriods.Add(entity);
             await context.SaveChangesAsync(cancellationToken);
+            var dto = ToDto(entity);
+            if (onCreated != null)
+            {
+                await onCreated(dto);
+            }
             if (tx != null) await tx.CommitAsync(cancellationToken);
 
-            return ToDto(entity);
+            return dto;
         }
         catch
         {
@@ -156,6 +162,7 @@ public sealed class ReportingCycleRepository(AipmsDbContext context) : IReportin
         string? latePolicy,
         Guid? expectedToken,
         DateTime now,
+        Func<ReportingCycleDto, Task>? onUpdated = null,
         CancellationToken cancellationToken = default)
     {
         var tx = context.Database.CurrentTransaction is null
@@ -244,8 +251,13 @@ public sealed class ReportingCycleRepository(AipmsDbContext context) : IReportin
         entity.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
-            if (tx != null) await tx.CommitAsync(cancellationToken);
-            return ToDto(entity);
+        var dto = ToDto(entity);
+        if (onUpdated != null)
+        {
+            await onUpdated(dto);
+        }
+        if (tx != null) await tx.CommitAsync(cancellationToken);
+        return dto;
         }
         catch
         {
@@ -316,6 +328,25 @@ public sealed class ReportingCycleRepository(AipmsDbContext context) : IReportin
             p.CreatedAt,
             p.UpdatedAt,
             p.ConcurrencyToken.ToString("N"));
+
+    public Task<bool> HasAdminRoleInDbAsync(long userId, CancellationToken cancellationToken = default)
+        => context.UserRoles
+            .AsNoTracking()
+            .AnyAsync(ur => ur.UserId == userId && ur.User.Status == "ACTIVE" && ur.Role.Code == AppRoles.Admin, cancellationToken);
+
+    public Task<bool> HasStaffRoleInDbAsync(long userId, CancellationToken cancellationToken = default)
+        => context.UserRoles
+            .AsNoTracking()
+            .AnyAsync(ur => ur.UserId == userId && ur.User.Status == "ACTIVE" && ur.Role.Code == AppRoles.DepartmentStaff, cancellationToken);
+
+    public async Task<(long ProjectId, string ReportType, DateTime PeriodStart, DateTime PeriodEnd)?> GetCycleHeaderAsync(
+        long cycleId, CancellationToken cancellationToken = default)
+    {
+        var row = await context.ProgressReportPeriods
+            .AsNoTracking()
+            .Where(p => p.Id == cycleId)
+            .Select(p => new { p.ProjectId, p.ReportType, p.PeriodStart, p.PeriodEnd })
+            .FirstOrDefaultAsync(cancellationToken);
+        return row is null ? null : (row.ProjectId, row.ReportType, row.PeriodStart, row.PeriodEnd);
+    }
 }
-
-

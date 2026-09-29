@@ -90,7 +90,7 @@ public sealed class ReportingCycleHandlerTests
         public Task<long?> GetDefaultProjectPeriodIdAsync(long projectId, CancellationToken cancellationToken = default) =>
             Task.FromResult(DefaultPeriodId);
 
-        public Task<ReportingCycleDto> CreateAsync(long projectId, long projectPeriodId, string reportType, DateTime periodStart, DateTime periodEnd, DateTime deadline, string latePolicy, long createdBy, DateTime now, CancellationToken cancellationToken = default)
+        public async Task<ReportingCycleDto> CreateAsync(long projectId, long projectPeriodId, string reportType, DateTime periodStart, DateTime periodEnd, DateTime deadline, string latePolicy, long createdBy, DateTime now, Func<ReportingCycleDto, Task>? onCreated = null, CancellationToken cancellationToken = default)
         {
             var dto = new ReportingCycleDto(
                 _idCounter++,
@@ -106,7 +106,8 @@ public sealed class ReportingCycleHandlerTests
                 now,
                 Guid.NewGuid().ToString("N"));
             Cycles.Add(dto);
-            return Task.FromResult(dto);
+            if (onCreated != null) await onCreated(dto);
+            return dto;
         }
 
         public Task<ReportingCycleDto?> GetByIdAsync(long id, CancellationToken cancellationToken = default)
@@ -122,7 +123,7 @@ public sealed class ReportingCycleHandlerTests
             return Task.FromResult(new PagedResult<ReportingCycleDto>(list, page, pageSize, list.Count));
         }
 
-        public Task<ReportingCycleDto> UpdateAsync(long id, DateTime? periodStart, DateTime? periodEnd, DateTime? deadline, string? latePolicy, Guid? expectedToken, DateTime now, CancellationToken cancellationToken = default)
+        public async Task<ReportingCycleDto> UpdateAsync(long id, DateTime? periodStart, DateTime? periodEnd, DateTime? deadline, string? latePolicy, Guid? expectedToken, DateTime now, Func<ReportingCycleDto, Task>? onUpdated = null, CancellationToken cancellationToken = default)
         {
             var idx = Cycles.FindIndex(c => c.Id == id);
             if (idx == -1) throw new NotFoundException("ReportingCycle", id);
@@ -137,11 +138,23 @@ public sealed class ReportingCycleHandlerTests
                 ConcurrencyToken = Guid.NewGuid().ToString("N")
             };
             Cycles[idx] = updated;
-            return Task.FromResult(updated);
+            if (onUpdated != null) await onUpdated(updated);
+            return updated;
         }
 
         public Task<bool> HasLinkedReportAsync(long cycleId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
+
+        public bool IsAdmin { get; set; } = true;
+        public bool IsStaff { get; set; } = false;
+        public Task<bool> HasAdminRoleInDbAsync(long userId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(IsAdmin);
+        public Task<bool> HasStaffRoleInDbAsync(long userId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(IsStaff);
+
+        public (long ProjectId, string ReportType, DateTime PeriodStart, DateTime PeriodEnd)? CycleHeader { get; set; }
+        public Task<(long ProjectId, string ReportType, DateTime PeriodStart, DateTime PeriodEnd)?> GetCycleHeaderAsync(long cycleId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(CycleHeader);
     }
 
     private sealed class StubProgressRepo : IProgressReportRepository
@@ -227,7 +240,7 @@ public sealed class ReportingCycleHandlerTests
     [Fact]
     public async Task CreateReportingCycle_StudentOrSupervisor_ThrowsForbiddenException()
     {
-        var repo = new FakeReportingCycleRepository();
+        var repo = new FakeReportingCycleRepository { IsAdmin = false, IsStaff = false };
         var user = new FakeCurrentUser { Roles = new HashSet<string> { AppRoles.Student, AppRoles.Lecturer } };
         var handler = new CreateReportingCycleCommandHandler(
             repo,

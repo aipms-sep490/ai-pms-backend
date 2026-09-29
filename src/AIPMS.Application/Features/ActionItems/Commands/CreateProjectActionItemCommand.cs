@@ -68,6 +68,10 @@ public sealed class CreateProjectActionItemCommandHandler(
             if (!await repository.IsMeetingInProjectAsync(req.MeetingId.Value, projectId, cancellationToken))
                 throw new NotFoundException("Meeting", req.MeetingId.Value);
 
+            // P2-5: Cancelled meetings are read-only — no new action items allowed.
+            if (await repository.IsMeetingCancelledAsync(req.MeetingId.Value, cancellationToken))
+                throw new ConflictException("Cannot create action items for a cancelled meeting.");
+
             var isCreator = await repository.IsMeetingCreatorAsync(req.MeetingId.Value, actorId, cancellationToken);
             var isParticipant = await repository.IsMeetingParticipantAsync(req.MeetingId.Value, actorId, cancellationToken);
             var isActiveMember = await repository.IsActiveTeamMemberAsync(projectId, actorId, cancellationToken);
@@ -112,7 +116,7 @@ public sealed class CreateProjectActionItemCommandHandler(
         }
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var result = await repository.CreateAsync(
+        return await repository.CreateAsync(
             projectId,
             sourceType,
             req.MeetingId,
@@ -125,23 +129,23 @@ public sealed class CreateProjectActionItemCommandHandler(
             req.DueAt,
             actorId,
             now,
-            cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "PROJECT_ACTION_ITEM_CREATED",
-            "PROJECT_ACTION_ITEM",
-            result.Id,
-            new Dictionary<string, object?>
+            onCreated: async created =>
             {
-                ["projectId"] = projectId,
-                ["sourceType"] = result.SourceType,
-                ["meetingId"] = result.MeetingId,
-                ["progressReportId"] = result.ProgressReportId,
-                ["title"] = result.Title,
-                ["ownerId"] = result.OwnerId
-            }), cancellationToken);
-
-        return result;
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "PROJECT_ACTION_ITEM_CREATED",
+                    "PROJECT_ACTION_ITEM",
+                    created.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["sourceType"] = created.SourceType,
+                        ["meetingId"] = created.MeetingId,
+                        ["progressReportId"] = created.ProgressReportId,
+                        ["title"] = created.Title,
+                        ["ownerId"] = created.OwnerId
+                    }), cancellationToken);
+            },
+            cancellationToken: cancellationToken);
     }
 }

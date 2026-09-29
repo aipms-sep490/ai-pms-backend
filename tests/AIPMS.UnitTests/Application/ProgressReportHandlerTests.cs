@@ -294,7 +294,7 @@ public sealed class ProgressReportHandlerTests
     [Fact]
     public async Task CreateReport_Valid_CreatesDraft()
     {
-        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var handler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         var command = new CreateProgressReportCommand(1, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", "Done", "Next", "None"));
 
@@ -310,7 +310,7 @@ public sealed class ProgressReportHandlerTests
     public async Task CreateReport_InvalidProjectAccess_403()
     {
         projectAccess.HasAccess = false;
-        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var handler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         var command = new CreateProgressReportCommand(1, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", null, null, null));
 
@@ -321,7 +321,7 @@ public sealed class ProgressReportHandlerTests
     public async Task CreateReport_NonExistentProject_404()
     {
         repository.ProjectExists = false;
-        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var handler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         var command = new CreateProgressReportCommand(999, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", null, null, null));
 
@@ -332,7 +332,7 @@ public sealed class ProgressReportHandlerTests
     public async Task CreateReport_InactiveProject_409()
     {
         executionGuard.IsActive = false;
-        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var handler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         var command = new CreateProgressReportCommand(1, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", null, null, null));
 
@@ -343,7 +343,7 @@ public sealed class ProgressReportHandlerTests
     public async Task CreateReport_DuplicatePeriod_409()
     {
         repository.ExistsForPeriodResult = true;
-        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var handler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         var command = new CreateProgressReportCommand(1, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", null, null, null));
 
@@ -545,7 +545,7 @@ public sealed class ProgressReportHandlerTests
     public async Task Staff_CreateDraft_403()
     {
         repository.IsActiveMember = false;
-        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var handler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         var command = new CreateProgressReportCommand(1, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", null, null, null));
 
@@ -568,7 +568,7 @@ public sealed class ProgressReportHandlerTests
     public async Task Supervisor_CreateDraft_403()
     {
         repository.IsActiveMember = false;
-        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var handler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         var command = new CreateProgressReportCommand(1, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", null, null, null));
 
@@ -589,7 +589,7 @@ public sealed class ProgressReportHandlerTests
     public async Task ActiveMember_CreateUpdate_OK()
     {
         repository.IsActiveMember = true;
-        var createHandler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var createHandler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         var created = await createHandler.Handle(new CreateProgressReportCommand(1, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Member Summary", null, null, null)), CancellationToken.None);
         Assert.Equal("DRAFT", created.Status);
@@ -617,7 +617,7 @@ public sealed class ProgressReportHandlerTests
     public async Task FormerMember_CreateUpdate_403()
     {
         repository.IsActiveMember = false; // LeftAt != null
-        var createHandler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var createHandler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         await Assert.ThrowsAsync<ForbiddenException>(() => createHandler.Handle(new CreateProgressReportCommand(1, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Former Summary", null, null, null)), CancellationToken.None));
 
@@ -633,7 +633,7 @@ public sealed class ProgressReportHandlerTests
     public async Task IncompleteDraft_CanBeSaved()
     {
         repository.IsActiveMember = true;
-        var createHandler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var createHandler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         var created = await createHandler.Handle(new CreateProgressReportCommand(1, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary Only", null, null, null)), CancellationToken.None);
 
@@ -715,7 +715,7 @@ public sealed class ProgressReportHandlerTests
     public async Task CreateReport_WhenAuditFails_RollsBack()
     {
         audit.ShouldThrow = true;
-        var handler = new CreateProgressReportCommandHandler(repository, projectAccess, executionGuard, currentUser, audit, clock);
+        var handler = new CreateProgressReportCommandHandler(repository, new StubCycleRepo(), projectAccess, executionGuard, currentUser, audit, clock);
         var command = new CreateProgressReportCommand(1, new CreateProgressReportRequest(
             "WEEKLY", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 7), "Summary", "Done", "Next", "None"));
 
@@ -760,4 +760,18 @@ public sealed class ProgressReportHandlerTests
     }
 
     #endregion
+    private sealed class StubCycleRepo : IReportingCycleRepository
+    {
+        public Task<AIPMS.Application.Features.ProgressReports.DTOs.ReportingCycleDto?> GetByIdAsync(long id, CancellationToken ct = default) => Task.FromResult<AIPMS.Application.Features.ProgressReports.DTOs.ReportingCycleDto?>(null);
+        public Task<AIPMS.Application.Common.Models.PagedResult<AIPMS.Application.Features.ProgressReports.DTOs.ReportingCycleDto>> ListAsync(long projectId, string? reportType, DateTime? from, DateTime? to, int page, int pageSize, CancellationToken ct = default) => Task.FromResult(new AIPMS.Application.Common.Models.PagedResult<AIPMS.Application.Features.ProgressReports.DTOs.ReportingCycleDto>(System.Array.Empty<AIPMS.Application.Features.ProgressReports.DTOs.ReportingCycleDto>(), 0, page, pageSize));
+        public Task<bool> ExistsOverlapAsync(long projectId, string reportType, DateTime start, DateTime end, long? excludeId = null, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<AIPMS.Application.Features.ProgressReports.DTOs.ReportingCycleDto> CreateAsync(long projectId, long projectPeriodId, string reportType, DateTime start, DateTime end, DateTime deadline, string latePolicy, long createdBy, DateTime now, Func<AIPMS.Application.Features.ProgressReports.DTOs.ReportingCycleDto, Task>? onCreated = null, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<AIPMS.Application.Features.ProgressReports.DTOs.ReportingCycleDto> UpdateAsync(long id, DateTime? start, DateTime? end, DateTime? deadline, string? latePolicy, Guid? token, DateTime now, Func<AIPMS.Application.Features.ProgressReports.DTOs.ReportingCycleDto, Task>? onUpdated = null, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<bool> HasLinkedReportAsync(long cycleId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<long?> GetDefaultProjectPeriodIdAsync(long projectId, CancellationToken ct = default) => Task.FromResult<long?>(null);
+        public Task<bool> IsValidProjectPeriodAsync(long projectId, long periodId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> HasAdminRoleInDbAsync(long userId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<bool> HasStaffRoleInDbAsync(long userId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<(long ProjectId, string ReportType, DateTime PeriodStart, DateTime PeriodEnd)?> GetCycleHeaderAsync(long cycleId, CancellationToken ct = default) => Task.FromResult<(long, string, DateTime, DateTime)?>(null);
+    }
 }

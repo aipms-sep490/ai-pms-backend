@@ -47,6 +47,9 @@ public sealed class UpdateProjectActionItemCommandHandler(
         if (existing.ProjectId != projectId)
             throw new NotFoundException("ProjectActionItem", id);
 
+        if (existing.MeetingId.HasValue && await repository.IsMeetingCancelledAsync(existing.MeetingId.Value, cancellationToken))
+            throw new ConflictException("Cannot modify action items associated with a cancelled meeting.");
+
         var isAdmin = currentUser.Roles.Contains(AppRoles.Admin, StringComparer.Ordinal);
         var isLeader = await repository.IsProjectLeaderAsync(projectId, actorId, cancellationToken);
         var isSupervisor = await repository.IsAssignedSupervisorAsync(projectId, actorId, cancellationToken);
@@ -95,7 +98,7 @@ public sealed class UpdateProjectActionItemCommandHandler(
         }
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var result = await repository.UpdateDetailsAsync(
+        return await repository.UpdateDetailsAsync(
             id,
             req.Title,
             req.Description,
@@ -105,20 +108,20 @@ public sealed class UpdateProjectActionItemCommandHandler(
             req.DueAt,
             expectedToken,
             now,
-            cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "PROJECT_ACTION_ITEM_UPDATED",
-            "PROJECT_ACTION_ITEM",
-            result.Id,
-            new Dictionary<string, object?>
+            onUpdated: async updated =>
             {
-                ["projectId"] = projectId,
-                ["title"] = result.Title,
-                ["ownerId"] = result.OwnerId
-            }), cancellationToken);
-
-        return result;
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "PROJECT_ACTION_ITEM_UPDATED",
+                    "PROJECT_ACTION_ITEM",
+                    updated.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["title"] = updated.Title,
+                        ["ownerId"] = updated.OwnerId
+                    }), cancellationToken);
+            },
+            cancellationToken: cancellationToken);
     }
 }

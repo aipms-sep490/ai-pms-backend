@@ -280,6 +280,8 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         WorkflowNotificationKind.TeamLeaderChangeRequested => ("TEAM_LEADER_CHANGE_REQUEST", "PENDING", "TEAM_LEADER_CHANGE_REQUESTED", "You received a team leader change request"),
         WorkflowNotificationKind.TeamLeaderChangeApproved => ("TEAM_LEADER_CHANGE_REQUEST", "APPROVED", "TEAM_LEADER_CHANGE_APPROVED", "Your team leader change request was approved"),
         WorkflowNotificationKind.TeamLeaderChangeRejected => ("TEAM_LEADER_CHANGE_REQUEST", "REJECTED", "TEAM_LEADER_CHANGE_REJECTED", "Your team leader change request was rejected"),
+        WorkflowNotificationKind.MeetingScheduled => ("MEETING", "SCHEDULED", "MEETING_SCHEDULED", "A project meeting has been scheduled"),
+        WorkflowNotificationKind.ProgressReportSubmitted => ("PROGRESS_REPORT", "SUBMITTED", "PROGRESS_REPORT_SUBMITTED", "A progress report has been submitted"),
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 }

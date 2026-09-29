@@ -50,6 +50,9 @@ public sealed class UpdateProjectActionItemStatusCommandHandler(
         if (existing.ProjectId != projectId)
             throw new NotFoundException("ProjectActionItem", id);
 
+        if (existing.MeetingId.HasValue && await repository.IsMeetingCancelledAsync(existing.MeetingId.Value, cancellationToken))
+            throw new ConflictException("Cannot modify action items associated with a cancelled meeting.");
+
         var targetStatus = command.Request.Status?.Trim().ToUpperInvariant() ?? "";
         if (!ValidStatuses.Contains(targetStatus))
         {
@@ -131,20 +134,25 @@ public sealed class UpdateProjectActionItemStatusCommandHandler(
         }
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var result = await repository.UpdateStatusAsync(id, targetStatus, expectedToken, now, cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "PROJECT_ACTION_ITEM_STATUS_CHANGED",
-            "PROJECT_ACTION_ITEM",
-            result.Id,
-            new Dictionary<string, object?>
+        return await repository.UpdateStatusAsync(
+            id,
+            targetStatus,
+            expectedToken,
+            now,
+            onUpdated: async updated =>
             {
-                ["projectId"] = projectId,
-                ["previousStatus"] = currentStatus,
-                ["newStatus"] = targetStatus
-            }), cancellationToken);
-
-        return result;
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "PROJECT_ACTION_ITEM_STATUS_CHANGED",
+                    "PROJECT_ACTION_ITEM",
+                    updated.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["previousStatus"] = currentStatus,
+                        ["newStatus"] = targetStatus
+                    }), cancellationToken);
+            },
+            cancellationToken: cancellationToken);
     }
 }

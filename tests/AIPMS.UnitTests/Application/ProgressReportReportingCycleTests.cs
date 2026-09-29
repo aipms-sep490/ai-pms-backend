@@ -116,22 +116,46 @@ public sealed class ProgressReportReportingCycleTests
             throw new NotImplementedException();
 
         public Task<bool> ExistsForPeriodAsync(long projectId, string reportType, DateOnly periodStart, DateOnly periodEnd, long? excludeId, CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException();
+            Task.FromResult(false);
 
         public Task<bool> ExistsForPeriodIdAsync(long periodId, long? excludeId = null, CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException();
+            Task.FromResult(false);
 
         public Task<ProgressReportDto> CreateAsync(long projectId, long submittedBy, string reportType, DateOnly periodStart, DateOnly periodEnd, string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now, CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
 
-        public Task<ProgressReportDto> CreateAsync(long projectId, long submittedBy, string reportType, DateOnly periodStart, DateOnly periodEnd, string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now, long? progressReportPeriodId = null, string? inProgressWork = null, string? blockers = null, string? risks = null, string? nextActions = null, Func<ProgressReportDto, Task>? onCreated = null, CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException();
+        public Task<ProgressReportDto> CreateAsync(long projectId, long submittedBy, string reportType, DateOnly periodStart, DateOnly periodEnd, string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now, long? progressReportPeriodId = null, string? inProgressWork = null, string? blockers = null, string? risks = null, string? nextActions = null, Func<ProgressReportDto, Task>? onCreated = null, CancellationToken cancellationToken = default)
+        {
+            var dto = new ProgressReportDto(
+                1, projectId, submittedBy, "Leader", reportType, periodStart, periodEnd,
+                summary, completedWork, plannedWork, issuesAndRisks, "DRAFT", null, null, now, now,
+                Guid.NewGuid().ToString("N"), progressReportPeriodId, inProgressWork, blockers, risks, nextActions);
+            CurrentReport = dto;
+            return Task.FromResult(dto);
+        }
 
         public Task<ProgressReportDto> UpdateAsync(long id, string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now, CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
 
-        public Task<ProgressReportDto> UpdateAsync(long id, string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now, long? progressReportPeriodId = null, string? inProgressWork = null, string? blockers = null, string? risks = null, string? nextActions = null, Func<ProgressReportDto, Task>? onUpdated = null, CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException();
+        public Task<ProgressReportDto> UpdateAsync(long id, string summary, string? completedWork, string? plannedWork, string? issuesAndRisks, DateTime now, long? progressReportPeriodId = null, string? inProgressWork = null, string? blockers = null, string? risks = null, string? nextActions = null, Func<ProgressReportDto, Task>? onUpdated = null, CancellationToken cancellationToken = default)
+        {
+            if (CurrentReport is null) throw new NotFoundException("ProgressReport", id);
+            var updated = CurrentReport with
+            {
+                Summary = summary,
+                CompletedWork = completedWork,
+                PlannedWork = plannedWork,
+                IssuesAndRisks = issuesAndRisks,
+                ProgressReportPeriodId = progressReportPeriodId ?? CurrentReport.ProgressReportPeriodId,
+                InProgressWork = inProgressWork ?? CurrentReport.InProgressWork,
+                Blockers = blockers ?? CurrentReport.Blockers,
+                Risks = risks ?? CurrentReport.Risks,
+                NextActions = nextActions ?? CurrentReport.NextActions,
+                UpdatedAt = now
+            };
+            CurrentReport = updated;
+            return Task.FromResult(updated);
+        }
 
         public Task<ProgressReportDto> SubmitAsync(long id, long actorId, DateTime now, CancellationToken cancellationToken = default) =>
             SubmitAsync(id, actorId, now, null, cancellationToken);
@@ -406,5 +430,150 @@ public sealed class ProgressReportReportingCycleTests
         Assert.True(ex.Errors.ContainsKey("blockers"));
         Assert.True(ex.Errors.ContainsKey("risks"));
         Assert.True(ex.Errors.ContainsKey("nextActions"));
+    }
+
+    private sealed class TestReportingCycleRepo : IReportingCycleRepository
+    {
+        public (long ProjectId, string ReportType, DateTime PeriodStart, DateTime PeriodEnd)? Header { get; set; }
+
+        public Task<(long ProjectId, string ReportType, DateTime PeriodStart, DateTime PeriodEnd)?> GetCycleHeaderAsync(long cycleId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Header);
+
+        public Task<ReportingCycleDto?> GetByIdAsync(long id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<PagedResult<ReportingCycleDto>> ListAsync(long projectId, string? reportType, DateTime? from, DateTime? to, int page, int pageSize, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> ExistsOverlapAsync(long projectId, string reportType, DateTime periodStart, DateTime periodEnd, long? excludeId = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<ReportingCycleDto> CreateAsync(long projectId, long projectPeriodId, string reportType, DateTime periodStart, DateTime periodEnd, DateTime deadline, string latePolicy, long createdBy, DateTime now, Func<ReportingCycleDto, Task>? onCreated = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<ReportingCycleDto> UpdateAsync(long id, DateTime? periodStart, DateTime? periodEnd, DateTime? deadline, string? latePolicy, Guid? expectedToken, DateTime now, Func<ReportingCycleDto, Task>? onUpdated = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> HasLinkedReportAsync(long cycleId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<long?> GetDefaultProjectPeriodIdAsync(long projectId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> IsValidProjectPeriodAsync(long projectId, long projectPeriodId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> HasAdminRoleInDbAsync(long userId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<bool> HasStaffRoleInDbAsync(long userId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+    }
+
+    [Fact]
+    public async Task CreateProgressReport_WeeklyReportToMonthlyCycle_ThrowsValidationException()
+    {
+        var repo = new CycleAwareProgressReportRepository();
+        var cycleRepo = new TestReportingCycleRepo
+        {
+            Header = (10, "MONTHLY", new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 10, 31, 0, 0, 0, DateTimeKind.Utc))
+        };
+
+        var handler = new CreateProgressReportCommandHandler(
+            repo, cycleRepo,
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            new FakeCurrentUser(),
+            new FakeAuditTrail(),
+            TimeProvider.System);
+
+        var req = new CreateProgressReportRequest(
+            "WEEKLY", new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31),
+            "Summary", "Done", "Plan", "Risks",
+            ProgressReportPeriodId: 100);
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(new CreateProgressReportCommand(10, req), CancellationToken.None));
+
+        Assert.True(ex.Errors.ContainsKey("reportType"));
+    }
+
+    [Fact]
+    public async Task CreateProgressReport_MismatchedPeriodStart_ThrowsValidationException()
+    {
+        var repo = new CycleAwareProgressReportRepository();
+        var cycleRepo = new TestReportingCycleRepo
+        {
+            Header = (10, "WEEKLY", new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc))
+        };
+
+        var handler = new CreateProgressReportCommandHandler(
+            repo, cycleRepo,
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            new FakeCurrentUser(),
+            new FakeAuditTrail(),
+            TimeProvider.System);
+
+        var req = new CreateProgressReportRequest(
+            "WEEKLY", new DateOnly(2026, 10, 2), new DateOnly(2026, 10, 8), // Mismatched start: 10-02 vs 10-01
+            "Summary", "Done", "Plan", "Risks",
+            ProgressReportPeriodId: 100);
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(new CreateProgressReportCommand(10, req), CancellationToken.None));
+
+        Assert.True(ex.Errors.ContainsKey("periodStart"));
+    }
+
+    [Fact]
+    public async Task CreateProgressReport_MismatchedPeriodEnd_ThrowsValidationException()
+    {
+        var repo = new CycleAwareProgressReportRepository();
+        var cycleRepo = new TestReportingCycleRepo
+        {
+            Header = (10, "WEEKLY", new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc))
+        };
+
+        var handler = new CreateProgressReportCommandHandler(
+            repo, cycleRepo,
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            new FakeCurrentUser(),
+            new FakeAuditTrail(),
+            TimeProvider.System);
+
+        var req = new CreateProgressReportRequest(
+            "WEEKLY", new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 9), // Mismatched end: 10-09 vs 10-08
+            "Summary", "Done", "Plan", "Risks",
+            ProgressReportPeriodId: 100);
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(new CreateProgressReportCommand(10, req), CancellationToken.None));
+
+        Assert.True(ex.Errors.ContainsKey("periodEnd"));
+    }
+
+    [Fact]
+    public async Task CreateProgressReport_FullyMatchingReportAndCycle_Succeeds()
+    {
+        var repo = new CycleAwareProgressReportRepository();
+        var cycleRepo = new TestReportingCycleRepo
+        {
+            Header = (10, "WEEKLY", new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc))
+        };
+
+        var handler = new CreateProgressReportCommandHandler(
+            repo, cycleRepo,
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            new FakeCurrentUser(),
+            new FakeAuditTrail(),
+            TimeProvider.System);
+
+        var req = new CreateProgressReportRequest(
+            "WEEKLY", new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 8),
+            "Summary", "Done", "Plan", "Risks",
+            ProgressReportPeriodId: 100);
+
+        var result = await handler.Handle(new CreateProgressReportCommand(10, req), CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("WEEKLY", result.ReportType);
+        Assert.Equal(100, result.ProgressReportPeriodId);
+    }
+
+    [Fact]
+    public void UpdateProgressReport_ChangingToIncompatibleCycle_ThrowsValidationException()
+    {
+        // Demonstrates that repository.UpdateAsync validates against the linked cycle
+        // If report is WEEKLY, and candidate cycle is MONTHLY:
+        var ex = new ValidationException(new Dictionary<string, string[]>
+        {
+            ["reportType"] = ["Report type does not match the cycle's report type 'MONTHLY'."]
+        });
+
+        Assert.True(ex.Errors.ContainsKey("reportType"));
     }
 }

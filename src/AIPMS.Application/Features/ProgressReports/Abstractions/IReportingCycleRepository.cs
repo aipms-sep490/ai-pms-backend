@@ -37,6 +37,7 @@ public interface IReportingCycleRepository
         string latePolicy,
         long createdBy,
         DateTime now,
+        Func<ReportingCycleDto, Task>? onCreated = null,
         CancellationToken cancellationToken = default);
 
     Task<ReportingCycleDto> UpdateAsync(
@@ -47,6 +48,7 @@ public interface IReportingCycleRepository
         string? latePolicy,
         Guid? expectedToken,
         DateTime now,
+        Func<ReportingCycleDto, Task>? onUpdated = null,
         CancellationToken cancellationToken = default);
 
     Task<bool> HasLinkedReportAsync(long cycleId, CancellationToken cancellationToken = default);
@@ -54,4 +56,13 @@ public interface IReportingCycleRepository
     Task<long?> GetDefaultProjectPeriodIdAsync(long projectId, CancellationToken cancellationToken = default);
 
     Task<bool> IsValidProjectPeriodAsync(long projectId, long projectPeriodId, CancellationToken cancellationToken = default);
+
+    /// <summary>Checks Admin role in DB — not JWT — to prevent stale token escalation.</summary>
+    Task<bool> HasAdminRoleInDbAsync(long userId, CancellationToken cancellationToken = default);
+
+    /// <summary>Checks DepartmentStaff role in DB — not JWT — to prevent stale token escalation.</summary>
+    Task<bool> HasStaffRoleInDbAsync(long userId, CancellationToken cancellationToken = default);
+
+    /// <summary>Returns (ProjectId, ReportType, PeriodStart, PeriodEnd) for a cycle — used to validate report–cycle alignment.</summary>
+    Task<(long ProjectId, string ReportType, DateTime PeriodStart, DateTime PeriodEnd)?> GetCycleHeaderAsync(long cycleId, CancellationToken cancellationToken = default);
 }

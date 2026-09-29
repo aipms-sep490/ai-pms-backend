@@ -35,8 +35,8 @@ public sealed class CreateReportingCycleCommandHandler(
 
         await executionGuard.MustBeActiveAsync(projectId, cancellationToken);
 
-        var isAdmin = currentUser.Roles.Contains(AppRoles.Admin, StringComparer.Ordinal);
-        var isStaff = currentUser.Roles.Contains(AppRoles.DepartmentStaff, StringComparer.Ordinal);
+        var isAdmin = await repository.HasAdminRoleInDbAsync(actorId, cancellationToken);
+        var isStaff = await repository.HasStaffRoleInDbAsync(actorId, cancellationToken);
 
         if (!isAdmin && !isStaff)
             throw new ForbiddenException("Only Admin or Department Staff can create reporting cycles.");
@@ -106,7 +106,8 @@ public sealed class CreateReportingCycleCommandHandler(
         }
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var result = await repository.CreateAsync(
+
+        return await repository.CreateAsync(
             projectId,
             projectPeriodId,
             reportType,
@@ -116,23 +117,23 @@ public sealed class CreateReportingCycleCommandHandler(
             latePolicy,
             actorId,
             now,
-            cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "REPORTING_CYCLE_CREATED",
-            "PROGRESS_REPORT_PERIOD",
-            result.Id,
-            new Dictionary<string, object?>
+            onCreated: async created =>
             {
-                ["projectId"] = projectId,
-                ["reportType"] = result.ReportType,
-                ["periodStart"] = result.PeriodStart.ToString("o"),
-                ["periodEnd"] = result.PeriodEnd.ToString("o"),
-                ["deadline"] = result.Deadline.ToString("o"),
-                ["latePolicy"] = result.LatePolicy
-            }), cancellationToken);
-
-        return result;
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "REPORTING_CYCLE_CREATED",
+                    "PROGRESS_REPORT_PERIOD",
+                    created.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["reportType"] = created.ReportType,
+                        ["periodStart"] = created.PeriodStart.ToString("o"),
+                        ["periodEnd"] = created.PeriodEnd.ToString("o"),
+                        ["deadline"] = created.Deadline.ToString("o"),
+                        ["latePolicy"] = created.LatePolicy
+                    }), cancellationToken);
+            },
+            cancellationToken: cancellationToken);
     }
 }

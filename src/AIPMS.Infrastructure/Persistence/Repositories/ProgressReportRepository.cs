@@ -167,6 +167,27 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             if (cycle.ProjectId != projectId)
                 throw new NotFoundException("ProgressReportPeriod", progressReportPeriodId.Value);
 
+            if (!string.Equals(cycle.ReportType, reportType?.Trim().ToUpperInvariant(), StringComparison.OrdinalIgnoreCase))
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["reportType"] = [$"Report type does not match the cycle's report type '{cycle.ReportType}'."]
+                });
+
+            var startDt = periodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            var endDt = periodEnd.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+
+            if (startDt.Date != cycle.PeriodStart.Date)
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["periodStart"] = ["PeriodStart does not match the reporting cycle's period start."]
+                });
+
+            if (endDt.Date != cycle.PeriodEnd.Date)
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["periodEnd"] = ["PeriodEnd does not match the reporting cycle's period end."]
+                });
+
             if (await ExistsForPeriodIdAsync(progressReportPeriodId.Value, null, cancellationToken))
                 throw new ConflictException("A progress report has already been created for this reporting cycle.");
         }
@@ -175,7 +196,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         {
             ProjectId = projectId,
             SubmittedBy = submittedBy,
-            ReportType = reportType,
+            ReportType = reportType ?? "",
             PeriodStart = periodStart,
             PeriodEnd = periodEnd,
             Summary = summary,
@@ -267,6 +288,27 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
 
             if (cycle.ProjectId != entity.ProjectId)
                 throw new NotFoundException("ProgressReportPeriod", progressReportPeriodId.Value);
+
+            if (!string.Equals(cycle.ReportType, entity.ReportType, StringComparison.OrdinalIgnoreCase))
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["reportType"] = [$"Report type does not match the cycle's report type '{cycle.ReportType}'."]
+                });
+
+            var startDt = entity.PeriodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            var endDt = entity.PeriodEnd.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+
+            if (startDt.Date != cycle.PeriodStart.Date)
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["periodStart"] = ["PeriodStart does not match the reporting cycle's period start."]
+                });
+
+            if (endDt.Date != cycle.PeriodEnd.Date)
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["periodEnd"] = ["PeriodEnd does not match the reporting cycle's period end."]
+                });
 
             if (await ExistsForPeriodIdAsync(progressReportPeriodId.Value, id, cancellationToken))
                 throw new ConflictException("A progress report has already been created for this reporting cycle.");

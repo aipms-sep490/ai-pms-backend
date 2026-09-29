@@ -43,8 +43,8 @@ public sealed class UpdateReportingCycleCommandHandler(
         if (existing.ProjectId != projectId)
             throw new NotFoundException("ProgressReportPeriod", cycleId);
 
-        var isAdmin = currentUser.Roles.Contains(AppRoles.Admin, StringComparer.Ordinal);
-        var isStaff = currentUser.Roles.Contains(AppRoles.DepartmentStaff, StringComparer.Ordinal);
+        var isAdmin = await repository.HasAdminRoleInDbAsync(actorId, cancellationToken);
+        var isStaff = await repository.HasStaffRoleInDbAsync(actorId, cancellationToken);
 
         if (!isAdmin && !isStaff)
             throw new ForbiddenException("Only Admin or Department Staff can update reporting cycles.");
@@ -74,7 +74,7 @@ public sealed class UpdateReportingCycleCommandHandler(
         var deadline = command.Request.Deadline?.UtcDateTime;
 
         var now = clock.GetUtcNow().UtcDateTime;
-        var result = await repository.UpdateAsync(
+        return await repository.UpdateAsync(
             cycleId,
             periodStart,
             periodEnd,
@@ -82,22 +82,22 @@ public sealed class UpdateReportingCycleCommandHandler(
             command.Request.LatePolicy,
             expectedToken,
             now,
-            cancellationToken);
-
-        await audit.RecordAsync(new AuditEntry(
-            actorId,
-            "REPORTING_CYCLE_UPDATED",
-            "PROGRESS_REPORT_PERIOD",
-            result.Id,
-            new Dictionary<string, object?>
+            onUpdated: async updated =>
             {
-                ["projectId"] = projectId,
-                ["periodStart"] = result.PeriodStart.ToString("o"),
-                ["periodEnd"] = result.PeriodEnd.ToString("o"),
-                ["deadline"] = result.Deadline.ToString("o"),
-                ["latePolicy"] = result.LatePolicy
-            }), cancellationToken);
-
-        return result;
+                await audit.RecordAsync(new AuditEntry(
+                    actorId,
+                    "REPORTING_CYCLE_UPDATED",
+                    "PROGRESS_REPORT_PERIOD",
+                    updated.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["periodStart"] = updated.PeriodStart.ToString("o"),
+                        ["periodEnd"] = updated.PeriodEnd.ToString("o"),
+                        ["deadline"] = updated.Deadline.ToString("o"),
+                        ["latePolicy"] = updated.LatePolicy
+                    }), cancellationToken);
+            },
+            cancellationToken: cancellationToken);
     }
 }

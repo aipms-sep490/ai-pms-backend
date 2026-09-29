@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,6 +17,7 @@ public sealed record CreateProgressReportCommand(
 
 public sealed class CreateProgressReportCommandHandler(
     IProgressReportRepository repository,
+    IReportingCycleRepository cycleRepository,
     IProjectAccessService projectAccess,
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
@@ -41,14 +43,46 @@ public sealed class CreateProgressReportCommandHandler(
         if (command.Request.ProgressReportPeriodId.HasValue && await repository.ExistsForPeriodIdAsync(command.Request.ProgressReportPeriodId.Value, null, cancellationToken))
             throw new ConflictException("A progress report for this reporting cycle already exists.");
 
-        if (await repository.ExistsForPeriodAsync(projectId, command.Request.ReportType, command.Request.PeriodStart, command.Request.PeriodEnd, null, cancellationToken))
+        // P1-4: Validate report matches cycle header — prevents attaching a weekly report to a monthly cycle.
+        if (command.Request.ProgressReportPeriodId.HasValue)
+        {
+            var cycleHeader = await cycleRepository.GetCycleHeaderAsync(command.Request.ProgressReportPeriodId.Value, cancellationToken)
+                ?? throw new NotFoundException("ProgressReportPeriod", command.Request.ProgressReportPeriodId.Value);
+
+            if (cycleHeader.ProjectId != projectId)
+                throw new NotFoundException("ProgressReportPeriod", command.Request.ProgressReportPeriodId.Value);
+
+            var reqType = command.Request.ReportType?.Trim().ToUpperInvariant();
+            if (!string.Equals(cycleHeader.ReportType, reqType, StringComparison.Ordinal))
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["reportType"] = [$"Report type '{reqType}' does not match the cycle's report type '{cycleHeader.ReportType}'."]
+                });
+
+            var reqStart = command.Request.PeriodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            var reqEnd   = command.Request.PeriodEnd.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+
+            if (reqStart != cycleHeader.PeriodStart.Date && reqStart.Date != cycleHeader.PeriodStart.Date)
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["periodStart"] = ["PeriodStart does not match the reporting cycle's period start."]
+                });
+
+            if (reqEnd.Date != cycleHeader.PeriodEnd.Date)
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["periodEnd"] = ["PeriodEnd does not match the reporting cycle's period end."]
+                });
+        }
+
+        if (await repository.ExistsForPeriodAsync(projectId, command.Request.ReportType ?? "", command.Request.PeriodStart, command.Request.PeriodEnd, null, cancellationToken))
             throw new ConflictException("A progress report for this project, type, and period already exists.");
 
         var now = clock.GetUtcNow().UtcDateTime;
         var result = await repository.CreateAsync(
             projectId,
             actorId,
-            command.Request.ReportType,
+            command.Request.ReportType ?? "",
             command.Request.PeriodStart,
             command.Request.PeriodEnd,
             command.Request.Summary,

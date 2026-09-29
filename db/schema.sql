@@ -1591,3 +1591,73 @@ BEGIN
 END;
 -- Legacy tasks/files are not assigned guessed majors or verification outcomes.
 COMMIT;
+
+
+GO
+-- BE-03A: Reporting Cycles (progress_report_periods)
+CREATE TABLE dbo.progress_report_periods (
+    id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_progress_report_periods PRIMARY KEY,
+    project_id BIGINT NOT NULL CONSTRAINT fk_progress_report_periods_project REFERENCES dbo.projects(id),
+    project_period_id BIGINT NOT NULL CONSTRAINT fk_progress_report_periods_period REFERENCES dbo.project_periods(id),
+    report_type NVARCHAR(20) NOT NULL CONSTRAINT ck_progress_report_periods_type CHECK (report_type IN (N'WEEKLY', N'MONTHLY')),
+    period_start DATETIME2(0) NOT NULL,
+    period_end DATETIME2(0) NOT NULL,
+    deadline DATETIME2(0) NOT NULL,
+    late_policy NVARCHAR(20) NOT NULL CONSTRAINT df_progress_report_periods_late_policy DEFAULT (N'BLOCK') CONSTRAINT ck_progress_report_periods_policy CHECK (late_policy IN (N'BLOCK', N'FLAG')),
+    concurrency_token UNIQUEIDENTIFIER NOT NULL CONSTRAINT df_progress_report_periods_token DEFAULT (NEWSEQUENTIALID()),
+    created_by BIGINT NOT NULL CONSTRAINT fk_progress_report_periods_creator REFERENCES dbo.users(id),
+    created_at DATETIME2(0) NOT NULL CONSTRAINT df_progress_report_periods_created_at DEFAULT (SYSUTCDATETIME()),
+    updated_at DATETIME2(0) NOT NULL CONSTRAINT df_progress_report_periods_updated_at DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT ck_progress_report_periods_range CHECK (period_end > period_start)
+);
+GO
+CREATE INDEX ix_progress_report_periods_lookup ON dbo.progress_report_periods(project_id, report_type, period_start, period_end);
+GO
+
+-- BE-03A: New columns on progress_reports
+ALTER TABLE dbo.progress_reports ADD progress_report_period_id BIGINT NULL CONSTRAINT fk_progress_reports_period_id REFERENCES dbo.progress_report_periods(id);
+ALTER TABLE dbo.progress_reports ADD is_late BIT NULL;
+ALTER TABLE dbo.progress_reports ADD in_progress_work NVARCHAR(MAX) NULL;
+ALTER TABLE dbo.progress_reports ADD blockers NVARCHAR(MAX) NULL;
+ALTER TABLE dbo.progress_reports ADD risks NVARCHAR(MAX) NULL;
+ALTER TABLE dbo.progress_reports ADD next_actions NVARCHAR(MAX) NULL;
+GO
+CREATE UNIQUE INDEX uq_progress_reports_period_id ON dbo.progress_reports(progress_report_period_id) WHERE progress_report_period_id IS NOT NULL;
+GO
+
+-- BE-03A: New columns on meetings
+ALTER TABLE dbo.meetings ADD minutes NVARCHAR(MAX) NULL;
+ALTER TABLE dbo.meetings ADD decisions NVARCHAR(MAX) NULL;
+ALTER TABLE dbo.meetings ADD blockers NVARCHAR(MAX) NULL;
+GO
+
+-- BE-03A: Generic Project Action Items
+CREATE TABLE dbo.project_action_items (
+    id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_project_action_items PRIMARY KEY,
+    project_id BIGINT NOT NULL CONSTRAINT fk_project_action_items_project REFERENCES dbo.projects(id),
+    source_type NVARCHAR(30) NOT NULL,
+    meeting_id BIGINT NULL CONSTRAINT fk_project_action_items_meeting REFERENCES dbo.meetings(id),
+    progress_report_id BIGINT NULL CONSTRAINT fk_project_action_items_report REFERENCES dbo.progress_reports(id),
+    title NVARCHAR(500) NOT NULL,
+    description NVARCHAR(MAX) NULL,
+    owner_id BIGINT NULL CONSTRAINT fk_project_action_items_owner REFERENCES dbo.users(id),
+    task_id BIGINT NULL CONSTRAINT fk_project_action_items_task REFERENCES dbo.tasks(id),
+    milestone_id BIGINT NULL CONSTRAINT fk_project_action_items_milestone REFERENCES dbo.milestones(id),
+    due_at DATETIME2(0) NULL,
+    status NVARCHAR(20) NOT NULL CONSTRAINT df_project_action_items_status DEFAULT (N'TODO'),
+    concurrency_token UNIQUEIDENTIFIER NOT NULL CONSTRAINT df_project_action_items_token DEFAULT (NEWSEQUENTIALID()),
+    created_by BIGINT NOT NULL CONSTRAINT fk_project_action_items_creator REFERENCES dbo.users(id),
+    created_at DATETIME2(0) NOT NULL CONSTRAINT df_project_action_items_created_at DEFAULT (SYSUTCDATETIME()),
+    updated_at DATETIME2(0) NOT NULL CONSTRAINT df_project_action_items_updated_at DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT ck_project_action_items_source CHECK (
+        (source_type = N'MEETING' AND meeting_id IS NOT NULL AND progress_report_id IS NULL) OR
+        (source_type = N'PROGRESS_REPORT' AND progress_report_id IS NOT NULL AND meeting_id IS NULL)
+    ),
+    CONSTRAINT ck_project_action_items_status CHECK (status IN (N'TODO', N'IN_PROGRESS', N'BLOCKED', N'DONE', N'CANCELLED'))
+);
+GO
+CREATE INDEX ix_project_action_items_project ON dbo.project_action_items(project_id, status, due_at);
+CREATE INDEX ix_project_action_items_owner ON dbo.project_action_items(owner_id, status);
+CREATE INDEX ix_project_action_items_meeting ON dbo.project_action_items(meeting_id) WHERE meeting_id IS NOT NULL;
+CREATE INDEX ix_project_action_items_report ON dbo.project_action_items(progress_report_id) WHERE progress_report_id IS NOT NULL;
+GO

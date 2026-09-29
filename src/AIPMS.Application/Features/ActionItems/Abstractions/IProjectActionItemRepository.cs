@@ -34,6 +34,7 @@ public interface IProjectActionItemRepository
         DateTime? dueAt,
         long createdBy,
         DateTime now,
+        Func<ProjectActionItemDto, Task>? onCreated = null,
         CancellationToken cancellationToken = default);
 
     Task<ProjectActionItemDto> UpdateDetailsAsync(
@@ -46,6 +47,7 @@ public interface IProjectActionItemRepository
         DateTime? dueAt,
         Guid? expectedToken,
         DateTime now,
+        Func<ProjectActionItemDto, Task>? onUpdated = null,
         CancellationToken cancellationToken = default);
 
     Task<ProjectActionItemDto> UpdateStatusAsync(
@@ -53,9 +55,12 @@ public interface IProjectActionItemRepository
         string newStatus,
         Guid? expectedToken,
         DateTime now,
+        Func<ProjectActionItemDto, Task>? onUpdated = null,
         CancellationToken cancellationToken = default);
 
     Task<bool> IsMeetingInProjectAsync(long meetingId, long projectId, CancellationToken cancellationToken = default);
+
+    Task<bool> IsMeetingCancelledAsync(long meetingId, CancellationToken cancellationToken = default);
 
     Task<bool> IsProgressReportInProjectAsync(long reportId, long projectId, CancellationToken cancellationToken = default);
 

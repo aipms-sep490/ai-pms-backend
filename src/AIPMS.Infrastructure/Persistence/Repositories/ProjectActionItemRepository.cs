@@ -95,31 +95,53 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
         DateTime? dueAt,
         long createdBy,
         DateTime now,
+        Func<ProjectActionItemDto, Task>? onCreated = null,
         CancellationToken cancellationToken = default)
     {
-        var entity = new ProjectActionItem
+        if (meetingId.HasValue && await IsMeetingCancelledAsync(meetingId.Value, cancellationToken))
+            throw new ConflictException("Cannot create action items for a cancelled meeting.");
+
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        try
         {
-            ProjectId = projectId,
-            SourceType = sourceType.Trim().ToUpperInvariant(),
-            MeetingId = meetingId,
-            ProgressReportId = progressReportId,
-            Title = title,
-            Description = description,
-            OwnerId = ownerId,
-            TaskId = taskId,
-            MilestoneId = milestoneId,
-            DueAt = dueAt,
-            Status = "TODO",
-            ConcurrencyToken = Guid.NewGuid(),
-            CreatedBy = createdBy,
-            CreatedAt = now,
-            UpdatedAt = now
-        };
+            var entity = new ProjectActionItem
+            {
+                ProjectId = projectId,
+                SourceType = sourceType.Trim().ToUpperInvariant(),
+                MeetingId = meetingId,
+                ProgressReportId = progressReportId,
+                Title = title,
+                Description = description,
+                OwnerId = ownerId,
+                TaskId = taskId,
+                MilestoneId = milestoneId,
+                DueAt = dueAt,
+                Status = "TODO",
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = createdBy,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
 
-        context.ProjectActionItems.Add(entity);
-        await context.SaveChangesAsync(cancellationToken);
+            context.ProjectActionItems.Add(entity);
+            await context.SaveChangesAsync(cancellationToken);
 
-        return (await GetByIdAsync(entity.Id, cancellationToken))!;
+            var dto = (await GetByIdAsync(entity.Id, cancellationToken))!;
+            if (onCreated != null)
+            {
+                await onCreated(dto);
+            }
+            if (tx != null) await tx.CommitAsync(cancellationToken);
+
+            return dto;
+        }
+        catch
+        {
+            if (tx != null) await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     public async Task<ProjectActionItemDto> UpdateDetailsAsync(
@@ -132,30 +154,52 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
         DateTime? dueAt,
         Guid? expectedToken,
         DateTime now,
+        Func<ProjectActionItemDto, Task>? onUpdated = null,
         CancellationToken cancellationToken = default)
     {
-        var entity = await context.ProjectActionItems
-            .FromSqlInterpolated($"SELECT * FROM dbo.project_action_items WITH (UPDLOCK, HOLDLOCK) WHERE id = {id}")
-            .FirstOrDefaultAsync(cancellationToken);
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        try
+        {
+            var entity = await context.ProjectActionItems
+                .FromSqlInterpolated($"SELECT * FROM dbo.project_action_items WITH (UPDLOCK, HOLDLOCK) WHERE id = {id}")
+                .FirstOrDefaultAsync(cancellationToken);
 
-        if (entity is null)
-            throw new NotFoundException("ProjectActionItem", id);
+            if (entity is null)
+                throw new NotFoundException("ProjectActionItem", id);
 
-        if (expectedToken.HasValue && entity.ConcurrencyToken != expectedToken.Value)
-            throw new ConflictException("The action item has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
+            if (entity.MeetingId.HasValue && await IsMeetingCancelledAsync(entity.MeetingId.Value, cancellationToken))
+                throw new ConflictException("Cannot modify action items associated with a cancelled meeting.");
 
-        entity.Title = title;
-        entity.Description = description;
-        entity.OwnerId = ownerId;
-        entity.TaskId = taskId;
-        entity.MilestoneId = milestoneId;
-        entity.DueAt = dueAt;
-        entity.UpdatedAt = now;
-        entity.ConcurrencyToken = Guid.NewGuid();
+            if (expectedToken.HasValue && entity.ConcurrencyToken != expectedToken.Value)
+                throw new ConflictException("The action item has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
 
-        await context.SaveChangesAsync(cancellationToken);
+            entity.Title = title;
+            entity.Description = description;
+            entity.OwnerId = ownerId;
+            entity.TaskId = taskId;
+            entity.MilestoneId = milestoneId;
+            entity.DueAt = dueAt;
+            entity.UpdatedAt = now;
+            entity.ConcurrencyToken = Guid.NewGuid();
 
-        return (await GetByIdAsync(entity.Id, cancellationToken))!;
+            await context.SaveChangesAsync(cancellationToken);
+
+            var dto = (await GetByIdAsync(entity.Id, cancellationToken))!;
+            if (onUpdated != null)
+            {
+                await onUpdated(dto);
+            }
+            if (tx != null) await tx.CommitAsync(cancellationToken);
+
+            return dto;
+        }
+        catch
+        {
+            if (tx != null) await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     public async Task<ProjectActionItemDto> UpdateStatusAsync(
@@ -163,25 +207,47 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
         string newStatus,
         Guid? expectedToken,
         DateTime now,
+        Func<ProjectActionItemDto, Task>? onUpdated = null,
         CancellationToken cancellationToken = default)
     {
-        var entity = await context.ProjectActionItems
-            .FromSqlInterpolated($"SELECT * FROM dbo.project_action_items WITH (UPDLOCK, HOLDLOCK) WHERE id = {id}")
-            .FirstOrDefaultAsync(cancellationToken);
+        await using var tx = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        try
+        {
+            var entity = await context.ProjectActionItems
+                .FromSqlInterpolated($"SELECT * FROM dbo.project_action_items WITH (UPDLOCK, HOLDLOCK) WHERE id = {id}")
+                .FirstOrDefaultAsync(cancellationToken);
 
-        if (entity is null)
-            throw new NotFoundException("ProjectActionItem", id);
+            if (entity is null)
+                throw new NotFoundException("ProjectActionItem", id);
 
-        if (expectedToken.HasValue && entity.ConcurrencyToken != expectedToken.Value)
-            throw new ConflictException("The action item has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
+            if (entity.MeetingId.HasValue && await IsMeetingCancelledAsync(entity.MeetingId.Value, cancellationToken))
+                throw new ConflictException("Cannot modify action items associated with a cancelled meeting.");
 
-        entity.Status = newStatus.Trim().ToUpperInvariant();
-        entity.UpdatedAt = now;
-        entity.ConcurrencyToken = Guid.NewGuid();
+            if (expectedToken.HasValue && entity.ConcurrencyToken != expectedToken.Value)
+                throw new ConflictException("The action item has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
 
-        await context.SaveChangesAsync(cancellationToken);
+            entity.Status = newStatus.Trim().ToUpperInvariant();
+            entity.UpdatedAt = now;
+            entity.ConcurrencyToken = Guid.NewGuid();
 
-        return (await GetByIdAsync(entity.Id, cancellationToken))!;
+            await context.SaveChangesAsync(cancellationToken);
+
+            var dto = (await GetByIdAsync(entity.Id, cancellationToken))!;
+            if (onUpdated != null)
+            {
+                await onUpdated(dto);
+            }
+            if (tx != null) await tx.CommitAsync(cancellationToken);
+
+            return dto;
+        }
+        catch
+        {
+            if (tx != null) await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     public async Task<bool> IsMeetingInProjectAsync(long meetingId, long projectId, CancellationToken cancellationToken = default)
@@ -189,6 +255,13 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
         return await context.Meetings
             .AsNoTracking()
             .AnyAsync(m => m.Id == meetingId && m.ProjectId == projectId, cancellationToken);
+    }
+
+    public async Task<bool> IsMeetingCancelledAsync(long meetingId, CancellationToken cancellationToken = default)
+    {
+        return await context.Meetings
+            .AsNoTracking()
+            .AnyAsync(m => m.Id == meetingId && m.Status == "CANCELLED", cancellationToken);
     }
 
     public async Task<bool> IsProgressReportInProjectAsync(long reportId, long projectId, CancellationToken cancellationToken = default)
@@ -218,7 +291,7 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
             .AsNoTracking()
             .Where(p => p.Id == projectId)
             .AnyAsync(p => p.Team.TeamMembers.Any(m => m.UserId == userId && m.LeftAt == null)
-                || (p.SupervisorAssignment != null && p.SupervisorAssignment.EndedAt == null && p.SupervisorAssignment.SupervisorProfile.UserId == userId),
+                || p.SupervisorAssignments.Any(a => a.EndedAt == null && a.SupervisorProfile.UserId == userId),
                 cancellationToken);
     }
 

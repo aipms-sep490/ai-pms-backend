@@ -80,7 +80,7 @@ public sealed class ProjectActionItemHandlerTests
         public bool EligibleOwner { get; set; } = true;
         private long _idCounter = 1;
 
-        public Task<ProjectActionItemDto> CreateAsync(
+        public async Task<ProjectActionItemDto> CreateAsync(
             long projectId,
             string sourceType,
             long? meetingId,
@@ -93,6 +93,7 @@ public sealed class ProjectActionItemHandlerTests
             DateTime? dueAt,
             long createdBy,
             DateTime now,
+            Func<ProjectActionItemDto, Task>? onCreated = null,
             CancellationToken cancellationToken = default)
         {
             var item = new ProjectActionItemDto(
@@ -116,7 +117,8 @@ public sealed class ProjectActionItemHandlerTests
                 UpdatedAt: now,
                 ConcurrencyToken: Guid.NewGuid().ToString("N"));
             Items.Add(item);
-            return Task.FromResult(item);
+            if (onCreated != null) await onCreated(item);
+            return item;
         }
 
         public Task<ProjectActionItemDto?> GetByIdAsync(long id, CancellationToken cancellationToken = default) =>
@@ -143,7 +145,7 @@ public sealed class ProjectActionItemHandlerTests
             return Task.FromResult(new PagedResult<ProjectActionItemDto>(list, page, pageSize, list.Count));
         }
 
-        public Task<ProjectActionItemDto> UpdateDetailsAsync(
+        public async Task<ProjectActionItemDto> UpdateDetailsAsync(
             long id,
             string title,
             string? description,
@@ -153,6 +155,7 @@ public sealed class ProjectActionItemHandlerTests
             DateTime? dueAt,
             Guid? expectedToken,
             DateTime now,
+            Func<ProjectActionItemDto, Task>? onUpdated = null,
             CancellationToken cancellationToken = default)
         {
             var idx = Items.FindIndex(i => i.Id == id);
@@ -170,14 +173,16 @@ public sealed class ProjectActionItemHandlerTests
                 ConcurrencyToken = Guid.NewGuid().ToString("N")
             };
             Items[idx] = updated;
-            return Task.FromResult(updated);
+            if (onUpdated != null) await onUpdated(updated);
+            return updated;
         }
 
-        public Task<ProjectActionItemDto> UpdateStatusAsync(
+        public async Task<ProjectActionItemDto> UpdateStatusAsync(
             long id,
             string newStatus,
             Guid? expectedToken,
             DateTime now,
+            Func<ProjectActionItemDto, Task>? onUpdated = null,
             CancellationToken cancellationToken = default)
         {
             var idx = Items.FindIndex(i => i.Id == id);
@@ -190,7 +195,8 @@ public sealed class ProjectActionItemHandlerTests
                 ConcurrencyToken = Guid.NewGuid().ToString("N")
             };
             Items[idx] = updated;
-            return Task.FromResult(updated);
+            if (onUpdated != null) await onUpdated(updated);
+            return updated;
         }
 
         public Task<bool> IsMeetingInProjectAsync(long meetingId, long projectId, CancellationToken cancellationToken = default) =>
@@ -225,6 +231,10 @@ public sealed class ProjectActionItemHandlerTests
 
         public Task<bool> IsMeetingCreatorAsync(long meetingId, long userId, CancellationToken cancellationToken = default) =>
             Task.FromResult(MeetingCreator);
+
+        public bool MeetingCancelled { get; set; } = false;
+        public Task<bool> IsMeetingCancelledAsync(long meetingId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(MeetingCancelled);
     }
 
     private sealed class StubProgressRepo : IProgressReportRepository
