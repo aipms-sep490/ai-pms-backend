@@ -93,7 +93,10 @@ public sealed class TeamEligibilityHasher : ITeamEligibilityHasher
                 .ToList()
         };
 
-        return Sha256(JsonSerializer.Serialize(obj, JsonOptions));
+        var original = JsonSerializer.Serialize(obj, JsonOptions);
+        return scope?.ResponsibilityVersion is Guid revision
+            ? Sha256(JsonSerializer.Serialize(new { scope = original, responsibilityVersion = revision }, JsonOptions))
+            : Sha256(original);
     }
 
     private static string ComputeProjectContextHash(ProjectContextInput? project)

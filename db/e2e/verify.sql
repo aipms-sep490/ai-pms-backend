@@ -15,7 +15,8 @@ IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE is_disabled=1 OR is_not_tru
 IF EXISTS (SELECT 1 FROM (VALUES ('tasks'),('milestones'),('progress_reports'),('meetings')) t(name)
     WHERE COL_LENGTH('dbo.'+t.name,'concurrency_token') IS NULL) THROW 51010, 'Execution concurrency columns missing.', 1;
 IF EXISTS (SELECT 1 FROM (VALUES ('meeting_decisions'),('meeting_action_items'),('evaluation_assignments'),('evaluation_draft_states'),
-    ('final_submissions'),('project_results'),('project_result_policies')) t(name)
+    ('final_submissions'),('project_results'),('project_result_policies'),('project_major_requirements'),
+    ('team_major_responsibilities'),('task_disciplines'),('project_evidence')) t(name)
     WHERE OBJECT_ID('dbo.'+t.name,'U') IS NULL) THROW 51011, 'Workflow table missing.', 1;
 IF EXISTS (SELECT 1 FROM (VALUES ('uq_evaluation_assignments_active'),('ix_meeting_decisions_meeting'),('ix_meeting_action_items_meeting'),
     ('ix_result_policy_items_assignment'),('ux_supervisor_assignments_one_primary_active')) t(name)

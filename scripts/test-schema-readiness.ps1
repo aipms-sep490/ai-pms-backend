@@ -15,7 +15,8 @@ SELECT 'table' AS kind,t.name AS capability,CONVERT(bit,CASE WHEN OBJECT_ID('dbo
 FROM (VALUES ('project_registration_snapshots'),('project_department_decisions'),('team_academic_configurations'),
  ('final_submission_drafts'),('final_submissions'),('final_submission_items'),('evaluation_assignments'),
  ('evaluation_draft_states'),('evaluation_finalizations'),('project_result_policies'),('project_results'),
- ('meeting_decisions'),('meeting_action_items')) t(name)
+ ('meeting_decisions'),('meeting_action_items'),('project_major_requirements'),('team_major_responsibilities'),
+ ('task_disciplines'),('project_evidence')) t(name)
 UNION ALL
 SELECT 'column',t.name+'.concurrency_token',CONVERT(bit,CASE WHEN EXISTS (
  SELECT 1 FROM sys.columns c WHERE c.object_id=OBJECT_ID('dbo.'+t.name) AND c.name='concurrency_token'

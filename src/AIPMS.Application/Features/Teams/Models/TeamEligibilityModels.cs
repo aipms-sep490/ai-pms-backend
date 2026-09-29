@@ -28,7 +28,8 @@ public sealed record AcademicScopeInput(
     string ProjectMode,
     long? PrimaryMajorId,
     long LeadDepartmentId,
-    IReadOnlyList<MajorRequirementInput> Requirements);
+    IReadOnlyList<MajorRequirementInput> Requirements,
+    Guid? ResponsibilityVersion = null);
 
 public sealed record ProjectTagInput(
     string TagType,
