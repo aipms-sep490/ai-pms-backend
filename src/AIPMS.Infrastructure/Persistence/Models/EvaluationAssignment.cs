@@ -15,4 +15,10 @@ public sealed class EvaluationAssignment
     public DateTime? RevokedAt { get; set; }
     public string? RevocationReason { get; set; }
     public Guid ConcurrencyToken { get; set; }
+    public string Scope { get; set; } = "UNKNOWN";
+    public long? MajorId { get; set; }
+    public long? StudentId { get; set; }
+    public long? ComponentId { get; set; }
+    public long? PolicyVersionId { get; set; }
+    public string? ScopeSnapshotJson { get; set; }
 }

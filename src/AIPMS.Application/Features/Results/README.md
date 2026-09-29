@@ -1,5 +1,15 @@
 # BE-16 project result publication
 
+## Current contract: Baseline PR4
+
+New result calculations use published evaluation schemes with explicit COMMON,
+MAJOR_SPECIFIC and INDIVIDUAL components. See [policy, authorization, weight examples
+and student-result APIs](../../../../docs/baseline-v3-pr4-policy-evaluation.md).
+The project result routes and published legacy results remain readable. The old
+`result-policy` PUT is now read-only (409); configure a scheme before assigning
+evaluators. The historical description below explains stored pre-PR4 results,
+not the current write workflow.
+
 SRS Report 3 section 3.16.8, BR-145/160; issue #21. Builds on BE-09 finalized
 evaluation snapshots and BE-16 locked final packages. Archive remains separate.
 

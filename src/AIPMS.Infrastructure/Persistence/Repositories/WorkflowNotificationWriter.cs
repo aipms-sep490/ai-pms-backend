@@ -33,7 +33,17 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         var departmentEvent = finalSubmission || entityType == "EVALUATION";
 
         // A source-row lock serializes duplicate event handling; inbox and transition commit together.
-        if (replacementEvent)
+        if (entityType == "STUDENT_RESULT")
+        {
+            var source = await context.Set<StudentResult>().FromSqlInterpolated(
+                $"SELECT * FROM dbo.student_results WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
+                .AsNoTracking().SingleOrDefaultAsync(ct);
+            if (source is null) return;
+            projectId = source.ProjectId; targetUser = source.StudentId;
+            teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
+            role = AppRoles.Student;
+        }
+        else if (replacementEvent)
         {
             var source = await context.SupervisorAssignments.AsNoTracking()
                 .Where(a => a.Id == notification.SourceId && a.ReplacesAssignmentId != null)
@@ -228,6 +238,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
 
     private static (string Entity, string Status, string Type, string Title) Describe(WorkflowNotificationKind kind) => kind switch
     {
+        WorkflowNotificationKind.StudentResultPublished => ("STUDENT_RESULT", "PUBLISHED", "STUDENT_RESULT_PUBLISHED", "Your individual result has been published"),
         WorkflowNotificationKind.SupervisorReplaced => ("SUPERVISOR_ASSIGNMENT", "REPLACED", "SUPERVISOR_REPLACED", "A project supervisor assignment was replaced"),
         WorkflowNotificationKind.EvaluatorAssigned => ("EVALUATION_ASSIGNMENT", "ACTIVE", "EVALUATOR_ASSIGNED", "You have been assigned a project evaluation"),
         WorkflowNotificationKind.ProjectResultPublished => ("PROJECT_RESULT", "PUBLISHED", "PROJECT_RESULT_PUBLISHED", "Your project's final result has been published"),

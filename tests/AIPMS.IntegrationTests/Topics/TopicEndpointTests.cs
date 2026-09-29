@@ -41,6 +41,29 @@ public sealed class TopicEndpointTests(TopicDatabaseFixture database) : IClassFi
         Post(client, $"/api/v1/topics/{topic.Id}/publish", new PublishTopicRequest(topic.ConcurrencyToken));
 
     [Fact]
+    public async Task Expired_policy_blocks_topic_writes_and_team_registration_before_period_end()
+    {
+        var s = await database.Seed(); using var app = new Factory(database);
+        using var staff = app.CreateAuthenticatedClient(s.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
+        var topic = await Create(staff, Input(s));
+        await using var db = database.CreateContext();
+        var period = (await db.ProjectPeriods.FindAsync(s.Period))!;
+        var repository = new AIPMS.Infrastructure.Persistence.Repositories.TeamRepository(db);
+        Assert.NotNull(await repository.GetOpenWindowAsync(s.Semester, TopicDatabaseFixture.Now, default));
+        db.Add(new PeriodPolicyVersion { ProjectPeriodId = s.Period, Version = period.PolicyVersion, Status = "PUBLISHED",
+            EffectiveFrom = period.StartAt, EffectiveTo = TopicDatabaseFixture.Now, SnapshotJson = "{}",
+            CreatedAt = period.StartAt, ConcurrencyToken = Guid.NewGuid() });
+        await db.SaveChangesAsync();
+        Assert.Null(await repository.GetOpenWindowAsync(s.Semester, TopicDatabaseFixture.Now, default));
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync("/api/v1/topics", Input(s, code: "SECOND"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PutAsJsonAsync($"/api/v1/topics/{topic.Id}",
+            new UpdateTopicRequest(topic.ConcurrencyToken, Content(s)))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"/api/v1/topics/{topic.Id}/publish",
+            new PublishTopicRequest(topic.ConcurrencyToken))).StatusCode);
+        Assert.Equal(topic.ConcurrencyToken, (await Body<TopicDto>(await staff.GetAsync($"/api/v1/topics/{topic.Id}"))).ConcurrencyToken);
+    }
+
+    [Fact]
     public async Task Lecturer_draft_staff_publication_student_discovery_and_close_follow_lifecycle()
     {
         var s = await database.Seed(); using var app = new Factory(database);

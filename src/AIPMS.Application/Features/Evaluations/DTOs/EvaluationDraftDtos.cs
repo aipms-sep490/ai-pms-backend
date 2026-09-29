@@ -2,13 +2,15 @@ using AIPMS.Application.Features.Evaluations.Models;
 
 namespace AIPMS.Application.Features.Evaluations.DTOs;
 
-public sealed record AssignEvaluatorRequest(long EvaluatorId, long ProjectPeriodId, string EvaluationType);
+public sealed record AssignEvaluatorRequest(long EvaluatorId, long ProjectPeriodId, string EvaluationType,
+    string? Scope = null, long? MajorId = null, long? StudentId = null, long? ComponentId = null);
 public sealed record RevokeEvaluatorRequest(string ConcurrencyToken, string Reason);
 public sealed record SaveEvaluationDraftRequest(string ConcurrencyToken, string? Comments,
     IReadOnlyList<EvaluationScoreInput> Scores);
 public sealed record EvaluationAssignmentDto(long Id, long ProjectId, long EvaluatorId, long RubricId,
     long ProjectPeriodId, long DepartmentId, string EvaluationType, string Status, long AssignedBy,
-    DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken);
+    DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken, string Scope = "UNKNOWN",
+    long? MajorId = null, long? StudentId = null, long? ComponentId = null, long? PolicyVersionId = null);
 public sealed record EvaluationScoreDto(long RubricCriterionId, string Name, string? Description, decimal WeightPercent,
     decimal MaxScore, int SortOrder, bool IsRequired, decimal? Score, string? Comments);
 public sealed record EvaluationDraftDto(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
@@ -26,7 +28,7 @@ public static class EvaluationDraftDtoMapper
     public static EvaluationAssignmentDto ToDto(this EvaluationAssignmentRecord a) => new(a.Id,
         a.ProjectId, a.EvaluatorId, a.RubricId, a.PeriodId, a.DepartmentId, a.EvaluationType,
         a.Status, a.AssignedBy, Utc(a.AssignedAt), a.RevokedAt.HasValue ? Utc(a.RevokedAt.Value) : null,
-        a.ConcurrencyToken);
+        a.ConcurrencyToken, a.Scope, a.MajorId, a.StudentId, a.ComponentId, a.PolicyVersionId);
 
     public static EvaluationDraftDto ToDto(this EvaluationDraftRecord e) => new(e.Id, e.AssignmentId,
         e.ProjectId, e.EvaluatorId, e.RubricId, e.RubricName, e.RootRubricId, e.RubricVersion, e.EvaluationType, e.Status, e.Comments, e.TotalScore,

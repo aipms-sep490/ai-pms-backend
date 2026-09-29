@@ -110,6 +110,8 @@ internal sealed class FinalSubmissionRepository(AipmsDbContext db) : IFinalSubmi
                 WasRequired = i.WasRequired, FilesJson = JsonSerializer.Serialize(i.Files) }).ToArray() };
         db.Set<FinalSubmission>().Add(row);
         await db.SaveChangesAsync(ct);
+        await AIPMS.Infrastructure.Services.Projects.PolicyVersions.CaptureAsync(db, input.ProjectPeriodId,
+            "FINAL_SUBMISSION", row.Id, input.SubmittedAt, ct);
         return Map(row);
     }
 }

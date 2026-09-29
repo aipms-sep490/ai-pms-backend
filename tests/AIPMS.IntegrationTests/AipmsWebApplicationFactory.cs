@@ -32,6 +32,10 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
                 ["Jwt:Audience"] = TestAudience,
                 ["Jwt:SigningKey"] = TestSigningKey,
                 ["Jwt:AccessTokenMinutes"] = "60",
+                // Local User Secrets must not start external-delivery workers in endpoint tests.
+                ["NotificationEmail:Enabled"] = "false",
+                ["ScheduledNotifications:Enabled"] = "false",
+                ["GoogleAuth:Enabled"] = "false",
                 ["Observability:LogFilePath"] = Path.Combine(
                     Path.GetTempPath(),
                     "aipms-tests-.log")

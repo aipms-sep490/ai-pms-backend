@@ -105,6 +105,15 @@ public sealed partial class SupervisorRequestEndpointTests
         Assert.Equal(1, await check.Milestones.CountAsync(x => x.ProjectId == m.Project.Id));
         Assert.Equal(3, await check.AuditLogs.CountAsync(x => x.Action == "SUPERVISOR_ASSIGNED"
             && history.Items.Select(a => a.Id.ToString()).Contains(x.EntityId!)));
+        var ids = history.Items.Select(a => a.Id).ToArray();
+        var usages = await check.Set<AIPMS.Infrastructure.Persistence.Models.PeriodPolicyUsage>()
+            .Where(u => u.EntityType == "SUPERVISOR_CAPACITY" && ids.Contains(u.EntityId)).ToListAsync();
+        Assert.Equal(3, usages.Count);
+        var policy = await check.Set<AIPMS.Infrastructure.Persistence.Models.PeriodPolicyVersion>()
+            .SingleAsync(p => p.Id == usages[0].PolicyVersionId);
+        Assert.Equal(m.Project.PeriodId, policy.ProjectPeriodId);
+        Assert.Equal("LOCKED", policy.Status);
+        Assert.All(usages, u => Assert.Equal(policy.Id, u.PolicyVersionId));
     }
 
     [Fact]

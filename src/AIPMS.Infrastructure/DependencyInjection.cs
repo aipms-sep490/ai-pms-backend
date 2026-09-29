@@ -210,6 +210,8 @@ public static class DependencyInjection
         services.AddScoped<Application.Features.Topics.Services.TopicWorkflow>();
         services.AddScoped<Application.Features.Topics.Abstractions.ITopicSelectionGuard, Application.Features.Topics.Services.TopicSelectionGuard>();
         services.AddScoped<IEvaluationDraftRepository, EvaluationDraftRepository>();
+        services.AddScoped<IEvaluationSchemeService, EvaluationSchemeService>();
+        services.AddScoped<Application.Features.Semesters.Abstractions.IPeriodPolicyService, PeriodPolicyService>();
         services.AddScoped<IProjectResultRepository, ProjectResultRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<IMilestoneTemplateRepository, MilestoneTemplateRepository>();

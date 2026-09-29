@@ -31,9 +31,10 @@ The 100-percent publication total follows issue #14's explicit acceptance criter
 the SRS describes approved weight consistency. Requiring at least one required
 criterion is this slice's concrete publication rule. Drafts may start empty.
 
-COMMON / MAJOR_SPECIFIC / INDIVIDUAL rubric assignment, per-student evaluation,
-course-offering bindings and BR-59 Hybrid evaluation are separate scope. Existing
-schema does not yet model those assignments. This PR does not complete full BE-09.
+COMMON / MAJOR_SPECIFIC / INDIVIDUAL assignment and per-student results are now
+implemented by [Baseline PR4](../../../../docs/baseline-v3-pr4-policy-evaluation.md).
+New assignments require an explicit published scheme component; legacy UNKNOWN
+evaluations remain read-only. Course-offering bindings remain outside this module.
 
 ## API contract
 

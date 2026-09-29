@@ -17,6 +17,18 @@ namespace AIPMS.Infrastructure.Persistence.Repositories;
 
 internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluationDraftRepository
 {
+    public async Task<EvaluationAssignmentRecord> AssignScopedAsync(long projectId, long evaluatorId, long periodId, long departmentId,
+        string type, long actorId, DateTime now, ScopedAssignmentContext scope, CancellationToken ct)
+    {
+        if (db.Database.CurrentTransaction is null) throw new InvalidOperationException("Assignment requires a transaction.");
+        var row = new EvaluationAssignment { ProjectId = projectId, EvaluatorId = evaluatorId, ProjectPeriodId = periodId,
+            DepartmentId = departmentId, EvaluationType = type, RubricId = scope.RubricId, AssignedBy = actorId,
+            AssignedAt = now, ConcurrencyToken = Guid.NewGuid(), Scope = scope.Scope, MajorId = scope.MajorId,
+            StudentId = scope.StudentId, ComponentId = scope.ComponentId, PolicyVersionId = scope.PolicyVersionId, ScopeSnapshotJson = scope.SnapshotJson };
+        db.Add(row); await db.SaveChangesAsync(ct);
+        db.Add(new PeriodPolicyUsage { PolicyVersionId = scope.PolicyVersionId, EntityType = "EVALUATION_ASSIGNMENT", EntityId = row.Id, CreatedAt = now });
+        await db.SaveChangesAsync(ct); return Map(row);
+    }
     public Task<bool> HasLockedSubmissionAsync(long projectId, CancellationToken ct) =>
         db.Set<FinalSubmission>().AnyAsync(s => s.ProjectId == projectId && s.Items.Any(), ct);
 
@@ -113,7 +125,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
 
     private static EvaluationAssignmentRecord Map(EvaluationAssignment a) => new(a.Id, a.ProjectId, a.EvaluatorId,
         a.RubricId, a.ProjectPeriodId, a.DepartmentId, a.EvaluationType, a.Status, a.AssignedBy,
-        a.AssignedAt, a.RevokedAt, a.ConcurrencyToken.ToString("N"));
+        a.AssignedAt, a.RevokedAt, a.ConcurrencyToken.ToString("N"), a.Scope, a.MajorId, a.StudentId,
+        a.ComponentId, a.PolicyVersionId);
 
     public async Task<EvaluationAssignmentRecord?> GetAssignmentAsync(long id, CancellationToken ct)
     {
@@ -273,6 +286,9 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
             Finalization = new(actorId, now, evidence) };
         db.Set<EvaluationFinalization>().Add(new() { EvaluationId = draft.Id, FinalSubmissionId = evidence.FinalSubmissionId,
             FinalizedBy = actorId, FinalizedAt = now, SnapshotJson = JsonSerializer.Serialize(snapshot) });
+        var assignment = await db.Set<EvaluationAssignment>().SingleAsync(a => a.Id == state.AssignmentId, ct);
+        if (assignment.PolicyVersionId is long policyId)
+            db.Add(new PeriodPolicyUsage { PolicyVersionId = policyId, EntityType = "EVALUATION", EntityId = draft.Id, CreatedAt = now });
         await db.SaveChangesAsync(ct);
         return snapshot;
     }
