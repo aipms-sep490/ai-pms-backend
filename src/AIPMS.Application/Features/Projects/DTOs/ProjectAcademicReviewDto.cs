@@ -7,7 +7,13 @@ public sealed record RegisteredMemberDto(long UserId, string FullName, long Majo
 
 public sealed record RegistrationEvidence(TeamAcademicScopeDto Scope, RegistrationPolicyDto Policy,
     long OrganizationId, DateTime WindowStartAt, DateTime WindowEndAt,
-    IReadOnlyList<RegisteredMemberDto> Members, IReadOnlyList<long> DepartmentIds);
+    IReadOnlyList<RegisteredMemberDto> Members, IReadOnlyList<long> DepartmentIds,
+    int PolicyVersion = 1, string AllowedProjectModes = "SINGLE_MAJOR,INTERDISCIPLINARY",
+    string AllowedProposalSources = "PUBLISHED_TOPIC,STUDENT_PROPOSAL", string ProposalSource = "STUDENT_PROPOSAL",
+    IReadOnlyDictionary<long, long>? MajorDepartmentIds = null,
+    ProjectProposalSnapshotDto? Proposal = null,
+    IReadOnlyList<ProjectMajorRequirementDto>? ProjectRequirements = null,
+    IReadOnlyList<AIPMS.Application.Features.Disciplines.DTOs.ResponsibilityDto>? TeamResponsibilities = null);
 
 public sealed record DepartmentDecisionDto(long DepartmentId, string Decision, long? DecidedBy,
     DateTime? DecidedAt, string? Reason);
@@ -16,6 +22,6 @@ public sealed record RegistrationSnapshotDto(long Id, long ProjectPeriodId, long
     DateTime SubmittedAt, RegistrationEvidence Evidence, IReadOnlyList<DepartmentDecisionDto> Decisions);
 
 public sealed record ProjectAcademicReviewDto(string ConcurrencyToken, TeamAcademicScopeDto? AcademicScope,
-    RegistrationSnapshotDto? LatestSubmission);
+    RegistrationSnapshotDto? LatestSubmission, IReadOnlyList<RegistrationSnapshotDto>? SubmissionHistory = null);
 
 public sealed record DepartmentDecisionRequest(long SnapshotId, string ConcurrencyToken, string Decision, string? Reason);

@@ -56,7 +56,7 @@ public interface IProjectRepository
         string domain,
         IReadOnlyList<string> technologies,
         IReadOnlyList<string> keywords,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken, long? topicId = null);
 
     Task<ProjectDto> UpdateDraftAsync(
         long projectId,
@@ -131,5 +131,13 @@ public interface IProjectRepository
 
     Task<ProjectTimelineDataDto> GetTimelineDataAsync(
         long projectId,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<(long ProjectId, string Status)>> GetTeamProjectStatusesAsync(
+        long teamId,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<long>?> GetAuthoritativeDepartmentIdsForTeamAsync(
+        long teamId,
         CancellationToken cancellationToken);
 }

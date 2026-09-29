@@ -29,4 +29,17 @@ internal sealed class StubRegistrationGuard(StubProjectRepository repository) : 
         if (Reject || !repository.IsTeamEligible) throw new ConflictException("Team is not eligible.");
         return Task.CompletedTask;
     }
+
+    public Task ValidateSubmissionEligibilityAsync(
+        long teamId,
+        long projectId,
+        string roundType,
+        long? revisionHistoryId,
+        CancellationToken ct)
+    {
+        Assert.True(InTransaction);
+        Validations++;
+        if (Reject || !repository.IsTeamEligible) throw new ConflictException("Team is not eligible.");
+        return Task.CompletedTask;
+    }
 }

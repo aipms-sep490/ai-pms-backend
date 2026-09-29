@@ -126,3 +126,14 @@ The global exception middleware returns RFC-compatible `ProblemDetails` with a t
 3. Put SQL, identity, storage, email and provider details in Infrastructure or AI.
 4. Add an interface only for a real boundary or multiple meaningful implementations.
 5. Every state-changing endpoint needs authorization, validation and a test before it is complete.
+
+## W8-W9 governance
+
+See [project period governance and mentor assignments](docs/project-period-governance.md)
+for allowed proposal modes/sources, department review history, discipline mentors,
+and supervisor replacement. Apply the two `20260925` SQL scripts before deploying
+this API version; run SQL integration against an isolated test database.
+
+See [discipline responsibilities and evidence ledger](docs/discipline-evidence.md)
+for Baseline v3 PR3 routes, writer scope, task classification, snapshot behavior,
+concurrency, and the additive `20260929_add_discipline_evidence.sql` migration.

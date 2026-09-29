@@ -13,6 +13,10 @@ public partial class SupervisorRequest
 
     public long RequestedBy { get; set; }
 
+    public string AssignmentType { get; set; } = "PRIMARY";
+
+    public long? MajorId { get; set; }
+
     public string Status { get; set; } = null!;
 
     public string? RequestMessage { get; set; }

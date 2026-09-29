@@ -32,6 +32,9 @@ public sealed record ProjectPeriodDto(
     int? MaxTeamSize,
     int? MinDistinctMajors,
     int? MaxProjectsPerSupervisor,
+    string AllowedProjectModes,
+    string AllowedProposalSources,
+    int PolicyVersion,
     long? MilestoneTemplateId,
     long? RubricId,
     DateTime CreatedAt,
@@ -69,7 +72,9 @@ public sealed record CreateProjectPeriodRequest(
     int? MinDistinctMajors = 1,
     int? MaxProjectsPerSupervisor = 5,
     long? MilestoneTemplateId = null,
-    long? RubricId = null);
+    long? RubricId = null,
+    string? AllowedProjectModes = null,
+    string? AllowedProposalSources = null);
 
 public sealed record UpdateProjectPeriodRequest(
     string Code,
@@ -82,7 +87,9 @@ public sealed record UpdateProjectPeriodRequest(
     int? MinDistinctMajors = null,
     int? MaxProjectsPerSupervisor = null,
     long? MilestoneTemplateId = null,
-    long? RubricId = null);
+    long? RubricId = null,
+    string? AllowedProjectModes = null,
+    string? AllowedProposalSources = null);
 
 public sealed record SetProjectPeriodStatusRequest(
     string Status,

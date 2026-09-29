@@ -82,7 +82,7 @@ public sealed class SupervisorRequestHandlerTests
     private sealed class CandidateRepository : ISupervisorCandidateRepository
     {
         public Task<SupervisorCandidateProject?> GetProjectAsync(long id, DateTime now, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlyList<SupervisorSelectionPolicy>> GetSelectionPoliciesAsync(long id, DateTime now, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<SupervisorSelectionPolicy>> GetSelectionPoliciesAsync(long id, DateTime now, CancellationToken ct, bool execution = false) => throw new NotSupportedException();
         public Task<PagedResult<SupervisorCandidateModel>> SearchAsync(SupervisorCandidateSearch search, CancellationToken ct) => throw new NotSupportedException();
     }
 
@@ -118,9 +118,10 @@ public sealed class SupervisorRequestHandlerTests
         public Task LockSupervisorAndProjectAsync(long profileId, long projectId, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> IsTeamLeaderAsync(long projectId, long userId, CancellationToken ct) => throw new NotSupportedException();
         public Task<PagedResult<SupervisorRequestModel>> SearchAsync(SupervisorRequestSearch search, CancellationToken ct) => throw new NotSupportedException();
-        public Task<bool> HasPendingAsync(long projectId, long profileId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<bool> HasPendingAsync(long projectId, long profileId, CancellationToken ct, string assignmentType = "PRIMARY", long? majorId = null) => throw new NotSupportedException();
+        public Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct, long? excludeProjectId = null) => throw new NotSupportedException();
         public Task<SupervisorRequestModel> CreateAsync(long projectId, long profileId, long actorId, string? message, DateTime now, CancellationToken ct) => throw new NotSupportedException();
+        public Task<SupervisorRequestModel> CreateAsync(long projectId, long profileId, long actorId, string? message, DateTime now, CancellationToken ct, string assignmentType, long? majorId) => throw new NotSupportedException();
         public Task<SupervisorRequestModel> RespondAsync(long requestId, string status, string? message, DateTime now, CancellationToken ct) => throw new NotSupportedException();
         public Task<long> AssignAndActivateAsync(SupervisorRequestModel request, long actorId, DateTime now, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<SupervisorRequestModel>> GetOtherPendingAsync(long projectId, long requestId, CancellationToken ct) => throw new NotSupportedException();

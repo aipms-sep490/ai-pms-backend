@@ -21,14 +21,14 @@ public sealed record CreateProjectDraftCommand(
     IReadOnlyList<long> RequiredMajorIds,
     string Domain,
     IReadOnlyList<string> Technologies,
-    IReadOnlyList<string> Keywords) : IRequest<ProjectDto>;
+    IReadOnlyList<string> Keywords, long? TopicId = null) : IRequest<ProjectDto>;
 
 public sealed class CreateProjectDraftCommandHandler(
     IProjectRepository repository,
     ICurrentUser currentUser,
     IAuditTrail auditTrail,
     ITeamRegistrationGuard registrationGuard,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider, ISender? sender = null)
     : IRequestHandler<CreateProjectDraftCommand, ProjectDto>
 {
     public Task<ProjectDto> Handle(
@@ -97,7 +97,11 @@ public sealed class CreateProjectDraftCommandHandler(
             request.Domain,
             request.Technologies,
             request.Keywords,
-            cancellationToken);
+            cancellationToken, request.TopicId);
+
+        if (request.TopicId is long topicId)
+            project = await (sender ?? throw new InvalidOperationException("Topic creation requires the command dispatcher."))
+                .Send(new SelectProjectTopicCommand(project.Id, topicId, project.ConcurrencyToken), cancellationToken);
 
         // Audit the draft creation
         await auditTrail.RecordAsync(

@@ -14,7 +14,7 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
     private bool created;
     public string ConnectionString { get; private set; } = "";
 
-    public async Task StartAsync(string? source, CancellationToken ct = default)
+    public async Task StartAsync(string? source, CancellationToken ct = default, bool bootstrap = true)
     {
         try
         {
@@ -41,6 +41,7 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
             }
             builder.InitialCatalog = name;
             ConnectionString = builder.ConnectionString;
+            if (!bootstrap) return;
             var directory = new DirectoryInfo(AppContext.BaseDirectory);
             while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "db", "schema.sql")))
                 directory = directory.Parent;
@@ -73,10 +74,18 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                 "db", "changes", "20260921_add_task_evidence_comments.sql"), ct);
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260922_add_rubric_hierarchy.sql"), ct);
+            foreach (var migration in new[] { "20260925_add_project_period_governance_policy.sql", "20260925_add_supervisor_assignment_types.sql" })
+                schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "changes", migration), ct);
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260926_add_google_external_logins.sql"), ct);
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260927_add_governance_baseline_v3.sql"), ct);
+            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
+"db", "changes", "20260928_add_team_eligibility_snapshots.sql"), ct);
+            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
+                "db", "changes", "20260929_add_project_major_requirements.sql"), ct);
+            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
+                "db", "changes", "20260929_add_discipline_evidence.sql"), ct);
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260929_add_reporting_cycles_and_action_items.sql"), ct);
             if (Regex.IsMatch(schema, @"\bUSE\s|\b(?:CREATE|DROP|ALTER)\s+DATABASE\b", RegexOptions.IgnoreCase))
@@ -135,5 +144,6 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
         }
     }
 }
+
 
 

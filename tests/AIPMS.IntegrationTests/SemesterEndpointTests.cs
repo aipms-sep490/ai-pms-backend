@@ -600,7 +600,9 @@ public sealed class SemesterEndpointTests
             return Task.FromResult(updated);
         }
 
-        public Task<bool> HasActiveProjectsAsync(
+        public Task<ProjectPeriodModel> SetProjectPeriodGovernanceAsync(long periodId, string? allowedProjectModes, string? allowedProposalSources, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+    public Task<bool> HasActiveProjectsAsync(
             long semesterId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
 

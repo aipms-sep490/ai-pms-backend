@@ -190,6 +190,8 @@ public static class DependencyInjection
         services.AddScoped<IAcademicProfileRepository, AcademicProfileRepository>();
         services.AddScoped<Application.Features.Supervisors.Abstractions.ISupervisorProfileRepository, SupervisorProfileRepository>();
         services.AddScoped<ISupervisorCandidateRepository, SupervisorCandidateRepository>();
+        services.AddScoped<AIPMS.Application.Features.Supervisors.Abstractions.ISupervisorReplacementService,
+            AIPMS.Infrastructure.Services.Projects.SupervisorReplacementService>();
         services.AddScoped<ISupervisorRequestRepository, SupervisorRequestRepository>();
         services.AddScoped<ISupervisorAssignmentRepository, SupervisorAssignmentRepository>();
         services.AddScoped<IDeliverableRepository, DeliverableRepository>();
@@ -200,6 +202,8 @@ public static class DependencyInjection
                 ? new GoogleDriveFileStorage(sp.GetRequiredService<IConfiguration>())
                 : new LocalFileStorage(sp.GetRequiredService<IConfiguration>()));
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IProjectRequirementsService, ProjectRequirementsService>();
+        services.AddScoped<Application.Features.Disciplines.Abstractions.IDisciplineService, DisciplineService>();
         services.AddScoped<ISemesterRepository, SemesterRepository>();
         services.AddScoped<IRubricRepository, RubricRepository>();
         services.AddScoped<Application.Features.Topics.Abstractions.ITopicRepository, TopicRepository>();
@@ -224,6 +228,8 @@ public static class DependencyInjection
         services.AddScoped<IMeetingRepository, MeetingRepository>();
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamEligibilityRepository, Persistence.Repositories.TeamEligibilityRepository>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamEligibilityAccessService, Services.Teams.TeamEligibilityAccessService>();
         services.AddScoped<ITeamLeaderChangeRequestRepository, TeamLeaderChangeRequestRepository>();
         services.AddScoped<AIPMS.Application.Features.StudentQualifications.Abstractions.IStudentQualificationRepository, StudentQualificationRepository>();
         services.AddScoped<ITeamInvitationCandidateReader, TeamInvitationCandidateReader>();

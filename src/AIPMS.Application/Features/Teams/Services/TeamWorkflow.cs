@@ -15,7 +15,8 @@ namespace AIPMS.Application.Features.Teams.Services;
 
 public sealed class TeamWorkflow(
     ITeamRepository repository, ITeamFormationPolicyProvider policies,
-    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock, IPublisher events)
+    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock, IPublisher events,
+    ITeamRosterMutationGuard? rosterGuard = null)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -64,9 +65,15 @@ public sealed class TeamWorkflow(
     private async Task<(TeamRegistrationWindow Window, TeamFormationPolicy Policy)> MutableAsync(
         TeamSnapshot team, CancellationToken ct)
     {
-        if (team.Status is not ("FORMING" or "ELIGIBLE")
+        if (rosterGuard is not null)
+        {
+            rosterGuard.ValidateRosterMutable(team.Status, team.ProjectStatuses);
+        }
+        else if (team.Status is not ("FORMING" or "ELIGIBLE")
             || team.ProjectStatuses.Any(TeamRules.ProjectLocksRoster))
+        {
             throw new ConflictException("The team roster is locked by team or project status.");
+        }
         var result = await ContextAsync(team.SemesterId, ct, team.AcademicScope is null);
         if (team.AcademicScope is not null)
             await repository.ValidateAcademicScopeAsync(team.AcademicScope, result.Window.OrganizationId, ct);
@@ -111,6 +118,8 @@ public sealed class TeamWorkflow(
         if (team.Status is not ("FORMING" or "ELIGIBLE")
             || team.ProjectStatuses.Any(TeamRules.ProjectLocksRoster)) reasons.Add("ROSTER_LOCKED");
         var locked = reasons.Count > 0;
+        if (window is not null && !ProjectPeriodGovernancePolicy.Allows(window.AllowedProjectModes, team.AcademicScope?.ProjectMode ?? "SINGLE_MAJOR"))
+            reasons.Add("PROJECT_MODE_NOT_ALLOWED_BY_PERIOD");
         if (window is not null && policy is { IsValid: true })
             reasons.AddRange(await EligibilityErrorsAsync(team, policy, window.OrganizationId, ct));
         var memberDtos = new List<TeamMemberDto>(team.Members.Count);
@@ -164,10 +173,17 @@ public sealed class TeamWorkflow(
         return errors.Distinct(StringComparer.Ordinal).ToArray();
     }
 
+    private static void RequireMode(TeamRegistrationWindow window, string mode)
+    {
+        if (!ProjectPeriodGovernancePolicy.Allows(window.AllowedProjectModes, mode))
+            throw new ConflictException("PROJECT_MODE_NOT_ALLOWED_BY_PERIOD");
+    }
+
     private async Task SaveScopeAsync(TeamSnapshot team, TeamAcademicScopeRequest request,
         TeamRegistrationWindow window, TeamFormationPolicy policy, CancellationToken ct)
     {
         var scope = request.ToScope();
+        RequireMode(window, scope.ProjectMode);
         var errors = HybridTeamRules.EligibilityErrors(team.Members, policy, window.OrganizationId, scope, false);
         if (errors.Count != 0) throw new ConflictException(string.Join(", ", errors));
         await repository.ValidateAcademicScopeAsync(scope, window.OrganizationId, ct);
@@ -267,6 +283,7 @@ public sealed class TeamWorkflow(
         {
             var actor = await ActorAsync(token);
             var (window, policy) = await ContextAsync(request.AcademicSemesterId, token, request.AcademicScope is null);
+            RequireMode(window, request.AcademicScope?.ProjectMode ?? "SINGLE_MAJOR");
             RequireEligibleStudent(actor, window.OrganizationId);
             await RequireQualificationAsync(actor, request.AcademicSemesterId, policy, token);
             await RequireNoTeamAsync(request.AcademicSemesterId, actor.UserId, token);

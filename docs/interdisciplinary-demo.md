@@ -153,3 +153,12 @@ Published topic catalogues/ProposalSource selection, per-period allowed-mode/sou
 switches, discipline mentors and per-student grading are separate work. It does
 not claim the entire long-term Hybrid SRS is finished. One primary supervisor and
 the existing capacity rules still govern the next demo stage.
+
+## Governance extension (#75)
+
+Period mode/source switches now constrain these flows. Academic review returns all
+submission rounds in `submissionHistory`; decisions still require the current
+snapshot and concurrency token. Optional discipline mentors and staff-authorized
+replacement preserve the primary supervisor and assignment history. See
+[project-period-governance.md](project-period-governance.md) for API payloads,
+required migrations, scope checks and the #74 merge dependency.

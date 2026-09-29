@@ -94,6 +94,7 @@ public sealed class RequestProjectRevisionCommandHandler(
             request.Reason.Trim(),
             cancellationToken);
 
+
         // Audit the action
         await auditTrail.RecordAsync(
             new AuditEntry(

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace AIPMS.Infrastructure.Persistence.Generated.Models;
@@ -58,7 +58,7 @@ public partial class Project
 
     public virtual ICollection<ProjectTag> ProjectTags { get; set; } = new List<ProjectTag>();
 
-    public virtual SupervisorAssignment? SupervisorAssignment { get; set; }
+    public virtual ICollection<SupervisorAssignment> SupervisorAssignments { get; set; } = new List<SupervisorAssignment>();
 
     public virtual ICollection<SupervisorFeedback> SupervisorFeedbacks { get; set; } = new List<SupervisorFeedback>();
 

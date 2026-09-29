@@ -91,6 +91,9 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
         }
         entity.ProjectMode = scope.ProjectMode; entity.PrimaryMajorId = scope.PrimaryMajorId;
         entity.LeadDepartmentId = scope.LeadDepartmentId; entity.ConcurrencyToken = Guid.NewGuid();
+        // Removing a requirement cascades its structured responsibilities. Restoring
+        // the old scope must not revive an eligibility check for the deleted content.
+        if (entity.ResponsibilityVersion.HasValue) entity.ResponsibilityVersion = Guid.NewGuid();
         var ids = scope.Requirements.Select(r => r.MajorId).ToArray();
         context.RemoveRange(entity.Requirements.Where(r => !ids.Contains(r.MajorId)));
         foreach (var requirement in scope.Requirements)
@@ -138,7 +141,8 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
                 && p.AcademicSemester.StartDate <= today && today <= p.AcademicSemester.EndDate
                 && p.AcademicSemester.Organization.IsActive)
             .OrderBy(p => p.Id).Select(p => new TeamRegistrationWindow(
-                p.Id, p.AcademicSemesterId, p.AcademicSemester.OrganizationId, p.EndAt))
+                p.Id, p.AcademicSemesterId, p.AcademicSemester.OrganizationId, p.EndAt,
+                p.AllowedProjectModes, p.AllowedProposalSources, p.PolicyVersion))
             .Take(2).ToListAsync(ct);
         return periods.Count == 1 ? periods[0] : null;
     }
@@ -207,9 +211,9 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
         if (policy.CheckExpiration
             && qualification.ExpiresAt.HasValue
             && qualification.ExpiresAt.Value <= now)
-            return new(true, false, "EXPIRED", "CERTIFICATE_EXPIRED");
+            return new(true, false, "EXPIRED", "CERTIFICATE_EXPIRED", qualification.ExpiresAt);
 
-        return new(true, true, qualification.VerificationStatus, null);
+        return new(true, true, qualification.VerificationStatus, null, qualification.ExpiresAt);
     }
 
     private async Task SaveAsync(CancellationToken ct)

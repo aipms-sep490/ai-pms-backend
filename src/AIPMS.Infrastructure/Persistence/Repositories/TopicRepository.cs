@@ -118,8 +118,17 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
             MaxMembers = r.MaxMembers, Responsibility = r.Responsibility.Trim() }).ToList();
     }
 
+    private async System.Threading.Tasks.Task RequirePolicyAsync(long periodId, string mode, CancellationToken ct)
+    {
+        var period = await db.ProjectPeriods.SingleAsync(p => p.Id == periodId, ct);
+        if (!AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.Allows(period.AllowedProjectModes, mode)
+            || !AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.Allows(period.AllowedProposalSources, "PUBLISHED_TOPIC"))
+            throw new ConflictException("The project mode or published-topic source is disabled for this period.");
+    }
+
     public async Task<TopicDto> CreateAsync(CreateTopicRequest input, TopicActor actor, DateTime now, CancellationToken ct)
     {
+        await RequirePolicyAsync(input.ProjectPeriodId, input.Content.ProjectMode, ct);
         var topic = new ProjectTopic { ProjectPeriodId = input.ProjectPeriodId, LeadDepartmentId = input.LeadDepartmentId,
             Code = input.Code.Trim().ToUpperInvariant(), CreatedBy = actor.Id, UpdatedBy = actor.Id,
             CreatedAt = now, UpdatedAt = now, ConcurrencyToken = Guid.NewGuid() };
@@ -132,6 +141,7 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
     public async Task<TopicDto> UpdateAsync(long id, TopicContentRequest content, TopicActor actor, DateTime now, CancellationToken ct)
     {
         var topic = await db.Set<ProjectTopic>().Include(t => t.Requirements).SingleAsync(t => t.Id == id, ct);
+        await RequirePolicyAsync(topic.ProjectPeriodId, content.ProjectMode, ct);
         db.RemoveRange(topic.Requirements);
         await db.SaveChangesAsync(ct);
         topic.Requirements = await Requirements(content, ct);
@@ -147,6 +157,7 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
         topic.Status = publish ? "PUBLISHED" : "CLOSED";
         if (publish)
         {
+            await RequirePolicyAsync(topic.ProjectPeriodId, topic.ProjectMode, ct);
             var majors = await GetMajorsAsync(topic.Requirements.Select(r => r.MajorId).ToArray(), ct);
             foreach (var requirement in topic.Requirements) requirement.DepartmentId = majors.Single(m => m.Id == requirement.MajorId).DepartmentId;
             topic.PublishedBy = actor.Id; topic.PublishedAt = now;

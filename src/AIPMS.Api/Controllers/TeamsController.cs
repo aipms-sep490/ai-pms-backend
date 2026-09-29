@@ -40,9 +40,54 @@ public sealed class TeamsController(ISender sender) : ControllerBase
     public async Task<ActionResult<TeamDto>> SetAcademicScope(long teamId, TeamAcademicScopeRequest request, CancellationToken ct) =>
         Ok(await sender.Send(new SetTeamAcademicScopeCommand(teamId, request), ct));
 
+    [HttpGet("{teamId:long}/eligibility")]
+    [ProducesResponseType<TeamEligibilityCheckDto>(200)]
+    [ProducesResponseType<ProblemDetails>(401)]
+    [ProducesResponseType<ProblemDetails>(403)]
+    [ProducesResponseType<ProblemDetails>(404)]
+    public async Task<ActionResult<TeamEligibilityCheckDto>> GetEligibility(long teamId, CancellationToken ct)
+    {
+        var result = await sender.Send(new GetTeamEligibilityQuery(teamId), ct);
+        return result is null ? NotFound() : Ok(result);
+    }
+
+    [HttpGet("{teamId:long}/eligibility/history")]
+    [ProducesResponseType<IReadOnlyList<TeamEligibilityCheckDto>>(200)]
+    [ProducesResponseType<ProblemDetails>(401)]
+    [ProducesResponseType<ProblemDetails>(403)]
+    [ProducesResponseType<ProblemDetails>(404)]
+    public async Task<ActionResult<IReadOnlyList<TeamEligibilityCheckDto>>> GetEligibilityHistory(long teamId, CancellationToken ct) =>
+        Ok(await sender.Send(new GetTeamEligibilityHistoryQuery(teamId), ct));
+
+    [HttpPost("{teamId:long}/eligibility/check")]
+    [ProducesResponseType<TeamEligibilityCheckDto>(200)]
+    [ProducesResponseType<ProblemDetails>(400)]
+    [ProducesResponseType<ProblemDetails>(401)]
+    [ProducesResponseType<ProblemDetails>(403)]
+    [ProducesResponseType<ProblemDetails>(404)]
+    [ProducesResponseType<ProblemDetails>(409)]
+    public async Task<ActionResult<TeamEligibilityCheckDto>> CheckEligibility(long teamId, CancellationToken ct) =>
+        Ok(await sender.Send(new CheckTeamEligibilityCommand(teamId), ct));
+
     [HttpPost("{teamId:long}/eligibility/refresh")]
+    [ProducesResponseType<TeamDto>(200)]
+    [ProducesResponseType<ProblemDetails>(400)]
+    [ProducesResponseType<ProblemDetails>(401)]
+    [ProducesResponseType<ProblemDetails>(403)]
+    [ProducesResponseType<ProblemDetails>(404)]
+    [ProducesResponseType<ProblemDetails>(409)]
     public async Task<ActionResult<TeamDto>> RefreshEligibility(long teamId, CancellationToken ct) =>
         Ok(await sender.Send(new RefreshTeamEligibilityCommand(teamId), ct));
+
+    [HttpPost("{teamId:long}/eligibility/lock")]
+    [ProducesResponseType<TeamDto>(200)]
+    [ProducesResponseType<ProblemDetails>(400)]
+    [ProducesResponseType<ProblemDetails>(401)]
+    [ProducesResponseType<ProblemDetails>(403)]
+    [ProducesResponseType<ProblemDetails>(404)]
+    [ProducesResponseType<ProblemDetails>(409)]
+    public async Task<ActionResult<TeamDto>> LockEligibility(long teamId, CancellationToken ct) =>
+        Ok(await sender.Send(new LockTeamEligibilityCommand(teamId), ct));
 
     [HttpGet("{teamId:long}/invitation-candidates")]
     [ProducesResponseType<PagedResult<TeamInvitationCandidateDto>>(200)]

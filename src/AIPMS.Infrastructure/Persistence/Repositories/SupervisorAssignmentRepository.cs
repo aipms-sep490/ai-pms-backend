@@ -54,10 +54,9 @@ internal sealed class SupervisorAssignmentRepository(AipmsDbContext context,
     public Task<bool> ProjectExistsAsync(long projectId, CancellationToken ct) =>
         context.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, ct);
 
-    public Task<bool> IsProjectDepartmentAsync(long projectId, long departmentId, CancellationToken ct) =>
-        context.ProjectMajors.AsNoTracking().AnyAsync(m => m.ProjectId == projectId
-            && m.Major.DepartmentId == departmentId && m.Major.IsActive
-            && m.Major.Department.IsActive && m.Major.Department.Organization.IsActive, ct);
+    public async Task<bool> IsProjectDepartmentAsync(long projectId, long departmentId, CancellationToken ct) =>
+        (await AIPMS.Infrastructure.Services.Projects.ProjectAcademicScopeReader.ReadAsync(context, projectId, ct))
+            .DepartmentIds.Contains(departmentId);
 
     public async Task<PagedResult<SupervisorAssignmentModel>> SearchAsync(SupervisorAssignmentSearch search, CancellationToken ct)
     {
@@ -75,12 +74,14 @@ internal sealed class SupervisorAssignmentRepository(AipmsDbContext context,
         return new(items, search.Page, search.PageSize, count);
     }
 
-    public async Task<SupervisorAssignmentModel> EndAsync(long assignmentId, DateTime now, CancellationToken ct)
+    public async Task<SupervisorAssignmentModel> EndAsync(long assignmentId, DateTime now, CancellationToken ct, long? actorId = null, string? reason = null)
     {
         RequireTransaction();
         var assignment = await context.SupervisorAssignments.SingleAsync(a => a.Id == assignmentId, ct);
         if (assignment.EndedAt.HasValue) throw new ConflictException("The assignment has already ended.");
         assignment.EndedAt = now;
+        assignment.EndedBy = actorId;
+        assignment.EndReason = reason;
         assignment.UpdatedAt = now;
         await context.SaveChangesAsync(ct);
         return (await GetAsync(assignmentId, ct))!;

@@ -9,6 +9,8 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Milestones.Abstractions;
 using AIPMS.Application.Features.Tasks.Abstractions;
 using AIPMS.Application.Features.Tasks.DTOs;
+using AIPMS.Application.Features.Disciplines.Abstractions;
+using AIPMS.Application.Features.Disciplines.DTOs;
 using MediatR;
 
 namespace AIPMS.Application.Features.Tasks.Commands;
@@ -21,17 +23,23 @@ public sealed record CreateTaskCommand(
     string? Priority,
     DateTime? StartAt,
     DateTime? DueAt,
-    IReadOnlyList<long> AssigneeUserIds) : IRequest<TaskDto>;
+    IReadOnlyList<long> AssigneeUserIds,
+    IReadOnlyList<TaskDisciplineInput>? Disciplines = null) : IRequest<TaskDto>;
 
 public sealed class CreateTaskCommandHandler(
     ITaskRepository repository,
     IMilestoneRepository milestoneRepository,
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
-    IAuditTrail auditTrail)
+    IAuditTrail auditTrail,
+    IDisciplineService? disciplines = null)
     : IRequestHandler<CreateTaskCommand, TaskDto>
 {
-    public async Task<TaskDto> Handle(
+    public Task<TaskDto> Handle(CreateTaskCommand request, CancellationToken cancellationToken) => disciplines is null
+        ? HandleCore(request, cancellationToken)
+        : disciplines.CreateTaskAsync(request.MilestoneId, request.Disciplines, token => HandleCore(request, token), cancellationToken);
+
+    private async Task<TaskDto> HandleCore(
         CreateTaskCommand request,
         CancellationToken cancellationToken)
     {

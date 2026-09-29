@@ -48,6 +48,10 @@ public static class DependencyInjection
         services.AddScoped<TeamLeaderChangeWorkflow>();
         services.AddScoped<StudentQualificationWorkflow>();
         services.AddScoped<ITeamRegistrationGuard, TeamRegistrationGuard>();
+        services.AddScoped<ITeamEligibilityHasher, TeamEligibilityHasher>();
+        services.AddScoped<ITeamEligibilityFreshnessEvaluator, TeamEligibilityFreshnessEvaluator>();
+        services.AddScoped<ITeamRosterMutationGuard, TeamRosterMutationGuard>();
+        services.AddScoped<TeamEligibilityEvaluationService>();
 
         return services;
     }

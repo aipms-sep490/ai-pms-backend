@@ -9,6 +9,7 @@ public sealed class TeamAcademicConfiguration
     public long? PrimaryMajorId { get; set; }
     public long LeadDepartmentId { get; set; }
     public Guid ConcurrencyToken { get; set; }
+    public Guid? ResponsibilityVersion { get; set; }
     public List<TeamMajorRequirement> Requirements { get; set; } = [];
     public TeamAcademicScope ToScope() => new(ProjectMode, PrimaryMajorId, LeadDepartmentId,
         Requirements.OrderBy(r => r.MajorId).Select(r => new MajorRequirement(r.MajorId, r.MinMembers, r.MaxMembers, r.Responsibility)).ToArray(), ConcurrencyToken);

@@ -8,6 +8,8 @@ public partial class AipmsDbContext
 {
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
+        ConfigureProjectRequirements(modelBuilder);
+        ConfigureDisciplineEvidence(modelBuilder);
         ConfigureExecutionConcurrency(modelBuilder);
         ConfigureGovernanceBaseline(modelBuilder);
         ConfigureTeamLeaderChangeRequests(modelBuilder);
@@ -23,7 +25,8 @@ public partial class AipmsDbContext
         ConfigureNotificationEmail(modelBuilder);
         ConfigureExternalLogins(modelBuilder);
         ConfigureStudentQualifications(modelBuilder);
-        ConfigureReportingCycles(modelBuilder);
+ConfigureReportingCycles(modelBuilder);
+        ConfigureTeamEligibilitySnapshots(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
         {
             entity.ToTable("rubric_versions", table =>
@@ -43,3 +46,4 @@ public partial class AipmsDbContext
         });
     }
 }
+

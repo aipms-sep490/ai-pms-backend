@@ -63,6 +63,13 @@ public sealed class TopicSelectionGuard(
         }
         var teamPeriodId = window.PeriodId;
 
+        static bool Enabled(string csv, string value) => csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(item => string.Equals(item, value, StringComparison.OrdinalIgnoreCase));
+        if (!Enabled(window.AllowedProjectModes, topic.ProjectMode))
+            throw new ConflictException("PROJECT_MODE_NOT_ALLOWED_BY_PERIOD");
+        if (!Enabled(window.AllowedProposalSources, "PUBLISHED_TOPIC"))
+            throw new ConflictException("PROPOSAL_SOURCE_NOT_ALLOWED_BY_PERIOD");
+
         var topicRequirements = topic.Requirements
             .Select(r => new TopicMajorRequirementRule(r.MajorId, r.MinMembers, r.MaxMembers))
             .ToList();
