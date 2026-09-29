@@ -1194,7 +1194,7 @@ public sealed class TestProjectRepository : IProjectRepository
         string domain,
         IReadOnlyList<string> technologies,
         IReadOnlyList<string> keywords,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, long? topicId = null)
     {
         var id = _nextProjectId++;
         var project = new ProjectDto(

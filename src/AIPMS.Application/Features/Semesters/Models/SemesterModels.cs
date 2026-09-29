@@ -27,9 +27,12 @@ public sealed record ProjectPeriodModel(
     int? MinTeamSize,
     int? MaxTeamSize,
     int? MinDistinctMajors,
-    int? MaxProjectsPerSupervisor,
-    long? MilestoneTemplateId,
+      int? MaxProjectsPerSupervisor,
+      long? MilestoneTemplateId,
     long? RubricId,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    long? MilestoneTemplateVersionId = null);
+      long? MilestoneTemplateVersionId = null,
+      string AllowedProjectModes = "SINGLE_MAJOR,INTERDISCIPLINARY",
+      string AllowedProposalSources = "PUBLISHED_TOPIC,STUDENT_PROPOSAL",
+      int PolicyVersion = 1);

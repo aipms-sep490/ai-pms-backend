@@ -45,5 +45,8 @@ internal static class SemesterMapper
             entity.RubricId,
             entity.CreatedAt,
             entity.UpdatedAt,
-            entity.MilestoneTemplateVersionId);
+            entity.MilestoneTemplateVersionId,
+            entity.AllowedProjectModes,
+            entity.AllowedProposalSources,
+            entity.PolicyVersion);
 }

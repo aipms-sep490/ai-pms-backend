@@ -22,9 +22,11 @@ public sealed class SupervisorsController(ISender sender) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<PagedResult<SupervisorCandidateDto>>> Candidates(long projectId,
         [FromQuery] string? search, [FromQuery] string? expertise,
+        [FromQuery] string assignmentType = "PRIMARY", [FromQuery] long? majorId = null,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default) =>
-        Ok(await sender.Send(new GetSupervisorCandidatesQuery(projectId, search, expertise, page, pageSize), cancellationToken));
+        Ok(await sender.Send(new GetSupervisorCandidatesQuery(projectId, search, expertise, page, pageSize,
+            assignmentType, majorId), cancellationToken));
 
     [HttpGet]
     [ProducesResponseType<PagedResult<SupervisorProfileDto>>(StatusCodes.Status200OK)]

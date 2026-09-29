@@ -4,7 +4,8 @@ using MediatR;
 
 namespace AIPMS.Application.Features.Supervisors.Commands;
 
-public sealed record SendSupervisorRequestCommand(long ProjectId, long SupervisorProfileId, string? Message) : IRequest<SupervisorRequestDto>;
+public sealed record SendSupervisorRequestCommand(long ProjectId, long SupervisorProfileId, string? Message,
+    string AssignmentType = "PRIMARY", long? MajorId = null) : IRequest<SupervisorRequestDto>;
 public sealed record CancelSupervisorRequestCommand(long RequestId) : IRequest<SupervisorRequestDto>;
 public sealed record AcceptSupervisorRequestCommand(long RequestId, string? Message) : IRequest<SupervisorRequestDto>;
 public sealed record RejectSupervisorRequestCommand(long RequestId, string? Message) : IRequest<SupervisorRequestDto>;
@@ -13,7 +14,8 @@ public sealed class SendSupervisorRequestCommandHandler(SupervisorRequestWorkflo
     : IRequestHandler<SendSupervisorRequestCommand, SupervisorRequestDto>
 {
     public Task<SupervisorRequestDto> Handle(SendSupervisorRequestCommand request, CancellationToken ct) =>
-        workflow.SendAsync(request.ProjectId, request.SupervisorProfileId, request.Message, ct);
+        workflow.SendAsync(request.ProjectId, request.SupervisorProfileId, request.Message,
+            request.AssignmentType, request.MajorId, ct);
 }
 public sealed class CancelSupervisorRequestCommandHandler(SupervisorRequestWorkflow workflow)
     : IRequestHandler<CancelSupervisorRequestCommand, SupervisorRequestDto>

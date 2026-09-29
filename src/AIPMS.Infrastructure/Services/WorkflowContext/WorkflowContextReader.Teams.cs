@@ -29,6 +29,8 @@ internal sealed partial class WorkflowContextReader
             catch (ConflictException) { mutable.Add("ACADEMIC_SCOPE_INVALID"); }
         }
         var eligibility = new List<string>(mutable);
+        if (window is not null && !ProjectPeriodGovernancePolicy.Allows(window.AllowedProjectModes, team.AcademicScope?.ProjectMode ?? "SINGLE_MAJOR"))
+            eligibility.Add("PROJECT_MODE_NOT_ALLOWED_BY_PERIOD");
         var invitations = new List<string>(mutable);
         if (window is not null && policy is { IsValid: true })
         {

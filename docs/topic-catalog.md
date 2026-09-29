@@ -54,13 +54,15 @@ The response includes persisted major/department references, publication/close
 metadata, a concurrency token and `matchesMyMajor` for student readers. Backend
 commands still recheck scope, policy and token; listing is advisory.
 
-## Deferred to the selection PR
+## Selection and period policy
 
-This slice does not create a project from a topic, reserve a topic, limit the
-number of teams per topic, record a selected topic on `Project`, or implement
-per-period allowed source/mode switches. The next PR should add those operations
-with an atomic topic-selection constraint and connect `ProposalSource` to the
-project registration snapshot. No default selection capacity is inferred here.
+Projects can select a published topic through the existing selection endpoint or
+create a draft with optional `topicId` in `POST /api/v1/projects`. The latter is
+atomic and supports periods that allow only `PUBLISHED_TOPIC` proposals.
+Creation/update/publication and selection enforce the period's allowed mode/source
+sets; submit/resubmit records the current policy in registration evidence.
+See [project-period-governance.md](project-period-governance.md) for contracts and
+rollout. This does not reserve a topic or introduce per-topic team capacity.
 
 The implementation follows SRS BR-46 and the existing backend convention that
 frontend visibility never replaces server authorization. Errors use the normal

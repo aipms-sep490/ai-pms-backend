@@ -62,7 +62,7 @@ public sealed class SupervisorProfileTests
             ProjectRead = true;
             return Task.FromResult<SupervisorCandidateProject?>(Project);
         }
-        public Task<IReadOnlyList<SupervisorSelectionPolicy>> GetSelectionPoliciesAsync(long semesterId, DateTime now, CancellationToken ct) =>
+        public Task<IReadOnlyList<SupervisorSelectionPolicy>> GetSelectionPoliciesAsync(long semesterId, DateTime now, CancellationToken ct, bool execution = false) =>
             Task.FromResult<IReadOnlyList<SupervisorSelectionPolicy>>([new(4, 5)]);
         public Task<PagedResult<SupervisorCandidateModel>> SearchAsync(SupervisorCandidateSearch search, CancellationToken ct)
         {

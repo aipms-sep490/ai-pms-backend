@@ -11,5 +11,5 @@ public interface ISupervisorAssignmentRepository
     Task<bool> ProjectExistsAsync(long projectId, CancellationToken ct);
     Task<bool> IsProjectDepartmentAsync(long projectId, long departmentId, CancellationToken ct);
     Task<PagedResult<SupervisorAssignmentModel>> SearchAsync(SupervisorAssignmentSearch search, CancellationToken ct);
-    Task<SupervisorAssignmentModel> EndAsync(long assignmentId, DateTime now, CancellationToken ct);
+    Task<SupervisorAssignmentModel> EndAsync(long assignmentId, DateTime now, CancellationToken ct, long? actorId = null, string? reason = null);
 }

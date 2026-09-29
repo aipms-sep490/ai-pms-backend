@@ -56,7 +56,7 @@ public interface IProjectRepository
         string domain,
         IReadOnlyList<string> technologies,
         IReadOnlyList<string> keywords,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken, long? topicId = null);
 
     Task<ProjectDto> UpdateDraftAsync(
         long projectId,

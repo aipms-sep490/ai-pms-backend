@@ -1,4 +1,3 @@
-using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Security;
@@ -9,52 +8,25 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed class ProjectAccessService(AipmsDbContext context) : IProjectAccessService
 {
-    public async Task<bool> CanAccessAsync(
-        long userId,
-        long projectId,
-        CancellationToken cancellationToken = default)
+    public async Task<bool> CanAccessAsync(long userId, long projectId, CancellationToken cancellationToken = default)
     {
-        // Load user roles
-        var roles = await context.UserRoles
-            .AsNoTracking()
-            .Where(ur => ur.UserId == userId)
-            .Select(ur => ur.Role.Code)
-            .ToListAsync(cancellationToken);
-
-        if (roles.Count == 0) return false;
-
-        // Admin → platform-wide access
-        if (roles.Contains(AppRoles.Admin)) return true;
-
-        // DepartmentStaff → only projects whose majors belong to the staff's department
-        if (roles.Contains(AppRoles.DepartmentStaff))
+        var actor = await context.Users.AsNoTracking().Where(u => u.Id == userId && u.Status == "ACTIVE")
+            .Select(u => new { u.DepartmentId,
+                HasScope = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive,
+                Roles = u.UserRoleUsers.Select(r => r.Role.Code).ToArray() }).SingleOrDefaultAsync(cancellationToken);
+        if (actor is null || !await context.Projects.AnyAsync(p => p.Id == projectId, cancellationToken)) return false;
+        if (actor.Roles.Contains(AppRoles.Admin)) return true;
+        if (!actor.HasScope) return false;
+        if (actor.Roles.Contains(AppRoles.DepartmentStaff) && actor.DepartmentId is long departmentId)
         {
-            var departmentId = await context.Users
-                .AsNoTracking()
-                .Where(u => u.Id == userId)
-                .Select(u => u.DepartmentId)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (departmentId is null) return false;
-
-            return await context.ProjectMajors
-                .AsNoTracking()
-                .AnyAsync(
-                    pm => pm.ProjectId == projectId
-                          && pm.Major.DepartmentId == departmentId.Value,
-                    cancellationToken);
+            var scope = await ProjectAcademicScopeReader.ReadAsync(context, projectId, cancellationToken);
+            if (scope.DepartmentIds.Contains(departmentId)) return true;
         }
-
-        // Students / Supervisors → must be active team member or active supervisor
-        return await context.Projects
-            .AsNoTracking()
-            .AnyAsync(
-                p => p.Id == projectId
-                     && (p.Team.TeamMembers.Any(
-                             m => m.UserId == userId && m.LeftAt == null)
-                         || (p.SupervisorAssignment != null
-                             && p.SupervisorAssignment.EndedAt == null
-                             && p.SupervisorAssignment.SupervisorProfile.UserId == userId)),
-                cancellationToken);
+        return await context.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId
+            && ((actor.Roles.Contains(AppRoles.Student)
+                    && p.Team.TeamMembers.Any(m => m.UserId == userId && m.LeftAt == null))
+                || (actor.Roles.Contains(AppRoles.Lecturer)
+                    && p.SupervisorAssignments.Any(a => a.EndedAt == null && a.SupervisorProfile.UserId == userId))),
+            cancellationToken);
     }
 }

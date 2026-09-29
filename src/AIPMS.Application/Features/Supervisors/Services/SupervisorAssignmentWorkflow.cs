@@ -27,6 +27,8 @@ public sealed class SupervisorAssignmentWorkflow(ISupervisorAssignmentRepository
         var actor = await access.EnsureCanReadAsync(ct);
         if (projectId.HasValue)
         {
+            if (actor.Roles.Contains(AppRoles.Admin) && !await repository.ProjectExistsAsync(projectId.Value, ct))
+                throw new NotFoundException("Project", projectId.Value);
             await RequireProjectReaderAsync(actor, projectId.Value, ct);
             if (!await repository.ProjectExistsAsync(projectId.Value, ct))
                 throw new NotFoundException("Project", projectId.Value);
@@ -51,11 +53,11 @@ public sealed class SupervisorAssignmentWorkflow(ISupervisorAssignmentRepository
             if (!permitted) throw new ForbiddenException("You cannot end this supervisor assignment.");
             if (before.EndedAt.HasValue) return before.ToDto();
             if (before.ProjectStatus is not ("COMPLETED" or "ARCHIVED"))
-                throw new ConflictException("Only assignments on completed or archived projects can be ended. Supervisor replacement is not supported.");
+                throw new ConflictException("Only assignments on completed or archived projects can be ended. Use the replacement endpoint for ACTIVE projects.");
             var now = clock.GetUtcNow().UtcDateTime;
             if (now < before.AssignedAt)
                 throw new ConflictException("The assignment cannot end before its assigned time.");
-            var after = await repository.EndAsync(assignmentId, now, token);
+            var after = await repository.EndAsync(assignmentId, now, token, actor.UserId, reason.Trim());
             await audit.RecordAsync(new AuditEntry(actor.UserId, "SUPERVISOR_ASSIGNMENT_ENDED", "SUPERVISOR_ASSIGNMENT",
                 assignmentId, new Dictionary<string, object?> { ["before"] = before.ToDto(),
                     ["after"] = after.ToDto(), ["reason"] = reason.Trim() }), token);

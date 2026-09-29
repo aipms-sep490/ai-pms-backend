@@ -77,7 +77,7 @@ public sealed record CreateProjectDraftRequest(
     IReadOnlyList<long> RequiredMajorIds,
     string Domain,
     IReadOnlyList<string> Technologies,
-    IReadOnlyList<string> Keywords);
+    IReadOnlyList<string> Keywords, long? TopicId = null);
 
 public sealed record UpdateProjectDraftRequest(
     string ConcurrencyToken,

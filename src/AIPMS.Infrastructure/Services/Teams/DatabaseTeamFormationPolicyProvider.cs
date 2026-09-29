@@ -25,6 +25,7 @@ internal sealed class DatabaseTeamFormationPolicyProvider(
             from qp in policies.DefaultIfEmpty()
             select new
             {
+                p.PolicyVersion,
                 p.MinTeamSize,
                 p.MaxTeamSize,
                 p.MinDistinctMajors,
@@ -47,6 +48,7 @@ internal sealed class DatabaseTeamFormationPolicyProvider(
 
         var invitationHours = ResolveInvitationHours(registrationPeriodId);
         var version = ResolveVersion(registrationPeriodId, minMembers, maxMembers, minDistinctMajors);
+        if (period.PolicyVersion > 1) version += $"-g{period.PolicyVersion}";
 
         var policy = new TeamFormationPolicy(
             minMembers,
@@ -77,12 +79,8 @@ internal sealed class DatabaseTeamFormationPolicyProvider(
     private static string ResolveVersion(
         long registrationPeriodId, int minMembers, int maxMembers, int minDistinctMajors)
     {
-        // Deterministic BE-12 effective team policy fingerprint.
-        // Derived strictly from effective DB team policy values (ProjectPeriodId, MinTeamSize, MaxTeamSize, MinDistinctMajors)
-        // so that identical team policy values produce identical versions, and mutations to unrelated ProjectPeriod fields
-        // (dates, status, supervisor capacity, rubric, etc.) do not spuriously change the Team PolicyVersion.
-        // Configured labels (e.g. TeamFormation:Periods:{id}:Version) are NOT used to override, preventing stale version masking.
-        // InvitationHours is Teams-owned and excluded to keep BE-12 policy versioning isolated to BE-12 owned attributes.
+        // Keep the legacy fingerprint at governance version 1; append the persisted
+        // governance revision in GetAsync so policy edits cannot reuse an old snapshot.
         return $"v-{registrationPeriodId}-{minMembers}-{maxMembers}-{minDistinctMajors}";
     }
 }
