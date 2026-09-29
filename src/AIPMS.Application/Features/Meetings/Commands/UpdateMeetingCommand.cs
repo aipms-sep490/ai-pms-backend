@@ -56,6 +56,9 @@ public sealed class UpdateMeetingCommandHandler(
             command.Request.Location,
             command.Request.OnlineUrl,
             now,
+            command.Request.Minutes,
+            command.Request.Decisions,
+            command.Request.Blockers,
             async updated =>
             {
                 await audit.RecordAsync(new AuditEntry(

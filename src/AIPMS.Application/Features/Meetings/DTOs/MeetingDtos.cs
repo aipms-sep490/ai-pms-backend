@@ -19,7 +19,10 @@ public sealed record MeetingDto(
     int ParticipantCount,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null,
+    string? Minutes = null,
+    string? Decisions = null,
+    string? Blockers = null);
 
 public sealed record MeetingDetailDto(
     long Id,
@@ -38,7 +41,10 @@ public sealed record MeetingDetailDto(
     IReadOnlyList<MeetingFeedbackDto> Feedbacks,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null,
+    string? Minutes = null,
+    string? Decisions = null,
+    string? Blockers = null);
 
 public sealed record MeetingParticipantDto(
     long Id,
@@ -68,7 +74,10 @@ public sealed record CreateMeetingRequest(
     DateTime? EndAt,
     string? Location,
     string? OnlineUrl,
-    IReadOnlyList<long>? ParticipantUserIds);
+    IReadOnlyList<long>? ParticipantUserIds,
+    string? Minutes = null,
+    string? Decisions = null,
+    string? Blockers = null);
 
 public sealed record UpdateMeetingRequest(
     string Title,
@@ -77,12 +86,18 @@ public sealed record UpdateMeetingRequest(
     DateTime? EndAt,
     string? Location,
     string? OnlineUrl,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null,
+    string? Minutes = null,
+    string? Decisions = null,
+    string? Blockers = null);
 
 public sealed record UpdateMeetingNotesRequest(
     string? MeetingNotes,
     IReadOnlyList<ParticipantAttendanceUpdate>? Attendances,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null,
+    string? Minutes = null,
+    string? Decisions = null,
+    string? Blockers = null);
 
 public sealed record ParticipantAttendanceUpdate(
     long UserId,

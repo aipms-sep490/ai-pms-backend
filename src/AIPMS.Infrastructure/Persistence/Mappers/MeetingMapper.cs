@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using AIPMS.Application.Features.Meetings.DTOs;
 using MeetingEntity = AIPMS.Infrastructure.Persistence.Generated.Models.Meeting;
@@ -26,7 +26,10 @@ internal static class MeetingMapper
             meeting.MeetingParticipants.Count,
             meeting.CreatedAt,
             meeting.UpdatedAt,
-            meeting.ConcurrencyToken.ToString("N"));
+            meeting.ConcurrencyToken.ToString("N"),
+            meeting.Minutes,
+            meeting.Decisions,
+            meeting.Blockers);
 
     public static MeetingDetailDto ToDetailDto(this MeetingEntity meeting)
     {
@@ -57,7 +60,10 @@ internal static class MeetingMapper
             feedbacks,
             meeting.CreatedAt,
             meeting.UpdatedAt,
-            meeting.ConcurrencyToken.ToString("N"));
+            meeting.ConcurrencyToken.ToString("N"),
+            meeting.Minutes,
+            meeting.Decisions,
+            meeting.Blockers);
     }
 
     public static MeetingParticipantDto ToDto(this ParticipantEntity participant) =>

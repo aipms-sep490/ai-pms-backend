@@ -56,6 +56,21 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         db.AcademicSemesters.Add(semester);
         await db.SaveChangesAsync();
 
+        var projectPeriod = new M.ProjectPeriod
+        {
+            AcademicSemesterId = semester.Id,
+            Code = Guid.NewGuid().ToString("N").Substring(0, 10),
+            Name = "Execution Period",
+            PeriodType = "EXECUTION",
+            Status = "ACTIVE",
+            StartAt = Now.AddDays(-20),
+            EndAt = Now.AddDays(20),
+            CreatedAt = Now.AddDays(-20),
+            UpdatedAt = Now.AddDays(-20)
+        };
+        db.ProjectPeriods.Add(projectPeriod);
+        await db.SaveChangesAsync();
+
         var studentRole = await db.Roles.SingleAsync(r => r.Code == AppRoles.Student);
 
         var memberUser = new M.User
@@ -656,6 +671,18 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         }
     }
 
+        private sealed class NormalFactory(SupervisorDatabaseFixture database) : AipmsWebApplicationFactory
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = database.ConnectionString
+            }));
+        }
+    }
+
     private sealed class FaultyAuditFactory(SupervisorDatabaseFixture database) : AipmsWebApplicationFactory
     {
         public ConfigurableAuditState AuditState { get; } = new();
@@ -1126,6 +1153,335 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
 
             var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.EntityId == meetingId.ToString() && a.Action == "MEETING_FEEDBACK_ADDED");
             Assert.Equal(0, auditCount);
+        }
+    }
+
+    #endregion
+
+    #region Concurrency Tests (C1-C5)
+
+    [Fact]
+    public async Task C1_ConcurrentOverlappingCreate_OneSucceeds_OneFails409()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new NormalFactory(database);
+        using var client1 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+        using var client2 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var req1 = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 1, 10, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 1, 15, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+        var req2 = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 1, 5, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 1, 12, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 1, 15, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+
+        var task1 = client1.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", req1);
+        var task2 = client2.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", req2);
+
+        var results = await Task.WhenAll(task1, task2);
+        var c1 = results[0].StatusCode;
+        var c2 = results[1].StatusCode;
+
+        Assert.True((c1 == HttpStatusCode.Created && c2 == HttpStatusCode.Conflict) || (c1 == HttpStatusCode.Conflict && c2 == HttpStatusCode.Created));
+    }
+
+    [Fact]
+    public async Task C2_ConcurrentNonOverlappingCreate_BothSucceed()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new NormalFactory(database);
+        using var client1 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+        using var client2 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var req1 = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 2, 10, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 2, 15, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+        var req2 = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 2, 20, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 2, 28, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 3, 5, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+
+        var task1 = client1.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", req1);
+        var task2 = client2.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", req2);
+
+        var results = await Task.WhenAll(task1, task2);
+        Assert.Equal(HttpStatusCode.Created, results[0].StatusCode);
+        Assert.Equal(HttpStatusCode.Created, results[1].StatusCode);
+    }
+
+    [Fact]
+    public async Task C3_ConcurrentUpdateCreatingOverlap_OneSucceeds_OneFails409()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new NormalFactory(database);
+        using var client = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var req1 = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 3, 10, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 3, 15, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+        var req2 = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 3, 20, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 3, 28, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 4, 5, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+
+        var res1 = await client.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", req1);
+        var res2 = await client.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", req2);
+
+        var cycle1 = await res1.Content.ReadFromJsonAsync<ReportingCycleDto>();
+        var cycle2 = await res2.Content.ReadFromJsonAsync<ReportingCycleDto>();
+
+        var upReq1 = new UpdateReportingCycleRequest(PeriodEnd: new DateTimeOffset(2026, 3, 18, 0, 0, 0, TimeSpan.Zero));
+        var upReq2 = new UpdateReportingCycleRequest(PeriodStart: new DateTimeOffset(2026, 3, 15, 0, 0, 0, TimeSpan.Zero));
+
+        using var client1 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+        using var client2 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var task1 = client1.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle1!.Id}", upReq1);
+        var task2 = client2.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle2!.Id}", upReq2);
+
+        var results = await Task.WhenAll(task1, task2);
+        var c1 = results[0].StatusCode;
+        var c2 = results[1].StatusCode;
+
+        Assert.True((c1 == HttpStatusCode.OK && c2 == HttpStatusCode.Conflict) ||
+                    (c1 == HttpStatusCode.Conflict && c2 == HttpStatusCode.OK));
+
+        using var freshCtx = database.CreateContext();
+        var reloaded1 = await freshCtx.ProgressReportPeriods.FindAsync(cycle1.Id);
+        var reloaded2 = await freshCtx.ProgressReportPeriods.FindAsync(cycle2.Id);
+
+        Assert.False(reloaded1!.PeriodStart < reloaded2!.PeriodEnd && reloaded2.PeriodStart < reloaded1.PeriodEnd);
+    }
+
+    [Fact]
+    public async Task C4_WeeklyVsMonthly_BothSucceed()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new NormalFactory(database);
+        using var client1 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+        using var client2 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var req1 = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 4, 30, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 5, 5, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+        var req2 = new CreateReportingCycleRequest("MONTHLY",
+            new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 4, 30, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 5, 5, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+
+        var task1 = client1.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", req1);
+        var task2 = client2.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", req2);
+
+        var results = await Task.WhenAll(task1, task2);
+        Assert.Equal(HttpStatusCode.Created, results[0].StatusCode);
+        Assert.Equal(HttpStatusCode.Created, results[1].StatusCode);
+    }
+
+    [Fact]
+    public async Task C5_AdjacentHalfOpenBoundaries_BothSucceed()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new NormalFactory(database);
+        using var client1 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+        using var client2 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var req1 = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 5, 8, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 5, 10, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+        var req2 = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 5, 8, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 5, 15, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 5, 20, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+
+        var task1 = client1.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", req1);
+        var task2 = client2.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", req2);
+
+        var results = await Task.WhenAll(task1, task2);
+        Assert.Equal(HttpStatusCode.Created, results[0].StatusCode);
+        Assert.Equal(HttpStatusCode.Created, results[1].StatusCode);
+    }
+
+    #endregion
+
+    #region R1-R3 Tests
+
+    [Fact]
+    public async Task R1_ReferencedCycle_IdentityFieldsAreImmutable()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new NormalFactory(database);
+        using var staffClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+        using var studentClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.Student]);
+
+        var reqCycle = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 6, 10, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 6, 15, 0, 0, 0, TimeSpan.Zero), "BLOCK", null);
+
+        var resCycle = await staffClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", reqCycle);
+        var resCycleStr = await resCycle.Content.ReadAsStringAsync();
+        Assert.True(resCycle.StatusCode == HttpStatusCode.Created, $"Cycle Create Failed: {resCycle.StatusCode} - {resCycleStr}");
+        var cycle = await resCycle.Content.ReadFromJsonAsync<ReportingCycleDto>();
+
+        var reqReport = new CreateProgressReportRequest(
+            ReportType: "WEEKLY",
+            PeriodStart: DateOnly.FromDateTime(new DateTime(2026, 6, 1)),
+            PeriodEnd: DateOnly.FromDateTime(new DateTime(2026, 6, 10)),
+            Summary: "Summary",
+            CompletedWork: "Completed", PlannedWork: null, IssuesAndRisks: null,
+
+
+            ProgressReportPeriodId: cycle!.Id,
+            InProgressWork: "In progress",
+            Blockers: "Blockers", Risks: "Risks",
+            NextActions: "Next actions" );
+        var resReport = await studentClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/progress-reports", reqReport);
+        var responseString = await resReport.Content.ReadAsStringAsync();
+        Assert.True(resReport.StatusCode == HttpStatusCode.Created, $"Report Create Failed: {resReport.StatusCode} - {responseString}");
+
+        var upReq1 = new UpdateReportingCycleRequest(PeriodStart: new DateTimeOffset(2026, 6, 2, 0, 0, 0, TimeSpan.Zero));
+        var res1 = await staffClient.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle.Id}", upReq1);
+
+        var upReq2 = new UpdateReportingCycleRequest(PeriodEnd: new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero));
+        var res2 = await staffClient.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle.Id}", upReq2);
+
+        Assert.Equal(HttpStatusCode.Conflict, res1.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, res2.StatusCode);
+
+        using var freshCtx = database.CreateContext();
+        var reloaded = await freshCtx.ProgressReportPeriods.FindAsync(cycle.Id);
+        Assert.Equal(new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero), reloaded!.PeriodStart);
+        Assert.Equal(new DateTimeOffset(2026, 6, 10, 0, 0, 0, TimeSpan.Zero), reloaded!.PeriodEnd);
+    }
+
+    [Fact]
+    public async Task R2_SubmittedReport_CycleDeadlineAndLatePolicyAreImmutable()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new NormalFactory(database);
+        using var staffClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+        using var studentClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.Student]);
+
+        var futureDeadline = DateTimeOffset.UtcNow.AddDays(30);
+
+        var reqCycle = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 7, 10, 0, 0, 0, TimeSpan.Zero),
+            futureDeadline, "BLOCK", null);
+
+        var resCycle = await staffClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", reqCycle);
+        var resCycleStr = await resCycle.Content.ReadAsStringAsync();
+        Assert.True(resCycle.StatusCode == HttpStatusCode.Created, $"Cycle Create Failed: {resCycle.StatusCode} - {resCycleStr}");
+        var cycle = await resCycle.Content.ReadFromJsonAsync<ReportingCycleDto>();
+
+        var reqReport = new CreateProgressReportRequest(
+            ReportType: "WEEKLY",
+            PeriodStart: DateOnly.FromDateTime(new DateTime(2026, 7, 1)),
+            PeriodEnd: DateOnly.FromDateTime(new DateTime(2026, 7, 10)),
+            Summary: "Summary",
+            CompletedWork: "Completed", PlannedWork: null, IssuesAndRisks: null,
+
+
+            ProgressReportPeriodId: cycle!.Id,
+            InProgressWork: "In progress",
+            Blockers: "Blockers", Risks: "Risks",
+            NextActions: "Next actions" );
+        var resReport = await studentClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/progress-reports", reqReport);
+        var resReportStr = await resReport.Content.ReadAsStringAsync();
+        Assert.True(resReport.StatusCode == HttpStatusCode.Created, $"Report Create Failed: {resReport.StatusCode} - {resReportStr}");
+        var report = await resReport.Content.ReadFromJsonAsync<ProgressReportDto>();
+
+        var submitRes = await studentClient.PostAsync($"/api/v1/projects/{ctx.ProjectId}/progress-reports/{report!.Id}/submit", null);
+        Assert.True(submitRes.IsSuccessStatusCode, $"Submit failed: {await submitRes.Content.ReadAsStringAsync()}");
+
+        var upReq = new UpdateReportingCycleRequest(
+            Deadline: DateTimeOffset.UtcNow.AddDays(40),
+            LatePolicy: "FLAG");
+
+        var res1 = await staffClient.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle.Id}", upReq);
+        Assert.Equal(HttpStatusCode.Conflict, res1.StatusCode);
+
+        using var freshCtx = database.CreateContext();
+        var reloaded = await freshCtx.ProgressReportPeriods.FindAsync(cycle.Id);
+        Assert.Equal(futureDeadline, reloaded!.Deadline);
+        Assert.Equal("BLOCK", reloaded.LatePolicy);
+    }
+
+    [Fact]
+    public async Task R3_CycleDeadlineUpdateVsSubmit_FinalStateIsConsistent()
+    {
+        var ctx = await SeedTestProjectAsync();
+
+        using var app = new NormalFactory(database);
+
+        using var staffClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+        using var studentClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.Student]);
+
+        var futureDeadline = DateTimeOffset.UtcNow.AddDays(30);
+
+        var reqCycle = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 8, 10, 0, 0, 0, TimeSpan.Zero),
+            futureDeadline, "FLAG", null);
+
+        var resCycle = await staffClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", reqCycle);
+        var resCycleStr = await resCycle.Content.ReadAsStringAsync();
+        Assert.True(resCycle.StatusCode == HttpStatusCode.Created, $"Cycle Create Failed: {resCycle.StatusCode} - {resCycleStr}");
+        var cycle = await resCycle.Content.ReadFromJsonAsync<ReportingCycleDto>();
+
+        var reqReport = new CreateProgressReportRequest(
+            ReportType: "WEEKLY",
+            PeriodStart: DateOnly.FromDateTime(new DateTime(2026, 8, 1)),
+            PeriodEnd: DateOnly.FromDateTime(new DateTime(2026, 8, 10)),
+            Summary: "Summary",
+            CompletedWork: "Completed", PlannedWork: null, IssuesAndRisks: null,
+
+
+            ProgressReportPeriodId: cycle!.Id,
+            InProgressWork: "In progress",
+            Blockers: "Blockers", Risks: "Risks",
+            NextActions: "Next actions" );
+        var resReport = await studentClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/progress-reports", reqReport);
+        var resReportStr = await resReport.Content.ReadAsStringAsync();
+        Assert.True(resReport.StatusCode == HttpStatusCode.Created, $"Report Create Failed: {resReport.StatusCode} - {resReportStr}");
+        var report = await resReport.Content.ReadFromJsonAsync<ProgressReportDto>();
+
+        var pastDeadline = new DateTimeOffset(2000, 8, 11, 0, 0, 0, TimeSpan.Zero);
+        var upReq = new UpdateReportingCycleRequest(Deadline: pastDeadline);
+
+        var task1 = staffClient.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle.Id}", upReq);
+        var task2 = studentClient.PostAsync($"/api/v1/projects/{ctx.ProjectId}/progress-reports/{report!.Id}/submit", null);
+
+        var results = await Task.WhenAll(task1, task2);
+
+        var c1 = results[0].StatusCode;
+        var c2 = results[1].StatusCode;
+
+        using var freshCtx = database.CreateContext();
+        var reloadedCycle = await freshCtx.ProgressReportPeriods.FindAsync(cycle.Id);
+        var reloadedReport = await freshCtx.ProgressReports.FindAsync(report.Id);
+
+        if (c1 == HttpStatusCode.OK && c2 == HttpStatusCode.OK)
+        {
+            Assert.Equal(pastDeadline, reloadedCycle!.Deadline);
+            Assert.Equal("SUBMITTED", reloadedReport!.Status);
+            Assert.True(reloadedReport.IsLate);
+        }
+        else if (c1 == HttpStatusCode.Conflict && c2 == HttpStatusCode.OK)
+        {
+            Assert.Equal(futureDeadline, reloadedCycle!.Deadline);
+            Assert.Equal("SUBMITTED", reloadedReport!.Status);
+            Assert.False(reloadedReport.IsLate);
+        }
+        else
+        {
+            Assert.Fail($"Invalid concurrent execution states: Update {c1} / Submit {c2}");
         }
     }
 

@@ -51,24 +51,20 @@ public sealed class MeetingHandlerTests
                 page, pageSize, Meeting != null ? 1 : 0));
         }
 
-        public Task<MeetingDto> CreateAsync(
-            long projectId, long createdBy, string title, string? agenda, DateTime startAt, DateTime? endAt,
-            string? location, string? onlineUrl, IReadOnlyList<long>? participantUserIds, DateTime now, CancellationToken cancellationToken) =>
-            CreateAsync(projectId, createdBy, title, agenda, startAt, endAt, location, onlineUrl, participantUserIds, now, onCreated: null, cancellationToken);
+        public Task<MeetingDto> CreateAsync(long projectId, long createdBy, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, IReadOnlyList<long>? participantUserIds, DateTime now, CancellationToken cancellationToken) =>
+            CreateAsync(projectId, createdBy, title, agenda, startAt, endAt, location, onlineUrl, participantUserIds, now, null, null, null, null, cancellationToken);
 
-        public Task<MeetingDto> UpdateAsync(
-            long id, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, DateTime now, CancellationToken cancellationToken) =>
-            UpdateAsync(id, title, agenda, startAt, endAt, location, onlineUrl, now, onUpdated: null, cancellationToken);
+        public Task<MeetingDto> UpdateAsync(long id, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, DateTime now, CancellationToken cancellationToken) =>
+            UpdateAsync(id, title, agenda, startAt, endAt, location, onlineUrl, now, null, null, null, null, cancellationToken);
+
+        public Task<MeetingDto> UpdateNotesAsync(long id, string? meetingNotes, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now, CancellationToken cancellationToken) =>
+            UpdateNotesAsync(id, meetingNotes, attendances, now, null, null, null, null, cancellationToken);
 
         public Task<MeetingDto> CancelAsync(long id, DateTime now, CancellationToken cancellationToken) =>
             CancelAsync(id, now, onCancelled: null, cancellationToken);
 
         public Task<MeetingDto> CompleteAsync(long id, DateTime now, CancellationToken cancellationToken) =>
             CompleteAsync(id, now, onCompleted: null, cancellationToken);
-
-        public Task<MeetingDto> UpdateNotesAsync(
-            long id, string? meetingNotes, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now, CancellationToken cancellationToken) =>
-            UpdateNotesAsync(id, meetingNotes, attendances, now, onNotesUpdated: null, cancellationToken);
 
         public Task<MeetingParticipantDto> AddParticipantAsync(
             long meetingId, long userId, string? attendanceStatus, DateTime now, CancellationToken cancellationToken) =>
@@ -84,12 +80,13 @@ public sealed class MeetingHandlerTests
         public async Task<MeetingDto> CreateAsync(
             long projectId, long createdBy, string title, string? agenda, DateTime startAt, DateTime? endAt,
             string? location, string? onlineUrl, IReadOnlyList<long>? participantUserIds, DateTime now,
+            string? minutes = null, string? decisions = null, string? blockers = null,
             Func<MeetingDto, Task>? onCreated = null, CancellationToken ct = default)
         {
             LastToken = ct;
             var prev = Meeting;
             var created = new MeetingDto(5, projectId, title, agenda, null, startAt, endAt, location, onlineUrl,
-                "SCHEDULED", createdBy, "Creator", participantUserIds?.Count ?? 1, now, now);
+                "SCHEDULED", createdBy, "Creator", participantUserIds?.Count ?? 1, now, now, minutes, decisions, blockers);
             Meeting = created;
             if (onCreated != null)
             {
@@ -108,11 +105,24 @@ public sealed class MeetingHandlerTests
 
         public async Task<MeetingDto> UpdateAsync(
             long id, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, DateTime now,
+            string? minutes = null, string? decisions = null, string? blockers = null,
             Func<MeetingDto, Task>? onUpdated = null, CancellationToken ct = default)
         {
             LastToken = ct;
             var prev = Meeting;
-            var updated = Meeting! with { Title = title, Agenda = agenda, StartAt = startAt, EndAt = endAt, Location = location, OnlineUrl = onlineUrl, UpdatedAt = now };
+            var updated = Meeting! with
+            {
+                Title = title,
+                Agenda = agenda,
+                StartAt = startAt,
+                EndAt = endAt,
+                Location = location,
+                OnlineUrl = onlineUrl,
+                Minutes = minutes ?? Meeting.Minutes,
+                Decisions = decisions ?? Meeting.Decisions,
+                Blockers = blockers ?? Meeting.Blockers,
+                UpdatedAt = now
+            };
             Meeting = updated;
             if (onUpdated != null)
             {
@@ -181,13 +191,21 @@ public sealed class MeetingHandlerTests
 
         public async Task<MeetingDto> UpdateNotesAsync(
             long id, string? meetingNotes, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now,
+            string? minutes = null, string? decisions = null, string? blockers = null,
             Func<MeetingDto, Task>? onNotesUpdated = null, CancellationToken ct = default)
         {
             LastToken = ct;
             if (Meeting != null && Meeting.Status == "CANCELLED")
                 throw new ConflictException("Cancelled meetings cannot be modified.");
             var prev = Meeting;
-            var updated = Meeting! with { MeetingNotes = meetingNotes, UpdatedAt = now };
+            var updated = Meeting! with
+            {
+                MeetingNotes = meetingNotes,
+                Minutes = minutes ?? Meeting.Minutes,
+                Decisions = decisions ?? Meeting.Decisions,
+                Blockers = blockers ?? Meeting.Blockers,
+                UpdatedAt = now
+            };
             Meeting = updated;
             if (onNotesUpdated != null)
             {

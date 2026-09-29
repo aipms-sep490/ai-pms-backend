@@ -53,6 +53,11 @@ public sealed class UpdateProgressReportCommandHandler(
             command.Request.PlannedWork,
             command.Request.IssuesAndRisks,
             now,
+            command.Request.ProgressReportPeriodId,
+            command.Request.InProgressWork,
+            command.Request.Blockers,
+            command.Request.Risks,
+            command.Request.NextActions,
             async updated =>
             {
                 await audit.RecordAsync(new AuditEntry(

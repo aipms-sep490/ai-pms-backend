@@ -108,6 +108,18 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
                 cancellationToken);
     }
 
+    public async Task<bool> ExistsForPeriodIdAsync(
+        long periodId,
+        long? excludeId = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await context.ProgressReports
+            .AsNoTracking()
+            .AnyAsync(r => r.ProgressReportPeriodId == periodId
+                && (!excludeId.HasValue || r.Id != excludeId.Value),
+                cancellationToken);
+    }
+
     public async Task<ProgressReportDto> CreateAsync(
         long projectId,
         long submittedBy,
@@ -120,7 +132,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         string? issuesAndRisks,
         DateTime now,
         CancellationToken cancellationToken) =>
-        await CreateAsync(projectId, submittedBy, reportType, periodStart, periodEnd, summary, completedWork, plannedWork, issuesAndRisks, now, null, cancellationToken);
+        await CreateAsync(projectId, submittedBy, reportType, periodStart, periodEnd, summary, completedWork, plannedWork, issuesAndRisks, now, null, null, null, null, null, null, cancellationToken);
 
     public async Task<ProgressReportDto> CreateAsync(
         long projectId,
@@ -133,12 +145,31 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         string? plannedWork,
         string? issuesAndRisks,
         DateTime now,
+        long? progressReportPeriodId,
+        string? inProgressWork,
+        string? blockers,
+        string? risks,
+        string? nextActions,
         Func<ProgressReportDto, Task>? onCreated,
         CancellationToken cancellationToken = default)
     {
         await using var tx = context.Database.CurrentTransaction is null
             ? await context.Database.BeginTransactionAsync(cancellationToken)
             : null;
+
+        if (progressReportPeriodId.HasValue)
+        {
+            var cycle = await context.ProgressReportPeriods
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == progressReportPeriodId.Value, cancellationToken)
+                ?? throw new NotFoundException("ProgressReportPeriod", progressReportPeriodId.Value);
+
+            if (cycle.ProjectId != projectId)
+                throw new NotFoundException("ProgressReportPeriod", progressReportPeriodId.Value);
+
+            if (await ExistsForPeriodIdAsync(progressReportPeriodId.Value, null, cancellationToken))
+                throw new ConflictException("A progress report has already been created for this reporting cycle.");
+        }
 
         var entity = new ProgressReport
         {
@@ -151,6 +182,11 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             CompletedWork = completedWork,
             PlannedWork = plannedWork,
             IssuesAndRisks = issuesAndRisks,
+            ProgressReportPeriodId = progressReportPeriodId,
+            InProgressWork = inProgressWork,
+            Blockers = blockers ?? issuesAndRisks,
+            Risks = risks,
+            NextActions = nextActions ?? plannedWork,
             Status = "DRAFT",
             SubmittedAt = null,
             CreatedAt = now,
@@ -190,7 +226,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         string? issuesAndRisks,
         DateTime now,
         CancellationToken cancellationToken) =>
-        await UpdateAsync(id, summary, completedWork, plannedWork, issuesAndRisks, now, null, cancellationToken);
+        await UpdateAsync(id, summary, completedWork, plannedWork, issuesAndRisks, now, null, null, null, null, null, null, cancellationToken);
 
     public async Task<ProgressReportDto> UpdateAsync(
         long id,
@@ -199,6 +235,11 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         string? plannedWork,
         string? issuesAndRisks,
         DateTime now,
+        long? progressReportPeriodId,
+        string? inProgressWork,
+        string? blockers,
+        string? risks,
+        string? nextActions,
         Func<ProgressReportDto, Task>? onUpdated,
         CancellationToken cancellationToken = default)
     {
@@ -217,10 +258,30 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         if (entity.Status != "DRAFT")
             throw new ConflictException("Submitted or reviewed progress reports cannot be modified.");
 
+        if (progressReportPeriodId.HasValue && progressReportPeriodId.Value != entity.ProgressReportPeriodId)
+        {
+            var cycle = await context.ProgressReportPeriods
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == progressReportPeriodId.Value, cancellationToken)
+                ?? throw new NotFoundException("ProgressReportPeriod", progressReportPeriodId.Value);
+
+            if (cycle.ProjectId != entity.ProjectId)
+                throw new NotFoundException("ProgressReportPeriod", progressReportPeriodId.Value);
+
+            if (await ExistsForPeriodIdAsync(progressReportPeriodId.Value, id, cancellationToken))
+                throw new ConflictException("A progress report has already been created for this reporting cycle.");
+
+            entity.ProgressReportPeriodId = progressReportPeriodId.Value;
+        }
+
         entity.Summary = summary;
         entity.CompletedWork = completedWork;
         entity.PlannedWork = plannedWork;
         entity.IssuesAndRisks = issuesAndRisks;
+        if (inProgressWork != null) entity.InProgressWork = inProgressWork;
+        if (blockers != null) entity.Blockers = blockers;
+        if (risks != null) entity.Risks = risks;
+        if (nextActions != null) entity.NextActions = nextActions;
         entity.UpdatedAt = now;
         entity.ConcurrencyToken = Guid.NewGuid();
 
@@ -269,15 +330,46 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         if (entity.Status != "DRAFT")
             throw new ConflictException("Progress report is already submitted.");
 
+        if (!entity.ProgressReportPeriodId.HasValue)
+            throw new ConflictException("Progress report must be linked to a reporting cycle before submission.");
+
+        var cycle = await context.ProgressReportPeriods
+            .FromSqlInterpolated($"SELECT * FROM dbo.progress_report_periods WITH (UPDLOCK, HOLDLOCK) WHERE id = {entity.ProgressReportPeriodId.Value}")
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (cycle is null)
+            throw new NotFoundException("ProgressReportPeriod", entity.ProgressReportPeriodId.Value);
+
+        var isLate = now > cycle.Deadline;
+        if (isLate)
+        {
+            if (string.Equals(cycle.LatePolicy, "BLOCK", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ConflictException("Submission deadline has passed for this reporting cycle.");
+            }
+            entity.IsLate = true;
+        }
+        else
+        {
+            entity.IsLate = false;
+        }
+
+        // All five canonical sections are required to submit under the new contract.
+        // Legacy fields (planned_work, issues_and_risks) are read-only compatibility columns;
+        // they must NOT be silently promoted into canonical fields at submit time.
         var errors = new Dictionary<string, string[]>();
         if (string.IsNullOrWhiteSpace(entity.Summary))
-            errors["summary"] = new[] { "Summary is required to submit a progress report." };
+            errors["summary"] = ["Summary is required to submit a progress report."];
         if (string.IsNullOrWhiteSpace(entity.CompletedWork))
-            errors["completedWork"] = new[] { "Completed work is required to submit a progress report." };
-        if (string.IsNullOrWhiteSpace(entity.PlannedWork))
-            errors["plannedWork"] = new[] { "Planned work is required to submit a progress report." };
-        if (string.IsNullOrWhiteSpace(entity.IssuesAndRisks))
-            errors["issuesAndRisks"] = new[] { "Issues and risks is required to submit a progress report." };
+            errors["completedWork"] = ["Completed work is required to submit a progress report."];
+        if (string.IsNullOrWhiteSpace(entity.InProgressWork))
+            errors["inProgressWork"] = ["In-progress work is required to submit a progress report."];
+        if (string.IsNullOrWhiteSpace(entity.Blockers))
+            errors["blockers"] = ["Blockers is required to submit a progress report."];
+        if (string.IsNullOrWhiteSpace(entity.Risks))
+            errors["risks"] = ["Risks is required to submit a progress report."];
+        if (string.IsNullOrWhiteSpace(entity.NextActions))
+            errors["nextActions"] = ["Next actions is required to submit a progress report."];
 
         if (errors.Count > 0)
             throw new ValidationException(errors);

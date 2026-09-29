@@ -46,6 +46,9 @@ public interface IMeetingRepository
         string? onlineUrl,
         IReadOnlyList<long>? participantUserIds,
         DateTime now,
+        string? minutes,
+        string? decisions,
+        string? blockers,
         Func<MeetingDto, Task>? onCreated,
         CancellationToken cancellationToken = default);
 
@@ -69,6 +72,9 @@ public interface IMeetingRepository
         string? location,
         string? onlineUrl,
         DateTime now,
+        string? minutes,
+        string? decisions,
+        string? blockers,
         Func<MeetingDto, Task>? onUpdated,
         CancellationToken cancellationToken = default);
 
@@ -100,6 +106,9 @@ public interface IMeetingRepository
         string? meetingNotes,
         IReadOnlyList<ParticipantAttendanceUpdate>? attendances,
         DateTime now,
+        string? minutes,
+        string? decisions,
+        string? blockers,
         Func<MeetingDto, Task>? onNotesUpdated,
         CancellationToken cancellationToken = default);
 

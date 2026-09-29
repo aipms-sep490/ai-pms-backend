@@ -42,7 +42,11 @@ public sealed record ProgressReportEvidenceItem(
     string Period,
     string? Summary,
     string? CompletedWork,
-    string? IssuesAndRisks);
+    string? IssuesAndRisks,
+    string? InProgressWork = null,
+    string? Blockers = null,
+    string? Risks = null,
+    string? NextActions = null);
 
 public sealed record MeetingEvidenceItem(
     string Id,
@@ -51,7 +55,10 @@ public sealed record MeetingEvidenceItem(
     string Status,
     string StartAt,
     string? Agenda,
-    string? MeetingNotes);
+    string? MeetingNotes,
+    string? Minutes = null,
+    string? Decisions = null,
+    string? Blockers = null);
 
 public sealed record ContributionEvidenceItem(
     string Id,

@@ -38,6 +38,9 @@ public sealed class CreateProgressReportCommandHandler(
         if (!await repository.IsActiveTeamMemberAsync(projectId, actorId, cancellationToken))
             throw new ForbiddenException("Only active team members can create progress report drafts.");
 
+        if (command.Request.ProgressReportPeriodId.HasValue && await repository.ExistsForPeriodIdAsync(command.Request.ProgressReportPeriodId.Value, null, cancellationToken))
+            throw new ConflictException("A progress report for this reporting cycle already exists.");
+
         if (await repository.ExistsForPeriodAsync(projectId, command.Request.ReportType, command.Request.PeriodStart, command.Request.PeriodEnd, null, cancellationToken))
             throw new ConflictException("A progress report for this project, type, and period already exists.");
 
@@ -53,6 +56,11 @@ public sealed class CreateProgressReportCommandHandler(
             command.Request.PlannedWork,
             command.Request.IssuesAndRisks,
             now,
+            command.Request.ProgressReportPeriodId,
+            command.Request.InProgressWork,
+            command.Request.Blockers,
+            command.Request.Risks,
+            command.Request.NextActions,
             async created =>
             {
                 await audit.RecordAsync(new AuditEntry(

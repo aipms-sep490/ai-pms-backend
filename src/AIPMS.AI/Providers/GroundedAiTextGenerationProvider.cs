@@ -64,6 +64,10 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
         {
             evidenceMatch = Regex.Match(userPrompt, @"<evidence_payload>(.*?)</evidence_payload>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
         }
+        if (!evidenceMatch.Success)
+        {
+            evidenceMatch = Regex.Match(userPrompt, @"<report_evidence>(.*?)</report_evidence>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        }
         var evidenceText = evidenceMatch.Success ? evidenceMatch.Groups[1].Value.Trim() : userPrompt.Trim();
 
         ReportEvidencePayload? reportPayload = null;
@@ -81,24 +85,41 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
         var planned = reportPayload?.PlannedWork ?? ExtractXmlTag(evidenceText, "planned_work");
         var issues = reportPayload?.IssuesAndRisks ?? ExtractXmlTag(evidenceText, "issues_and_risks");
 
+        var inProgressRaw = !string.IsNullOrWhiteSpace(reportPayload?.InProgressWork)
+            ? reportPayload.InProgressWork
+            : planned;
+        var blockersRaw = !string.IsNullOrWhiteSpace(reportPayload?.Blockers)
+            ? reportPayload.Blockers
+            : issues;
+        var risksRaw = !string.IsNullOrWhiteSpace(reportPayload?.Risks)
+            ? reportPayload.Risks
+            : issues;
+        var nextActionsRaw = !string.IsNullOrWhiteSpace(reportPayload?.NextActions)
+            ? reportPayload.NextActions
+            : (!string.IsNullOrWhiteSpace(planned) ? planned : summary);
+
         var completedSummary = !string.IsNullOrWhiteSpace(completed)
             ? $"Completed items: {completed}"
             : "No completed work reported for this period.";
 
-        var inProgressSummary = !string.IsNullOrWhiteSpace(planned)
-            ? $"Work in progress: {planned}"
+        var inProgressSummary = !string.IsNullOrWhiteSpace(inProgressRaw)
+            ? $"Work in progress: {inProgressRaw}"
             : "No active in-progress work reported.";
 
-        var blockersSummary = !string.IsNullOrWhiteSpace(issues) && (issues.Contains("block", StringComparison.OrdinalIgnoreCase) || issues.Contains("delay", StringComparison.OrdinalIgnoreCase) || issues.Contains("issue", StringComparison.OrdinalIgnoreCase))
-            ? $"Identified blockers: {issues}"
-            : "No active blockers reported.";
+        var blockersSummary = !string.IsNullOrWhiteSpace(reportPayload?.Blockers)
+            ? $"Identified blockers: {reportPayload.Blockers}"
+            : (!string.IsNullOrWhiteSpace(issues) && (issues.Contains("block", StringComparison.OrdinalIgnoreCase) || issues.Contains("delay", StringComparison.OrdinalIgnoreCase) || issues.Contains("issue", StringComparison.OrdinalIgnoreCase))
+                ? $"Identified blockers: {issues}"
+                : "No active blockers reported.");
 
-        var risksSummary = !string.IsNullOrWhiteSpace(issues) && (issues.Contains("risk", StringComparison.OrdinalIgnoreCase) || issues.Contains("uncertain", StringComparison.OrdinalIgnoreCase))
-            ? $"Identified risks: {issues}"
-            : (!string.IsNullOrWhiteSpace(issues) ? $"Potential risks noted: {issues}" : "No specific risks reported.");
+        var risksSummary = !string.IsNullOrWhiteSpace(reportPayload?.Risks)
+            ? $"Identified risks: {reportPayload.Risks}"
+            : (!string.IsNullOrWhiteSpace(issues) && (issues.Contains("risk", StringComparison.OrdinalIgnoreCase) || issues.Contains("uncertain", StringComparison.OrdinalIgnoreCase))
+                ? $"Identified risks: {issues}"
+                : (!string.IsNullOrWhiteSpace(issues) ? $"Potential risks noted: {issues}" : "No specific risks reported."));
 
-        var nextActionsSummary = !string.IsNullOrWhiteSpace(planned)
-            ? $"Next actions: {planned}"
+        var nextActionsSummary = !string.IsNullOrWhiteSpace(nextActionsRaw)
+            ? $"Next actions: {nextActionsRaw}"
             : (!string.IsNullOrWhiteSpace(summary) ? $"Follow-up actions based on summary: {summary}" : "No next actions specified.");
 
         var payload = new

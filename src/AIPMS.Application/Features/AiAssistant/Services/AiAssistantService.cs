@@ -77,22 +77,32 @@ public sealed class AiAssistantService(
         }
 
         // Deterministic Fallback (BR-132)
+        var inProgress = !string.IsNullOrWhiteSpace(reportContext.InProgressWork)
+            ? reportContext.InProgressWork
+            : (!string.IsNullOrWhiteSpace(reportContext.PlannedWork) ? reportContext.PlannedWork : "No in-progress work recorded for this period.");
+
+        var blockers = !string.IsNullOrWhiteSpace(reportContext.Blockers)
+            ? reportContext.Blockers
+            : (!string.IsNullOrWhiteSpace(reportContext.IssuesAndRisks) ? reportContext.IssuesAndRisks : "No blockers recorded for this period.");
+
+        var risks = !string.IsNullOrWhiteSpace(reportContext.Risks)
+            ? reportContext.Risks
+            : (!string.IsNullOrWhiteSpace(reportContext.IssuesAndRisks) ? reportContext.IssuesAndRisks : "No risks recorded for this period.");
+
+        var nextActions = !string.IsNullOrWhiteSpace(reportContext.NextActions)
+            ? reportContext.NextActions
+            : (!string.IsNullOrWhiteSpace(reportContext.PlannedWork)
+                ? reportContext.PlannedWork
+                : (!string.IsNullOrWhiteSpace(reportContext.Summary) ? reportContext.Summary : "No next actions recorded for this period."));
+
         var fallbackSummary = new ReportStructuredSummaryDto(
             Completed: !string.IsNullOrWhiteSpace(reportContext.CompletedWork)
                 ? reportContext.CompletedWork
                 : "No completed work recorded for this period.",
-            InProgress: !string.IsNullOrWhiteSpace(reportContext.PlannedWork)
-                ? reportContext.PlannedWork
-                : "No in-progress work recorded for this period.",
-            Blockers: !string.IsNullOrWhiteSpace(reportContext.IssuesAndRisks)
-                ? reportContext.IssuesAndRisks
-                : "No blockers recorded for this period.",
-            Risks: !string.IsNullOrWhiteSpace(reportContext.IssuesAndRisks)
-                ? reportContext.IssuesAndRisks
-                : "No risks recorded for this period.",
-            NextActions: !string.IsNullOrWhiteSpace(reportContext.PlannedWork)
-                ? reportContext.PlannedWork
-                : (!string.IsNullOrWhiteSpace(reportContext.Summary) ? reportContext.Summary : "No next actions recorded for this period."));
+            InProgress: inProgress,
+            Blockers: blockers,
+            Risks: risks,
+            NextActions: nextActions);
 
         return new ReportSummaryDto(
             ProjectId: projectId,
