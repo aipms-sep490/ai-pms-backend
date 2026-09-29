@@ -27,11 +27,35 @@ public sealed class SubmitProjectCommandHandler(
     AIPMS.Application.Features.Topics.Abstractions.ITopicSelectionGuard? topicSelectionGuard = null)
     : IRequestHandler<SubmitProjectCommand, ProjectDto>
 {
-    public Task<ProjectDto> Handle(
+    public async Task<ProjectDto> Handle(
         SubmitProjectCommand request,
-        CancellationToken cancellationToken) =>
-        registrationGuard.InTransactionAsync(
-            token => HandleInTransactionAsync(request, token), cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await registrationGuard.InTransactionAsync(
+                token => HandleInTransactionAsync(request, token), cancellationToken);
+        }
+        catch (ConflictException ex)
+        {
+            if (currentUser.IsAuthenticated && currentUser.UserId.HasValue)
+            {
+                await auditTrail.RecordAsync(
+                    new AuditEntry(
+                        currentUser.UserId.Value,
+                        "PROJECT_SUBMISSION_GUARD_DENIED",
+                        "PROJECT",
+                        request.ProjectId,
+                        new Dictionary<string, object?>
+                        {
+                            ["reason"] = ex.Message
+                        },
+                        Outcome: "DENIED"),
+                    CancellationToken.None);
+            }
+            throw;
+        }
+    }
 
     private async Task<ProjectDto> HandleInTransactionAsync(
         SubmitProjectCommand request,
@@ -63,7 +87,8 @@ public sealed class SubmitProjectCommandHandler(
 
         // Re-read leadership, roster, academic accounts and period policy under the
         // same transaction as the status update, history and audit.
-        await registrationGuard.ValidateAsync(project.TeamId, cancellationToken);
+        await registrationGuard.ValidateSubmissionEligibilityAsync(
+            project.TeamId, project.Id, "INITIAL", null, cancellationToken);
 
         // BR-51: Check registration period/window
         var semesterId = await repository.GetSemesterIdByTeamIdAsync(project.TeamId, cancellationToken);

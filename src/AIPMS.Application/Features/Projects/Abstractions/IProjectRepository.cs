@@ -132,4 +132,12 @@ public interface IProjectRepository
     Task<ProjectTimelineDataDto> GetTimelineDataAsync(
         long projectId,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<(long ProjectId, string Status)>> GetTeamProjectStatusesAsync(
+        long teamId,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<long>?> GetAuthoritativeDepartmentIdsForTeamAsync(
+        long teamId,
+        CancellationToken cancellationToken);
 }

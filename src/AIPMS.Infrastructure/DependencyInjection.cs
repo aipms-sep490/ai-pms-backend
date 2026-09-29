@@ -222,6 +222,8 @@ public static class DependencyInjection
         services.AddScoped<IMeetingRepository, MeetingRepository>();
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamEligibilityRepository, Persistence.Repositories.TeamEligibilityRepository>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamEligibilityAccessService, Services.Teams.TeamEligibilityAccessService>();
         services.AddScoped<ITeamLeaderChangeRequestRepository, TeamLeaderChangeRequestRepository>();
         services.AddScoped<AIPMS.Application.Features.StudentQualifications.Abstractions.IStudentQualificationRepository, StudentQualificationRepository>();
         services.AddScoped<ITeamInvitationCandidateReader, TeamInvitationCandidateReader>();
