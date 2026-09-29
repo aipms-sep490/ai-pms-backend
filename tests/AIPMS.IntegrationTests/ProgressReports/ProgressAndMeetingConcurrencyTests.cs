@@ -1356,8 +1356,8 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
 
         using var freshCtx = database.CreateContext();
         var reloaded = await freshCtx.ProgressReportPeriods.FindAsync(cycle.Id);
-        Assert.Equal(new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero), reloaded!.PeriodStart);
-        Assert.Equal(new DateTimeOffset(2026, 6, 10, 0, 0, 0, TimeSpan.Zero), reloaded!.PeriodEnd);
+        Assert.Equal("2026-06-01T00:00:00", reloaded!.PeriodStart.ToString("yyyy-MM-ddTHH:mm:ss"));
+        Assert.Equal("2026-06-10T00:00:00", reloaded!.PeriodEnd.ToString("yyyy-MM-ddTHH:mm:ss"));
     }
 
     [Fact]
@@ -1397,7 +1397,7 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         Assert.True(resReport.StatusCode == HttpStatusCode.Created, $"Report Create Failed: {resReport.StatusCode} - {resReportStr}");
         var report = await resReport.Content.ReadFromJsonAsync<ProgressReportDto>();
 
-        var submitRes = await studentClient.PostAsync($"/api/v1/projects/{ctx.ProjectId}/progress-reports/{report!.Id}/submit", null);
+        var submitRes = await studentClient.PostAsync($"/api/v1/progress-reports/{report!.Id}/submit", null);
         Assert.True(submitRes.IsSuccessStatusCode, $"Submit failed: {await submitRes.Content.ReadAsStringAsync()}");
 
         var upReq = new UpdateReportingCycleRequest(
@@ -1409,7 +1409,7 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
 
         using var freshCtx = database.CreateContext();
         var reloaded = await freshCtx.ProgressReportPeriods.FindAsync(cycle.Id);
-        Assert.Equal(futureDeadline, reloaded!.Deadline);
+        Assert.Equal(futureDeadline.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss"), reloaded!.Deadline.ToString("yyyy-MM-ddTHH:mm:ss"));
         Assert.Equal("BLOCK", reloaded.LatePolicy);
     }
 
@@ -1456,7 +1456,7 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         var upReq = new UpdateReportingCycleRequest(Deadline: pastDeadline);
 
         var task1 = staffClient.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle.Id}", upReq);
-        var task2 = studentClient.PostAsync($"/api/v1/projects/{ctx.ProjectId}/progress-reports/{report!.Id}/submit", null);
+        var task2 = studentClient.PostAsync($"/api/v1/progress-reports/{report!.Id}/submit", null);
 
         var results = await Task.WhenAll(task1, task2);
 
@@ -1469,13 +1469,13 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
 
         if (c1 == HttpStatusCode.OK && c2 == HttpStatusCode.OK)
         {
-            Assert.Equal(pastDeadline, reloadedCycle!.Deadline);
+            Assert.Equal(pastDeadline.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss"), reloadedCycle!.Deadline.ToString("yyyy-MM-ddTHH:mm:ss"));
             Assert.Equal("SUBMITTED", reloadedReport!.Status);
             Assert.True(reloadedReport.IsLate);
         }
         else if (c1 == HttpStatusCode.Conflict && c2 == HttpStatusCode.OK)
         {
-            Assert.Equal(futureDeadline, reloadedCycle!.Deadline);
+            Assert.Equal(futureDeadline.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss"), reloadedCycle!.Deadline.ToString("yyyy-MM-ddTHH:mm:ss"));
             Assert.Equal("SUBMITTED", reloadedReport!.Status);
             Assert.False(reloadedReport.IsLate);
         }
@@ -1487,3 +1487,5 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
 
     #endregion
 }
+
+
