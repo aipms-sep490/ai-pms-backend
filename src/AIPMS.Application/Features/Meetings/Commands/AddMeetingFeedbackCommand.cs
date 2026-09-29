@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,7 +14,11 @@ namespace AIPMS.Application.Features.Meetings.Commands;
 
 public sealed record AddMeetingFeedbackCommand(
     long Id,
-    AddMeetingFeedbackRequest Request) : IRequest<MeetingFeedbackDto>;
+    AddMeetingFeedbackRequest Request, string? ConcurrencyToken = null) : IRequest<MeetingFeedbackDto>, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Meeting, Id, ConcurrencyToken)];
+}
 
 public sealed class AddMeetingFeedbackCommandHandler(
     IMeetingRepository repository,

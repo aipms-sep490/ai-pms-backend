@@ -67,6 +67,8 @@ public sealed class ExceptionHandlingMiddleware(
         };
 
         problem.Extensions["traceId"] = context.TraceIdentifier;
+        if (exception is ConflictException { Code: not null } conflict)
+            problem.Extensions["code"] = conflict.Code;
 
         if (exception is ValidationException validationException)
         {
@@ -82,6 +84,10 @@ public sealed class ExceptionHandlingMiddleware(
 
     private static ExceptionMapping MapException(Exception exception) => exception switch
     {
+        ServiceUnavailableException => new(
+            StatusCodes.Status503ServiceUnavailable,
+            "Service temporarily unavailable.",
+            "https://www.rfc-editor.org/rfc/rfc9110#section-15.6.4"),
         ValidationException => new(
             StatusCodes.Status400BadRequest,
             "Validation failed.",

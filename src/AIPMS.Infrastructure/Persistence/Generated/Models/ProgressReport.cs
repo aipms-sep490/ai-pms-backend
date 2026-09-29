@@ -32,6 +32,7 @@ public partial class ProgressReport
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+    public Guid ConcurrencyToken { get; set; }
 
     public virtual ICollection<File> Files { get; set; } = new List<File>();
 

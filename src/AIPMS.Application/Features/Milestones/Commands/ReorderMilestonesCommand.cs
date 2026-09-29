@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,11 +12,15 @@ using MediatR;
 
 namespace AIPMS.Application.Features.Milestones.Commands;
 
-public sealed record MilestoneReorderItem(long MilestoneId, int SortOrder);
+public sealed record MilestoneReorderItem(long MilestoneId, int SortOrder, string? ConcurrencyToken = null);
 
 public sealed record ReorderMilestonesCommand(
     long ProjectId,
-    IReadOnlyList<MilestoneReorderItem> Items) : IRequest;
+    IReadOnlyList<MilestoneReorderItem> Items) : IRequest, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => Items.Select(i => new ExecutionWrite(ExecutionResource.Milestone, i.MilestoneId, i.ConcurrencyToken)).ToArray();
+}
 
 public sealed class ReorderMilestonesCommandHandler(
     IMilestoneRepository repository,

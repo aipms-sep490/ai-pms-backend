@@ -47,6 +47,23 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
+        services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ExecutionConcurrencyBehavior<,>));
+        services.AddScoped<IMeetingGovernanceService, MeetingGovernanceService>();
+        services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
+            {
+                settings.Enabled = bool.TryParse(config["GoogleAuth:Enabled"], out var enabled) && enabled;
+                settings.ClientId = config["GoogleAuth:ClientId"] ?? "";
+                settings.DriveClientId = config["GoogleDrive:ClientId"] ?? "";
+                settings.AllowedOrigins = config.GetSection("GoogleAuth:AllowedOrigins").GetChildren()
+                    .Select(x => x.Value ?? "").ToArray();
+            })
+            .Validate(static settings => settings.IsValid(), "GoogleAuth requires a Web Client ID and explicit secure origins.")
+            .ValidateOnStart();
+        services.AddSingleton<IGoogleSigningKeys>(sp => new GoogleSigningKeys(
+            new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) },
+            sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<IGoogleIdentityVerifier, GoogleIdentityVerifier>();
+        services.AddScoped<IGoogleAuthService, GoogleAuthService>();
         services.AddOptions<DatabaseSettings>()
             .Configure<IConfiguration>(static (settings, configuration) =>
             {
@@ -111,6 +128,8 @@ public static class DependencyInjection
                 "AccountSecurity:PasswordResetMinutes must be between 5 and 1440.")
             .ValidateOnStart();
 
+        services.AddSingleton<IValidateOptions<EmailSettings>, IntegrationConfigurationValidator>();
+        services.AddSingleton<ISmtpTransport, SmtpTransport>();
         services.AddOptions<EmailSettings>()
             .Configure<IConfiguration>(static (settings, configuration) =>
             {
@@ -124,11 +143,15 @@ public static class DependencyInjection
                 settings.SenderName = configuration["Email:SenderName"] ?? settings.SenderName;
                 settings.Username = configuration["Email:Username"] ?? settings.Username;
                 settings.Password = configuration["Email:Password"] ?? settings.Password;
+                settings.TimeoutSeconds = int.TryParse(configuration["Email:TimeoutSeconds"], out var timeout)
+                    ? timeout : settings.TimeoutSeconds;
                 settings.PasswordResetUrl =
                     configuration["Email:PasswordResetUrl"] ?? settings.PasswordResetUrl;
             })
             .Validate(static settings => settings.Port is >= 1 and <= 65535,
                 "Email:Port must be a valid TCP port.")
+            .Validate(static settings => settings.TimeoutSeconds is >= 1 and <= 300,
+                "Email:TimeoutSeconds must be between 1 and 300.")
             .Validate(
                 static settings => Uri.TryCreate(
                     settings.PasswordResetUrl,
@@ -201,6 +224,8 @@ public static class DependencyInjection
         services.AddScoped<IMeetingRepository, MeetingRepository>();
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamEligibilityRepository, Persistence.Repositories.TeamEligibilityRepository>();
+        services.AddScoped<Application.Features.Teams.Abstractions.ITeamEligibilityAccessService, Services.Teams.TeamEligibilityAccessService>();
         services.AddScoped<ITeamLeaderChangeRequestRepository, TeamLeaderChangeRequestRepository>();
         services.AddScoped<AIPMS.Application.Features.StudentQualifications.Abstractions.IStudentQualificationRepository, StudentQualificationRepository>();
         services.AddScoped<ITeamInvitationCandidateReader, TeamInvitationCandidateReader>();

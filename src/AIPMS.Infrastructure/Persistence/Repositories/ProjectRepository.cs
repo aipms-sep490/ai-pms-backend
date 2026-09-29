@@ -357,7 +357,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             var existingToken = Convert.ToBase64String(project.RowVersion);
             if (existingToken != concurrencyToken)
             {
-                throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+                throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
             }
 
             if (project.Status is not ("DRAFT" or "REVISION_REQUIRED"))
@@ -405,7 +405,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         catch (DbUpdateConcurrencyException)
         {
             if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
-            throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+            throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
         }
         catch (DbUpdateException exception)
             when (exception.InnerException is Microsoft.Data.SqlClient.SqlException sqlException 
@@ -447,7 +447,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             var existingToken = Convert.ToBase64String(project.RowVersion);
             if (existingToken != concurrencyToken)
             {
-                throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+                throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
             }
 
             if (project.Status is not ("DRAFT" or "REVISION_REQUIRED"))
@@ -474,7 +474,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         catch (DbUpdateConcurrencyException)
         {
             if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
-            throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+            throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
         }
         catch
         {
@@ -505,7 +505,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             var existingToken = Convert.ToBase64String(project.RowVersion);
             if (existingToken != concurrencyToken)
             {
-                throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+                throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
             }
 
             if (project.Status != oldStatus) throw new ConflictException("Project status changed. Refresh and retry.");
@@ -543,6 +543,22 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             if (newStatus == "ACTIVE")
                 await new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context).ApplyMilestoneTemplateAsync(projectId, actorUserId, utcNow, cancellationToken);
 
+            if (newStatus == "REVISION_REQUIRED")
+            {
+                var team = await context.Teams.SingleOrDefaultAsync(t => t.Id == project.TeamId, cancellationToken);
+                if (team is not null && team.Status == "LOCKED")
+                {
+                    var hasOtherLockingProject = await context.Projects.AnyAsync(
+                        p => p.TeamId == project.TeamId && p.Id != project.Id && (p.Status != "DRAFT" && p.Status != "REVISION_REQUIRED" && p.Status != "REJECTED"),
+                        cancellationToken);
+                    if (!hasOtherLockingProject)
+                    {
+                        team.Status = "FORMING";
+                        team.UpdatedAt = utcNow;
+                    }
+                }
+            }
+
             await context.SaveChangesAsync(cancellationToken);
             if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
@@ -551,7 +567,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         catch (DbUpdateConcurrencyException)
         {
             if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
-            throw new ConflictException("The project has been modified by another user. Please refresh and try again.");
+            throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
         }
         catch
         {
@@ -624,6 +640,15 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             .AsNoTracking()
             .AnyAsync(p => p.Id == projectId && p.TeamId == teamId, cancellationToken);
 
+    private static IReadOnlyList<long>? ParseSnapshotDepartmentIds(ProjectRegistrationSnapshot? snapshot)
+    {
+        if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.SnapshotJson))
+            return null;
+
+        var evidence = System.Text.Json.JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson);
+        return evidence?.DepartmentIds is { Count: > 0 } deptIds ? deptIds : null;
+    }
+
     public async Task<IReadOnlyList<long>> GetProjectMajorDepartmentIdsAsync(
         long projectId,
         CancellationToken cancellationToken)
@@ -632,8 +657,9 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         if (status is not ("DRAFT" or "REVISION_REQUIRED"))
         {
             var snapshot = await LatestRegistrationAsync(projectId, cancellationToken);
-            if (snapshot is not null)
-                return System.Text.Json.JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!.DepartmentIds;
+            var snapshotDeptIds = ParseSnapshotDepartmentIds(snapshot);
+            if (snapshotDeptIds is not null)
+                return snapshotDeptIds;
         }
         var departmentIds = await context.ProjectMajors
             .AsNoTracking()
@@ -841,5 +867,54 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         }
 
         return new ProjectTimelineDataDto(projectId, timelineMilestones);
+    }
+
+    public async Task<IReadOnlyList<(long ProjectId, string Status)>> GetTeamProjectStatusesAsync(
+        long teamId,
+        CancellationToken cancellationToken)
+    {
+        var list = await context.Projects.AsNoTracking()
+            .Where(p => p.TeamId == teamId)
+            .Select(p => new { p.Id, p.Status })
+            .ToListAsync(cancellationToken);
+
+        return list.Select(p => (p.Id, p.Status)).ToList();
+    }
+
+    public async Task<IReadOnlyList<long>?> GetAuthoritativeDepartmentIdsForTeamAsync(
+        long teamId,
+        CancellationToken cancellationToken)
+    {
+        var projectIds = await context.Projects
+            .AsNoTracking()
+            .Where(p => p.TeamId == teamId)
+            .Select(p => p.Id)
+            .ToListAsync(cancellationToken);
+
+        if (projectIds.Count == 0)
+            return null;
+
+        // 1. Evidence-based: If an authoritative registration snapshot exists for the team,
+        // use that snapshot's department IDs regardless of project status (SUBMITTED, REJECTED, ARCHIVED, etc.)
+        var latestSnapshot = await context.Set<ProjectRegistrationSnapshot>()
+            .AsNoTracking()
+            .Where(s => projectIds.Contains(s.ProjectId))
+            .OrderByDescending(s => s.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var snapshotDeptIds = ParseSnapshotDepartmentIds(latestSnapshot);
+        if (snapshotDeptIds is not null)
+            return snapshotDeptIds;
+
+        // 2. If project exists but has never produced authoritative submission evidence
+        // and remains editable (DRAFT, REVISION_REQUIRED): use existing editable project scope rule.
+        var latestProjectId = projectIds.Max();
+        var deptIds = await GetProjectMajorDepartmentIdsAsync(latestProjectId, cancellationToken);
+        if (deptIds.Count > 0)
+            return deptIds;
+
+        // 3. Only when there is no project/snapshot authoritative scope:
+        // return null to allow caller to fall back to formation scope.
+        return null;
     }
 }

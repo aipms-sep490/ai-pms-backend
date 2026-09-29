@@ -131,8 +131,15 @@ Tests cover migration rerun from legacy tables, independent mentor slots, concur
 acceptance, scoped replacement/history, audit rollback, permissions, capacity, period
 policy, submission evidence, department decisions and Swagger contracts.
 
-Issue #74 owns eligibility snapshot checks/stale/lock and the final submit guard.
-Its fingerprint should include the persisted `ProjectPeriod.policyVersion`; the
-existing team policy provider exposes a governance revision suffix after version 1.
-Merge and revalidate #74 before this change (#75); do not claim the new eligibility
-snapshot endpoints are part of this PR. No frontend changes are included.
+Issue #74 (PR #80, merged into develop at `151e0e3`) owns eligibility snapshot
+checks/stale/lock and the final submit guard. This change integrates that guard with
+the persisted `ProjectPeriod.policyVersion`: the team policy provider exposes a
+governance revision suffix after version 1. A policy edit makes the prior eligibility
+snapshot STALE; after an explicit recheck, submission still enforces the current
+mode/source restrictions. Revision tests use persisted department staff authority;
+an ADMIN token alone cannot bypass academic review.
+
+Integration verification against that develop revision: Release build with
+warnings-as-errors, 859 unit tests, and 901 SQL integration tests passed on isolated
+LocalDB databases. Both supervisor-replacement and evaluator-assignment notifications
+are preserved. No frontend changes are included.

@@ -1252,3 +1252,170 @@ ALTER TABLE dbo.projects ADD milestones_initialized BIT NOT NULL CONSTRAINT df_p
 GO
 IF COL_LENGTH(N'dbo.milestone_template_versions', N'locked_at') IS NULL ALTER TABLE dbo.milestone_template_versions ADD locked_at DATETIME2(0) NULL;
 GO
+
+GO
+SET XACT_ABORT ON;
+BEGIN TRY
+    BEGIN TRANSACTION;
+    IF OBJECT_ID(N'dbo.user_external_logins', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.user_external_logins (
+            id bigint IDENTITY PRIMARY KEY,
+            user_id bigint NOT NULL REFERENCES dbo.users(id),
+            provider varchar(30) NOT NULL,
+            subject varchar(255) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            email nvarchar(255) NOT NULL,
+            created_at datetime2 NOT NULL,
+            updated_at datetime2 NOT NULL,
+            CONSTRAINT uq_external_login_subject UNIQUE(provider, subject),
+            CONSTRAINT uq_external_login_user UNIQUE(user_id, provider)
+        );
+    END;
+    IF OBJECT_ID(N'dbo.external_login_challenges', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.external_login_challenges (
+            id uniqueidentifier NOT NULL PRIMARY KEY,
+            purpose varchar(10) NOT NULL,
+            user_id bigint NULL REFERENCES dbo.users(id),
+            nonce_hash binary(64) NOT NULL,
+            browser_hash binary(64) NOT NULL,
+            created_at datetime2 NOT NULL,
+            expires_at datetime2 NOT NULL,
+            consumed_at datetime2 NULL,
+            CONSTRAINT ck_external_challenge_purpose CHECK
+                ((purpose='LOGIN' AND user_id IS NULL) OR (purpose='LINK' AND user_id IS NOT NULL))
+        );
+        CREATE INDEX ix_external_challenges_expiry ON dbo.external_login_challenges(expires_at);
+    END;
+    COMMIT;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK;
+    THROW;
+END CATCH;
+GO
+
+/* Additive governance foundation for the v3 baseline. Safe to run repeatedly. */
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+IF COL_LENGTH(N'dbo.tasks', N'concurrency_token') IS NULL
+    ALTER TABLE dbo.tasks ADD concurrency_token UNIQUEIDENTIFIER NOT NULL CONSTRAINT df_tasks_concurrency_token DEFAULT (NEWSEQUENTIALID());
+IF COL_LENGTH(N'dbo.milestones', N'concurrency_token') IS NULL
+    ALTER TABLE dbo.milestones ADD concurrency_token UNIQUEIDENTIFIER NOT NULL CONSTRAINT df_milestones_concurrency_token DEFAULT (NEWSEQUENTIALID());
+IF COL_LENGTH(N'dbo.progress_reports', N'concurrency_token') IS NULL
+    ALTER TABLE dbo.progress_reports ADD concurrency_token UNIQUEIDENTIFIER NOT NULL CONSTRAINT df_progress_reports_concurrency_token DEFAULT (NEWSEQUENTIALID());
+IF COL_LENGTH(N'dbo.meetings', N'concurrency_token') IS NULL
+    ALTER TABLE dbo.meetings ADD concurrency_token UNIQUEIDENTIFIER NOT NULL CONSTRAINT df_meetings_concurrency_token DEFAULT (NEWSEQUENTIALID());
+
+IF OBJECT_ID(N'dbo.meeting_decisions', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.meeting_decisions (
+        id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_meeting_decisions PRIMARY KEY,
+        meeting_id BIGINT NOT NULL,
+        content NVARCHAR(4000) NOT NULL,
+        decided_by BIGINT NOT NULL,
+        decided_at DATETIME2(0) NOT NULL CONSTRAINT df_meeting_decisions_decided_at DEFAULT (SYSUTCDATETIME()),
+        created_at DATETIME2(0) NOT NULL CONSTRAINT df_meeting_decisions_created_at DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT fk_meeting_decisions_meeting FOREIGN KEY (meeting_id) REFERENCES dbo.meetings(id),
+        CONSTRAINT fk_meeting_decisions_user FOREIGN KEY (decided_by) REFERENCES dbo.users(id)
+    );
+END;
+
+IF OBJECT_ID(N'dbo.meeting_action_items', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.meeting_action_items (
+        id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_meeting_action_items PRIMARY KEY,
+        meeting_id BIGINT NOT NULL,
+        title NVARCHAR(500) NOT NULL,
+        description NVARCHAR(4000) NULL,
+        assignee_user_id BIGINT NULL,
+        due_at DATETIME2(0) NULL,
+        status NVARCHAR(20) NOT NULL CONSTRAINT df_meeting_action_items_status DEFAULT (N'OPEN'),
+        concurrency_token UNIQUEIDENTIFIER NOT NULL CONSTRAINT df_meeting_action_items_token DEFAULT (NEWSEQUENTIALID()),
+        created_by BIGINT NOT NULL,
+        created_at DATETIME2(0) NOT NULL CONSTRAINT df_meeting_action_items_created_at DEFAULT (SYSUTCDATETIME()),
+        updated_at DATETIME2(0) NOT NULL CONSTRAINT df_meeting_action_items_updated_at DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT ck_meeting_action_items_status CHECK (status IN (N'OPEN',N'IN_PROGRESS',N'DONE',N'CANCELLED')),
+        CONSTRAINT fk_meeting_action_items_meeting FOREIGN KEY (meeting_id) REFERENCES dbo.meetings(id),
+        CONSTRAINT fk_meeting_action_items_assignee FOREIGN KEY (assignee_user_id) REFERENCES dbo.users(id),
+        CONSTRAINT fk_meeting_action_items_creator FOREIGN KEY (created_by) REFERENCES dbo.users(id)
+    );
+END;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'ix_meeting_decisions_meeting' AND object_id = OBJECT_ID(N'dbo.meeting_decisions'))
+    CREATE INDEX ix_meeting_decisions_meeting ON dbo.meeting_decisions(meeting_id, decided_at DESC);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'ix_meeting_action_items_meeting' AND object_id = OBJECT_ID(N'dbo.meeting_action_items'))
+    CREATE INDEX ix_meeting_action_items_meeting ON dbo.meeting_action_items(meeting_id, status, due_at);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'ix_meeting_action_items_assignee' AND object_id = OBJECT_ID(N'dbo.meeting_action_items'))
+    CREATE INDEX ix_meeting_action_items_assignee ON dbo.meeting_action_items(assignee_user_id, status);
+COMMIT TRANSACTION;
+GO
+
+SET XACT_ABORT ON;
+BEGIN TRY
+    BEGIN TRANSACTION;
+    IF OBJECT_ID(N'dbo.team_eligibility_checks', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.team_eligibility_checks (
+            id                   bigint IDENTITY NOT NULL CONSTRAINT pk_team_eligibility_checks PRIMARY KEY,
+            team_id              bigint NOT NULL REFERENCES dbo.teams(id),
+            project_period_id    bigint NOT NULL REFERENCES dbo.project_periods(id),
+            project_id           bigint NULL REFERENCES dbo.projects(id),
+            round_type           varchar(20) NOT NULL,
+            revision_history_id  bigint NULL REFERENCES dbo.project_status_history(id),
+            project_mode         varchar(30) NOT NULL,
+            policy_version       nvarchar(100) NOT NULL,
+            rule_version         varchar(50) NOT NULL,
+            roster_hash          varchar(64) NOT NULL,
+            academic_scope_hash  varchar(64) NOT NULL,
+            project_context_hash varchar(64) NOT NULL,
+            fingerprint          varchar(64) NOT NULL,
+            temporal_state_hash  varchar(64) NOT NULL,
+            evaluation_key       varchar(64) NOT NULL,
+            result               varchar(10) NOT NULL,
+            valid_until_at       datetime2(0) NULL,
+            checked_by           bigint NOT NULL REFERENCES dbo.users(id),
+            checked_at           datetime2(0) NOT NULL CONSTRAINT df_team_eligibility_checks_checked_at DEFAULT (SYSUTCDATETIME()),
+            trigger_source       varchar(30) NOT NULL,
+            CONSTRAINT ck_team_eligibility_checks_round_type CHECK (round_type IN ('FORMATION', 'INITIAL', 'REVISION')),
+            CONSTRAINT ck_team_eligibility_checks_round_integrity CHECK (
+                (round_type = 'FORMATION' AND project_id IS NULL AND revision_history_id IS NULL)
+                OR (round_type = 'INITIAL' AND project_id IS NOT NULL AND revision_history_id IS NULL)
+                OR (round_type = 'REVISION' AND project_id IS NOT NULL AND revision_history_id IS NOT NULL)
+            ),
+            CONSTRAINT ck_team_eligibility_checks_mode CHECK (project_mode IN ('SINGLE_MAJOR', 'INTERDISCIPLINARY')),
+            CONSTRAINT ck_team_eligibility_checks_result CHECK (result IN ('PASS', 'FAIL')),
+            CONSTRAINT ck_team_eligibility_checks_trigger CHECK (trigger_source IN ('MANUAL_CHECK', 'REFRESH_ALIAS'))
+        );
+        CREATE UNIQUE INDEX ux_team_eligibility_checks_team_evaluation_key ON dbo.team_eligibility_checks(team_id, evaluation_key);
+        CREATE INDEX ix_team_eligibility_checks_round_lookup ON dbo.team_eligibility_checks(team_id, project_id, round_type, revision_history_id, id DESC);
+        CREATE INDEX ix_team_eligibility_checks_team_fingerprint ON dbo.team_eligibility_checks(team_id, fingerprint, id DESC);
+    END;
+
+    IF OBJECT_ID(N'dbo.team_eligibility_issues', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.team_eligibility_issues (
+            id                   bigint IDENTITY NOT NULL CONSTRAINT pk_team_eligibility_issues PRIMARY KEY,
+            eligibility_check_id bigint NOT NULL REFERENCES dbo.team_eligibility_checks(id),
+            sort_order           int NOT NULL,
+            rule_code            varchar(50) NOT NULL,
+            severity             varchar(10) NOT NULL CONSTRAINT df_team_eligibility_issues_severity DEFAULT ('ERROR'),
+            major_id             bigint NULL REFERENCES dbo.majors(id),
+            user_id              bigint NULL REFERENCES dbo.users(id),
+            expected_value       nvarchar(255) NULL,
+            actual_value         nvarchar(255) NULL,
+            message              nvarchar(1000) NOT NULL,
+            created_at           datetime2(0) NOT NULL CONSTRAINT df_team_eligibility_issues_created_at DEFAULT (SYSUTCDATETIME()),
+            CONSTRAINT ck_team_eligibility_issues_sort_order CHECK (sort_order >= 0),
+            CONSTRAINT ck_team_eligibility_issues_severity CHECK (severity IN ('ERROR', 'WARNING'))
+        );
+        CREATE UNIQUE INDEX ux_team_eligibility_issues_check_sort ON dbo.team_eligibility_issues(eligibility_check_id, sort_order);
+        CREATE INDEX ix_team_eligibility_issues_check ON dbo.team_eligibility_issues(eligibility_check_id);
+    END;
+    COMMIT;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK;
+    THROW;
+END CATCH;

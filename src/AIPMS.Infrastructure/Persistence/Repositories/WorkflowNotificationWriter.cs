@@ -46,6 +46,17 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
             role = AppRoles.Student;
         }
+        else if (entityType == "EVALUATION_ASSIGNMENT")
+        {
+            var source = await context.Set<EvaluationAssignment>().FromSqlInterpolated(
+                $"SELECT * FROM dbo.evaluation_assignments WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
+                .AsNoTracking().SingleOrDefaultAsync(ct);
+            if (source is null || source.Status != "ACTIVE" || source.AssignedBy != notification.ActorId) return;
+            projectId = source.ProjectId;
+            teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
+            targetUser = source.EvaluatorId;
+            role = AppRoles.Lecturer;
+        }
         else if (projectStateEvent)
         {
             var project = await context.Projects.FromSqlInterpolated(
@@ -164,7 +175,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
 
         var organizationId = await context.Teams.Where(t => t.Id == teamId)
             .Select(t => t.AcademicSemester.OrganizationId).SingleAsync(ct);
-        var recipients = context.Users.Where(u => u.Id != notification.ActorId && u.Status == "ACTIVE"
+        var recipients = context.Users.Where(u => (u.Id != notification.ActorId || entityType == "EVALUATION_ASSIGNMENT") && u.Status == "ACTIVE"
             && (u.UserRoleUsers.Any(r => r.Role.Code == role)
                 || (replacementEvent && replacementLecturers.Contains(u.Id) && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Lecturer)))
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
@@ -204,6 +215,8 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         };
         context.Notifications.Add(inbox);
         await context.SaveChangesAsync(ct);
+        // Evaluator assignment is in-app only; do not enqueue SMTP delivery.
+        if (entityType == "EVALUATION_ASSIGNMENT") return;
         context.Set<EmailDeliveryRow>().AddRange(ids.Select(id => new EmailDeliveryRow
         {
             NotificationRecipientId = context.NotificationRecipients.Local
@@ -216,6 +229,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
     private static (string Entity, string Status, string Type, string Title) Describe(WorkflowNotificationKind kind) => kind switch
     {
         WorkflowNotificationKind.SupervisorReplaced => ("SUPERVISOR_ASSIGNMENT", "REPLACED", "SUPERVISOR_REPLACED", "A project supervisor assignment was replaced"),
+        WorkflowNotificationKind.EvaluatorAssigned => ("EVALUATION_ASSIGNMENT", "ACTIVE", "EVALUATOR_ASSIGNED", "You have been assigned a project evaluation"),
         WorkflowNotificationKind.ProjectResultPublished => ("PROJECT_RESULT", "PUBLISHED", "PROJECT_RESULT_PUBLISHED", "Your project's final result has been published"),
         WorkflowNotificationKind.ProjectApproved => ("PROJECT_APPROVED", "APPROVED", "PROJECT_APPROVED", "Your project proposal has been approved"),
         WorkflowNotificationKind.ProjectRejected => ("PROJECT_REJECTED", "REJECTED", "PROJECT_REJECTED", "Your project proposal was rejected"),

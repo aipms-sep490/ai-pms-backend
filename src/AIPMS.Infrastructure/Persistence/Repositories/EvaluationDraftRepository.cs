@@ -1,4 +1,5 @@
 using System.Data;
+using AIPMS.Application.Features.Evaluations.DTOs;
 using System.Text.Json;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
@@ -89,6 +90,26 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
     public Task<bool> IsCurrentSupervisorAsync(long projectId, long userId, CancellationToken ct) =>
         db.SupervisorAssignments.AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null && a.IsPrimary
             && a.SupervisorProfile.UserId == userId, ct);
+
+    public async Task<PagedResult<EligibleEvaluatorDto>> GetEligibleEvaluatorsAsync(long projectId, long departmentId,
+        int page, int pageSize, CancellationToken ct)
+    {
+        var candidates = db.Users.AsNoTracking().Where(u => u.Status == "ACTIVE" && u.DepartmentId == departmentId
+            && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
+            && u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER"))
+            .Select(u => new { u.Id, u.FullName, DepartmentName = u.Department!.Name,
+                Lecturer = !db.Set<EvaluationAssignment>().Any(a => a.ProjectId == projectId && a.EvaluatorId == u.Id
+                    && a.EvaluationType == "LECTURER" && a.Status == "ACTIVE"),
+                Supervisor = db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.EndedAt == null
+                    && a.IsPrimary && a.SupervisorProfile.UserId == u.Id)
+                    && !db.Set<EvaluationAssignment>().Any(a => a.ProjectId == projectId && a.EvaluatorId == u.Id
+                        && a.EvaluationType == "SUPERVISOR" && a.Status == "ACTIVE") })
+            .Where(u => u.Lecturer || u.Supervisor);
+        var total = await candidates.LongCountAsync(ct);
+        var rows = await candidates.OrderBy(u => u.FullName).ThenBy(u => u.Id).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(ct);
+        return new(rows.Select(u => new EligibleEvaluatorDto(u.Id, u.FullName, departmentId, u.DepartmentName,
+            new[] { u.Lecturer ? "LECTURER" : null, u.Supervisor ? "SUPERVISOR" : null }.OfType<string>().ToArray())).ToArray(), page, pageSize, total);
+    }
 
     private static EvaluationAssignmentRecord Map(EvaluationAssignment a) => new(a.Id, a.ProjectId, a.EvaluatorId,
         a.RubricId, a.ProjectPeriodId, a.DepartmentId, a.EvaluationType, a.Status, a.AssignedBy,

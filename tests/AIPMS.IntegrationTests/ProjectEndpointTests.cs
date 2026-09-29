@@ -78,6 +78,13 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         public Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) => action(ct);
         public Task ValidateAsync(long teamId, CancellationToken ct) =>
             repository.IsTeamEligible ? Task.CompletedTask : throw new ConflictException("Team is not eligible.");
+        public Task ValidateSubmissionEligibilityAsync(
+            long teamId,
+            long projectId,
+            string roundType,
+            long? revisionHistoryId,
+            CancellationToken ct) =>
+            repository.IsTeamEligible ? Task.CompletedTask : throw new ConflictException("Team is not eligible.");
     }
 
     public ProjectEndpointTests(ProjectWebApplicationFactory factory)
@@ -265,51 +272,7 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         Assert.True(result.PageSize == 5);
     }
 
-    [Fact]
-    public async Task Archive_requires_completed_project_staff_scope_and_current_token()
-    {
-        _factory.ProjectRepository.Projects.Clear();
-        _factory.ProjectRepository.StatusHistories.Clear();
-        _factory.ProjectRepository.ProjectDeptIds.Clear();
-        _factory.ProjectRepository.ProjectDeptIds.Add(100);
-        const long projectId = 77;
-        const long staffId = 1003;
-        var project = new ProjectDto(projectId, 1, "Team", "PRJ-77", "Finished", null, null, "COMPLETED",
-            DateTime.UtcNow.AddDays(-1), null, null, DateTime.UtcNow.AddHours(-1), 1001, "Student",
-            DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddHours(-1), null, null, "dG9rZW4=", [], []);
-        _factory.ProjectRepository.Projects[projectId] = project;
-        _factory.AcademicRepository.Scopes[staffId] = new AcademicUserScope(1, 100);
-        using var staff = _factory.CreateAuthenticatedClient(staffId, roles: [AppRoles.DepartmentStaff]);
-        var response = await staff.PostAsJsonAsync($"api/v1/projects/{projectId}/archive",
-            new ArchiveProjectRequest(project.ConcurrencyToken, "Lifecycle closed"));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var archived = await response.Content.ReadFromJsonAsync<ProjectDto>();
-        Assert.Equal("ARCHIVED", archived!.Status);
-        Assert.Equal("ARCHIVED", _factory.ProjectRepository.Projects[projectId].Status);
-        Assert.Equal("Lifecycle closed", _factory.ProjectRepository.StatusHistories[projectId].Single().Reason);
-
-        using var student = _factory.CreateAuthenticatedClient(1001, roles: [AppRoles.Student]);
-        Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync($"api/v1/projects/{projectId}/archive",
-            new ArchiveProjectRequest(archived.ConcurrencyToken, null))).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"api/v1/projects/{projectId}/archive",
-            new ArchiveProjectRequest(project.ConcurrencyToken, null))).StatusCode);
-    }
-
-    [Fact]
-    public async Task Archive_rejects_non_completed_project()
-    {
-        _factory.ProjectRepository.Projects.Clear();
-        _factory.ProjectRepository.ProjectDeptIds.Clear();
-        _factory.ProjectRepository.ProjectDeptIds.Add(100);
-        var project = new ProjectDto(78, 1, "Team", "PRJ-78", "In progress", null, null, "ACTIVE",
-            DateTime.UtcNow, null, null, null, 1001, "Student", DateTime.UtcNow, DateTime.UtcNow,
-            null, null, "dG9rZW4=", [], []);
-        _factory.ProjectRepository.Projects[project.Id] = project;
-        _factory.AcademicRepository.Scopes[1003] = new AcademicUserScope(1, 100);
-        using var staff = _factory.CreateAuthenticatedClient(1003, roles: [AppRoles.DepartmentStaff]);
-        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"api/v1/projects/{project.Id}/archive",
-            new ArchiveProjectRequest(project.ConcurrencyToken, null))).StatusCode);
-    }
+    // Archive scope, tokens and rollback are covered against real SQL in AcceptanceJourneyTests.
 
     private void ResetProjectRepositoryState()
     {
@@ -1415,6 +1378,11 @@ public sealed class TestProjectRepository : IProjectRepository
         CancellationToken cancellationToken) =>
         Task.FromResult((IReadOnlyList<long>)ProjectDeptIds);
 
+    public Task<IReadOnlyList<long>?> GetAuthoritativeDepartmentIdsForTeamAsync(
+        long teamId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<long>?>(ProjectDeptIds.Count > 0 ? (IReadOnlyList<long>)ProjectDeptIds : null);
+
     public Task<bool> CanUserViewProjectAsync(
         long projectId,
         long userId,
@@ -1432,4 +1400,15 @@ public sealed class TestProjectRepository : IProjectRepository
         long projectId,
         CancellationToken cancellationToken) =>
         Task.FromResult(new ProjectTimelineDataDto(projectId, Array.Empty<TimelineMilestoneDto>()));
+
+    public Task<IReadOnlyList<(long ProjectId, string Status)>> GetTeamProjectStatusesAsync(
+        long teamId,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<(long ProjectId, string Status)> list = Projects.Values
+            .Where(p => p.TeamId == teamId)
+            .Select(p => (p.Id, p.Status))
+            .ToList();
+        return Task.FromResult(list);
+    }
 }

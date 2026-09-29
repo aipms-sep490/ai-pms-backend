@@ -8,6 +8,8 @@ public partial class AipmsDbContext
 {
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
+        ConfigureExecutionConcurrency(modelBuilder);
+        ConfigureGovernanceBaseline(modelBuilder);
         ConfigureTeamLeaderChangeRequests(modelBuilder);
         ConfigureTopics(modelBuilder);
         ConfigureHybridProjects(modelBuilder);
@@ -19,7 +21,9 @@ public partial class AipmsDbContext
         ConfigureContributions(modelBuilder);
         ConfigureScheduledNotifications(modelBuilder);
         ConfigureNotificationEmail(modelBuilder);
+        ConfigureExternalLogins(modelBuilder);
         ConfigureStudentQualifications(modelBuilder);
+        ConfigureTeamEligibilitySnapshots(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
         {
             entity.ToTable("rubric_versions", table =>

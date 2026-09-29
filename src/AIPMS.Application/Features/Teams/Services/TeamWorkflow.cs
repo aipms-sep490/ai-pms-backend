@@ -15,7 +15,8 @@ namespace AIPMS.Application.Features.Teams.Services;
 
 public sealed class TeamWorkflow(
     ITeamRepository repository, ITeamFormationPolicyProvider policies,
-    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock, IPublisher events)
+    ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock, IPublisher events,
+    ITeamRosterMutationGuard? rosterGuard = null)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -64,9 +65,15 @@ public sealed class TeamWorkflow(
     private async Task<(TeamRegistrationWindow Window, TeamFormationPolicy Policy)> MutableAsync(
         TeamSnapshot team, CancellationToken ct)
     {
-        if (team.Status is not ("FORMING" or "ELIGIBLE")
+        if (rosterGuard is not null)
+        {
+            rosterGuard.ValidateRosterMutable(team.Status, team.ProjectStatuses);
+        }
+        else if (team.Status is not ("FORMING" or "ELIGIBLE")
             || team.ProjectStatuses.Any(TeamRules.ProjectLocksRoster))
+        {
             throw new ConflictException("The team roster is locked by team or project status.");
+        }
         var result = await ContextAsync(team.SemesterId, ct, team.AcademicScope is null);
         if (team.AcademicScope is not null)
             await repository.ValidateAcademicScopeAsync(team.AcademicScope, result.Window.OrganizationId, ct);

@@ -1,3 +1,4 @@
+using AIPMS.Application.Abstractions.Projects;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -8,7 +9,11 @@ using MediatR;
 
 namespace AIPMS.Application.Features.Milestones.Commands;
 
-public sealed record DeleteMilestoneCommand(long Id) : IRequest;
+public sealed record DeleteMilestoneCommand(long Id, string? ConcurrencyToken = null) : IRequest, IExecutionMutation
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<ExecutionWrite> Writes => [new(ExecutionResource.Milestone, Id, ConcurrencyToken)];
+}
 
 public sealed class DeleteMilestoneCommandHandler(
     IMilestoneRepository repository,

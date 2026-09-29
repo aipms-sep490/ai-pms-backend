@@ -19,7 +19,8 @@ public sealed record TaskDto(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     IReadOnlyList<TaskAssigneeDto> Assignees,
-    IReadOnlyList<TaskDependencyDto> Dependencies);
+    IReadOnlyList<TaskDependencyDto> Dependencies,
+    string? ConcurrencyToken = null);
 
 public sealed record TaskAssigneeDto(
     long Id,

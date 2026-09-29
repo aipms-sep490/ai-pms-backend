@@ -27,11 +27,35 @@ public sealed class ResubmitProjectCommandHandler(
     AIPMS.Application.Features.Topics.Abstractions.ITopicSelectionGuard topicSelectionGuard)
     : IRequestHandler<ResubmitProjectCommand, ProjectDto>
 {
-    public Task<ProjectDto> Handle(
+    public async Task<ProjectDto> Handle(
         ResubmitProjectCommand request,
-        CancellationToken cancellationToken) =>
-        registrationGuard.InTransactionAsync(
-            token => HandleInTransactionAsync(request, token), cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await registrationGuard.InTransactionAsync(
+                token => HandleInTransactionAsync(request, token), cancellationToken);
+        }
+        catch (ConflictException ex)
+        {
+            if (currentUser.IsAuthenticated && currentUser.UserId.HasValue)
+            {
+                await auditTrail.RecordAsync(
+                    new AuditEntry(
+                        currentUser.UserId.Value,
+                        "PROJECT_RESUBMISSION_GUARD_DENIED",
+                        "PROJECT",
+                        request.ProjectId,
+                        new Dictionary<string, object?>
+                        {
+                            ["reason"] = ex.Message
+                        },
+                        Outcome: "DENIED"),
+                    CancellationToken.None);
+            }
+            throw;
+        }
+    }
 
     private async Task<ProjectDto> HandleInTransactionAsync(
         ResubmitProjectCommand request,
@@ -61,7 +85,15 @@ public sealed class ResubmitProjectCommandHandler(
             throw new ConflictException($"Cannot transition project from status {project.Status} to SUBMITTED.");
         }
 
-        await registrationGuard.ValidateAsync(project.TeamId, cancellationToken);
+        var statusHistories = await repository.GetStatusHistoryAsync(project.Id, cancellationToken);
+        var latestRevisionHistory = statusHistories
+            .Where(h => h.NewStatus == "REVISION_REQUIRED")
+            .OrderByDescending(h => h.ChangedAt)
+            .ThenByDescending(h => h.Id)
+            .FirstOrDefault();
+
+        await registrationGuard.ValidateSubmissionEligibilityAsync(
+            project.TeamId, project.Id, "REVISION", latestRevisionHistory?.Id, cancellationToken);
 
         // BR-51: Check registration period/window
         var semesterId = await repository.GetSemesterIdByTeamIdAsync(project.TeamId, cancellationToken);

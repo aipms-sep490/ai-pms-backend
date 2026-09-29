@@ -30,6 +30,7 @@ public static class DependencyInjection
             .ValidateDataAnnotations().ValidateOnStart();
         services.AddHostedService<Services.ScheduledNotificationWorker>();
         services.AddHostedService<Services.NotificationEmailWorker>();
+        services.AddHostedService<Services.GoogleChallengeCleanupWorker>();
         services.AddOptions<CorsSettings>()
             .BindConfiguration(CorsSettings.SectionName)
             .ValidateDataAnnotations()
@@ -115,6 +116,7 @@ public static class DependencyInjection
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {
+            options.SchemaFilter<AIPMS.Api.OpenApi.WorkflowProblemDetailsSchemaFilter>();
             options.SwaggerDoc("v1", new OpenApiInfo
             {
                 Title = "AI-PMS API",

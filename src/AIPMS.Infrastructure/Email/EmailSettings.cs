@@ -18,6 +18,8 @@ public sealed class EmailSettings
 
     public string Password { get; set; } = string.Empty;
 
+    public int TimeoutSeconds { get; set; } = 30;
+
     public string PasswordResetUrl { get; set; } = "http://localhost:5173/reset-password";
 
     public bool IsConfigured =>

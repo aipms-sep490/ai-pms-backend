@@ -20,20 +20,29 @@ public sealed partial class TeamEndpointTests
         var team = await CreateAsync(leader, s);
         var invitation = await InviteAsync(leader, team.Id, s.Students[1]);
         using var member = app.CreateAuthenticatedClient(s.Students[1]);
-        return await BodyAsync<TeamDto>(await AcceptAsync(member, invitation.Id));
+        var teamDto = await BodyAsync<TeamDto>(await AcceptAsync(member, invitation.Id));
+        await leader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
+        return teamDto;
     }
 
     private async System.Threading.Tasks.Task<HttpResponseMessage> DraftResponseAsync(HttpClient leader, TeamScenario s)
     {
         await using var db = database.CreateContext();
         var majorId = await db.Users.Where(u => u.Id == s.Students[0]).Select(u => u.MajorId).SingleAsync();
-        return await leader.PostAsJsonAsync("/api/v1/projects", new
+        var response = await leader.PostAsJsonAsync("/api/v1/projects", new
         {
             title = "Team registration regression", description = "Capstone",
             objectives = "Validate registration", problemStatement = "Inconsistent eligibility",
             expectedOutput = "Working application", requiredMajorIds = new[] { majorId!.Value },
             domain = "Education", technologies = new[] { ".NET" }, keywords = new[] { "Management" }
         });
+        if (response.IsSuccessStatusCode)
+        {
+            await using var db2 = database.CreateContext();
+            var teamId = await db2.Projects.Where(p => p.Title == "Team registration regression").OrderByDescending(p => p.Id).Select(p => p.TeamId).FirstAsync();
+            await leader.PostAsync($"/api/v1/teams/{teamId}/eligibility/check", null);
+        }
+        return response;
     }
 
     private static System.Threading.Tasks.Task<HttpResponseMessage> SubmitAsync(HttpClient leader, ProjectDto draft, string endpoint = "submit") =>
@@ -280,6 +289,18 @@ public sealed partial class TeamEndpointTests
         public async Task ValidateAsync(long teamId, CancellationToken ct)
         {
             await inner.ValidateAsync(teamId, ct);
+            if (!checkpoint.Enabled) return;
+            checkpoint.Validated.TrySetResult();
+            await checkpoint.Release.Task.WaitAsync(TimeSpan.FromSeconds(15), ct);
+        }
+        public async Task ValidateSubmissionEligibilityAsync(
+            long teamId,
+            long projectId,
+            string roundType,
+            long? revisionHistoryId,
+            CancellationToken ct)
+        {
+            await inner.ValidateSubmissionEligibilityAsync(teamId, projectId, roundType, revisionHistoryId, ct);
             if (!checkpoint.Enabled) return;
             checkpoint.Validated.TrySetResult();
             await checkpoint.Release.Task.WaitAsync(TimeSpan.FromSeconds(15), ct);
