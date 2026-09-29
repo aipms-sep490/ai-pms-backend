@@ -638,6 +638,15 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             .AsNoTracking()
             .AnyAsync(p => p.Id == projectId && p.TeamId == teamId, cancellationToken);
 
+    private static IReadOnlyList<long>? ParseSnapshotDepartmentIds(ProjectRegistrationSnapshot? snapshot)
+    {
+        if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.SnapshotJson))
+            return null;
+
+        var evidence = System.Text.Json.JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson);
+        return evidence?.DepartmentIds is { Count: > 0 } deptIds ? deptIds : null;
+    }
+
     public async Task<IReadOnlyList<long>> GetProjectMajorDepartmentIdsAsync(
         long projectId,
         CancellationToken cancellationToken)
@@ -646,8 +655,9 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         if (status is not ("DRAFT" or "REVISION_REQUIRED"))
         {
             var snapshot = await LatestRegistrationAsync(projectId, cancellationToken);
-            if (snapshot is not null)
-                return System.Text.Json.JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!.DepartmentIds;
+            var snapshotDeptIds = ParseSnapshotDepartmentIds(snapshot);
+            if (snapshotDeptIds is not null)
+                return snapshotDeptIds;
         }
         var departmentIds = await context.ProjectMajors
             .AsNoTracking()
@@ -873,27 +883,36 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         long teamId,
         CancellationToken cancellationToken)
     {
-        var projects = await context.Projects
+        var projectIds = await context.Projects
             .AsNoTracking()
             .Where(p => p.TeamId == teamId)
-            .Select(p => new { p.Id, p.Status })
+            .Select(p => p.Id)
             .ToListAsync(cancellationToken);
 
-        if (projects.Count == 0)
+        if (projectIds.Count == 0)
             return null;
 
-        var relevant = projects
-            .Where(p => p.Status != "REJECTED" && p.Status != "ARCHIVED")
-            .OrderByDescending(p => p.Id)
-            .FirstOrDefault();
+        // 1. Evidence-based: If an authoritative registration snapshot exists for the team,
+        // use that snapshot's department IDs regardless of project status (SUBMITTED, REJECTED, ARCHIVED, etc.)
+        var latestSnapshot = await context.Set<ProjectRegistrationSnapshot>()
+            .AsNoTracking()
+            .Where(s => projectIds.Contains(s.ProjectId))
+            .OrderByDescending(s => s.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (relevant is null)
-            return null;
+        var snapshotDeptIds = ParseSnapshotDepartmentIds(latestSnapshot);
+        if (snapshotDeptIds is not null)
+            return snapshotDeptIds;
 
-        var deptIds = await GetProjectMajorDepartmentIdsAsync(relevant.Id, cancellationToken);
+        // 2. If project exists but has never produced authoritative submission evidence
+        // and remains editable (DRAFT, REVISION_REQUIRED): use existing editable project scope rule.
+        var latestProjectId = projectIds.Max();
+        var deptIds = await GetProjectMajorDepartmentIdsAsync(latestProjectId, cancellationToken);
         if (deptIds.Count > 0)
             return deptIds;
 
+        // 3. Only when there is no project/snapshot authoritative scope:
+        // return null to allow caller to fall back to formation scope.
         return null;
     }
 }
