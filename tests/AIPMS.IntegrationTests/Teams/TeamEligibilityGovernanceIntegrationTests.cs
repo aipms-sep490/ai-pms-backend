@@ -28,6 +28,24 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
         return (await response.Content.ReadFromJsonAsync<T>())!;
     }
 
+    private async Task<long> SeedReviewerAsync(TeamScenario scenario)
+    {
+        await using var context = database.CreateContext();
+        var departmentId = await context.Majors.Where(m => m.Id == scenario.SeMajorId)
+            .Select(m => m.DepartmentId).SingleAsync();
+        var role = await context.Roles.SingleOrDefaultAsync(r => r.Code == "DEPARTMENT_STAFF")
+            ?? new Role { Code = "DEPARTMENT_STAFF", Name = "Department Staff", IsSystemRole = true };
+        var reviewer = new User
+        {
+            Email = $"reviewer-{Guid.NewGuid():N}@example.test", FullName = "Reviewer",
+            PasswordHash = "unused-test-hash", Status = "ACTIVE", DepartmentId = departmentId,
+            UserRoleUsers = new List<UserRole> { new() { Role = role } }
+        };
+        context.Users.Add(reviewer);
+        await context.SaveChangesAsync();
+        return reviewer.Id;
+    }
+
     // ==========================================
     // CHECK WORKFLOW (14 - 19) & STATUS MATRIX (20 - 23)
     // ==========================================
@@ -271,6 +289,7 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
         using var app = new TeamTestFactory(database, s, minMembers: 1, maxMembers: 3);
         using var clientLeader = app.CreateAuthenticatedClient(s.Students[0]);
         using var clientAdmin = app.CreateAuthenticatedClient(s.Students[0], roles: ["ADMIN"]);
+        using var clientReviewer = app.CreateAuthenticatedClient(await SeedReviewerAsync(s), roles: ["DEPARTMENT_STAFF"]);
 
         var team = await BodyAsync<TeamDto>(await clientLeader.PostAsJsonAsync("/api/v1/teams",
             new { academicSemesterId = s.SemesterId, code = "TREV1", name = "Revision Team 1", description = "Test" }));
@@ -291,6 +310,7 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
             {
                 TeamId = team.Id,
                 Code = "PRJ-REV1",
+                ProjectMajors = new List<ProjectMajor> { new() { MajorId = s.SeMajorId } },
                 Title = "Revision Project",
                 Status = "UNDER_REVIEW",
                 RegisteredAt = DateTime.UtcNow,
@@ -304,8 +324,9 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
             concurrencyToken = Convert.ToBase64String(project.RowVersion);
         }
 
-        // Request revision as Admin
-        var revRes = await clientAdmin.PostAsJsonAsync($"/api/v1/projects/{projectId}/revision",
+        Assert.Equal(HttpStatusCode.Forbidden, (await clientAdmin.PostAsJsonAsync($"/api/v1/projects/{projectId}/revision",
+            new { concurrencyToken, reason = "Admin cannot replace academic review." })).StatusCode);
+        var revRes = await clientReviewer.PostAsJsonAsync($"/api/v1/projects/{projectId}/revision",
             new { concurrencyToken, reason = "Please revise problem statement." });
         Assert.Equal(HttpStatusCode.OK, revRes.StatusCode);
 
@@ -321,6 +342,7 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
         using var app = new TeamTestFactory(database, s, minMembers: 1, maxMembers: 3);
         using var clientLeader = app.CreateAuthenticatedClient(s.Students[0]);
         using var clientAdmin = app.CreateAuthenticatedClient(s.Students[0], roles: ["ADMIN"]);
+        using var clientReviewer = app.CreateAuthenticatedClient(await SeedReviewerAsync(s), roles: ["DEPARTMENT_STAFF"]);
 
         var team = await BodyAsync<TeamDto>(await clientLeader.PostAsJsonAsync("/api/v1/teams",
             new { academicSemesterId = s.SemesterId, code = "TREV2", name = "Revision Team 2", description = "Test" }));
@@ -338,6 +360,7 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
             {
                 TeamId = team.Id,
                 Code = "PRJ-REV2A",
+                ProjectMajors = new List<ProjectMajor> { new() { MajorId = s.SeMajorId } },
                 Title = "Revision Project 1",
                 Status = "UNDER_REVIEW",
                 RegisteredAt = DateTime.UtcNow,
@@ -364,7 +387,9 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
         }
 
         // Request revision on Project 1
-        var revRes = await clientAdmin.PostAsJsonAsync($"/api/v1/projects/{projectId1}/revision",
+        Assert.Equal(HttpStatusCode.Forbidden, (await clientAdmin.PostAsJsonAsync($"/api/v1/projects/{projectId1}/revision",
+            new { concurrencyToken = concurrencyToken1, reason = "Admin cannot replace academic review." })).StatusCode);
+        var revRes = await clientReviewer.PostAsJsonAsync($"/api/v1/projects/{projectId1}/revision",
             new { concurrencyToken = concurrencyToken1, reason = "Needs revision" });
         Assert.Equal(HttpStatusCode.OK, revRes.StatusCode);
 

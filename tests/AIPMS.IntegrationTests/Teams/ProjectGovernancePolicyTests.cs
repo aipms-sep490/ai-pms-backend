@@ -32,7 +32,16 @@ public sealed partial class InterdisciplinaryWorkflowTests
         var invitation = await Invite(leader, team.Id, s.Team.Students[4]);
         await Body<TeamDto>(await member.PostAsync($"/api/v1/teams/invitations/{invitation.Id}/accept", null));
         var draft = await Proposal(leader, s);
+        var initialCheck = await Body<TeamEligibilityCheckDto>(await leader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null));
+        Assert.Equal("PASS", initialCheck.Result);
         await Policy(s, "INTERDISCIPLINARY", "PUBLISHED_TOPIC");
+        var staleCheck = await Body<TeamEligibilityCheckDto>(await leader.GetAsync($"/api/v1/teams/{team.Id}/eligibility"));
+        Assert.Equal("STALE", staleCheck.Freshness);
+        Assert.Equal(initialCheck.CheckId, staleCheck.CheckId);
+        var staleSubmit = await leader.PostAsJsonAsync($"/api/v1/projects/{draft.Id}/submit", new { concurrencyToken = draft.ConcurrencyToken });
+        Assert.Equal(HttpStatusCode.Conflict, staleSubmit.StatusCode);
+        Assert.Contains("STALE", await staleSubmit.Content.ReadAsStringAsync());
+        await Body<TeamEligibilityCheckDto>(await leader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null));
         var blocked = await leader.PostAsJsonAsync($"/api/v1/projects/{draft.Id}/submit", new { concurrencyToken = draft.ConcurrencyToken });
         Assert.Equal(HttpStatusCode.Conflict, blocked.StatusCode);
         Assert.Contains("PROPOSAL_SOURCE_NOT_ALLOWED", await blocked.Content.ReadAsStringAsync());
