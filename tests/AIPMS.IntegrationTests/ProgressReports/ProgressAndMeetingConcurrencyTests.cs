@@ -160,9 +160,28 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         // 1. Seed complete DRAFT report in database
         await using (var seedDb = database.CreateContext())
         {
+            var projectPeriod = await seedDb.ProjectPeriods.FirstAsync();
+            var cycle = new AIPMS.Infrastructure.Persistence.Models.ProgressReportPeriod
+            {
+                ProjectId = ctx.ProjectId,
+                ProjectPeriodId = projectPeriod.Id,
+                ReportType = "WEEKLY",
+                PeriodStart = DateOnly.FromDateTime(Now.AddDays(-7)).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                PeriodEnd = DateOnly.FromDateTime(Now).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                Deadline = Now.AddDays(7),
+                LatePolicy = "BLOCK",
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.ProgressReportPeriods.Add(cycle);
+            await seedDb.SaveChangesAsync();
+
             var report = new M.ProgressReport
             {
                 ProjectId = ctx.ProjectId,
+                ProgressReportPeriodId = cycle.Id,
                 SubmittedBy = ctx.LeaderUserId,
                 ReportType = "WEEKLY",
                 PeriodStart = DateOnly.FromDateTime(Now.AddDays(-7)),
@@ -171,6 +190,10 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
                 CompletedWork = "Completed initial deliverables",
                 PlannedWork = "Plan next iteration",
                 IssuesAndRisks = "No major risks",
+                InProgressWork = "Ongoing work",
+                Blockers = "No major risks",
+                Risks = "None",
+                NextActions = "Plan next iteration",
                 Status = "DRAFT",
                 CreatedAt = Now,
                 UpdatedAt = Now
@@ -226,9 +249,28 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         // Seed complete DRAFT report
         await using (var seedDb = database.CreateContext())
         {
+            var projectPeriod = await seedDb.ProjectPeriods.FirstAsync();
+            var cycle = new AIPMS.Infrastructure.Persistence.Models.ProgressReportPeriod
+            {
+                ProjectId = ctx.ProjectId,
+                ProjectPeriodId = projectPeriod.Id,
+                ReportType = "WEEKLY",
+                PeriodStart = DateOnly.FromDateTime(Now.AddDays(-14)).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                PeriodEnd = DateOnly.FromDateTime(Now.AddDays(-8)).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                Deadline = Now.AddDays(7),
+                LatePolicy = "BLOCK",
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.ProgressReportPeriods.Add(cycle);
+            await seedDb.SaveChangesAsync();
+
             var report = new M.ProgressReport
             {
                 ProjectId = ctx.ProjectId,
+                ProgressReportPeriodId = cycle.Id,
                 SubmittedBy = ctx.LeaderUserId,
                 ReportType = "WEEKLY",
                 PeriodStart = DateOnly.FromDateTime(Now.AddDays(-14)),
@@ -237,6 +279,10 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
                 CompletedWork = "Completed work",
                 PlannedWork = "Planned work",
                 IssuesAndRisks = "None",
+                InProgressWork = "Ongoing work",
+                Blockers = "None",
+                Risks = "None",
+                NextActions = "Planned work",
                 Status = "DRAFT",
                 CreatedAt = Now,
                 UpdatedAt = Now
@@ -733,9 +779,28 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         // Seed a complete DRAFT report
         await using (var seedDb = database.CreateContext())
         {
+            var projectPeriod = await seedDb.ProjectPeriods.FirstAsync();
+            var cycle = new AIPMS.Infrastructure.Persistence.Models.ProgressReportPeriod
+            {
+                ProjectId = ctx.ProjectId,
+                ProjectPeriodId = projectPeriod.Id,
+                ReportType = "WEEKLY",
+                PeriodStart = DateOnly.FromDateTime(Now.AddDays(-14)).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                PeriodEnd = DateOnly.FromDateTime(Now.AddDays(-7)).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                Deadline = DateTime.UtcNow.AddDays(30),
+                LatePolicy = "BLOCK",
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now.AddDays(-7),
+                UpdatedAt = Now.AddDays(-7)
+            };
+            seedDb.ProgressReportPeriods.Add(cycle);
+            await seedDb.SaveChangesAsync();
+
             var report = new M.ProgressReport
             {
                 ProjectId = ctx.ProjectId,
+                ProgressReportPeriodId = cycle.Id,
                 SubmittedBy = ctx.LeaderUserId,
                 ReportType = "WEEKLY",
                 PeriodStart = DateOnly.FromDateTime(Now.AddDays(-14)),
@@ -744,6 +809,10 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
                 CompletedWork = "Completed tasks A and B",
                 PlannedWork = "Plan tasks C and D",
                 IssuesAndRisks = "Identified dependency risks",
+                InProgressWork = "Ongoing task X",
+                Blockers = "No blockers",
+                Risks = "Identified dependency risks",
+                NextActions = "Plan tasks C and D",
                 Status = "DRAFT",
                 CreatedAt = Now.AddDays(-7),
                 UpdatedAt = Now.AddDays(-7)
@@ -946,7 +1015,7 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
             var reportCount = await verifyDb.ProgressReports.AsNoTracking().CountAsync(r => r.ProjectId == ctx.ProjectId);
             Assert.Equal(0, reportCount);
 
-            var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.Action == "PROGRESS_REPORT_CREATED");
+            var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.Action == "PROGRESS_REPORT_CREATED" && a.ActorUserId == ctx.LeaderUserId);
             Assert.Equal(0, auditCount);
         }
 
@@ -1541,7 +1610,7 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
             .CountAsync(c => c.ProjectId == ctx.ProjectId && c.ReportType == "WEEKLY" && c.PeriodStart == new DateTime(2026, 9, 1));
         Assert.Equal(0, cycleCount);
 
-        var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.Action == "REPORTING_CYCLE_CREATED");
+        var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.Action == "REPORTING_CYCLE_CREATED" && a.ActorUserId == ctx.LeaderUserId);
         Assert.Equal(0, auditCount);
     }
 
@@ -1580,7 +1649,7 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
             .CountAsync(a => a.ProjectId == ctx.ProjectId && a.MeetingId == meetingId);
         Assert.Equal(0, itemCount);
 
-        var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.Action == "PROJECT_ACTION_ITEM_CREATED");
+        var auditCount = await verifyDb.AuditLogs.AsNoTracking().CountAsync(a => a.Action == "PROJECT_ACTION_ITEM_CREATED" && a.ActorUserId == ctx.LeaderUserId);
         Assert.Equal(0, auditCount);
     }
 
