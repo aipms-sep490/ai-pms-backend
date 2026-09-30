@@ -116,4 +116,9 @@ Use `AIPMS_TEST_SQL_CONNECTION` from the local secret store to run `dotnet test 
 - Entire unit suite: 888 passed, zero skipped.
 - SQL/integration regression and targeted reruns: 396 distinct cases passed on their latest run. The initial 317-case run identified one legacy assignment fixture; it was updated to publish a scheme before assignment and passed in the subsequent 125-case run. The final 13-case policy/Swagger run also passed after the expired-predecessor fix.
 - Coverage includes migration reruns and preserved legacy results, concurrent policy/scheme/assignment writes, audit/notification rollback and replay, expired registration policy, supervisor capacity-policy references, two-department scoring and visibility, and upload-to-archive/reload.
-- `db/schema.sql` includes the exact PR4 migration; staged whitespace checks pass. Production `AI_PMS` has not received this migration.
+- `db/schema.sql` includes the exact PR4 migration; staged whitespace checks pass.
+- CI identified one additional legacy policy-edit fixture. It now asserts locked edits fail and publishes an explicit successor through the API; all 24 interdisciplinary workflow cases pass locally.
+
+## Production migration (2026-09-30)
+
+The PR4 migration was applied to `AI_PMS` at the user's request inside a transaction. Post-migration verification confirmed all six tables, six assignment columns, both unique assignment indexes and the trusted scope constraint. Existing counts remained unchanged: 19 users, 3 projects, 3 evaluations, 0 assignments and 0 published project results. No historical evaluation scope was inferred and no mutation tests ran against this database.
