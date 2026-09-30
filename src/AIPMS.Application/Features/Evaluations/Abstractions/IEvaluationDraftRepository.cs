@@ -6,6 +6,9 @@ namespace AIPMS.Application.Features.Evaluations.Abstractions;
 
 public interface IEvaluationDraftRepository
 {
+    Task<EvaluationAssignmentRecord> AssignScopedAsync(long projectId, long evaluatorId, long periodId, long departmentId,
+        string type, long actorId, DateTime now, ScopedAssignmentContext scope, CancellationToken ct) =>
+        throw new NotSupportedException("Scoped assignments are required.");
     Task<PagedResult<EligibleEvaluatorDto>> GetEligibleEvaluatorsAsync(
         long projectId, long departmentId, int page, int pageSize, CancellationToken ct);
     Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken ct);

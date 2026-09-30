@@ -94,6 +94,7 @@ internal sealed class SupervisorReplacementService(AipmsDbContext context, ISupe
             };
             context.SupervisorAssignments.Add(replacement);
             await context.SaveChangesAsync(token);
+            await PolicyVersions.InheritSupervisorAsync(context, replacement.ProjectId, replacement.Id, now, token);
             var result = await context.SupervisorAssignments.AsNoTracking().Where(a => a.Id == replacement.Id)
                 .Select(SupervisorAssignmentMapper.Projection).SingleAsync(token);
             await audit.RecordAsync(new AuditEntry(actor.UserId, "SUPERVISOR_REPLACED", "SUPERVISOR_ASSIGNMENT", replacement.Id,

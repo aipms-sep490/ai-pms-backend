@@ -14,7 +14,7 @@ namespace AIPMS.Application.Features.Evaluations.Services;
 
 public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository repository, IRubricRepository rubrics,
     ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock, IFinalSubmissionRepository submissions, IPublisher publisher,
-    IProjectResultRepository results)
+    IProjectResultRepository results, IEvaluationSchemeService schemes)
 {
     private async Task<EvaluationActor> Actor(CancellationToken ct)
     {
@@ -80,8 +80,11 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
     private Task Audit(long actor, string action, string entity, long id, Dictionary<string, object?> details, CancellationToken ct) =>
         audit.RecordAsync(new AuditEntry(actor, action, entity, id, details), ct);
 
-    public Task<PagedResult<EligibleEvaluatorDto>> Candidates(long projectId, long periodId, int page, int pageSize, CancellationToken ct) => repository.InTransactionAsync(async () =>
+    public Task<PagedResult<EligibleEvaluatorDto>> Candidates(long projectId, long periodId, int page, int pageSize, CancellationToken ct,
+        long? componentId = null, string? scope = null, long? majorId = null, long? studentId = null) => repository.InTransactionAsync(async () =>
     {
+        if (componentId.HasValue)
+            return await schemes.CandidatesAsync(projectId, periodId, componentId.Value, scope, majorId, studentId, page, pageSize, ct);
         var actor = await Actor(ct);
         var project = await Project(projectId, ct);
         if (!Manages(actor, project)) throw new ForbiddenException();
@@ -111,10 +114,15 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
             throw new ConflictException("The evaluator must be an active lecturer in the managed project department.", WorkflowErrorCodes.EvaluatorIneligible);
         if (input.EvaluationType == "SUPERVISOR" && !await repository.IsCurrentSupervisorAsync(projectId, evaluator.Id, ct))
             throw new ConflictException("SUPERVISOR evaluation requires the active project supervisor.", WorkflowErrorCodes.SupervisorRequired);
-        if (period.RubricId is not long rubricId) throw new ConflictException("The evaluation period has no configured rubric.", WorkflowErrorCodes.PublishedRubricRequired);
+        if (input.ComponentId is null && period.RubricId is null)
+            throw new ConflictException("The evaluation period has no configured rubric.", WorkflowErrorCodes.PublishedRubricRequired);
+        if (input.ComponentId is null && period.RubricId.HasValue)
+            await Rubric(period.RubricId.Value, project, evaluator.DepartmentId.Value, true, ct);
+        var scope = await schemes.ResolveAssignmentAsync(projectId, input, ct);
+        var rubricId = scope.RubricId;
         await Rubric(rubricId, project, evaluator.DepartmentId.Value, true, ct);
-        var assigned = await repository.AssignAsync(projectId, evaluator.Id, period.Id, rubricId,
-            evaluator.DepartmentId.Value, input.EvaluationType, actor.Id, clock.GetUtcNow().UtcDateTime, ct);
+        var assigned = await repository.AssignScopedAsync(projectId, evaluator.Id, period.Id,
+            evaluator.DepartmentId.Value, input.EvaluationType, actor.Id, clock.GetUtcNow().UtcDateTime, scope, ct);
         await Audit(actor.Id, "EVALUATOR_ASSIGNED", "EVALUATION_ASSIGNMENT", assigned.Id,
             new() { ["projectId"] = projectId, ["evaluatorId"] = evaluator.Id, ["rubricId"] = rubricId, ["periodId"] = period.Id }, ct);
         await publisher.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.EvaluatorAssigned, assigned.Id,
@@ -135,7 +143,7 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         Current(before.ConcurrencyToken, input.ConcurrencyToken);
         if (project.Status is "COMPLETED" or "ARCHIVED") throw new ConflictException("Completed or archived projects are read-only.");
         if (before.Status == "REVOKED") return before.ToDto();
-        if (await results.IsRequiredAsync(id, ct) && await results.AnyFinalizedAsync(project.Id, ct))
+        if ((before.ComponentId.HasValue || await results.IsRequiredAsync(id, ct)) && await results.AnyFinalizedAsync(project.Id, ct))
             throw new ConflictException("Required evaluators are frozen after the first finalized evaluation.", WorkflowErrorCodes.FinalizedAssignment);
         var draft = await repository.FindDraftAsync(id, ct);
         if (draft is not null && draft.Status != "DRAFT") throw new ConflictException("Submitted or finalized evaluations cannot be revoked through the draft workflow.", WorkflowErrorCodes.FinalizedAssignment);
@@ -157,6 +165,7 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         await Window(project, assignment.PeriodId, ct);
         await Rubric(assignment.RubricId, project, assignment.DepartmentId, false, ct);
         var existing = await repository.FindDraftAsync(assignmentId, ct);
+        await schemes.EnsureWritableAsync(assignment, ct);
         if (existing is not null) throw new ConflictException("An evaluation already exists for this assignment.");
         var draft = await repository.CreateDraftAsync(assignment, clock.GetUtcNow().UtcDateTime, ct);
         await Audit(actor.Id, "EVALUATION_DRAFT_CREATED", "EVALUATION", draft.Id,
@@ -179,6 +188,7 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         before = await Draft(id, ct);
         Current(before.ConcurrencyToken, input.ConcurrencyToken);
         if (before.Status != "DRAFT") throw new ConflictException("Only draft evaluations can be edited.", WorkflowErrorCodes.FinalizedAssignment);
+        await schemes.EnsureWritableAsync(assignment, ct);
         var unknown = input.Scores.Any(s => before.Scores.All(c => c.RubricCriterionId != s.RubricCriterionId));
         if (unknown) throw new ConflictException("Scores must refer to leaf criteria in this rubric version; groups cannot be scored.");
         var values = input.Scores.ToDictionary(s => s.RubricCriterionId);

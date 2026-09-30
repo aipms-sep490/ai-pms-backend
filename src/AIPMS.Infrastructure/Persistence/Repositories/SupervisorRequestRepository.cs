@@ -149,6 +149,7 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
             MajorId = request.MajorId, AssignedBy = actorId, AssignedAt = now, CreatedAt = now, UpdatedAt = now };
         context.SupervisorAssignments.Add(assignment);
         await context.SaveChangesAsync(ct);
+        await AIPMS.Infrastructure.Services.Projects.PolicyVersions.InheritSupervisorAsync(context, assignment.ProjectId, assignment.Id, now, ct);
         if (request.AssignmentType == "PRIMARY")
             await new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context).ApplyMilestoneTemplateAsync(request.ProjectId, actorId, now, ct);
         return assignment.Id;

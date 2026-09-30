@@ -620,7 +620,12 @@ internal sealed class SemesterRepository(AipmsDbContext context)
             if (entity.PeriodType != periodType || entity.StartAt != startAt || entity.EndAt != endAt
                 || entity.MinTeamSize != minTeamSize || entity.MaxTeamSize != maxTeamSize
                 || entity.MinDistinctMajors != minDistinctMajors || entity.MaxProjectsPerSupervisor != maxProjectsPerSupervisor)
+            {
+                await AIPMS.Infrastructure.Services.Projects.PolicyVersions.GuardLegacyEditAsync(context, periodId, cancellationToken);
                 entity.PolicyVersion++;
+            }
+            if (entity.RubricId != rubricId || entity.MilestoneTemplateId != milestoneTemplateId)
+                await AIPMS.Infrastructure.Services.Projects.PolicyVersions.GuardLegacyEditAsync(context, periodId, cancellationToken);
             entity.Code = code;
             entity.Name = name;
             entity.PeriodType = periodType;
@@ -684,6 +689,7 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         if (AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.Normalize(entity.AllowedProjectModes) != modes
             || AIPMS.Domain.Teams.ProjectPeriodGovernancePolicy.Normalize(entity.AllowedProposalSources) != sources)
         {
+            await AIPMS.Infrastructure.Services.Projects.PolicyVersions.GuardLegacyEditAsync(context, periodId, cancellationToken);
             entity.AllowedProjectModes = modes;
             entity.AllowedProposalSources = sources;
             entity.PolicyVersion++;
@@ -765,7 +771,6 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                     .Where(p => p.Id == periodId && p.Status == expectedStatus)
                     .ExecuteUpdateAsync(p => p
                         .SetProperty(b => b.Status, status)
-                        .SetProperty(b => b.PolicyVersion, b => b.PolicyVersion + 1)
                         .SetProperty(b => b.UpdatedAt, utcNow), cancellationToken);
 
                 if (affected == 0)
@@ -790,7 +795,6 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                     .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken)
                     ?? throw new NotFoundException("ProjectPeriod", periodId);
 
-                if (trackedEntity.Status != status) trackedEntity.PolicyVersion++;
                 trackedEntity.Status = status;
                 trackedEntity.UpdatedAt = utcNow;
                 await context.SaveChangesAsync(cancellationToken);

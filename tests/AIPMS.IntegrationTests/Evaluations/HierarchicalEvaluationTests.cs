@@ -27,7 +27,7 @@ public sealed partial class EvaluationDraftEndpointTests
             (await db.ProjectPeriods.FindAsync(s.PeriodId))!.RubricId = rubric.Id;
             await db.SaveChangesAsync();
         }
-        var assignment = await Assign(staff, s);
+        var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync(AssignUrl(s.ProjectId), await ScopedRequest(staff, s, single: true)));
         var draft = await Create(lecturer, assignment.Id);
         Assert.Equal(4, draft.Scores.Count);
         Assert.Equal(new[] { "Clarity", "Scope", "Requirements Quality", "Implementation" }, draft.Scores.Select(c => c.Name));
@@ -45,8 +45,6 @@ public sealed partial class EvaluationDraftEndpointTests
         Assert.Equal(HttpStatusCode.InternalServerError, (await failing.PutAsJsonAsync(DraftUrl(draft.Id) + "/draft", request)).StatusCode);
         var saved = await Body<EvaluationDraftDto>(await lecturer.PutAsJsonAsync(DraftUrl(draft.Id) + "/draft", request));
         Assert.Equal(9.76m, saved.TotalScore);
-        await Body<ResultPolicyDto>(await staff.PutAsJsonAsync($"/api/v1/projects/{s.ProjectId}/result-policy",
-            new ConfigureResultPolicyRequest(5m, [new(assignment.Id, 100m)], null)));
         var finalized = await Body<EvaluationDraftDto>(await Finalize(lecturer, saved));
         Assert.Equal(9.76m, finalized.TotalScore);
         Assert.Equal("FINALIZED", finalized.Status);

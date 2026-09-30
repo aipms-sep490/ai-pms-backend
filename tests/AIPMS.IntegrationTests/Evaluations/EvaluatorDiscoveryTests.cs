@@ -124,7 +124,10 @@ public sealed partial class EvaluationDraftEndpointTests
         var s = await database.Seed();
         using var app = new FailedAssignmentNotificationFactory(database);
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
-        Assert.Equal(HttpStatusCode.InternalServerError, (await staff.PostAsJsonAsync(AssignUrl(s.ProjectId), new AssignEvaluatorRequest(s.Scope.Users.Lecturer, s.PeriodId, "LECTURER"))).StatusCode);
+        using var setup = new EvaluationFactory(database);
+        using var setupStaff = setup.CreateAuthenticatedClient(s.Scope.Users.Staff);
+        var input = await ScopedRequest(setupStaff, s);
+        Assert.Equal(HttpStatusCode.InternalServerError, (await staff.PostAsJsonAsync(AssignUrl(s.ProjectId), input)).StatusCode);
         await using var db = database.CreateContext();
         Assert.False(await db.Set<EvaluationAssignment>().AnyAsync(a => a.ProjectId == s.ProjectId));
         Assert.False(await db.AuditLogs.AnyAsync(a => a.ActorUserId == s.Scope.Users.Staff && a.Action == "EVALUATOR_ASSIGNED"));

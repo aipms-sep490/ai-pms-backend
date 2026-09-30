@@ -134,6 +134,7 @@ public sealed partial class ProjectRepository
             Decisions = scope.ProjectMode == "INTERDISCIPLINARY"
                 ? departments.Select(id => new ProjectDepartmentDecision { DepartmentId = id }).ToList() : []
         });
+        await CapturePolicyReferenceAsync(project.Id, now, ct);
     }
 
     private async System.Threading.Tasks.Task CaptureLegacyRegistrationAsync(Project project, long actorId, DateTime now,
@@ -160,6 +161,14 @@ public sealed partial class ProjectRepository
             await ReadProposalSnapshotAsync(project, ct), await ReadProjectRequirementsAsync(project.Id, ct), await ReadResponsibilitiesAsync(project.TeamId, ct));
         context.Add(new ProjectRegistrationSnapshot { ProjectId = project.Id, ProjectPeriodId = period.Id,
             SubmittedBy = actorId, SubmittedAt = now, LeadDepartmentId = departmentIds[0], SnapshotJson = JsonSerializer.Serialize(evidence) });
+        await CapturePolicyReferenceAsync(project.Id, now, ct);
+    }
+
+    private async System.Threading.Tasks.Task CapturePolicyReferenceAsync(long projectId, DateTime now, CancellationToken ct)
+    {
+        var snapshot = context.ChangeTracker.Entries<ProjectRegistrationSnapshot>().Single(e => e.State == EntityState.Added && e.Entity.ProjectId == projectId).Entity;
+        await context.SaveChangesAsync(ct);
+        await AIPMS.Infrastructure.Services.Projects.PolicyVersions.CaptureAsync(context, snapshot.ProjectPeriodId, "PROJECT_SUBMISSION", snapshot.Id, now, ct);
     }
 
     private Task<ProjectRegistrationSnapshot?> LatestRegistrationAsync(long projectId, CancellationToken ct) =>

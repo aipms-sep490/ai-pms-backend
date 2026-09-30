@@ -8,6 +8,7 @@ public partial class AipmsDbContext
 {
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
+        ConfigurePolicyEvaluation(modelBuilder);
         ConfigureProjectRequirements(modelBuilder);
         ConfigureDisciplineEvidence(modelBuilder);
         ConfigureExecutionConcurrency(modelBuilder);

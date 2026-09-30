@@ -15,9 +15,10 @@ places with MidpointRounding.AwayFromZero. Zero is a valid explicit score.
 Each evaluator finalizes their own evaluation independently. This does not
 average/combine evaluators, determine pass/fail, publish results or transition
 the project to COMPLETED. The policy for which evaluations must be completed and
-how to aggregate them now lives in ../Results/README.md. Staff must configure
-that policy before the first finalization. Finalization freezes its required
-assignments, weights and threshold; required assignments must remain active.
+how to aggregate them now lives in the published evaluation scheme described in
+[Baseline PR4](../../../../docs/baseline-v3-pr4-policy-evaluation.md). The scheme
+must be published before assignment. Legacy UNKNOWN assignments cannot finalize.
+Required assignments cannot be revoked after the first scoped finalization.
 
 ## API and authorization
 

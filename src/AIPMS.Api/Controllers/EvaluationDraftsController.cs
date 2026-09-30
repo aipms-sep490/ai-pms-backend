@@ -22,8 +22,10 @@ public sealed class EvaluationDraftsController(ISender sender) : ControllerBase
     [HttpGet("api/v1/projects/{projectId:long}/eligible-evaluators")]
     [ProducesResponseType<PagedResult<EligibleEvaluatorDto>>(200)]
     public async Task<ActionResult<PagedResult<EligibleEvaluatorDto>>> EligibleEvaluators(long projectId,
-        [FromQuery] long periodId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) =>
-        Ok(await sender.Send(new GetEligibleEvaluatorsQuery(projectId, periodId, page, pageSize), ct));
+        [FromQuery] long periodId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] long? componentId = null, [FromQuery] string? scope = null,
+        [FromQuery] long? majorId = null, [FromQuery] long? studentId = null, CancellationToken ct = default) =>
+        Ok(await sender.Send(new GetEligibleEvaluatorsQuery(projectId, periodId, page, pageSize, componentId, scope, majorId, studentId), ct));
 
     [HttpPost("api/v1/projects/{projectId:long}/evaluation-assignments")]
     [ProducesResponseType<EvaluationAssignmentDto>(201)]

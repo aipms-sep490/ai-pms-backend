@@ -301,6 +301,15 @@ public sealed partial class FinalSubmissionEndpointTests(FinalSubmissionDraftDat
         await Body<FinalSubmissionDto>(await leader.PostAsJsonAsync(Route(s.ProjectId), ready.Input));
         Assert.Equal(HttpStatusCode.Forbidden, (await evaluator.GetAsync(Route(s.ProjectId))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(Route(s.ProjectId))).StatusCode);
+        await SeedEvaluationRoster(s, periodId);
+        await using (var db = database.CreateContext())
+        {
+            var rubricId = (await db.ProjectPeriods.FindAsync(periodId))!.RubricId!.Value;
+            var schemeDraft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
+                new SaveEvaluationSchemeRequest(s.ProjectId, periodId, "Access test scheme", 5, [new("Final quality", "COMMON", null, rubricId, 100, 100, 1)])));
+            var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{schemeDraft.Id}/publish", new SchemeTokenRequest(schemeDraft.ConcurrencyToken)));
+            input = input with { Scope = "COMMON", ComponentId = scheme.Components.Single().Id };
+        }
         var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync(assignUrl, input));
         await Body<FinalSubmissionDto>(await evaluator.GetAsync(Route(s.ProjectId)));
         var fileRoute = Route(s.ProjectId) + $"/files/{ready.Version.Files[0].Id}/download";

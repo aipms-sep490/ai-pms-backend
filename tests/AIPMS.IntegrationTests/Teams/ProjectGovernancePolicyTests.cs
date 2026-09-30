@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Teams.DTOs;
+using AIPMS.Application.Features.Semesters.DTOs;
 using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Task = System.Threading.Tasks.Task;
 
 namespace AIPMS.IntegrationTests.Teams;
@@ -77,7 +79,28 @@ public sealed partial class InterdisciplinaryWorkflowTests
         var draft = await Body<ProjectDto>(await leader.PostAsJsonAsync("/api/v1/projects", input with { TopicId = topicId }));
         Assert.Equal("PUBLISHED_TOPIC", draft.ProposalSource); Assert.Equal(topicId, draft.TopicId);
         var submitted = await Transition(leader, draft, "submit");
-        await Policy(s, "SINGLE_MAJOR,INTERDISCIPLINARY", "STUDENT_PROPOSAL");
+        await Assert.ThrowsAsync<AIPMS.Application.Common.Exceptions.ConflictException>(() =>
+            Policy(s, "SINGLE_MAJOR,INTERDISCIPLINARY", "STUDENT_PROPOSAL"));
+        long adminId;
+        await using (var db = database.CreateContext())
+        {
+            var role = await db.Roles.SingleOrDefaultAsync(r => r.Code == "ADMIN")
+                ?? new AIPMS.Infrastructure.Persistence.Generated.Models.Role { Code = "ADMIN", Name = "Admin", IsSystemRole = true };
+            var admin = new AIPMS.Infrastructure.Persistence.Generated.Models.User { Email = Guid.NewGuid() + "@example.test",
+                FullName = "Policy admin", PasswordHash = "unused", Status = "ACTIVE", UserRoleUsers = [new() { Role = role }] };
+            db.Add(admin); await db.SaveChangesAsync(); adminId = admin.Id;
+        }
+        using var later = new TeamTestFactory(database, s.Team, customizeServices: services =>
+            services.AddSingleton<TimeProvider>(new PolicySuccessorClock()));
+        using var manager = later.CreateAuthenticatedClient(adminId, roles: ["ADMIN"]);
+        var policyUrl = $"/api/v1/project-periods/{s.Team.PeriodId}";
+        var current = await Body<PeriodPolicyDto>(await manager.GetAsync(policyUrl + "/effective-policy"));
+        var request = new UpdatePeriodPolicyRequest(current.Version, "SUCCESSOR", current.Policy with {
+            AllowedProjectModes = "SINGLE_MAJOR,INTERDISCIPLINARY", AllowedProposalSources = "STUDENT_PROPOSAL" },
+            new(TeamDatabaseFixture.Now.AddSeconds(1)), new(current.EffectiveTo, TimeSpan.Zero));
+        var successor = await Body<PeriodPolicyDto>(await manager.PutAsJsonAsync(policyUrl + "/policy", request));
+        await Body<PeriodPolicyDto>(await manager.PutAsJsonAsync(policyUrl + "/policy", request with {
+            ExpectedVersion = successor.Version, Operation = "PUBLISH", ConcurrencyToken = successor.ConcurrencyToken }));
         var review = await Review(leader, submitted.Id);
         Assert.Equal(version, review.LatestSubmission!.Evidence.PolicyVersion);
         Assert.Equal("PUBLISHED_TOPIC", review.LatestSubmission.Evidence.AllowedProposalSources);
@@ -85,6 +108,11 @@ public sealed partial class InterdisciplinaryWorkflowTests
         await using var check = database.CreateContext();
         Assert.Single(await check.Projects.Where(p => p.TeamId == team.Id).ToListAsync());
         Assert.True((await check.ProjectPeriods.FindAsync(s.Team.PeriodId))!.PolicyVersion > version);
+    }
+
+    private sealed class PolicySuccessorClock : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(TeamDatabaseFixture.Now.AddSeconds(1));
     }
 
     [Fact]

@@ -88,6 +88,8 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                 "db", "changes", "20260929_add_discipline_evidence.sql"), ct);
             schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
                 "db", "changes", "20260929_add_reporting_cycles_and_action_items.sql"), ct);
+            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
+                "db", "changes", "20260930_add_policy_evaluation_schemes.sql"), ct);
             if (Regex.IsMatch(schema, @"\bUSE\s|\b(?:CREATE|DROP|ALTER)\s+DATABASE\b", RegexOptions.IgnoreCase))
                 throw new InvalidOperationException("Schema must not switch or manage databases.");
 
@@ -144,6 +146,3 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
         }
     }
 }
-
-
-

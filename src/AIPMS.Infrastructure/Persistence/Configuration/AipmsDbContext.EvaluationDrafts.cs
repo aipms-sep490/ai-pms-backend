@@ -26,7 +26,9 @@ public partial class AipmsDbContext
             e.Property(x => x.RevocationReason).HasColumnName("revocation_reason").HasMaxLength(1000);
             e.Property(x => x.ConcurrencyToken).HasColumnName("concurrency_token").IsConcurrencyToken();
             e.HasIndex(x => new { x.ProjectId, x.EvaluatorId, x.EvaluationType }).IsUnique()
-                .HasFilter("[status] = N'ACTIVE'").HasDatabaseName("uq_evaluation_assignments_active");
+                .HasFilter("[status] = N'ACTIVE' AND [component_id] IS NULL").HasDatabaseName("uq_legacy_evaluation_assignment");
+            e.HasIndex(x => new { x.ProjectId, x.ComponentId, x.StudentId, x.EvaluatorId }).IsUnique()
+                .HasFilter("[status] = N'ACTIVE' AND [component_id] IS NOT NULL").HasDatabaseName("uq_scoped_evaluation_assignment");
             e.HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.EvaluatorId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.AssignedBy).OnDelete(DeleteBehavior.NoAction);

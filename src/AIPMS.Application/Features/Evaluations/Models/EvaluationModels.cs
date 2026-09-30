@@ -11,7 +11,8 @@ public sealed record EvaluationProject(long Id, long SemesterId, long Organizati
 public sealed record EvaluationPeriod(long Id, long SemesterId, long? RubricId, bool IsOpen);
 public sealed record EvaluationAssignmentRecord(long Id, long ProjectId, long EvaluatorId, long RubricId,
     long PeriodId, long DepartmentId, string EvaluationType, string Status, long AssignedBy,
-    DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken);
+    DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken, string Scope = "UNKNOWN",
+    long? MajorId = null, long? StudentId = null, long? ComponentId = null, long? PolicyVersionId = null);
 public sealed record EvaluationDraftRecord(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
     long RubricId, string RubricName, long RootRubricId, int RubricVersion, string EvaluationType, string Status, string? Comments, decimal? TotalScore,
     string ConcurrencyToken, DateTime CreatedAt, DateTime UpdatedAt, IReadOnlyList<EvaluationScoreRecord> Scores,
