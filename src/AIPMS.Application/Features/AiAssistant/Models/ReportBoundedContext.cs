@@ -16,4 +16,8 @@ public sealed record ReportBoundedContext(
     string? IssuesAndRisks,
     IReadOnlyList<EvidenceReferenceDto> EvidenceList,
     string FormattedEvidenceText,
-    bool HasSufficientEvidence);
+    bool HasSufficientEvidence,
+    string? InProgressWork = null,
+    string? Blockers = null,
+    string? Risks = null,
+    string? NextActions = null);

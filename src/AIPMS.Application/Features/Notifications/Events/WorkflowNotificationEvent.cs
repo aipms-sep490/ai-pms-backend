@@ -9,7 +9,7 @@ public enum WorkflowNotificationKind
     SupervisorRequestSent, SupervisorRequestAccepted, SupervisorRequestRejected, SupervisorRequestCancelled,
     TeamLeaderChangeRequested, TeamLeaderChangeApproved, TeamLeaderChangeRejected,
     FinalSubmissionLocked, EvaluationFinalized, ProjectResultPublished, ProjectApproved,
-    ProjectRejected, ProjectRevisionRequested, SupervisorFeedbackAdded, EvaluatorAssigned, SupervisorReplaced, StudentResultPublished
+    ProjectRejected, ProjectRevisionRequested, SupervisorFeedbackAdded, EvaluatorAssigned, SupervisorReplaced, StudentResultPublished, MeetingScheduled, ProgressReportSubmitted
 }
 
 // Published synchronously inside the source workflow's transaction, never from a controller.
@@ -21,3 +21,4 @@ public sealed class WorkflowNotificationEventHandler(IWorkflowNotificationWriter
 {
     public Task Handle(WorkflowNotificationEvent notification, CancellationToken ct) => writer.WriteAsync(notification, ct);
 }
+

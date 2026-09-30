@@ -52,6 +52,9 @@ public sealed class UpdateMeetingNotesCommandHandler(
             command.Request.MeetingNotes,
             command.Request.Attendances,
             now,
+            command.Request.Minutes,
+            command.Request.Decisions,
+            command.Request.Blockers,
             async updated =>
             {
                 await audit.RecordAsync(new AuditEntry(

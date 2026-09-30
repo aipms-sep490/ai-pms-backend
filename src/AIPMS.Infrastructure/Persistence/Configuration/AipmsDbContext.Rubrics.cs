@@ -26,6 +26,7 @@ public partial class AipmsDbContext
         ConfigureNotificationEmail(modelBuilder);
         ConfigureExternalLogins(modelBuilder);
         ConfigureStudentQualifications(modelBuilder);
+ConfigureReportingCycles(modelBuilder);
         ConfigureTeamEligibilitySnapshots(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
         {
@@ -46,3 +47,4 @@ public partial class AipmsDbContext
         });
     }
 }
+

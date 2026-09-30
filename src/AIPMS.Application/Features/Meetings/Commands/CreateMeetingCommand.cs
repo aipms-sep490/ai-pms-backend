@@ -21,7 +21,8 @@ public sealed class CreateMeetingCommandHandler(
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
     IAuditTrail audit,
-    TimeProvider clock) : IRequestHandler<CreateMeetingCommand, MeetingDto>
+    TimeProvider? clock = null,
+    IPublisher? publisher = null) : IRequestHandler<CreateMeetingCommand, MeetingDto>
 {
     public async Task<MeetingDto> Handle(CreateMeetingCommand command, CancellationToken cancellationToken)
     {
@@ -48,7 +49,7 @@ public sealed class CreateMeetingCommandHandler(
             }
         }
 
-        var now = clock.GetUtcNow().UtcDateTime;
+        var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         var result = await repository.CreateAsync(
             projectId,
             actorId,
@@ -60,6 +61,9 @@ public sealed class CreateMeetingCommandHandler(
             command.Request.OnlineUrl,
             command.Request.ParticipantUserIds,
             now,
+            command.Request.Minutes,
+            command.Request.Decisions,
+            command.Request.Blockers,
             async created =>
             {
                 await audit.RecordAsync(new AuditEntry(
@@ -73,6 +77,15 @@ public sealed class CreateMeetingCommandHandler(
                         ["title"] = created.Title,
                         ["startAt"] = created.StartAt.ToString("o")
                     }), cancellationToken);
+
+                if (publisher != null)
+                {
+                    await publisher.Publish(new AIPMS.Application.Features.Notifications.Events.WorkflowNotificationEvent(
+                        AIPMS.Application.Features.Notifications.Events.WorkflowNotificationKind.MeetingScheduled,
+                        created.Id,
+                        actorId,
+                        now), cancellationToken);
+                }
             },
             cancellationToken);
 

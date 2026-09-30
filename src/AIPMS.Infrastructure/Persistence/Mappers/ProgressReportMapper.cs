@@ -10,10 +10,6 @@ internal static class ProgressReportMapper
 {
     public static ProgressReportDto ToDto(this ReportEntity report)
     {
-        // PeriodEnd is not submission deadline. Authoritative reporting cadence/schedule policy
-        // is deferred/unsupported in canonical schema; late status is not fabricated from PeriodEnd.
-        bool? isLate = null;
-
         return new ProgressReportDto(
             report.Id,
             report.ProjectId,
@@ -28,18 +24,19 @@ internal static class ProgressReportMapper
             report.IssuesAndRisks,
             report.Status,
             report.SubmittedAt,
-            isLate,
+            report.IsLate,
             report.CreatedAt,
             report.UpdatedAt,
-            report.ConcurrencyToken.ToString("N"));
+            report.ConcurrencyToken.ToString("N"),
+            report.ProgressReportPeriodId,
+            report.InProgressWork,
+            report.Blockers,
+            report.Risks,
+            report.NextActions);
     }
 
     public static ProgressReportDetailDto ToDetailDto(this ReportEntity report)
     {
-        // PeriodEnd is not submission deadline. Authoritative reporting cadence/schedule policy
-        // is deferred/unsupported in canonical schema; late status is not fabricated from PeriodEnd.
-        bool? isLate = null;
-
         var feedbacks = report.SupervisorFeedbacks
             .OrderBy(f => f.CreatedAt)
             .Select(f => f.ToDto())
@@ -59,11 +56,16 @@ internal static class ProgressReportMapper
             report.IssuesAndRisks,
             report.Status,
             report.SubmittedAt,
-            isLate,
+            report.IsLate,
             report.CreatedAt,
             report.UpdatedAt,
             feedbacks,
-            report.ConcurrencyToken.ToString("N"));
+            report.ConcurrencyToken.ToString("N"),
+            report.ProgressReportPeriodId,
+            report.InProgressWork,
+            report.Blockers,
+            report.Risks,
+            report.NextActions);
     }
 
     public static ProgressReportFeedbackDto ToDto(this FeedbackEntity feedback) =>

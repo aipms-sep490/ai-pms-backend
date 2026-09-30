@@ -24,7 +24,8 @@ public sealed class SubmitProgressReportCommandHandler(
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
     IAuditTrail audit,
-    TimeProvider clock) : IRequestHandler<SubmitProgressReportCommand, ProgressReportDto>
+    TimeProvider? clock = null,
+    IPublisher? publisher = null) : IRequestHandler<SubmitProgressReportCommand, ProgressReportDto>
 {
     public async Task<ProgressReportDto> Handle(SubmitProgressReportCommand command, CancellationToken cancellationToken)
     {
@@ -44,7 +45,7 @@ public sealed class SubmitProgressReportCommandHandler(
         if (status != "DRAFT")
             throw new ConflictException("Progress report is already submitted.");
 
-        var now = clock.GetUtcNow().UtcDateTime;
+        var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         var result = await repository.SubmitAsync(
             command.Id,
             actorId,
@@ -62,6 +63,15 @@ public sealed class SubmitProgressReportCommandHandler(
                         ["submittedAt"] = submitted.SubmittedAt?.ToString("o"),
                         ["isLate"] = submitted.IsLate
                     }), cancellationToken);
+
+                if (publisher != null)
+                {
+                    await publisher.Publish(new AIPMS.Application.Features.Notifications.Events.WorkflowNotificationEvent(
+                        AIPMS.Application.Features.Notifications.Events.WorkflowNotificationKind.ProgressReportSubmitted,
+                        submitted.Id,
+                        actorId,
+                        now), cancellationToken);
+                }
             },
             cancellationToken);
 

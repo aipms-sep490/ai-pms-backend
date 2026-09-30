@@ -20,7 +20,12 @@ public sealed record ProgressReportDto(
     bool? IsLate,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null,
+    long? ProgressReportPeriodId = null,
+    string? InProgressWork = null,
+    string? Blockers = null,
+    string? Risks = null,
+    string? NextActions = null);
 
 public sealed record ProgressReportDetailDto(
     long Id,
@@ -40,7 +45,12 @@ public sealed record ProgressReportDetailDto(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     IReadOnlyList<ProgressReportFeedbackDto> Feedbacks,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null,
+    long? ProgressReportPeriodId = null,
+    string? InProgressWork = null,
+    string? Blockers = null,
+    string? Risks = null,
+    string? NextActions = null);
 
 public sealed record ProgressReportFeedbackDto(
     long Id,
@@ -60,14 +70,24 @@ public sealed record CreateProgressReportRequest(
     string Summary,
     string? CompletedWork,
     string? PlannedWork,
-    string? IssuesAndRisks);
+    string? IssuesAndRisks,
+    long? ProgressReportPeriodId = null,
+    string? InProgressWork = null,
+    string? Blockers = null,
+    string? Risks = null,
+    string? NextActions = null);
 
 public sealed record UpdateProgressReportRequest(
     string Summary,
     string? CompletedWork,
     string? PlannedWork,
     string? IssuesAndRisks,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null,
+    long? ProgressReportPeriodId = null,
+    string? InProgressWork = null,
+    string? Blockers = null,
+    string? Risks = null,
+    string? NextActions = null);
 
 public sealed record AddProgressReportFeedbackRequest(
     string FeedbackText);

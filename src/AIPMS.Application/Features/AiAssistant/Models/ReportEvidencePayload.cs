@@ -12,7 +12,11 @@ public sealed record ReportEvidencePayload(
     string? CompletedWork,
     string? PlannedWork,
     string? IssuesAndRisks,
-    IReadOnlyList<ReportFeedbackEvidenceItem> Feedbacks);
+    IReadOnlyList<ReportFeedbackEvidenceItem> Feedbacks,
+    string? InProgressWork = null,
+    string? Blockers = null,
+    string? Risks = null,
+    string? NextActions = null);
 
 public sealed record ReportFeedbackEvidenceItem(
     string SupervisorName,

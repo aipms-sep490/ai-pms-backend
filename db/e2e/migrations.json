@@ -27,5 +27,6 @@
   "20260928_add_team_eligibility_snapshots.sql",
   "20260929_add_project_major_requirements.sql",
   "20260929_add_discipline_evidence.sql",
+  "20260929_add_reporting_cycles_and_action_items.sql",
   "20260930_add_policy_evaluation_schemes.sql"
 ]

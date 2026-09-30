@@ -200,9 +200,17 @@ public sealed class AiContextRetriever(
             foreach (var r in reportResult.Items)
             {
                 var periodStr = $"{r.PeriodStart:yyyy-MM-dd} to {r.PeriodEnd:yyyy-MM-dd}";
+                var inProgress = !string.IsNullOrWhiteSpace(r.InProgressWork) ? r.InProgressWork : r.PlannedWork;
+                var blockers = !string.IsNullOrWhiteSpace(r.Blockers) ? r.Blockers : r.IssuesAndRisks;
+                var risks = !string.IsNullOrWhiteSpace(r.Risks) ? r.Risks : r.IssuesAndRisks;
+                var nextActions = !string.IsNullOrWhiteSpace(r.NextActions) ? r.NextActions : r.PlannedWork;
+
                 var excerpt = $"Type: {r.ReportType}, Status: {r.Status}, Summary: {Sanitize(r.Summary)}" +
                               (!string.IsNullOrWhiteSpace(r.CompletedWork) ? $", Completed: {Sanitize(r.CompletedWork)}" : "") +
-                              (!string.IsNullOrWhiteSpace(r.IssuesAndRisks) ? $", Issues/Risks: {Sanitize(r.IssuesAndRisks)}" : "");
+                              (!string.IsNullOrWhiteSpace(inProgress) ? $", InProgress: {Sanitize(inProgress)}" : "") +
+                              (!string.IsNullOrWhiteSpace(blockers) ? $", Blockers: {Sanitize(blockers)}" : "") +
+                              (!string.IsNullOrWhiteSpace(risks) ? $", Risks: {Sanitize(risks)}" : "") +
+                              (!string.IsNullOrWhiteSpace(nextActions) ? $", NextActions: {Sanitize(nextActions)}" : (!string.IsNullOrWhiteSpace(r.IssuesAndRisks) ? $", Issues/Risks: {Sanitize(r.IssuesAndRisks)}" : ""));
                 var refDto = new EvidenceReferenceDto(
                     SourceType: "PROGRESS_REPORT",
                     SourceId: $"PR-{r.Id}",
@@ -220,7 +228,11 @@ public sealed class AiContextRetriever(
                     Period: periodStr,
                     Summary: Sanitize(r.Summary),
                     CompletedWork: Sanitize(r.CompletedWork),
-                    IssuesAndRisks: Sanitize(r.IssuesAndRisks)));
+                    IssuesAndRisks: Sanitize(r.IssuesAndRisks),
+                    InProgressWork: Sanitize(r.InProgressWork),
+                    Blockers: Sanitize(r.Blockers),
+                    Risks: Sanitize(r.Risks),
+                    NextActions: Sanitize(r.NextActions)));
             }
         }
 
@@ -240,9 +252,12 @@ public sealed class AiContextRetriever(
             foreach (var m in meetingResult.Items)
             {
                 var dateStr = m.StartAt.ToString("yyyy-MM-dd HH:mm");
+                var minutes = !string.IsNullOrWhiteSpace(m.Minutes) ? m.Minutes : m.MeetingNotes;
                 var excerpt = $"Status: {m.Status}" +
                               (!string.IsNullOrWhiteSpace(m.Agenda) ? $", Agenda: {Sanitize(m.Agenda)}" : "") +
-                              (!string.IsNullOrWhiteSpace(m.MeetingNotes) ? $", Notes: {Sanitize(m.MeetingNotes)}" : "");
+                              (!string.IsNullOrWhiteSpace(minutes) ? $", Minutes: {Sanitize(minutes)}" : "") +
+                              (!string.IsNullOrWhiteSpace(m.Decisions) ? $", Decisions: {Sanitize(m.Decisions)}" : "") +
+                              (!string.IsNullOrWhiteSpace(m.Blockers) ? $", Blockers: {Sanitize(m.Blockers)}" : "");
                 var refDto = new EvidenceReferenceDto(
                     SourceType: "MEETING",
                     SourceId: $"MTG-{m.Id}",
@@ -259,7 +274,10 @@ public sealed class AiContextRetriever(
                     Status: m.Status,
                     StartAt: dateStr,
                     Agenda: Sanitize(m.Agenda),
-                    MeetingNotes: Sanitize(m.MeetingNotes)));
+                    MeetingNotes: Sanitize(m.MeetingNotes),
+                    Minutes: Sanitize(m.Minutes),
+                    Decisions: Sanitize(m.Decisions),
+                    Blockers: Sanitize(m.Blockers)));
             }
         }
 
@@ -409,12 +427,20 @@ public sealed class AiContextRetriever(
             CompletedWork: Sanitize(report.CompletedWork),
             PlannedWork: Sanitize(report.PlannedWork),
             IssuesAndRisks: Sanitize(report.IssuesAndRisks),
-            Feedbacks: feedbackItems);
+            Feedbacks: feedbackItems,
+            InProgressWork: Sanitize(report.InProgressWork),
+            Blockers: Sanitize(report.Blockers),
+            Risks: Sanitize(report.Risks),
+            NextActions: Sanitize(report.NextActions));
 
         var formattedText = JsonSerializer.Serialize(payload, JsonOptions);
 
         var hasSufficientEvidence = !string.IsNullOrWhiteSpace(report.Summary) ||
                                      !string.IsNullOrWhiteSpace(report.CompletedWork) ||
+                                     !string.IsNullOrWhiteSpace(report.InProgressWork) ||
+                                     !string.IsNullOrWhiteSpace(report.Blockers) ||
+                                     !string.IsNullOrWhiteSpace(report.Risks) ||
+                                     !string.IsNullOrWhiteSpace(report.NextActions) ||
                                      !string.IsNullOrWhiteSpace(report.PlannedWork) ||
                                      !string.IsNullOrWhiteSpace(report.IssuesAndRisks);
 
@@ -431,7 +457,11 @@ public sealed class AiContextRetriever(
             IssuesAndRisks: report.IssuesAndRisks,
             EvidenceList: evidenceList,
             FormattedEvidenceText: formattedText,
-            HasSufficientEvidence: hasSufficientEvidence);
+            HasSufficientEvidence: hasSufficientEvidence,
+            InProgressWork: report.InProgressWork,
+            Blockers: report.Blockers,
+            Risks: report.Risks,
+            NextActions: report.NextActions);
     }
 
     private static string Sanitize(string? text)

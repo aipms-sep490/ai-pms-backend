@@ -7,6 +7,7 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.ProgressReports.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
+using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.IntegrationTests.Supervisors;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -138,15 +139,45 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
         using var supervisorClient = app.CreateAuthenticatedClient(s.Accounts.Lecturer, roles: [AppRoles.Lecturer]);
         using var otherSupervisorClient = app.CreateAuthenticatedClient(s.Accounts.OtherLecturer, roles: [AppRoles.Lecturer]);
 
+        var periodStart = DateOnly.FromDateTime(Now.AddDays(-7));
+        var periodEnd = DateOnly.FromDateTime(Now);
+        long cycleId;
+        await using (var db = database.CreateContext())
+        {
+            var projectPeriod = await db.ProjectPeriods.FirstAsync();
+            var cycle = new ProgressReportPeriod
+            {
+                ProjectId = s.ProjectId,
+                ProjectPeriodId = projectPeriod.Id,
+                ReportType = "WEEKLY",
+                PeriodStart = periodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                PeriodEnd = periodEnd.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                Deadline = DateTime.UtcNow.AddDays(30),
+                LatePolicy = "BLOCK",
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            db.ProgressReportPeriods.Add(cycle);
+            await db.SaveChangesAsync();
+            cycleId = cycle.Id;
+        }
+
         // 1. Leader creates draft report
         var createRequest = new CreateProgressReportRequest(
             "WEEKLY",
-            DateOnly.FromDateTime(Now.AddDays(-7)),
-            DateOnly.FromDateTime(Now),
+            periodStart,
+            periodEnd,
             "Initial Draft Summary",
             "Module 1 completed",
             "Module 2 planned",
-            "No major risks");
+            "No major risks",
+            ProgressReportPeriodId: cycleId,
+            InProgressWork: "Module 1 ongoing",
+            Blockers: "None",
+            Risks: "No major risks",
+            NextActions: "Module 2 planned");
 
         var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
@@ -159,7 +190,11 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
             "Updated Draft Summary by Member",
             "Module 1 & 2 completed",
             "Module 3 planned",
-            "API latency risk");
+            "API latency risk",
+            InProgressWork: "Module 2 ongoing",
+            Blockers: "None",
+            Risks: "API latency risk",
+            NextActions: "Module 3 planned");
 
         var updateResponse = await memberClient.PutAsJsonAsync($"/api/v1/progress-reports/{created.Id}", updateRequest);
         Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
@@ -395,9 +430,35 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
         using var app = new Factory(database);
         using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student, roles: [AppRoles.Student]);
 
+        var periodStart = DateOnly.FromDateTime(Now.AddDays(-7));
+        var periodEnd = DateOnly.FromDateTime(Now);
+        long cycleId;
+        await using (var db = database.CreateContext())
+        {
+            var projectPeriod = await db.ProjectPeriods.FirstAsync();
+            var cycle = new ProgressReportPeriod
+            {
+                ProjectId = s.ProjectId,
+                ProjectPeriodId = projectPeriod.Id,
+                ReportType = "WEEKLY",
+                PeriodStart = periodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                PeriodEnd = periodEnd.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                Deadline = DateTime.UtcNow.AddDays(30),
+                LatePolicy = "BLOCK",
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            db.ProgressReportPeriods.Add(cycle);
+            await db.SaveChangesAsync();
+            cycleId = cycle.Id;
+        }
+
         // Create draft with only Summary
         var createRequest = new CreateProgressReportRequest(
-            "WEEKLY", DateOnly.FromDateTime(Now.AddDays(-7)), DateOnly.FromDateTime(Now), "Incomplete Draft", null, null, null);
+            "WEEKLY", periodStart, periodEnd, "Incomplete Draft", null, null, null,
+            ProgressReportPeriodId: cycleId);
         var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
         var created = await createResponse.Content.ReadFromJsonAsync<ProgressReportDto>();
 
@@ -415,7 +476,8 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
         // Fill all required fields -> submit succeeds with 200 OK
         await leaderClient.PutAsJsonAsync(
             $"/api/v1/progress-reports/{created.Id}",
-            new UpdateProgressReportRequest("Complete Draft", "Done A", "Plan A", "Risk A"));
+            new UpdateProgressReportRequest("Complete Draft", "Done A", "Plan A", "Risk A",
+                InProgressWork: "Ongoing work", Blockers: "None", Risks: "Risk A", NextActions: "Plan A"));
         var submitSuccess = await leaderClient.PostAsync($"/api/v1/progress-reports/{created.Id}/submit", null);
         Assert.Equal(HttpStatusCode.OK, submitSuccess.StatusCode);
         var submitted = await submitSuccess.Content.ReadFromJsonAsync<ProgressReportDto>();

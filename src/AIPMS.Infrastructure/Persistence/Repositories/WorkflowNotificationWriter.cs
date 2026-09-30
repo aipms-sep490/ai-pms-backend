@@ -30,6 +30,8 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         var replacementEvent = entityType == "SUPERVISOR_ASSIGNMENT";
         long[] replacementLecturers = [];
         var leaderChangeEvent = entityType == "TEAM_LEADER_CHANGE_REQUEST";
+        var meetingEvent = entityType == "MEETING";
+        var reportEvent = entityType == "PROGRESS_REPORT";
         var departmentEvent = finalSubmission || entityType == "EVALUATION";
 
         // A source-row lock serializes duplicate event handling; inbox and transition commit together.
@@ -185,30 +187,60 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
 
         var organizationId = await context.Teams.Where(t => t.Id == teamId)
             .Select(t => t.AcademicSemester.OrganizationId).SingleAsync(ct);
-        var recipients = context.Users.Where(u => (u.Id != notification.ActorId || entityType == "EVALUATION_ASSIGNMENT") && u.Status == "ACTIVE"
-            && (u.UserRoleUsers.Any(r => r.Role.Code == role)
-                || (replacementEvent && replacementLecturers.Contains(u.Id) && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Lecturer)))
-            && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
-            && u.Department.OrganizationId == organizationId);
-        if (replacementEvent)
-            recipients = recipients.Where(u => replacementLecturers.Contains(u.Id)
-                || u.TeamMembers.Any(m => m.TeamId == teamId && m.LeftAt == null));
-        else if (targetUser.HasValue)
-            recipients = recipients.Where(u => u.Id == targetUser.Value);
-        else if (projectResult || projectStateEvent || feedbackEvent)
-            recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.LeftAt == null));
-        else if (!departmentEvent)
-            recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.IsLeader && m.LeftAt == null));
-        if (departmentEvent)
-            recipients = recipients.Where(u => context.ProjectMajors.Any(m => m.ProjectId == projectId
-                && m.Major.IsActive && m.Major.DepartmentId == u.DepartmentId));
-        if (entityType == "EVALUATION")
-            recipients = recipients.Where(u => context.Set<EvaluationDraftState>().Any(s => s.EvaluationId == notification.SourceId
-                && context.Set<EvaluationAssignment>().Any(a => a.Id == s.AssignmentId && a.DepartmentId == u.DepartmentId)));
-        if (projectId.HasValue && role == AppRoles.Lecturer && !leaderChangeEvent)
-            recipients = recipients.Where(u => context.ProjectMajors.Any(m => m.ProjectId == projectId.Value
-                && m.Major.IsActive && m.Major.DepartmentId == u.DepartmentId));
-        var ids = await recipients.Select(u => u.Id).Distinct().ToListAsync(ct);
+                List<long> ids;
+        if (meetingEvent)
+        {
+            var participantUserIds = await context.MeetingParticipants
+                .Where(mp => mp.MeetingId == notification.SourceId)
+                .Select(mp => mp.UserId)
+                .ToListAsync(ct);
+
+            ids = await context.Users
+                .Where(u => u.Id != notification.ActorId && u.Status == "ACTIVE" && participantUserIds.Contains(u.Id))
+                .Select(u => u.Id)
+                .Distinct()
+                .ToListAsync(ct);
+        }
+        else if (reportEvent)
+        {
+            var supervisorUserIds = await context.SupervisorAssignments
+                .Where(a => a.ProjectId == projectId && a.EndedAt == null)
+                .Select(a => a.SupervisorProfile.UserId)
+                .ToListAsync(ct);
+
+            ids = await context.Users
+                .Where(u => u.Id != notification.ActorId && u.Status == "ACTIVE" && supervisorUserIds.Contains(u.Id))
+                .Select(u => u.Id)
+                .Distinct()
+                .ToListAsync(ct);
+        }
+        else
+        {
+            var recipients = context.Users.Where(u => (u.Id != notification.ActorId || entityType == "EVALUATION_ASSIGNMENT") && u.Status == "ACTIVE"
+                && (u.UserRoleUsers.Any(r => r.Role.Code == role)
+                    || (replacementEvent && replacementLecturers.Contains(u.Id) && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Lecturer)))
+                && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
+                && u.Department.OrganizationId == organizationId);
+            if (replacementEvent)
+                recipients = recipients.Where(u => replacementLecturers.Contains(u.Id)
+                    || u.TeamMembers.Any(m => m.TeamId == teamId && m.LeftAt == null));
+            else if (targetUser.HasValue)
+                recipients = recipients.Where(u => u.Id == targetUser.Value);
+            else if (projectResult || projectStateEvent || feedbackEvent)
+                recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.LeftAt == null));
+            else if (!departmentEvent)
+                recipients = recipients.Where(u => u.TeamMembers.Any(m => m.TeamId == teamId && m.IsLeader && m.LeftAt == null));
+            if (departmentEvent)
+                recipients = recipients.Where(u => context.ProjectMajors.Any(m => m.ProjectId == projectId
+                    && m.Major.IsActive && m.Major.DepartmentId == u.DepartmentId));
+            if (entityType == "EVALUATION")
+                recipients = recipients.Where(u => context.Set<EvaluationDraftState>().Any(s => s.EvaluationId == notification.SourceId
+                    && context.Set<EvaluationAssignment>().Any(a => a.Id == s.AssignmentId && a.DepartmentId == u.DepartmentId)));
+            if (projectId.HasValue && role == AppRoles.Lecturer && !leaderChangeEvent)
+                recipients = recipients.Where(u => context.ProjectMajors.Any(m => m.ProjectId == projectId.Value
+                    && m.Major.IsActive && m.Major.DepartmentId == u.DepartmentId));
+            ids = await recipients.Select(u => u.Id).Distinct().ToListAsync(ct);
+        }
         if (ids.Count == 0) return;
 
         // No user-supplied messages or project details are copied into the inbox.
@@ -259,6 +291,9 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         WorkflowNotificationKind.TeamLeaderChangeRequested => ("TEAM_LEADER_CHANGE_REQUEST", "PENDING", "TEAM_LEADER_CHANGE_REQUESTED", "You received a team leader change request"),
         WorkflowNotificationKind.TeamLeaderChangeApproved => ("TEAM_LEADER_CHANGE_REQUEST", "APPROVED", "TEAM_LEADER_CHANGE_APPROVED", "Your team leader change request was approved"),
         WorkflowNotificationKind.TeamLeaderChangeRejected => ("TEAM_LEADER_CHANGE_REQUEST", "REJECTED", "TEAM_LEADER_CHANGE_REJECTED", "Your team leader change request was rejected"),
+        WorkflowNotificationKind.MeetingScheduled => ("MEETING", "SCHEDULED", "MEETING_SCHEDULED", "A project meeting has been scheduled"),
+        WorkflowNotificationKind.ProgressReportSubmitted => ("PROGRESS_REPORT", "SUBMITTED", "PROGRESS_REPORT_SUBMITTED", "A progress report has been submitted"),
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 }
+

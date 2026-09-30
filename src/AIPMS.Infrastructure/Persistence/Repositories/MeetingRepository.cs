@@ -91,11 +91,20 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
     public Task<MeetingDto> CreateAsync(
         long projectId, long createdBy, string title, string? agenda, DateTime startAt, DateTime? endAt,
         string? location, string? onlineUrl, IReadOnlyList<long>? participantUserIds, DateTime now, CancellationToken cancellationToken) =>
-        CreateAsync(projectId, createdBy, title, agenda, startAt, endAt, location, onlineUrl, participantUserIds, now, onCreated: null, cancellationToken);
+        CreateAsync(projectId, createdBy, title, agenda, startAt, endAt, location, onlineUrl, participantUserIds, now, null, null, null, onCreated: null, cancellationToken);
+
+    public Task<MeetingDto> CreateAsync(
+        long projectId, long createdBy, string title, string? agenda, DateTime startAt, DateTime? endAt,
+        string? location, string? onlineUrl, IReadOnlyList<long>? participantUserIds, DateTime now, Func<MeetingDto, Task>? onCreated, CancellationToken cancellationToken = default) =>
+        CreateAsync(projectId, createdBy, title, agenda, startAt, endAt, location, onlineUrl, participantUserIds, now, null, null, null, onCreated, cancellationToken);
 
     public Task<MeetingDto> UpdateAsync(
         long id, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, DateTime now, CancellationToken cancellationToken) =>
-        UpdateAsync(id, title, agenda, startAt, endAt, location, onlineUrl, now, onUpdated: null, cancellationToken);
+        UpdateAsync(id, title, agenda, startAt, endAt, location, onlineUrl, now, null, null, null, onUpdated: null, cancellationToken);
+
+    public Task<MeetingDto> UpdateAsync(
+        long id, string title, string? agenda, DateTime startAt, DateTime? endAt, string? location, string? onlineUrl, DateTime now, Func<MeetingDto, Task>? onUpdated, CancellationToken cancellationToken = default) =>
+        UpdateAsync(id, title, agenda, startAt, endAt, location, onlineUrl, now, null, null, null, onUpdated, cancellationToken);
 
     public Task<MeetingDto> CancelAsync(long id, DateTime now, CancellationToken cancellationToken) =>
         CancelAsync(id, now, onCancelled: null, cancellationToken);
@@ -105,7 +114,11 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
 
     public Task<MeetingDto> UpdateNotesAsync(
         long id, string? meetingNotes, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now, CancellationToken cancellationToken) =>
-        UpdateNotesAsync(id, meetingNotes, attendances, now, onNotesUpdated: null, cancellationToken);
+        UpdateNotesAsync(id, meetingNotes, attendances, now, null, null, null, onNotesUpdated: null, cancellationToken);
+
+    public Task<MeetingDto> UpdateNotesAsync(
+        long id, string? meetingNotes, IReadOnlyList<ParticipantAttendanceUpdate>? attendances, DateTime now, Func<MeetingDto, Task>? onNotesUpdated, CancellationToken cancellationToken = default) =>
+        UpdateNotesAsync(id, meetingNotes, attendances, now, null, null, null, onNotesUpdated, cancellationToken);
 
     public Task<MeetingParticipantDto> AddParticipantAsync(
         long meetingId, long userId, string? attendanceStatus, DateTime now, CancellationToken cancellationToken) =>
@@ -129,6 +142,9 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         string? onlineUrl,
         IReadOnlyList<long>? participantUserIds,
         DateTime now,
+        string? minutes,
+        string? decisions,
+        string? blockers,
         Func<MeetingDto, Task>? onCreated = null,
         CancellationToken cancellationToken = default)
     {
@@ -147,6 +163,9 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
             OnlineUrl = onlineUrl,
             Status = "SCHEDULED",
             CreatedBy = createdBy,
+            Minutes = minutes,
+            Decisions = decisions,
+            Blockers = blockers,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -198,6 +217,9 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         string? location,
         string? onlineUrl,
         DateTime now,
+        string? minutes,
+        string? decisions,
+        string? blockers,
         Func<MeetingDto, Task>? onUpdated = null,
         CancellationToken cancellationToken = default)
     {
@@ -222,6 +244,9 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         meeting.EndAt = endAt;
         meeting.Location = location;
         meeting.OnlineUrl = onlineUrl;
+        if (minutes != null) meeting.Minutes = minutes;
+        if (decisions != null) meeting.Decisions = decisions;
+        if (blockers != null) meeting.Blockers = blockers;
         meeting.UpdatedAt = now;
         meeting.ConcurrencyToken = Guid.NewGuid();
 
@@ -337,6 +362,9 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         string? meetingNotes,
         IReadOnlyList<ParticipantAttendanceUpdate>? attendances,
         DateTime now,
+        string? minutes,
+        string? decisions,
+        string? blockers,
         Func<MeetingDto, Task>? onNotesUpdated = null,
         CancellationToken cancellationToken = default)
     {
@@ -360,6 +388,10 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         {
             meeting.MeetingNotes = meetingNotes;
         }
+
+        if (minutes != null) meeting.Minutes = minutes;
+        if (decisions != null) meeting.Decisions = decisions;
+        if (blockers != null) meeting.Blockers = blockers;
 
         // Notes endpoint does not mutate lifecycle status; terminal states cannot reopen
 

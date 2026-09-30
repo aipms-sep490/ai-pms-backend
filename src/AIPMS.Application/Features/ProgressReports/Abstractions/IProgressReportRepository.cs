@@ -30,6 +30,11 @@ public interface IProgressReportRepository
         long? excludeId,
         CancellationToken cancellationToken);
 
+    Task<bool> ExistsForPeriodIdAsync(
+        long periodId,
+        long? excludeId = null,
+        CancellationToken cancellationToken = default);
+
     Task<ProgressReportDto> CreateAsync(
         long projectId,
         long submittedBy,
@@ -54,6 +59,11 @@ public interface IProgressReportRepository
         string? plannedWork,
         string? issuesAndRisks,
         DateTime now,
+        long? progressReportPeriodId,
+        string? inProgressWork,
+        string? blockers,
+        string? risks,
+        string? nextActions,
         Func<ProgressReportDto, Task>? onCreated,
         CancellationToken cancellationToken = default);
 
@@ -73,6 +83,11 @@ public interface IProgressReportRepository
         string? plannedWork,
         string? issuesAndRisks,
         DateTime now,
+        long? progressReportPeriodId,
+        string? inProgressWork,
+        string? blockers,
+        string? risks,
+        string? nextActions,
         Func<ProgressReportDto, Task>? onUpdated,
         CancellationToken cancellationToken = default);
 
