@@ -32,15 +32,16 @@ public sealed class ResetPasswordCommandHandler(
             session.UserId,
             passwordHashingService.Hash(request.NewPassword),
             utcNow,
-            cancellationToken);
-
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                session.UserId,
-                "AUTH_PASSWORD_RESET_COMPLETED",
-                "USER",
-                session.UserId,
-                new Dictionary<string, object?>()),
-            cancellationToken);
+            cancellationToken, onCompleted: async () =>
+        {
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    session.UserId,
+                    "AUTH_PASSWORD_RESET_COMPLETED",
+                    "USER",
+                    session.UserId,
+                    new Dictionary<string, object?>()),
+                cancellationToken);
+        });
     }
 }

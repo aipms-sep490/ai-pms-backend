@@ -103,15 +103,15 @@ public sealed class ExternalIntegrationTests
     }
 
     [Fact]
-    public async Task SMTP_timeout_never_reports_success_and_reset_failure_does_not_escape()
+    public async Task SMTP_timeout_and_reset_failure_are_reported_for_retry()
     {
         var transport = new FakeSmtpTransport { Delay = true };
         var sender = new SmtpNotificationEmailSender(Options.Create(EmailSettings()), new TestLogger(), transport);
         Assert.False(await sender.TrySendAsync(new(1, 1, "x@example.com", "User", "subject", "body"), default));
         var reset = new SmtpPasswordResetNotifier(Options.Create(EmailSettings()), Microsoft.Extensions.Logging.Abstractions.NullLogger<SmtpPasswordResetNotifier>.Instance, transport);
-        await reset.SendAsync("x@example.com", "User", "raw-reset-token", DateTime.UtcNow.AddMinutes(5));
+        await Assert.ThrowsAsync<AIPMS.Application.Common.Exceptions.ServiceUnavailableException>(() => reset.SendAsync("x@example.com", "User", "raw-reset-token", DateTime.UtcNow.AddMinutes(5)));
         transport.Delay = false; transport.Throw = new SmtpException("denied");
-        await reset.SendAsync("x@example.com", "User", "raw-reset-token", DateTime.UtcNow.AddMinutes(5));
+        await Assert.ThrowsAsync<AIPMS.Application.Common.Exceptions.ServiceUnavailableException>(() => reset.SendAsync("x@example.com", "User", "raw-reset-token", DateTime.UtcNow.AddMinutes(5)));
     }
 
     [Fact]

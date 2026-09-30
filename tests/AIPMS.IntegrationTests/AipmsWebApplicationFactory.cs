@@ -36,6 +36,7 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
                 ["NotificationEmail:Enabled"] = "false",
                 ["ScheduledNotifications:Enabled"] = "false",
                 ["GoogleAuth:Enabled"] = "false",
+                ["PasswordRecovery:Enabled"] = "false",
                 ["Observability:LogFilePath"] = Path.Combine(
                     Path.GetTempPath(),
                     "aipms-tests-.log")
