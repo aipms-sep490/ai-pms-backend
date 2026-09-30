@@ -160,8 +160,8 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         if (progressReportPeriodId.HasValue)
         {
             var cycle = await context.ProgressReportPeriods
-                .AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Id == progressReportPeriodId.Value, cancellationToken)
+                .FromSqlInterpolated($"SELECT * FROM dbo.progress_report_periods WITH (UPDLOCK, HOLDLOCK) WHERE id = {progressReportPeriodId.Value}")
+                .FirstOrDefaultAsync(cancellationToken)
                 ?? throw new NotFoundException("ProgressReportPeriod", progressReportPeriodId.Value);
 
             if (cycle.ProjectId != projectId)
@@ -282,8 +282,8 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         if (progressReportPeriodId.HasValue && progressReportPeriodId.Value != entity.ProgressReportPeriodId)
         {
             var cycle = await context.ProgressReportPeriods
-                .AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Id == progressReportPeriodId.Value, cancellationToken)
+                .FromSqlInterpolated($"SELECT * FROM dbo.progress_report_periods WITH (UPDLOCK, HOLDLOCK) WHERE id = {progressReportPeriodId.Value}")
+                .FirstOrDefaultAsync(cancellationToken)
                 ?? throw new NotFoundException("ProgressReportPeriod", progressReportPeriodId.Value);
 
             if (cycle.ProjectId != entity.ProjectId)

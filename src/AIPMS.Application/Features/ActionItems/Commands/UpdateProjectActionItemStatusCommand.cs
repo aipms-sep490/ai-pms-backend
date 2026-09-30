@@ -95,7 +95,7 @@ public sealed class UpdateProjectActionItemStatusCommandHandler(
             throw new ConflictException($"Invalid status transition from {currentStatus} to {targetStatus}.");
         }
 
-        var isAdmin = currentUser.Roles.Contains(AppRoles.Admin, StringComparer.Ordinal);
+        var isAdmin = await repository.HasAdminRoleInDbAsync(actorId, cancellationToken);
         var isLeader = await repository.IsProjectLeaderAsync(projectId, actorId, cancellationToken);
         var isSupervisor = await repository.IsAssignedSupervisorAsync(projectId, actorId, cancellationToken);
 

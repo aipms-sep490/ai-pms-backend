@@ -235,6 +235,10 @@ public sealed class ProjectActionItemHandlerTests
         public bool MeetingCancelled { get; set; } = false;
         public Task<bool> IsMeetingCancelledAsync(long meetingId, CancellationToken cancellationToken = default) =>
             Task.FromResult(MeetingCancelled);
+
+        public bool HasAdminRole { get; set; } = false;
+        public Task<bool> HasAdminRoleInDbAsync(long userId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(HasAdminRole);
     }
 
     private sealed class StubProgressRepo : IProgressReportRepository
@@ -490,6 +494,52 @@ public sealed class ProjectActionItemHandlerTests
 
         var result = await handler.Handle(command, CancellationToken.None);
         Assert.Equal("TODO", result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateActionItemStatus_TerminalReopen_StaleAdminJwt_ThrowsForbiddenException()
+    {
+        var repo = new FakeProjectActionItemRepository { HasAdminRole = false, IsLeader = false, IsSupervisor = false };
+        var user = new FakeCurrentUser { Roles = new HashSet<string> { AppRoles.Admin } }; // Stale token containing Admin
+        var handler = new UpdateProjectActionItemStatusCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var created = await repo.CreateAsync(1, "MEETING", 101, null, "Test Item", null, 10, null, null, null, 10, DateTime.UtcNow);
+        await repo.UpdateStatusAsync(created.Id, "DONE", null, DateTime.UtcNow);
+
+        var command = new UpdateProjectActionItemStatusCommand(1, created.Id, new UpdateProjectActionItemStatusRequest("IN_PROGRESS"));
+
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
+        Assert.Contains("reopen", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateActionItemStatus_TerminalReopen_PersistedAdmin_Allowed()
+    {
+        var repo = new FakeProjectActionItemRepository { HasAdminRole = true, IsLeader = false, IsSupervisor = false };
+        var user = new FakeCurrentUser { Roles = new HashSet<string> { AppRoles.Admin } };
+        var handler = new UpdateProjectActionItemStatusCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var created = await repo.CreateAsync(1, "MEETING", 101, null, "Test Item", null, 10, null, null, null, 10, DateTime.UtcNow);
+        await repo.UpdateStatusAsync(created.Id, "DONE", null, DateTime.UtcNow);
+
+        var command = new UpdateProjectActionItemStatusCommand(1, created.Id, new UpdateProjectActionItemStatusRequest("IN_PROGRESS"));
+
+        var result = await handler.Handle(command, CancellationToken.None);
+        Assert.Equal("IN_PROGRESS", result.Status);
     }
 
     [Fact]

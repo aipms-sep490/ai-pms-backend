@@ -81,4 +81,6 @@ public interface IProjectActionItemRepository
     Task<bool> IsTaskBelongsToMilestoneAsync(long taskId, long milestoneId, CancellationToken cancellationToken = default);
 
     Task<bool> IsActiveTeamMemberAsync(long projectId, long userId, CancellationToken cancellationToken = default);
+
+    Task<bool> HasAdminRoleInDbAsync(long userId, CancellationToken cancellationToken = default);
 }

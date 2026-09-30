@@ -98,18 +98,42 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
         Func<ProjectActionItemDto, Task>? onCreated = null,
         CancellationToken cancellationToken = default)
     {
-        if (meetingId.HasValue && await IsMeetingCancelledAsync(meetingId.Value, cancellationToken))
-            throw new ConflictException("Cannot create action items for a cancelled meeting.");
-
         await using var tx = context.Database.CurrentTransaction is null
             ? await context.Database.BeginTransactionAsync(cancellationToken)
             : null;
         try
         {
+            if (string.IsNullOrWhiteSpace(sourceType))
+            {
+                throw new ValidationException(new System.Collections.Generic.Dictionary<string, string[]>
+                {
+                    ["sourceType"] = ["SourceType is required."]
+                });
+            }
+
+            var normalizedSourceType = sourceType.Trim().ToUpperInvariant();
+
+            if (normalizedSourceType == "MEETING" || meetingId.HasValue)
+            {
+                if (!meetingId.HasValue)
+                    throw new ValidationException(new System.Collections.Generic.Dictionary<string, string[]> { ["meetingId"] = ["MeetingId is required for MEETING action items."] });
+
+                var meeting = await context.Meetings
+                    .FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK, ROWLOCK) WHERE id = {meetingId.Value}")
+                    .FirstOrDefaultAsync(cancellationToken)
+                    ?? throw new NotFoundException("Meeting", meetingId.Value);
+
+                if (meeting.ProjectId != projectId)
+                    throw new NotFoundException("Meeting", meetingId.Value);
+
+                if (meeting.Status == "CANCELLED")
+                    throw new ConflictException("Cannot create action items for a cancelled meeting.");
+            }
+
             var entity = new ProjectActionItem
             {
                 ProjectId = projectId,
-                SourceType = sourceType.Trim().ToUpperInvariant(),
+                SourceType = normalizedSourceType,
                 MeetingId = meetingId,
                 ProgressReportId = progressReportId,
                 Title = title,
@@ -340,6 +364,11 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
             .SelectMany(p => p.Team.TeamMembers)
             .AnyAsync(m => m.UserId == userId && m.LeftAt == null, cancellationToken);
     }
+
+    public Task<bool> HasAdminRoleInDbAsync(long userId, CancellationToken cancellationToken = default)
+        => context.UserRoles
+            .AsNoTracking()
+            .AnyAsync(ur => ur.UserId == userId && ur.User.Status == "ACTIVE" && ur.Role.Code == AppRoles.Admin, cancellationToken);
 
     private static ProjectActionItemDto ToDto(ProjectActionItem x) =>
         new(
