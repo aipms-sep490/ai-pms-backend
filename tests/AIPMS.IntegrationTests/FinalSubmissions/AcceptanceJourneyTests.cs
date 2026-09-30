@@ -6,6 +6,8 @@ using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.FinalSubmissions.DTOs;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Results.DTOs;
+using AIPMS.Application.Features.Teams.DTOs;
+using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.Application.Features.WorkflowContext.DTOs;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,6 +15,23 @@ namespace AIPMS.IntegrationTests.FinalSubmissions;
 
 public sealed partial class FinalSubmissionEndpointTests
 {
+    private async Task SeedEvaluationRoster(FinalDraftScenario s, long periodId)
+    {
+        await using var db = database.CreateContext();
+        var majorId = await db.ProjectMajors.Where(m => m.ProjectId == s.ProjectId).Select(m => m.MajorId).SingleAsync();
+        var members = await db.TeamMembers.Include(m => m.User).Where(m => m.TeamId == s.TeamId && m.LeftAt == null).ToListAsync();
+        foreach (var membership in members)
+        { membership.User.MajorId = majorId; membership.User.AcademicProfileStatus = "VERIFIED"; }
+        db.Add(new ProjectRegistrationSnapshot { ProjectId = s.ProjectId, ProjectPeriodId = periodId,
+            LeadDepartmentId = s.Users.DepartmentId, SubmittedBy = s.Users.Student, SubmittedAt = Now.AddDays(-1),
+            SnapshotJson = JsonSerializer.Serialize(new RegistrationEvidence(
+                new TeamAcademicScopeDto("SINGLE_MAJOR", majorId, s.Users.DepartmentId, [new(majorId, 1, 5, "Project delivery")], Guid.NewGuid()),
+                new(1, 5, 1, "acceptance"), await db.AcademicSemesters.Where(x => x.Id == s.SemesterId).Select(x => x.OrganizationId).SingleAsync(),
+                Now.AddDays(-3), Now.AddDays(-1), members.Select(m => new RegisteredMemberDto(m.UserId, m.User.FullName, majorId, m.IsLeader)).ToArray(),
+                [s.Users.DepartmentId])) });
+        await db.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task Uploaded_final_package_flows_through_scoring_publication_archive_and_reload()
     {
@@ -51,14 +70,17 @@ public sealed partial class FinalSubmissionEndpointTests
             await db.SaveChangesAsync();
             periodId = period.Id;
         }
+        await SeedEvaluationRoster(s, periodId);
         var candidatePath = $"/api/v1/projects/{s.ProjectId}/eligible-evaluators?periodId={periodId}";
         var candidates = await Body<PagedResult<EligibleEvaluatorDto>>(await staff.GetAsync(candidatePath));
         Assert.Contains(candidates.Items, c => c.UserId == s.Users.Lecturer && c.EvaluationTypes.Contains("LECTURER"));
         Assert.Equal(HttpStatusCode.Forbidden, (await outside.GetAsync(candidatePath)).StatusCode);
+        var schemeDraft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
+            new SaveEvaluationSchemeRequest(s.ProjectId, periodId, "Acceptance scheme", 5, [new("Project quality", "COMMON", null, rubric.Id, 100, 100, 1)])));
+        var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{schemeDraft.Id}/publish", new SchemeTokenRequest(schemeDraft.ConcurrencyToken)));
         var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/evaluation-assignments",
-            new AssignEvaluatorRequest(s.Users.Lecturer, periodId, "LECTURER")));
+            new AssignEvaluatorRequest(s.Users.Lecturer, periodId, "LECTURER", "COMMON", null, null, scheme.Components.Single().Id)));
         var resultPath = $"/api/v1/projects/{s.ProjectId}/result";
-        await Body<ResultPolicyDto>(await staff.PutAsJsonAsync(resultPath + "-policy", new ConfigureResultPolicyRequest(5, [new(assignment.Id, 100)], null)));
         Assert.Equal(HttpStatusCode.NotFound, (await member.GetAsync(resultPath)).StatusCode);
         var draft = await Body<EvaluationDraftDto>(await evaluator.PostAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evaluation", null));
         draft = await Body<EvaluationDraftDto>(await evaluator.PutAsJsonAsync($"/api/v1/evaluations/{draft.Id}/draft",

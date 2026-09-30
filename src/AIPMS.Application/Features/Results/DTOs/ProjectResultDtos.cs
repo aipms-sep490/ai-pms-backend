@@ -10,4 +10,4 @@ public sealed record ProjectResultPreviewDto(long ProjectId, bool CanPublish, IR
     decimal? TotalScore, decimal? PassThreshold, string? Outcome, string ConfirmationToken, IReadOnlyList<ResultContributionDto> Contributions);
 public sealed record ProjectResultDto(long Id, long ProjectId, long FinalSubmissionId, decimal TotalScore, decimal PassThreshold,
     string Outcome, string CalculationRule, long PublishedBy, DateTime PublishedAt, string PolicyConcurrencyToken,
-    IReadOnlyList<ResultContributionDto> Contributions);
+    IReadOnlyList<ResultContributionDto> Contributions, long? SchemeId = null, long? PolicyVersionId = null, string? FrozenInputs = null);

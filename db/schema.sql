@@ -1591,3 +1591,425 @@ BEGIN
 END;
 -- Legacy tasks/files are not assigned guessed majors or verification outcomes.
 COMMIT;
+
+GO
+-- Apply after db/schema.sql on a new database, or to an existing AI-PMS database.
+-- Review and apply before deploying the Rubrics API; does not switch databases.
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+BEGIN TRY
+    BEGIN TRANSACTION;
+    IF OBJECT_ID(N'dbo.rubric_versions', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.rubric_versions (
+            rubric_id BIGINT NOT NULL,
+            root_rubric_id BIGINT NOT NULL,
+            version_number INT NOT NULL,
+            status VARCHAR(20) NOT NULL,
+            concurrency_token UNIQUEIDENTIFIER NOT NULL,
+            CONSTRAINT pk_rubric_versions PRIMARY KEY (rubric_id),
+            CONSTRAINT fk_rubric_versions_rubric FOREIGN KEY (rubric_id) REFERENCES dbo.rubrics(id),
+            CONSTRAINT fk_rubric_versions_root FOREIGN KEY (root_rubric_id) REFERENCES dbo.rubrics(id),
+            CONSTRAINT uq_rubric_versions_family_number UNIQUE (root_rubric_id, version_number),
+            CONSTRAINT ck_rubric_versions_status CHECK (status IN ('DRAFT','PUBLISHED','RETIRED')),
+            CONSTRAINT ck_rubric_versions_number CHECK (version_number > 0)
+        );
+    END;
+
+    -- No reliable publication history exists for legacy rows. Protect all of them;
+    -- never infer an editable draft from is_active = 0 or rename/relink evaluations.
+    INSERT INTO dbo.rubric_versions (rubric_id, root_rubric_id, version_number, status, concurrency_token)
+    SELECT r.id, r.id, 1, CASE WHEN r.is_active = 1 THEN 'PUBLISHED' ELSE 'RETIRED' END, NEWID()
+    FROM dbo.rubrics r WITH (UPDLOCK, HOLDLOCK)
+    WHERE NOT EXISTS (SELECT 1 FROM dbo.rubric_versions v WITH (UPDLOCK, HOLDLOCK) WHERE v.rubric_id = r.id);
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+GO
+-- Prerequisite: schema.sql and 20260911_add_rubric_versions.sql.
+-- Additive draft-evaluation foundation. Does not infer assignments for legacy evaluations.
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+GO
+BEGIN TRY
+    BEGIN TRANSACTION;
+    IF OBJECT_ID(N'dbo.rubric_versions', N'U') IS NULL
+        THROW 51000, 'Apply the rubric version migration first.', 1;
+
+    IF OBJECT_ID(N'dbo.evaluation_assignments', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.evaluation_assignments (
+            id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_evaluation_assignments PRIMARY KEY,
+            project_id BIGINT NOT NULL,
+            evaluator_id BIGINT NOT NULL,
+            rubric_id BIGINT NOT NULL,
+            project_period_id BIGINT NOT NULL,
+            department_id BIGINT NOT NULL,
+            evaluation_type NVARCHAR(30) NOT NULL,
+            status NVARCHAR(20) NOT NULL,
+            assigned_by BIGINT NOT NULL,
+            assigned_at DATETIME2(0) NOT NULL,
+            revoked_at DATETIME2(0) NULL,
+            revocation_reason NVARCHAR(1000) NULL,
+            concurrency_token UNIQUEIDENTIFIER NOT NULL,
+            CONSTRAINT fk_evaluation_assignments_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+            CONSTRAINT fk_evaluation_assignments_evaluator FOREIGN KEY (evaluator_id) REFERENCES dbo.users(id),
+            CONSTRAINT fk_evaluation_assignments_rubric FOREIGN KEY (rubric_id) REFERENCES dbo.rubrics(id),
+            CONSTRAINT fk_evaluation_assignments_period FOREIGN KEY (project_period_id) REFERENCES dbo.project_periods(id),
+            CONSTRAINT fk_evaluation_assignments_department FOREIGN KEY (department_id) REFERENCES dbo.departments(id),
+            CONSTRAINT fk_evaluation_assignments_actor FOREIGN KEY (assigned_by) REFERENCES dbo.users(id),
+            CONSTRAINT ck_evaluation_assignments_type CHECK (evaluation_type IN (N'SUPERVISOR',N'LECTURER')),
+            CONSTRAINT ck_evaluation_assignments_state CHECK (
+                (status = N'ACTIVE' AND revoked_at IS NULL AND revocation_reason IS NULL)
+                OR (status = N'REVOKED' AND revoked_at >= assigned_at AND LEN(LTRIM(RTRIM(revocation_reason))) > 0 AND revoked_at IS NOT NULL AND revocation_reason IS NOT NULL))
+        );
+        CREATE UNIQUE INDEX uq_evaluation_assignments_active ON dbo.evaluation_assignments(project_id,evaluator_id,evaluation_type) WHERE status = N'ACTIVE';
+        CREATE INDEX ix_evaluation_assignments_evaluator ON dbo.evaluation_assignments(evaluator_id,status,id);
+    END;
+
+    IF OBJECT_ID(N'dbo.evaluation_draft_states', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.evaluation_draft_states (
+            evaluation_id BIGINT NOT NULL CONSTRAINT pk_evaluation_draft_states PRIMARY KEY,
+            assignment_id BIGINT NOT NULL CONSTRAINT uq_evaluation_draft_states_assignment UNIQUE,
+            concurrency_token UNIQUEIDENTIFIER NOT NULL,
+            calculation_rule VARCHAR(50) NOT NULL,
+            CONSTRAINT fk_evaluation_draft_states_evaluation FOREIGN KEY (evaluation_id) REFERENCES dbo.evaluations(id),
+            CONSTRAINT fk_evaluation_draft_states_assignment FOREIGN KEY (assignment_id) REFERENCES dbo.evaluation_assignments(id),
+            CONSTRAINT ck_evaluation_draft_states_rule CHECK (calculation_rule = 'WEIGHTED_10_AWAY_FROM_ZERO_2DP_V1')
+        );
+    END;
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+GO
+-- BE-16 slice 1: draft selections only, not official locked submissions.
+-- Prerequisite: canonical schema.sql. Additive and rerunnable; no legacy backfill.
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+BEGIN TRY
+    BEGIN TRANSACTION;
+    IF OBJECT_ID(N'dbo.projects', N'U') IS NULL OR OBJECT_ID(N'dbo.deliverable_versions', N'U') IS NULL
+        THROW 51000, 'Apply the canonical schema before final-submission drafts.', 1;
+
+    IF OBJECT_ID(N'dbo.final_submission_drafts', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.final_submission_drafts (
+            id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_final_submission_drafts PRIMARY KEY,
+            project_id BIGINT NOT NULL CONSTRAINT uq_final_submission_drafts_project UNIQUE,
+            project_period_id BIGINT NOT NULL,
+            notes NVARCHAR(MAX) NULL,
+            created_by BIGINT NOT NULL,
+            updated_by BIGINT NOT NULL,
+            created_at DATETIME2(0) NOT NULL,
+            updated_at DATETIME2(0) NOT NULL,
+            concurrency_token UNIQUEIDENTIFIER NOT NULL,
+            CONSTRAINT fk_final_submission_drafts_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+            CONSTRAINT fk_final_submission_drafts_period FOREIGN KEY (project_period_id) REFERENCES dbo.project_periods(id),
+            CONSTRAINT fk_final_submission_drafts_creator FOREIGN KEY (created_by) REFERENCES dbo.users(id),
+            CONSTRAINT fk_final_submission_drafts_editor FOREIGN KEY (updated_by) REFERENCES dbo.users(id),
+            CONSTRAINT ck_final_submission_drafts_notes CHECK (notes IS NULL OR DATALENGTH(notes) <= 20000)
+        );
+    END;
+    IF OBJECT_ID(N'dbo.final_submission_draft_items', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.final_submission_draft_items (
+            draft_id BIGINT NOT NULL,
+            deliverable_version_id BIGINT NOT NULL,
+            CONSTRAINT pk_final_submission_draft_items PRIMARY KEY (draft_id, deliverable_version_id),
+            CONSTRAINT fk_final_submission_draft_items_draft FOREIGN KEY (draft_id) REFERENCES dbo.final_submission_drafts(id),
+            CONSTRAINT fk_final_submission_draft_items_version FOREIGN KEY (deliverable_version_id) REFERENCES dbo.deliverable_versions(id)
+        );
+        CREATE INDEX ix_final_submission_draft_items_version ON dbo.final_submission_draft_items(deliverable_version_id);
+    END;
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+GO
+-- BE-16 slice 2. Additive, rerunnable; no backfill of legacy FINAL_SUBMISSION projects.
+-- Apply before deploying the new API. Does not publish grades or archive projects.
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+BEGIN TRY
+    BEGIN TRANSACTION;
+    IF OBJECT_ID(N'dbo.final_submission_drafts', N'U') IS NULL
+        THROW 51000, 'Apply final-submission drafts first.', 1;
+    IF OBJECT_ID(N'dbo.final_submission_requirements', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.final_submission_requirements (
+            project_id BIGINT NOT NULL CONSTRAINT pk_final_submission_requirements PRIMARY KEY,
+            concurrency_token UNIQUEIDENTIFIER NOT NULL,
+            updated_by BIGINT NOT NULL,
+            updated_at DATETIME2(0) NOT NULL,
+            CONSTRAINT fk_final_requirements_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+            CONSTRAINT fk_final_requirements_editor FOREIGN KEY (updated_by) REFERENCES dbo.users(id)
+        );
+    END;
+    IF OBJECT_ID(N'dbo.final_submission_requirement_items', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.final_submission_requirement_items (
+            project_id BIGINT NOT NULL,
+            deliverable_id BIGINT NOT NULL,
+            CONSTRAINT pk_final_submission_requirement_items PRIMARY KEY (project_id, deliverable_id),
+            CONSTRAINT fk_final_requirement_items_policy FOREIGN KEY (project_id) REFERENCES dbo.final_submission_requirements(project_id),
+            CONSTRAINT fk_final_requirement_items_deliverable FOREIGN KEY (deliverable_id) REFERENCES dbo.deliverables(id)
+        );
+        CREATE INDEX ix_final_requirement_items_deliverable ON dbo.final_submission_requirement_items(deliverable_id);
+    END;
+    IF OBJECT_ID(N'dbo.final_submissions', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.final_submissions (
+            id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_final_submissions PRIMARY KEY,
+            project_id BIGINT NOT NULL CONSTRAINT uq_final_submissions_project UNIQUE,
+            project_period_id BIGINT NOT NULL,
+            submitted_by BIGINT NOT NULL,
+            submitted_at DATETIME2(0) NOT NULL,
+            deadline DATETIME2(0) NOT NULL,
+            notes NVARCHAR(MAX) NULL,
+            draft_concurrency_token UNIQUEIDENTIFIER NOT NULL,
+            requirements_concurrency_token UNIQUEIDENTIFIER NOT NULL,
+            CONSTRAINT fk_final_submissions_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+            CONSTRAINT fk_final_submissions_period FOREIGN KEY (project_period_id) REFERENCES dbo.project_periods(id),
+            CONSTRAINT fk_final_submissions_submitter FOREIGN KEY (submitted_by) REFERENCES dbo.users(id),
+            CONSTRAINT ck_final_submissions_notes CHECK (notes IS NULL OR DATALENGTH(notes) <= 20000),
+            CONSTRAINT ck_final_submissions_deadline CHECK (submitted_at < deadline)
+        );
+    END;
+    IF OBJECT_ID(N'dbo.final_submission_items', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.final_submission_items (
+            submission_id BIGINT NOT NULL,
+            deliverable_version_id BIGINT NOT NULL,
+            deliverable_id BIGINT NOT NULL,
+            title NVARCHAR(255) NOT NULL,
+            version_number INT NOT NULL,
+            status_at_submission VARCHAR(20) NOT NULL,
+            was_required BIT NOT NULL,
+            files_json NVARCHAR(MAX) NOT NULL,
+            CONSTRAINT pk_final_submission_items PRIMARY KEY (submission_id, deliverable_version_id),
+            CONSTRAINT uq_final_submission_items_deliverable UNIQUE (submission_id, deliverable_id),
+            CONSTRAINT fk_final_submission_items_submission FOREIGN KEY (submission_id) REFERENCES dbo.final_submissions(id),
+            CONSTRAINT fk_final_submission_items_version FOREIGN KEY (deliverable_version_id) REFERENCES dbo.deliverable_versions(id),
+            CONSTRAINT fk_final_submission_items_deliverable FOREIGN KEY (deliverable_id) REFERENCES dbo.deliverables(id),
+            CONSTRAINT ck_final_submission_items_version CHECK (version_number > 0),
+            CONSTRAINT ck_final_submission_items_status CHECK (status_at_submission IN ('SUBMITTED','ACCEPTED')),
+            CONSTRAINT ck_final_submission_items_files CHECK (ISJSON(files_json) = 1 AND files_json <> N'[]')
+        );
+        CREATE INDEX ix_final_submission_items_version ON dbo.final_submission_items(deliverable_version_id);
+    END;
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+GO
+-- BE-09: immutable evaluation evidence/score snapshot. Apply after BE-16 locked packages.
+-- Additive and rerunnable; does not finalize or backfill historical grades.
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+BEGIN TRY
+    BEGIN TRANSACTION;
+    IF OBJECT_ID(N'dbo.evaluation_draft_states', N'U') IS NULL
+        OR OBJECT_ID(N'dbo.final_submissions', N'U') IS NULL
+        THROW 51000, 'Apply evaluation drafts and locked final submissions first.', 1;
+    IF OBJECT_ID(N'dbo.evaluation_finalizations', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.evaluation_finalizations (
+            evaluation_id BIGINT NOT NULL CONSTRAINT pk_evaluation_finalizations PRIMARY KEY,
+            final_submission_id BIGINT NOT NULL,
+            finalized_by BIGINT NOT NULL,
+            finalized_at DATETIME2(0) NOT NULL,
+            snapshot_json NVARCHAR(MAX) NOT NULL,
+            CONSTRAINT fk_evaluation_finalizations_evaluation FOREIGN KEY (evaluation_id) REFERENCES dbo.evaluations(id),
+            CONSTRAINT fk_evaluation_finalizations_submission FOREIGN KEY (final_submission_id) REFERENCES dbo.final_submissions(id),
+            CONSTRAINT fk_evaluation_finalizations_actor FOREIGN KEY (finalized_by) REFERENCES dbo.users(id),
+            CONSTRAINT ck_evaluation_finalizations_snapshot CHECK (ISJSON(snapshot_json) = 1)
+        );
+        CREATE INDEX ix_evaluation_finalizations_submission ON dbo.evaluation_finalizations(final_submission_id);
+    END;
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+GO
+-- BE-16 result policy and publication; additive/rerunnable, no historical backfill.
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+BEGIN TRY
+    BEGIN TRANSACTION;
+    IF OBJECT_ID(N'dbo.evaluation_finalizations', N'U') IS NULL
+        THROW 51000, 'Apply evaluation finalizations first.', 1;
+    IF OBJECT_ID(N'dbo.project_result_policies', N'U') IS NULL
+        CREATE TABLE dbo.project_result_policies (
+            project_id BIGINT NOT NULL CONSTRAINT pk_project_result_policies PRIMARY KEY,
+            pass_threshold DECIMAL(4,2) NOT NULL,
+            concurrency_token UNIQUEIDENTIFIER NOT NULL,
+            updated_by BIGINT NOT NULL,
+            updated_at DATETIME2(0) NOT NULL,
+            CONSTRAINT fk_result_policy_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+            CONSTRAINT fk_result_policy_actor FOREIGN KEY (updated_by) REFERENCES dbo.users(id),
+            CONSTRAINT ck_result_policy_threshold CHECK (pass_threshold BETWEEN 0 AND 10)
+        );
+    IF OBJECT_ID(N'dbo.project_result_policy_items', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.project_result_policy_items (
+            project_id BIGINT NOT NULL, assignment_id BIGINT NOT NULL, weight_percent DECIMAL(5,2) NOT NULL,
+            CONSTRAINT pk_project_result_policy_items PRIMARY KEY (project_id, assignment_id),
+            CONSTRAINT fk_result_policy_items_policy FOREIGN KEY (project_id) REFERENCES dbo.project_result_policies(project_id),
+            CONSTRAINT fk_result_policy_items_assignment FOREIGN KEY (assignment_id) REFERENCES dbo.evaluation_assignments(id),
+            CONSTRAINT ck_result_policy_items_weight CHECK (weight_percent > 0 AND weight_percent <= 100)
+        );
+        CREATE INDEX ix_result_policy_items_assignment ON dbo.project_result_policy_items(assignment_id);
+    END;
+    IF OBJECT_ID(N'dbo.project_results', N'U') IS NULL
+        CREATE TABLE dbo.project_results (
+            id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_project_results PRIMARY KEY,
+            project_id BIGINT NOT NULL CONSTRAINT uq_project_results_project UNIQUE,
+            final_submission_id BIGINT NOT NULL, published_by BIGINT NOT NULL, published_at DATETIME2(0) NOT NULL,
+            snapshot_json NVARCHAR(MAX) NOT NULL,
+            CONSTRAINT fk_project_results_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+            CONSTRAINT fk_project_results_submission FOREIGN KEY (final_submission_id) REFERENCES dbo.final_submissions(id),
+            CONSTRAINT fk_project_results_actor FOREIGN KEY (published_by) REFERENCES dbo.users(id),
+            CONSTRAINT ck_project_results_snapshot CHECK (ISJSON(snapshot_json) = 1)
+        );
+    IF OBJECT_ID(N'dbo.project_result_evaluations', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.project_result_evaluations (
+            result_id BIGINT NOT NULL, evaluation_id BIGINT NOT NULL,
+            CONSTRAINT pk_project_result_evaluations PRIMARY KEY (result_id, evaluation_id),
+            CONSTRAINT fk_result_evaluations_result FOREIGN KEY (result_id) REFERENCES dbo.project_results(id),
+            CONSTRAINT fk_result_evaluations_finalization FOREIGN KEY (evaluation_id) REFERENCES dbo.evaluation_finalizations(evaluation_id)
+        );
+        CREATE INDEX ix_project_result_evaluations_evaluation ON dbo.project_result_evaluations(evaluation_id);
+    END;
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+GO
+/* Baseline PR4. Additive and rerunnable. Historical scope is never inferred. */
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+IF OBJECT_ID(N'dbo.period_policy_versions',N'U') IS NULL
+BEGIN
+ CREATE TABLE dbo.period_policy_versions (
+  id BIGINT IDENTITY PRIMARY KEY, project_period_id BIGINT NOT NULL REFERENCES dbo.project_periods(id),
+  version INT NOT NULL, status NVARCHAR(20) NOT NULL CHECK(status IN ('DRAFT','PUBLISHED','LOCKED')),
+  effective_from DATETIME2(7) NOT NULL, effective_to DATETIME2(7) NOT NULL,
+  snapshot_json NVARCHAR(MAX) NOT NULL CHECK(ISJSON(snapshot_json)=1), concurrency_token UNIQUEIDENTIFIER NOT NULL,
+  created_by BIGINT NULL REFERENCES dbo.users(id), created_at DATETIME2(7) NOT NULL,
+  CONSTRAINT uq_period_policy_version UNIQUE(project_period_id,version), CHECK(effective_from < effective_to)
+ );
+ CREATE TABLE dbo.period_policy_usages (
+  id BIGINT IDENTITY PRIMARY KEY, policy_version_id BIGINT NOT NULL REFERENCES dbo.period_policy_versions(id),
+  entity_type NVARCHAR(40) NOT NULL, entity_id BIGINT NOT NULL, created_at DATETIME2(7) NOT NULL,
+  CONSTRAINT uq_period_policy_usage UNIQUE(entity_type,entity_id)
+ );
+ CREATE INDEX ix_policy_usage_version ON dbo.period_policy_usages(policy_version_id);
+END;
+IF OBJECT_ID(N'dbo.evaluation_schemes',N'U') IS NULL
+BEGIN
+ CREATE TABLE dbo.evaluation_schemes (
+  id BIGINT IDENTITY PRIMARY KEY, root_id BIGINT NULL REFERENCES dbo.evaluation_schemes(id), version INT NOT NULL,
+  project_id BIGINT NOT NULL REFERENCES dbo.projects(id), project_period_id BIGINT NOT NULL REFERENCES dbo.project_periods(id),
+  name NVARCHAR(200) NOT NULL, status NVARCHAR(20) NOT NULL CHECK(status IN ('DRAFT','PUBLISHED','RETIRED')),
+  pass_threshold DECIMAL(5,2) NOT NULL CHECK(pass_threshold BETWEEN 0 AND 10), concurrency_token UNIQUEIDENTIFIER NOT NULL,
+  policy_version_id BIGINT NULL REFERENCES dbo.period_policy_versions(id), students_json NVARCHAR(MAX) NOT NULL,
+  registration_snapshot_json NVARCHAR(MAX) NOT NULL,
+  calculation_rule NVARCHAR(100) NOT NULL,
+  created_by BIGINT NOT NULL REFERENCES dbo.users(id), created_at DATETIME2(7) NOT NULL,
+  published_by BIGINT NULL REFERENCES dbo.users(id), published_at DATETIME2(7) NULL,
+  CONSTRAINT uq_evaluation_scheme_version UNIQUE(project_id,version)
+ );
+ CREATE UNIQUE INDEX uq_evaluation_scheme_published ON dbo.evaluation_schemes(project_id) WHERE status='PUBLISHED';
+ CREATE TABLE dbo.evaluation_scheme_components (
+  id BIGINT IDENTITY PRIMARY KEY, scheme_id BIGINT NOT NULL REFERENCES dbo.evaluation_schemes(id) ON DELETE CASCADE,
+  name NVARCHAR(200) NOT NULL, scope NVARCHAR(20) NOT NULL CHECK(scope IN ('COMMON','MAJOR_SPECIFIC','INDIVIDUAL')),
+  major_id BIGINT NULL REFERENCES dbo.majors(id), rubric_id BIGINT NOT NULL REFERENCES dbo.rubrics(id),
+  project_weight_percent DECIMAL(9,4) NOT NULL CHECK(project_weight_percent BETWEEN 0 AND 100),
+  student_weight_percent DECIMAL(9,4) NOT NULL CHECK(student_weight_percent BETWEEN 0 AND 100),
+  required_evaluators INT NOT NULL CHECK(required_evaluators BETWEEN 1 AND 20),
+  CHECK((scope='COMMON' AND major_id IS NULL) OR (scope IN ('MAJOR_SPECIFIC','INDIVIDUAL') AND major_id IS NOT NULL)),
+  CHECK(scope<>'INDIVIDUAL' OR project_weight_percent=0)
+ );
+ CREATE TABLE dbo.student_results (
+  id BIGINT IDENTITY PRIMARY KEY, project_id BIGINT NOT NULL REFERENCES dbo.projects(id),
+  student_id BIGINT NOT NULL REFERENCES dbo.users(id), major_id BIGINT NOT NULL REFERENCES dbo.majors(id),
+  scheme_id BIGINT NOT NULL REFERENCES dbo.evaluation_schemes(id), total_score DECIMAL(5,2) NOT NULL CHECK(total_score BETWEEN 0 AND 10),
+  pass_threshold DECIMAL(5,2) NOT NULL, outcome NVARCHAR(20) NOT NULL CHECK(outcome IN ('PASSED','FAILED')),
+  calculation_rule NVARCHAR(100) NOT NULL, published_by BIGINT NOT NULL REFERENCES dbo.users(id),
+  published_at DATETIME2(7) NOT NULL, snapshot_json NVARCHAR(MAX) NOT NULL CHECK(ISJSON(snapshot_json)=1),
+  CONSTRAINT uq_student_result UNIQUE(project_id,student_id)
+ );
+ CREATE TABLE dbo.student_result_evaluations (
+  result_id BIGINT NOT NULL REFERENCES dbo.student_results(id), evaluation_id BIGINT NOT NULL REFERENCES dbo.evaluations(id),
+  PRIMARY KEY(result_id,evaluation_id)
+ );
+END;
+IF COL_LENGTH('dbo.evaluation_assignments','scope') IS NULL
+BEGIN
+ ALTER TABLE dbo.evaluation_assignments ADD scope NVARCHAR(20) NOT NULL CONSTRAINT df_evaluation_scope DEFAULT('UNKNOWN'),
+  major_id BIGINT NULL REFERENCES dbo.majors(id), student_id BIGINT NULL REFERENCES dbo.users(id),
+  component_id BIGINT NULL REFERENCES dbo.evaluation_scheme_components(id),
+  policy_version_id BIGINT NULL REFERENCES dbo.period_policy_versions(id), scope_snapshot_json NVARCHAR(MAX) NULL;
+END;
+EXEC(N'IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(''dbo.evaluation_assignments'') AND name=''uq_evaluation_assignments_active'')
+ DROP INDEX uq_evaluation_assignments_active ON dbo.evaluation_assignments;
+ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(''dbo.evaluation_assignments'') AND name=''uq_scoped_evaluation_assignment'')
+ CREATE UNIQUE INDEX uq_scoped_evaluation_assignment ON dbo.evaluation_assignments(project_id,component_id,student_id,evaluator_id) WHERE status=''ACTIVE'' AND component_id IS NOT NULL;
+ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(''dbo.evaluation_assignments'') AND name=''uq_legacy_evaluation_assignment'')
+ CREATE UNIQUE INDEX uq_legacy_evaluation_assignment ON dbo.evaluation_assignments(project_id,evaluator_id,evaluation_type) WHERE status=''ACTIVE'' AND component_id IS NULL;');
+IF OBJECT_ID('dbo.ck_evaluation_assignment_scope','C') IS NULL
+ EXEC(N'ALTER TABLE dbo.evaluation_assignments ADD CONSTRAINT ck_evaluation_assignment_scope CHECK(
+ (scope=''UNKNOWN'' AND component_id IS NULL AND major_id IS NULL AND student_id IS NULL) OR
+ (component_id IS NOT NULL AND policy_version_id IS NOT NULL AND scope_snapshot_json IS NOT NULL AND (
+ (scope=''COMMON'' AND major_id IS NULL AND student_id IS NULL) OR
+ (scope=''MAJOR_SPECIFIC'' AND major_id IS NOT NULL AND student_id IS NULL) OR
+ (scope=''INDIVIDUAL'' AND major_id IS NOT NULL AND student_id IS NOT NULL))));');
+IF COL_LENGTH('dbo.evaluation_schemes','calculation_rule') IS NULL
+    ALTER TABLE dbo.evaluation_schemes ADD calculation_rule NVARCHAR(100) NOT NULL
+        CONSTRAINT df_evaluation_scheme_calculation_rule DEFAULT('COMPONENT_EQUAL_EVALUATOR_MEAN_WEIGHTED_10_AWAY_2DP_V1');
+COMMIT;

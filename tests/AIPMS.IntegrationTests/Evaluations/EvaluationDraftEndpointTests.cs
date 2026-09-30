@@ -38,9 +38,9 @@ public sealed partial class EvaluationDraftEndpointTests(EvaluationDraftDatabase
         Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
         return (await response.Content.ReadFromJsonAsync<T>())!;
     }
-    private static async Task<EvaluationAssignmentDto> Assign(HttpClient staff, EvaluationScenario s, long? user = null, string type = "LECTURER") =>
+    private async Task<EvaluationAssignmentDto> Assign(HttpClient staff, EvaluationScenario s, long? user = null, string type = "LECTURER") =>
         await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync(AssignUrl(s.ProjectId),
-            new AssignEvaluatorRequest(user ?? s.Scope.Users.Lecturer, s.PeriodId, type)));
+            await ScopedRequest(staff, s, user, type)));
     private static async Task<EvaluationDraftDto> Create(HttpClient lecturer, long assignment) =>
         await Body<EvaluationDraftDto>(await lecturer.PostAsync(CreateUrl(assignment), null));
     private static SaveEvaluationDraftRequest Input(EvaluationDraftDto draft, EvaluationScenario s) =>
@@ -274,7 +274,7 @@ public sealed partial class EvaluationDraftEndpointTests(EvaluationDraftDatabase
         Assert.Equal(s.RubricId, draft.RubricId);
         Assert.Equal(s.Criteria, draft.Scores.Select(c => c.RubricCriterionId).ToArray());
         Assert.Equal(8.6m, (await Body<EvaluationDraftDto>(await Save(lecturer, draft, s))).TotalScore);
-        Assert.Equal(next.Id, (await Assign(staff, s, s.Scope.Users.NewLecturer)).RubricId);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(AssignUrl(s.ProjectId), await ScopedRequest(staff, s, s.Scope.Users.NewLecturer))).StatusCode);
     }
 
     [Fact]
@@ -284,8 +284,8 @@ public sealed partial class EvaluationDraftEndpointTests(EvaluationDraftDatabase
         using var app = new EvaluationFactory(database);
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
         using var lecturer = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
-        var assignmentReplies = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => staff.PostAsJsonAsync(AssignUrl(s.ProjectId),
-            new AssignEvaluatorRequest(s.Scope.Users.Lecturer, s.PeriodId, "LECTURER"))));
+        var scopedInput = await ScopedRequest(staff, s);
+        var assignmentReplies = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => staff.PostAsJsonAsync(AssignUrl(s.ProjectId), scopedInput)));
         Assert.Single(assignmentReplies, r => r.StatusCode == HttpStatusCode.Created);
         Assert.Single(assignmentReplies, r => r.StatusCode == HttpStatusCode.Conflict);
         var assignment = await Body<EvaluationAssignmentDto>(assignmentReplies.Single(r => r.IsSuccessStatusCode));
@@ -343,7 +343,7 @@ public sealed partial class EvaluationDraftEndpointTests(EvaluationDraftDatabase
         var draft = action == "CREATE" ? null : await Create(lecturer, assignment.Id);
         var response = action switch
         {
-            "ASSIGN" => await failingStaff.PostAsJsonAsync(AssignUrl(s.ProjectId), new AssignEvaluatorRequest(s.Scope.Users.NewLecturer, s.PeriodId, "LECTURER")),
+            "ASSIGN" => await failingStaff.PostAsJsonAsync(AssignUrl(s.ProjectId), await ScopedRequest(staff, s, s.Scope.Users.NewLecturer)),
             "CREATE" => await failingLecturer.PostAsync(CreateUrl(assignment.Id), null),
             "REVOKE" => await failingStaff.PostAsJsonAsync($"/api/v1/evaluation-assignments/{assignment.Id}/revoke", new RevokeEvaluatorRequest(assignment.ConcurrencyToken, "Failed revoke")),
             _ => await Save(failingLecturer, draft!, s)

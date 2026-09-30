@@ -13,6 +13,10 @@ public sealed class AssignEvaluatorRequestValidator : AbstractValidator<AssignEv
         RuleFor(r => r.EvaluatorId).GreaterThan(0);
         RuleFor(r => r.ProjectPeriodId).GreaterThan(0);
         RuleFor(r => r.EvaluationType).Must(t => t is "SUPERVISOR" or "LECTURER");
+        RuleFor(r => r.Scope).Must(t => t is null or "COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL");
+        RuleFor(r => r.MajorId).GreaterThan(0).When(r => r.MajorId.HasValue);
+        RuleFor(r => r.StudentId).GreaterThan(0).When(r => r.StudentId.HasValue);
+        RuleFor(r => r.ComponentId).GreaterThan(0).When(r => r.ComponentId.HasValue);
     }
 }
 public sealed class AssignEvaluatorCommandValidator : AbstractValidator<AssignEvaluatorCommand>

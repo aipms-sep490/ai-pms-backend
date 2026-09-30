@@ -1,5 +1,13 @@
 # Evaluator assignment and draft scoring
 
+## Baseline PR4 update
+
+New assignments now require `componentId`, `scope`, and the applicable `majorId`/
+`studentId` from a published evaluation scheme. The component selects the protected
+rubric. Existing unscoped assignments are returned as `UNKNOWN` and are read-only.
+See [the current contract](../../../../docs/baseline-v3-pr4-policy-evaluation.md);
+the pre-scheme assignment payload examples below document the legacy contract.
+
 ## Document alignment and accepted temporary scope
 
 Sources: Report 3 SRS sections 3.16.4 (Assign Evaluator), 3.16.5 (View Assigned

@@ -137,6 +137,9 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
         var periods = await context.ProjectPeriods
             .Where(p => p.AcademicSemesterId == semesterId && p.PeriodType == "REGISTRATION"
                 && p.Status == "ACTIVE" && p.StartAt <= now && now < p.EndAt
+                && (!context.Set<PeriodPolicyVersion>().Any(v => v.ProjectPeriodId == p.Id && v.Status != "DRAFT")
+                    || context.Set<PeriodPolicyVersion>().Any(v => v.ProjectPeriodId == p.Id && v.Version == p.PolicyVersion
+                        && v.Status != "DRAFT" && v.EffectiveFrom <= now && now < v.EffectiveTo))
                 && p.AcademicSemester.Status == "ACTIVE"
                 && p.AcademicSemester.StartDate <= today && today <= p.AcademicSemester.EndDate
                 && p.AcademicSemester.Organization.IsActive)

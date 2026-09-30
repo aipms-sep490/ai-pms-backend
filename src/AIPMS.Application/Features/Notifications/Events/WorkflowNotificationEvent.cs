@@ -9,7 +9,7 @@ public enum WorkflowNotificationKind
     SupervisorRequestSent, SupervisorRequestAccepted, SupervisorRequestRejected, SupervisorRequestCancelled,
     TeamLeaderChangeRequested, TeamLeaderChangeApproved, TeamLeaderChangeRejected,
     FinalSubmissionLocked, EvaluationFinalized, ProjectResultPublished, ProjectApproved,
-    ProjectRejected, ProjectRevisionRequested, SupervisorFeedbackAdded, EvaluatorAssigned, SupervisorReplaced
+    ProjectRejected, ProjectRevisionRequested, SupervisorFeedbackAdded, EvaluatorAssigned, SupervisorReplaced, StudentResultPublished
 }
 
 // Published synchronously inside the source workflow's transaction, never from a controller.
