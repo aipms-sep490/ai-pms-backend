@@ -1734,6 +1734,116 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
     }
 
     [Fact]
+    public async Task StaleAdminJwt_CreateActionItem_Returns403Forbidden()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+        long adminUserId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            adminUserId = await seedDb.UserRoles
+                .Where(ur => ur.Role.Code == AppRoles.Admin)
+                .Select(ur => ur.UserId)
+                .FirstAsync();
+
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Leader Only Meeting",
+                StartAt = Now.AddDays(1),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+        }
+
+        using var app = new NormalFactory(database);
+
+        // 1. Stale token: Non-privileged member claiming Admin in JWT token -> Must be 403 Forbidden!
+        using var fakeAdminClient = app.CreateAuthenticatedClient(ctx.MemberUserId, roles: [AppRoles.Admin]);
+        var req = new CreateProjectActionItemRequest("MEETING", "New Action Item", MeetingId: meetingId, OwnerId: ctx.LeaderUserId);
+        var fakeRes = await fakeAdminClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/action-items", req);
+        Assert.Equal(HttpStatusCode.Forbidden, fakeRes.StatusCode);
+
+        // 2. Real persisted Admin: user with Admin in DB -> 201 Created!
+        using var realAdminClient = app.CreateAuthenticatedClient(adminUserId, roles: [AppRoles.Admin]);
+        var realRes = await realAdminClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/action-items", req);
+        Assert.Equal(HttpStatusCode.Created, realRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task StaleAdminJwt_UpdateActionItemDetails_Returns403Forbidden()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+        long itemId;
+        long adminUserId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            adminUserId = await seedDb.UserRoles
+                .Where(ur => ur.Role.Code == AppRoles.Admin)
+                .Select(ur => ur.UserId)
+                .FirstAsync();
+
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Meeting for Update Details",
+                StartAt = Now.AddDays(1),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+
+            var item = new AIPMS.Infrastructure.Persistence.Models.ProjectActionItem
+            {
+                ProjectId = ctx.ProjectId,
+                SourceType = "MEETING",
+                MeetingId = meetingId,
+                Title = "Original Action Item Title",
+                Status = "TODO",
+                CreatedBy = ctx.LeaderUserId,
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.ProjectActionItems.Add(item);
+            await seedDb.SaveChangesAsync();
+            itemId = item.Id;
+        }
+
+        using var app = new NormalFactory(database);
+
+        // 1. Stale token: Non-privileged member claiming Admin in JWT token -> Must be 403 Forbidden!
+        using var fakeAdminClient = app.CreateAuthenticatedClient(ctx.MemberUserId, roles: [AppRoles.Admin]);
+        var updateReq = new UpdateProjectActionItemRequest(Title: "Title Updated by Fake Admin");
+        var fakeRes = await fakeAdminClient.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/action-items/{itemId}", updateReq);
+        Assert.Equal(HttpStatusCode.Forbidden, fakeRes.StatusCode);
+
+        // 2. Real persisted Admin: user with Admin in DB -> 200 OK!
+        using var realAdminClient = app.CreateAuthenticatedClient(adminUserId, roles: [AppRoles.Admin]);
+        var realRes = await realAdminClient.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/action-items/{itemId}", updateReq);
+        Assert.Equal(HttpStatusCode.OK, realRes.StatusCode);
+
+        // 3. Confirm in DB title is updated
+        await using (var verifyDb = database.CreateContext())
+        {
+            var updated = await verifyDb.ProjectActionItems.FindAsync(itemId);
+            Assert.Equal("Title Updated by Fake Admin", updated!.Title);
+        }
+    }
+
+    [Fact]
     public async Task StaleAdminJwt_ReopenTerminalActionItem_Returns403Forbidden()
     {
         var ctx = await SeedTestProjectAsync();
@@ -2131,6 +2241,254 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
             {
                 Assert.Equal(1, itemsCount);
             }
+        }
+    }
+
+    [Fact]
+    public async Task CancelMeeting_vs_UpdateActionItemDetails()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+        long actionItemId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Meeting For Details Race",
+                StartAt = Now.AddDays(1),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+
+            var item = new AIPMS.Infrastructure.Persistence.Models.ProjectActionItem
+            {
+                ProjectId = ctx.ProjectId,
+                SourceType = "MEETING",
+                MeetingId = meetingId,
+                Title = "Original Title",
+                Status = "TODO",
+                CreatedBy = ctx.LeaderUserId,
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.ProjectActionItems.Add(item);
+            await seedDb.SaveChangesAsync();
+            actionItemId = item.Id;
+        }
+
+        var cancelInsideTx = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var updateStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Exception? cancelEx = null;
+        Exception? updateEx = null;
+
+        var task1 = Task.Run(async () =>
+        {
+            try
+            {
+                await using var db1 = database.CreateContext();
+                var repo1 = new MeetingRepository(db1);
+                await repo1.CancelAsync(
+                    meetingId,
+                    Now,
+                    onCancelled: async _ =>
+                    {
+                        cancelInsideTx.SetResult();
+                        await updateStarted.Task;
+                    });
+            }
+            catch (Exception ex)
+            {
+                cancelEx = ex;
+            }
+        });
+
+        var task2 = Task.Run(async () =>
+        {
+            try
+            {
+                await cancelInsideTx.Task;
+                await using var db2 = database.CreateContext();
+                var repo2 = new ProjectActionItemRepository(db2);
+                updateStarted.SetResult();
+
+                await repo2.UpdateDetailsAsync(
+                    id: actionItemId,
+                    title: "Stale Updated Title",
+                    description: "Stale description",
+                    ownerId: null,
+                    taskId: null,
+                    milestoneId: null,
+                    dueAt: null,
+                    expectedToken: null,
+                    now: Now,
+                    onUpdated: async _ =>
+                    {
+                        db2.AuditLogs.Add(new M.AuditLog
+                        {
+                            ActorUserId = ctx.LeaderUserId,
+                            Action = "PROJECT_ACTION_ITEM_UPDATED",
+                            EntityType = "PROJECT_ACTION_ITEM",
+                            EntityId = actionItemId.ToString(),
+                            Outcome = "SUCCESS",
+                            OccurredAt = Now
+                        });
+                        await db2.SaveChangesAsync();
+                    });
+            }
+            catch (Exception ex)
+            {
+                updateEx = ex;
+            }
+        });
+
+        await Task.WhenAll(task1, task2);
+
+        Assert.Null(cancelEx);
+        Assert.NotNull(updateEx);
+        Assert.IsType<ConflictException>(updateEx);
+
+        await using (var verifyDb = database.CreateContext())
+        {
+            var finalMeeting = await verifyDb.Meetings.FindAsync(meetingId);
+            Assert.Equal("CANCELLED", finalMeeting!.Status);
+
+            var finalItem = await verifyDb.ProjectActionItems.FindAsync(actionItemId);
+            Assert.Equal("Original Title", finalItem!.Title);
+            Assert.Null(finalItem.Description);
+
+            var hasAudit = await verifyDb.AuditLogs
+                .AnyAsync(a => a.EntityId == actionItemId.ToString() && a.Action == "PROJECT_ACTION_ITEM_UPDATED");
+            Assert.False(hasAudit);
+        }
+    }
+
+    [Fact]
+    public async Task CancelMeeting_vs_UpdateActionItemStatus()
+    {
+        var ctx = await SeedTestProjectAsync();
+        long meetingId;
+        long actionItemId;
+
+        await using (var seedDb = database.CreateContext())
+        {
+            var meeting = new M.Meeting
+            {
+                ProjectId = ctx.ProjectId,
+                Title = "Meeting For Status Race",
+                StartAt = Now.AddDays(1),
+                Status = "SCHEDULED",
+                CreatedBy = ctx.LeaderUserId,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.Meetings.Add(meeting);
+            await seedDb.SaveChangesAsync();
+            meetingId = meeting.Id;
+
+            var item = new AIPMS.Infrastructure.Persistence.Models.ProjectActionItem
+            {
+                ProjectId = ctx.ProjectId,
+                SourceType = "MEETING",
+                MeetingId = meetingId,
+                Title = "Meeting Action Item",
+                Status = "TODO",
+                CreatedBy = ctx.LeaderUserId,
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            seedDb.ProjectActionItems.Add(item);
+            await seedDb.SaveChangesAsync();
+            actionItemId = item.Id;
+        }
+
+        var cancelInsideTx = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var updateStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Exception? cancelEx = null;
+        Exception? updateEx = null;
+
+        var task1 = Task.Run(async () =>
+        {
+            try
+            {
+                await using var db1 = database.CreateContext();
+                var repo1 = new MeetingRepository(db1);
+                await repo1.CancelAsync(
+                    meetingId,
+                    Now,
+                    onCancelled: async _ =>
+                    {
+                        cancelInsideTx.SetResult();
+                        await updateStarted.Task;
+                    });
+            }
+            catch (Exception ex)
+            {
+                cancelEx = ex;
+            }
+        });
+
+        var task2 = Task.Run(async () =>
+        {
+            try
+            {
+                await cancelInsideTx.Task;
+                await using var db2 = database.CreateContext();
+                var repo2 = new ProjectActionItemRepository(db2);
+                updateStarted.SetResult();
+
+                await repo2.UpdateStatusAsync(
+                    id: actionItemId,
+                    newStatus: "IN_PROGRESS",
+                    expectedToken: null,
+                    now: Now,
+                    onUpdated: async _ =>
+                    {
+                        db2.AuditLogs.Add(new M.AuditLog
+                        {
+                            ActorUserId = ctx.LeaderUserId,
+                            Action = "PROJECT_ACTION_ITEM_STATUS_UPDATED",
+                            EntityType = "PROJECT_ACTION_ITEM",
+                            EntityId = actionItemId.ToString(),
+                            Outcome = "SUCCESS",
+                            OccurredAt = Now
+                        });
+                        await db2.SaveChangesAsync();
+                    });
+            }
+            catch (Exception ex)
+            {
+                updateEx = ex;
+            }
+        });
+
+        await Task.WhenAll(task1, task2);
+
+        Assert.Null(cancelEx);
+        Assert.NotNull(updateEx);
+        Assert.IsType<ConflictException>(updateEx);
+
+        await using (var verifyDb = database.CreateContext())
+        {
+            var finalMeeting = await verifyDb.Meetings.FindAsync(meetingId);
+            Assert.Equal("CANCELLED", finalMeeting!.Status);
+
+            var finalItem = await verifyDb.ProjectActionItems.FindAsync(actionItemId);
+            Assert.Equal("TODO", finalItem!.Status);
+
+            var hasAudit = await verifyDb.AuditLogs
+                .AnyAsync(a => a.EntityId == actionItemId.ToString() && a.Action == "PROJECT_ACTION_ITEM_STATUS_UPDATED");
+            Assert.False(hasAudit);
         }
     }
 

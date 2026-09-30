@@ -543,6 +543,124 @@ public sealed class ProjectActionItemHandlerTests
     }
 
     [Fact]
+    public async Task CreateActionItem_StaleAdminJwt_LacksPermission_ThrowsForbiddenException()
+    {
+        var repo = new FakeProjectActionItemRepository
+        {
+            HasAdminRole = false,
+            IsLeader = false,
+            IsSupervisor = false,
+            MeetingCreator = false,
+            MeetingParticipant = false,
+            IsActiveMember = false
+        };
+        var user = new FakeCurrentUser { Roles = new HashSet<string> { AppRoles.Admin } }; // Stale token containing Admin
+        var handler = new CreateProjectActionItemCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var req = new CreateProjectActionItemRequest("MEETING", "New Item", MeetingId: 101);
+        var command = new CreateProjectActionItemCommand(1, req);
+
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
+        Assert.Contains("permission", ex.Message);
+    }
+
+    [Fact]
+    public async Task CreateActionItem_PersistedAdmin_Allowed()
+    {
+        var repo = new FakeProjectActionItemRepository
+        {
+            HasAdminRole = true,
+            IsLeader = false,
+            IsSupervisor = false,
+            MeetingCreator = false,
+            MeetingParticipant = false,
+            IsActiveMember = false
+        };
+        var user = new FakeCurrentUser { Roles = new HashSet<string> { AppRoles.Admin } };
+        var handler = new CreateProjectActionItemCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var req = new CreateProjectActionItemRequest("MEETING", "New Item", MeetingId: 101);
+        var command = new CreateProjectActionItemCommand(1, req);
+
+        var result = await handler.Handle(command, CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.Equal("New Item", result.Title);
+    }
+
+    [Fact]
+    public async Task UpdateActionItemDetails_StaleAdminJwt_LacksPermission_ThrowsForbiddenException()
+    {
+        var repo = new FakeProjectActionItemRepository
+        {
+            HasAdminRole = false,
+            IsLeader = false,
+            IsSupervisor = false
+        };
+        // Created by user 999, actor is 10
+        var created = await repo.CreateAsync(1, "MEETING", 101, null, "Original Title", null, null, null, null, null, 999, DateTime.UtcNow);
+
+        var user = new FakeCurrentUser { UserId = 10, Roles = new HashSet<string> { AppRoles.Admin } }; // Stale token
+        var handler = new UpdateProjectActionItemCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var req = new UpdateProjectActionItemRequest(Title: "Updated Title");
+        var command = new UpdateProjectActionItemCommand(1, created.Id, req);
+
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
+        Assert.Contains("Only the creator, team leader, assigned supervisor, or admin", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateActionItemDetails_PersistedAdmin_Allowed()
+    {
+        var repo = new FakeProjectActionItemRepository
+        {
+            HasAdminRole = true,
+            IsLeader = false,
+            IsSupervisor = false
+        };
+        // Created by user 999, actor is 10
+        var created = await repo.CreateAsync(1, "MEETING", 101, null, "Original Title", null, null, null, null, null, 999, DateTime.UtcNow);
+
+        var user = new FakeCurrentUser { UserId = 10, Roles = new HashSet<string> { AppRoles.Admin } };
+        var handler = new UpdateProjectActionItemCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var req = new UpdateProjectActionItemRequest(Title: "Updated Title");
+        var command = new UpdateProjectActionItemCommand(1, created.Id, req);
+
+        var result = await handler.Handle(command, CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.Equal("Updated Title", result.Title);
+    }
+
+    [Fact]
     public async Task CreateActionItem_TaskMilestoneMismatch_ThrowsConflictException()
     {
         // Setup repo where IsTaskBelongsToMilestoneAsync returns false

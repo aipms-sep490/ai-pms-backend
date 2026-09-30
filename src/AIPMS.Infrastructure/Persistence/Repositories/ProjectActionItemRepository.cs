@@ -186,6 +186,33 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
             : null;
         try
         {
+            var meta = await context.ProjectActionItems
+                .AsNoTracking()
+                .Where(a => a.Id == id)
+                .Select(a => new { a.ProjectId, a.SourceType, a.MeetingId })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (meta is null)
+                throw new NotFoundException("ProjectActionItem", id);
+
+            if (meta.SourceType == "MEETING" || meta.MeetingId.HasValue)
+            {
+                if (!meta.MeetingId.HasValue)
+                    throw new ConflictException("Action item source type is MEETING but meetingId is null.");
+
+                var meetingId = meta.MeetingId.Value;
+                var meeting = await context.Meetings
+                    .FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK, ROWLOCK) WHERE id = {meetingId}")
+                    .FirstOrDefaultAsync(cancellationToken)
+                    ?? throw new NotFoundException("Meeting", meetingId);
+
+                if (meeting.ProjectId != meta.ProjectId)
+                    throw new NotFoundException("Meeting", meetingId);
+
+                if (meeting.Status == "CANCELLED")
+                    throw new ConflictException("Cannot modify action items associated with a cancelled meeting.");
+            }
+
             var entity = await context.ProjectActionItems
                 .FromSqlInterpolated($"SELECT * FROM dbo.project_action_items WITH (UPDLOCK, HOLDLOCK) WHERE id = {id}")
                 .FirstOrDefaultAsync(cancellationToken);
@@ -193,8 +220,8 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
             if (entity is null)
                 throw new NotFoundException("ProjectActionItem", id);
 
-            if (entity.MeetingId.HasValue && await IsMeetingCancelledAsync(entity.MeetingId.Value, cancellationToken))
-                throw new ConflictException("Cannot modify action items associated with a cancelled meeting.");
+            if (entity.MeetingId != meta.MeetingId || entity.SourceType != meta.SourceType || entity.ProjectId != meta.ProjectId)
+                throw new ConflictException("Action item source identity changed concurrently.");
 
             if (expectedToken.HasValue && entity.ConcurrencyToken != expectedToken.Value)
                 throw new ConflictException("The action item has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
@@ -239,6 +266,33 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
             : null;
         try
         {
+            var meta = await context.ProjectActionItems
+                .AsNoTracking()
+                .Where(a => a.Id == id)
+                .Select(a => new { a.ProjectId, a.SourceType, a.MeetingId })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (meta is null)
+                throw new NotFoundException("ProjectActionItem", id);
+
+            if (meta.SourceType == "MEETING" || meta.MeetingId.HasValue)
+            {
+                if (!meta.MeetingId.HasValue)
+                    throw new ConflictException("Action item source type is MEETING but meetingId is null.");
+
+                var meetingId = meta.MeetingId.Value;
+                var meeting = await context.Meetings
+                    .FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK, ROWLOCK) WHERE id = {meetingId}")
+                    .FirstOrDefaultAsync(cancellationToken)
+                    ?? throw new NotFoundException("Meeting", meetingId);
+
+                if (meeting.ProjectId != meta.ProjectId)
+                    throw new NotFoundException("Meeting", meetingId);
+
+                if (meeting.Status == "CANCELLED")
+                    throw new ConflictException("Cannot modify action items associated with a cancelled meeting.");
+            }
+
             var entity = await context.ProjectActionItems
                 .FromSqlInterpolated($"SELECT * FROM dbo.project_action_items WITH (UPDLOCK, HOLDLOCK) WHERE id = {id}")
                 .FirstOrDefaultAsync(cancellationToken);
@@ -246,8 +300,8 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
             if (entity is null)
                 throw new NotFoundException("ProjectActionItem", id);
 
-            if (entity.MeetingId.HasValue && await IsMeetingCancelledAsync(entity.MeetingId.Value, cancellationToken))
-                throw new ConflictException("Cannot modify action items associated with a cancelled meeting.");
+            if (entity.MeetingId != meta.MeetingId || entity.SourceType != meta.SourceType || entity.ProjectId != meta.ProjectId)
+                throw new ConflictException("Action item source identity changed concurrently.");
 
             if (expectedToken.HasValue && entity.ConcurrencyToken != expectedToken.Value)
                 throw new ConflictException("The action item has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);

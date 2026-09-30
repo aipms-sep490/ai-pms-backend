@@ -53,7 +53,7 @@ public sealed class CreateProjectActionItemCommandHandler(
                 ["sourceType"] = ["SourceType must be either MEETING or PROGRESS_REPORT."]
             });
 
-        var isAdmin = currentUser.Roles.Contains(AppRoles.Admin, StringComparer.Ordinal);
+        var isAdmin = await repository.HasAdminRoleInDbAsync(actorId, cancellationToken);
         var isLeader = await repository.IsProjectLeaderAsync(projectId, actorId, cancellationToken);
         var isSupervisor = await repository.IsAssignedSupervisorAsync(projectId, actorId, cancellationToken);
 
