@@ -24,6 +24,7 @@ public partial class AipmsDbContext
         ConfigureContributions(modelBuilder);
         ConfigureScheduledNotifications(modelBuilder);
         ConfigureNotificationEmail(modelBuilder);
+        ConfigurePasswordRecovery(modelBuilder);
         ConfigureExternalLogins(modelBuilder);
         ConfigureStudentQualifications(modelBuilder);
 ConfigureReportingCycles(modelBuilder);

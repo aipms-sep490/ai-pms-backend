@@ -63,7 +63,7 @@ public sealed class RefreshTokenCommandHandler(
                 requestContext.IpAddress,
                 requestContext.UserAgent),
             utcNow,
-            cancellationToken);
+            cancellationToken, expectedPasswordHash: session.Account.PasswordHash);
 
         var accessToken = accessTokenService.Create(new AccessTokenDescriptor(
             session.Account.Id,

@@ -23,7 +23,7 @@ public interface IAuthRepository
         long userId,
         DateTime lastLoginAtUtc,
         RefreshTokenData refreshToken,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, string? expectedPasswordHash = null);
 
     Task<RefreshSession?> FindRefreshSessionAsync(
         byte[] tokenHash,
@@ -33,7 +33,7 @@ public interface IAuthRepository
         long currentTokenId,
         RefreshTokenData replacement,
         DateTime utcNow,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, string? expectedPasswordHash = null);
 
     Task RevokeRefreshTokenAsync(
         byte[] tokenHash,
@@ -51,7 +51,7 @@ public interface IAuthRepository
         long userId,
         string passwordHash,
         DateTime utcNow,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, string? expectedPasswordHash = null, Func<Task>? onCompleted = null);
 
     Task CreatePasswordResetTokenAsync(
         long userId,
@@ -70,5 +70,5 @@ public interface IAuthRepository
         long userId,
         string passwordHash,
         DateTime utcNow,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, Func<Task>? onCompleted = null);
 }

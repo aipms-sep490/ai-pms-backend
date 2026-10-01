@@ -82,7 +82,7 @@ public sealed class LoginCommandHandler(
                 refreshTokenExpiresAtUtc,
                 requestContext.IpAddress,
                 requestContext.UserAgent),
-            cancellationToken);
+            cancellationToken, expectedPasswordHash: account.PasswordHash);
 
         await RecordLoginAuditAsync(account.Id, "SUCCESS", cancellationToken);
 

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Mail;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Email;
+using AIPMS.Application.Common.Exceptions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -25,7 +26,7 @@ internal sealed class SmtpPasswordResetNotifier(
             logger.LogWarning(
                 "Password reset email was not delivered because SMTP is not configured for {RecipientDomain}",
                 GetDomain(recipientEmail));
-            return;
+            throw new ServiceUnavailableException("Password recovery email is unavailable.");
         }
 
         try
@@ -47,10 +48,12 @@ internal sealed class SmtpPasswordResetNotifier(
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning("Password reset email timed out; remote delivery may be unknown.");
+            throw new ServiceUnavailableException("Password recovery email timed out.");
         }
         catch (Exception exception) when (exception is SmtpException or InvalidOperationException or FormatException)
         {
             logger.LogError("Password reset email delivery failed for {RecipientDomain}", GetDomain(recipientEmail));
+            throw new ServiceUnavailableException("Password recovery email delivery failed.");
         }
     }
 

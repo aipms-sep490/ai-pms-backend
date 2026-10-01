@@ -36,15 +36,16 @@ public sealed class ChangePasswordCommandHandler(
             userId,
             passwordHashingService.Hash(request.NewPassword),
             utcNow,
-            cancellationToken);
-
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                userId,
-                "AUTH_PASSWORD_CHANGED",
-                "USER",
-                userId,
-                new Dictionary<string, object?>()),
-            cancellationToken);
+            cancellationToken, expectedPasswordHash: account.PasswordHash, onCompleted: async () =>
+        {
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    userId,
+                    "AUTH_PASSWORD_CHANGED",
+                    "USER",
+                    userId,
+                    new Dictionary<string, object?>()),
+                cancellationToken);
+        });
     }
 }

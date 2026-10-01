@@ -221,7 +221,7 @@ public sealed class AuthEndpointTests : IClassFixture<AuthEndpointTests.AuthWebA
             long userId,
             DateTime lastLoginAtUtc,
             RefreshTokenData refreshToken,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, string? expectedPasswordHash = null)
         {
             Assert.Equal(2001, userId);
             LastLoginAtUtc = lastLoginAtUtc;
@@ -252,7 +252,7 @@ public sealed class AuthEndpointTests : IClassFixture<AuthEndpointTests.AuthWebA
             long currentTokenId,
             RefreshTokenData replacement,
             DateTime utcNow,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, string? expectedPasswordHash = null)
         {
             RefreshSessionRevoked = true;
             RotationCount++;
@@ -276,7 +276,7 @@ public sealed class AuthEndpointTests : IClassFixture<AuthEndpointTests.AuthWebA
             FamilyReuseDetected = true;
             return Task.CompletedTask;
         }
-        public Task UpdatePasswordAsync(long userId, string passwordHash, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdatePasswordAsync(long userId, string passwordHash, DateTime utcNow, CancellationToken cancellationToken = default, string? expectedPasswordHash = null, Func<Task>? onCompleted = null) => throw new NotSupportedException();
         public Task CreatePasswordResetTokenAsync(long userId, byte[] tokenHash, DateTime expiresAtUtc, DateTime utcNow, string? requestedByIp, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<PasswordResetSession?> FindPasswordResetSessionAsync(
             byte[] tokenHash,
@@ -292,7 +292,7 @@ public sealed class AuthEndpointTests : IClassFixture<AuthEndpointTests.AuthWebA
             long userId,
             string passwordHash,
             DateTime utcNow,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, Func<Task>? onCompleted = null)
         {
             Assert.Equal(7001, tokenId);
             Assert.Equal(2001, userId);

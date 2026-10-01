@@ -130,6 +130,7 @@ public static class DependencyInjection
 
         services.AddSingleton<IValidateOptions<EmailSettings>, IntegrationConfigurationValidator>();
         services.AddSingleton<ISmtpTransport, SmtpTransport>();
+        services.AddPasswordRecovery();
         services.AddOptions<EmailSettings>()
             .Configure<IConfiguration>(static (settings, configuration) =>
             {

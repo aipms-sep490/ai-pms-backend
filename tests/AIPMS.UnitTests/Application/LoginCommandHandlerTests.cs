@@ -174,7 +174,7 @@ public sealed class LoginCommandHandlerTests
             long userId,
             DateTime lastLoginAtUtc,
             RefreshTokenData refreshToken,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, string? expectedPasswordHash = null)
         {
             UpdatedUserId = userId;
             LastLoginAtUtc = lastLoginAtUtc;
@@ -182,13 +182,13 @@ public sealed class LoginCommandHandlerTests
         }
 
         public Task<RefreshSession?> FindRefreshSessionAsync(byte[] tokenHash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task RotateRefreshTokenAsync(long currentTokenId, RefreshTokenData replacement, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task RotateRefreshTokenAsync(long currentTokenId, RefreshTokenData replacement, DateTime utcNow, CancellationToken cancellationToken = default, string? expectedPasswordHash = null) => throw new NotSupportedException();
         public Task RevokeRefreshTokenAsync(byte[] tokenHash, DateTime utcNow, string? revokedByIp, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task RevokeRefreshTokenFamilyForReuseAsync(Guid familyId, DateTime utcNow, string? revokedByIp, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task UpdatePasswordAsync(long userId, string passwordHash, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdatePasswordAsync(long userId, string passwordHash, DateTime utcNow, CancellationToken cancellationToken = default, string? expectedPasswordHash = null, Func<Task>? onCompleted = null) => throw new NotSupportedException();
         public Task CreatePasswordResetTokenAsync(long userId, byte[] tokenHash, DateTime expiresAtUtc, DateTime utcNow, string? requestedByIp, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<PasswordResetSession?> FindPasswordResetSessionAsync(byte[] tokenHash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task CompletePasswordResetAsync(long tokenId, long userId, string passwordHash, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task CompletePasswordResetAsync(long tokenId, long userId, string passwordHash, DateTime utcNow, CancellationToken cancellationToken = default, Func<Task>? onCompleted = null) => throw new NotSupportedException();
     }
 
     private sealed class FakePasswordHashingService(bool isValid) : IPasswordHashingService

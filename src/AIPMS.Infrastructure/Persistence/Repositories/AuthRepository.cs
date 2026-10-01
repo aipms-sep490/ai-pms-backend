@@ -4,6 +4,8 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Auth.Abstractions;
 using AIPMS.Application.Features.Auth.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
+using AIPMS.Infrastructure.Email;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using PasswordResetToken = AIPMS.Infrastructure.Persistence.Generated.Models.PasswordResetToken;
 using RefreshTokenEntity = AIPMS.Infrastructure.Persistence.Generated.Models.RefreshToken;
@@ -11,7 +13,7 @@ using User = AIPMS.Infrastructure.Persistence.Generated.Models.User;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
+internal sealed class AuthRepository(AipmsDbContext context, IOptions<PasswordRecoverySettings> recoveryOptions, TimeProvider clock) : IAuthRepository
 {
     public async Task<AuthAccount?> FindByEmailAsync(
         string email,
@@ -50,10 +52,13 @@ internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
         long userId,
         DateTime lastLoginAtUtc,
         RefreshTokenData refreshToken,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string? expectedPasswordHash = null)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var user = await context.Users.SingleAsync(item => item.Id == userId, cancellationToken);
+        var user = await LockUserAsync(userId, cancellationToken);
+        EnsureCurrentAccount(user, expectedPasswordHash);
+        lastLoginAtUtc = clock.GetUtcNow().UtcDateTime;
+        if (user.LockoutEndAt > lastLoginAtUtc) throw new UnauthorizedException("Invalid email or password.");
         user.LastLoginAt = lastLoginAtUtc;
         user.AccessFailedCount = 0;
         user.LockoutEndAt = null;
@@ -88,11 +93,14 @@ internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
         long currentTokenId,
         RefreshTokenData replacement,
         DateTime utcNow,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string? expectedPasswordHash = null)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable,
-            cancellationToken);
+        var ownerId = await context.RefreshTokens.AsNoTracking().Where(x => x.Id == currentTokenId)
+            .Select(x => x.UserId).SingleAsync(cancellationToken);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var user = await LockUserAsync(ownerId, cancellationToken);
+        EnsureCurrentAccount(user, expectedPasswordHash);
+        utcNow = clock.GetUtcNow().UtcDateTime;
         var current = await context.RefreshTokens.SingleAsync(
             token => token.Id == currentTokenId,
             cancellationToken);
@@ -148,17 +156,21 @@ internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
         long userId,
         string passwordHash,
         DateTime utcNow,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string? expectedPasswordHash = null, Func<Task>? onCompleted = null)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var user = await context.Users.SingleAsync(item => item.Id == userId, cancellationToken);
+        var user = await LockUserAsync(userId, cancellationToken);
+        EnsureCurrentAccount(user, expectedPasswordHash);
+        utcNow = clock.GetUtcNow().UtcDateTime;
         user.PasswordHash = passwordHash;
         user.PasswordChangedAt = NextPasswordVersion(user.PasswordChangedAt, utcNow);
         user.AccessFailedCount = 0;
         user.LockoutEndAt = null;
         user.UpdatedAt = utcNow;
         await RevokeActiveSessionsAsync(userId, utcNow, cancellationToken);
+        await InvalidateRecoveryAsync(user, utcNow, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
+        if (onCompleted is not null) await onCompleted();
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -170,6 +182,8 @@ internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
         string? requestedByIp,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        EnsureCurrentAccount(await LockUserAsync(userId, cancellationToken), null);
         await context.PasswordResetTokens
             .Where(token => token.UserId == userId && token.UsedAt == null && token.ExpiresAt > utcNow)
             .ExecuteUpdateAsync(
@@ -184,6 +198,7 @@ internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
             RequestedByIp = requestedByIp
         });
         await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task<PasswordResetSession?> FindPasswordResetSessionAsync(
@@ -203,9 +218,14 @@ internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
         long userId,
         string passwordHash,
         DateTime utcNow,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, Func<Task>? onCompleted = null)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var user = await LockUserAsync(userId, cancellationToken);
+        EnsureCurrentAccount(user, null);
+        utcNow = clock.GetUtcNow().UtcDateTime;
+        if (!string.IsNullOrWhiteSpace(recoveryOptions.Value.LookupKey))
+            await PasswordRecoveryIdentity.LockAsync(context, PasswordRecoveryIdentity.Fingerprint(user.Email, recoveryOptions.Value.LookupKey), cancellationToken);
         var token = await context.PasswordResetTokens.SingleAsync(
             item => item.Id == tokenId && item.UserId == userId,
             cancellationToken);
@@ -214,7 +234,11 @@ internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
             throw new ConflictException("The password reset token has already been consumed.");
         }
 
-        var user = await context.Users.SingleAsync(item => item.Id == userId, cancellationToken);
+        var recovery = await context.PasswordRecoveryRequests.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.ResetTokenId == tokenId, cancellationToken);
+        if (recovery is not null && (recovery.Status is not ("SENT" or "SENDING" or "RETRY")
+            || await context.PasswordRecoveryRequests.AnyAsync(x => x.EmailHash == recovery.EmailHash && x.Id > recovery.Id, cancellationToken)))
+            throw new UnauthorizedException("The password reset token is invalid or expired.");
         user.PasswordHash = passwordHash;
         user.PasswordChangedAt = NextPasswordVersion(user.PasswordChangedAt, utcNow);
         user.AccessFailedCount = 0;
@@ -227,8 +251,39 @@ internal sealed class AuthRepository(AipmsDbContext context) : IAuthRepository
                 setters => setters.SetProperty(item => item.UsedAt, utcNow),
                 cancellationToken);
         await RevokeActiveSessionsAsync(userId, utcNow, cancellationToken);
+        await InvalidateRecoveryAsync(user, utcNow, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
+        if (onCompleted is not null) await onCompleted();
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    private Task<User> LockUserAsync(long userId, CancellationToken ct) => context.Users
+        .FromSqlInterpolated($"SELECT * FROM dbo.users WITH (UPDLOCK, HOLDLOCK) WHERE id = {userId}")
+        .SingleAsync(ct);
+
+    private static void EnsureCurrentAccount(User user, string? expectedPasswordHash)
+    {
+        if (user.Status != "ACTIVE") throw new UnauthorizedException("The account is unavailable.");
+        if (expectedPasswordHash is not null && user.PasswordHash != expectedPasswordHash)
+            throw new UnauthorizedException("Credentials changed. Please sign in again.");
+    }
+
+    private async Task InvalidateRecoveryAsync(User user, DateTime now, CancellationToken ct)
+    {
+        // Keep a high-precision cutoff: password_changed_at is a monotonic, second-resolution JWT version.
+        user.PasswordRecoveryInvalidBefore = clock.GetUtcNow().UtcDateTime;
+        var userId = user.Id;
+        var emailHash = string.IsNullOrWhiteSpace(recoveryOptions.Value.LookupKey) ? ""
+            : PasswordRecoveryIdentity.Fingerprint(user.Email, recoveryOptions.Value.LookupKey);
+        if (emailHash.Length > 0) await PasswordRecoveryIdentity.LockAsync(context, emailHash, ct);
+        await context.PasswordResetTokens.Where(x => x.UserId == userId && x.UsedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.UsedAt, now), ct);
+        await context.PasswordRecoveryRequests.Where(x => (x.EmailHash == emailHash || (x.ResetTokenId != null
+            && context.PasswordResetTokens.Any(t => t.Id == x.ResetTokenId && t.UserId == userId)))
+            && (x.Status == "PENDING" || x.Status == "RETRY" || x.Status == "SENDING" || x.Status == "SENT"))
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, "SUPERSEDED")
+                .SetProperty(x => x.ProtectedPayload, (string?)null).SetProperty(x => x.CompletedAt, now)
+                .SetProperty(x => x.LeaseToken, (Guid?)null).SetProperty(x => x.LeaseUntil, (DateTime?)null), ct);
     }
 
     private IQueryable<User> AccountQuery() =>

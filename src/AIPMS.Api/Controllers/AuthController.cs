@@ -48,7 +48,12 @@ public sealed class AuthController(ISender sender) : ControllerBase
 
     [Authorize]
     [HttpPost("change-password")]
+    [EnableRateLimiting("authentication")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> ChangePassword(
         ChangePasswordCommand command,
         CancellationToken cancellationToken)
@@ -61,6 +66,9 @@ public sealed class AuthController(ISender sender) : ControllerBase
     [EnableRateLimiting("authentication")]
     [HttpPost("forgot-password")]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status202Accepted)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<MessageResponse>> ForgotPassword(
         ForgotPasswordCommand command,
         CancellationToken cancellationToken)
@@ -73,6 +81,10 @@ public sealed class AuthController(ISender sender) : ControllerBase
     [EnableRateLimiting("authentication")]
     [HttpPost("reset-password")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> ResetPassword(
         ResetPasswordCommand command,
         CancellationToken cancellationToken)
