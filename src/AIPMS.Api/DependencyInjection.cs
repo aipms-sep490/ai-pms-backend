@@ -32,6 +32,7 @@ public static class DependencyInjection
         services.AddHostedService<Services.NotificationEmailWorker>();
         services.AddHostedService<Services.PasswordRecoveryWorker>();
         services.AddHostedService<Services.GoogleChallengeCleanupWorker>();
+        services.AddHostedService<Services.VideoCleanupWorker>();
         services.AddOptions<CorsSettings>()
             .BindConfiguration(CorsSettings.SectionName)
             .ValidateDataAnnotations()

@@ -29,7 +29,9 @@ internal static class MeetingMapper
             meeting.ConcurrencyToken.ToString("N"),
             meeting.Minutes,
             meeting.Decisions,
-            meeting.Blockers);
+            meeting.Blockers,
+            meeting.MeetingDeliveryMode,
+            meeting.VideoChannel);
 
     public static MeetingDetailDto ToDetailDto(this MeetingEntity meeting)
     {
@@ -63,7 +65,9 @@ internal static class MeetingMapper
             meeting.ConcurrencyToken.ToString("N"),
             meeting.Minutes,
             meeting.Decisions,
-            meeting.Blockers);
+            meeting.Blockers,
+            meeting.MeetingDeliveryMode,
+            meeting.VideoChannel);
     }
 
     public static MeetingParticipantDto ToDto(this ParticipantEntity participant) =>

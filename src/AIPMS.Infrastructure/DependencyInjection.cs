@@ -33,6 +33,7 @@ using AIPMS.Infrastructure.Persistence.Repositories;
 using AIPMS.Infrastructure.Services.Auditing;
 using AIPMS.Infrastructure.Services.Projects;
 using AIPMS.Infrastructure.Services.Teams;
+using AIPMS.Infrastructure.Video;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -229,6 +230,10 @@ public static class DependencyInjection
         services.AddScoped<IReportingCycleRepository, ReportingCycleRepository>();
         services.AddScoped<AIPMS.Application.Features.ActionItems.Abstractions.IProjectActionItemRepository, ProjectActionItemRepository>();
         services.AddScoped<IMeetingRepository, MeetingRepository>();
+        services.AddScoped<IMeetingVideoMetadataRepository, MeetingVideoMetadataRepository>();
+        services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IMeetingVideoService, MeetingVideoService>();
+        services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IVideoProviderEventService, VideoProviderEventService>();
+        services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IVideoCleanupScheduler, VideoCleanupScheduler>();
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamRepository, TeamRepository>();
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamEligibilityRepository, Persistence.Repositories.TeamEligibilityRepository>();
@@ -239,6 +244,7 @@ public static class DependencyInjection
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, DatabaseTeamFormationPolicyProvider>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
         services.AddScoped<IPasswordResetNotifier, SmtpPasswordResetNotifier>();
+        services.AddVideoMeetings();
 
         return services;
     }

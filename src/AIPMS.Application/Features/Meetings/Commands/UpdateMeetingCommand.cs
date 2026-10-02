@@ -26,7 +26,8 @@ public sealed class UpdateMeetingCommandHandler(
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
     IAuditTrail audit,
-    TimeProvider clock) : IRequestHandler<UpdateMeetingCommand, MeetingDto>
+    TimeProvider clock,
+    IMeetingVideoMetadataRepository? videoMetadata = null) : IRequestHandler<UpdateMeetingCommand, MeetingDto>
 {
     public async Task<MeetingDto> Handle(UpdateMeetingCommand command, CancellationToken cancellationToken)
     {
@@ -74,6 +75,11 @@ public sealed class UpdateMeetingCommandHandler(
             },
             cancellationToken);
 
+        if (videoMetadata != null)
+        {
+            await videoMetadata.SetAsync(result.Id, command.Request.MeetingDeliveryMode, command.Request.VideoChannel, cancellationToken);
+            return result with { MeetingDeliveryMode = command.Request.MeetingDeliveryMode, VideoChannel = command.Request.VideoChannel };
+        }
         return result;
     }
 }

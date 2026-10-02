@@ -22,7 +22,8 @@ public sealed class CreateMeetingCommandHandler(
     ICurrentUser currentUser,
     IAuditTrail audit,
     TimeProvider? clock = null,
-    IPublisher? publisher = null) : IRequestHandler<CreateMeetingCommand, MeetingDto>
+    IPublisher? publisher = null,
+    IMeetingVideoMetadataRepository? videoMetadata = null) : IRequestHandler<CreateMeetingCommand, MeetingDto>
 {
     public async Task<MeetingDto> Handle(CreateMeetingCommand command, CancellationToken cancellationToken)
     {
@@ -89,6 +90,11 @@ public sealed class CreateMeetingCommandHandler(
             },
             cancellationToken);
 
+        if (videoMetadata != null)
+        {
+            await videoMetadata.SetAsync(result.Id, command.Request.MeetingDeliveryMode, command.Request.VideoChannel, cancellationToken);
+            return result with { MeetingDeliveryMode = command.Request.MeetingDeliveryMode, VideoChannel = command.Request.VideoChannel };
+        }
         return result;
     }
 }

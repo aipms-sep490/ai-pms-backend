@@ -69,6 +69,10 @@ public sealed class ExceptionHandlingMiddleware(
         problem.Extensions["traceId"] = context.TraceIdentifier;
         if (exception is ConflictException { Code: not null } conflict)
             problem.Extensions["code"] = conflict.Code;
+        else if (exception is ForbiddenException { Code: not null } forbidden)
+            problem.Extensions["code"] = forbidden.Code;
+        else if (exception is ServiceUnavailableException { Code: not null } unavailable)
+            problem.Extensions["code"] = unavailable.Code;
 
         if (exception is ValidationException validationException)
         {

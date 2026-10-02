@@ -23,5 +23,6 @@ public partial class AipmsDbContext
             e.Property(x => x.SnapshotJson).HasColumnName("snapshot_json");
             e.HasIndex(x => new { x.ProjectId, x.UserId, x.SnapshotHash }).IsUnique();
         });
+        ConfigureVideoMeetings(modelBuilder);
     }
 }
