@@ -39,7 +39,7 @@ internal sealed class ExecutionCapabilityService(
             Action("schedule_meeting", manager && active, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED")
         };
         return new("PROJECT", project.Id, project.Id, project.Status, Convert.ToBase64String(project.RowVersion),
-            actions.Actions.Select(x => new ExecutionActionDto(x.Code, x.Allowed, x.Reasons)).Concat(execution).ToArray());
+            actions.Actions.Select(x => new ExecutionActionDto(x.Code, x.Allowed, x.Reasons)).Concat(execution).ToArray(), project.Status);
     }
 
     public async Task<ExecutionCapabilityDto> GetTaskAsync(long taskId, CancellationToken cancellationToken)
@@ -66,7 +66,7 @@ internal sealed class ExecutionCapabilityService(
             Action("manage_task_disciplines", active && writer, !active ? "PROJECT_NOT_ACTIVE" : "TASK_WRITER_REQUIRED"),
             Action("add_task_evidence", active && writer, !active ? "PROJECT_NOT_ACTIVE" : "TASK_WRITER_REQUIRED")
         };
-        return new("TASK", row.Id, row.ProjectId, row.ProjectStatus, row.ConcurrencyToken.ToString("N"), actions);
+        return new("TASK", row.Id, row.ProjectId, row.ProjectStatus, row.ConcurrencyToken.ToString("N"), actions, row.Status);
     }
 
     public async Task<ExecutionCapabilityDto> GetMilestoneAsync(long milestoneId, CancellationToken cancellationToken)
@@ -85,7 +85,7 @@ internal sealed class ExecutionCapabilityService(
             Action("delete_milestone", writable, reason),
             Action("reorder_milestones", active && manager, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED")
         };
-        return new("MILESTONE", row.Id, row.ProjectId, row.ProjectStatus, row.ConcurrencyToken.ToString("N"), actions);
+        return new("MILESTONE", row.Id, row.ProjectId, row.ProjectStatus, row.ConcurrencyToken.ToString("N"), actions, row.Status);
     }
 
     private async Task RequireProjectAccess(long projectId, CancellationToken cancellationToken)

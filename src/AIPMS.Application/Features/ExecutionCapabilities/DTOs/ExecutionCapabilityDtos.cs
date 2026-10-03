@@ -8,4 +8,5 @@ public sealed record ExecutionCapabilityDto(
     long ProjectId,
     string ProjectStatus,
     string ConcurrencyToken,
-    IReadOnlyList<ExecutionActionDto> Actions);
+    IReadOnlyList<ExecutionActionDto> Actions,
+    string? ResourceStatus = null);
