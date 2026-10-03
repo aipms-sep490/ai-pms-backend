@@ -11,5 +11,6 @@ public interface IAcademicProfileRepository
     Task<AcademicProfileDto?> GetAsync(long userId, CancellationToken ct = default);
     Task<PagedResult<AcademicProfileDto>> SearchAsync(string? status, long? departmentId, int page, int pageSize, CancellationToken ct = default);
     Task<AcademicProfileDto> SetStatusAsync(long userId, string status, long reviewerId, string? reason, DateTime now, CancellationToken ct = default);
+    Task<AcademicProfileDto> UpdateAcademicScopeAsync(long userId, long? departmentId, long? majorId, string expectedToken, long actorId, DateTime now, CancellationToken ct = default);
     Task<bool> IsVerifiedAsync(long userId, CancellationToken ct = default);
 }

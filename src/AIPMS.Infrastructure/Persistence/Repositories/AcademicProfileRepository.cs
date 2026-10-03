@@ -22,7 +22,7 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
         {
             await tx.RollbackAsync(CancellationToken.None);
             db.ChangeTracker.Clear();
-            if (ex is SqlException { Number: 1205 or 1222 }) throw new ConflictException("Profile changed concurrently. Retry.");
+            if (ex is DbUpdateConcurrencyException || ex is SqlException { Number: 1205 or 1222 }) throw new ConflictException("Profile changed concurrently. Retry.");
             throw;
         }
     }
@@ -91,6 +91,42 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
             ReviewedAt = now, RejectionReason = reason });
         await db.SaveChangesAsync(ct);
         return (await GetAsync(userId, ct))!;
+    }
+
+    public async Task<AcademicProfileDto> UpdateAcademicScopeAsync(long userId, long? departmentId, long? majorId,
+        string expectedToken, long actorId, DateTime now, CancellationToken ct = default)
+    {
+        await LockAsync(userId, ct);
+        var managedDepartment = await GetReviewerDepartmentAsync(actorId, ct);
+        var user = await db.Users.SingleOrDefaultAsync(x => x.Id == userId, ct)
+            ?? throw new NotFoundException("User", userId);
+        if (managedDepartment.HasValue && (user.DepartmentId != managedDepartment || departmentId != managedDepartment))
+            throw new ForbiddenException("Staff may only update profiles within their persisted department.");
+        if (string.IsNullOrEmpty(expectedToken) || expectedToken != Convert.ToBase64String(user.RowVersion))
+            throw new ConflictException("The academic profile changed. Reload before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);
+        if (departmentId.HasValue)
+        {
+            var department = await db.Departments.AsNoTracking().SingleOrDefaultAsync(d => d.Id == departmentId.Value && d.IsActive && d.Organization.IsActive, ct)
+                ?? throw new ValidationException(new Dictionary<string, string[]> { ["departmentId"] = ["The department is invalid or inactive."] });
+            if (majorId.HasValue && !await db.Majors.AnyAsync(m => m.Id == majorId.Value && m.DepartmentId == department.Id && m.IsActive, ct))
+                throw new ValidationException(new Dictionary<string, string[]> { ["majorId"] = ["The major does not belong to the selected department."] });
+        }
+        else if (majorId.HasValue)
+            throw new ValidationException(new Dictionary<string, string[]> { ["departmentId"] = ["A department is required when a major is selected."] });
+        var changed = user.DepartmentId != departmentId || user.MajorId != majorId;
+        if (changed && (await db.TeamMembers.AnyAsync(m => m.UserId == userId && m.LeftAt == null && m.Team.Status != "DISBANDED", ct)
+            || await db.SupervisorAssignments.AnyAsync(a => a.SupervisorProfile.UserId == userId && a.EndedAt == null, ct)
+            || await db.Set<AIPMS.Infrastructure.Persistence.Models.EvaluationAssignment>().AnyAsync(a => a.EvaluatorId == userId && a.Status == "ACTIVE", ct)))
+            throw new ConflictException("An active team, supervisor or evaluator obligation prevents changing this academic scope.");
+        if (changed)
+        {
+            user.DepartmentId = departmentId; user.MajorId = majorId;
+            user.AcademicProfileStatus = "PENDING"; user.AcademicProfileReviewedBy = null;
+            user.AcademicProfileReviewedAt = null; user.AcademicProfileRejectionReason = null; user.UpdatedAt = now;
+            await db.SaveChangesAsync(ct);
+        }
+        var result = await GetAsync(userId, ct) ?? throw new NotFoundException("User", userId);
+        return result with { ConcurrencyToken = Convert.ToBase64String(user.RowVersion) };
     }
 
     public Task<bool> IsVerifiedAsync(long userId, CancellationToken ct = default)

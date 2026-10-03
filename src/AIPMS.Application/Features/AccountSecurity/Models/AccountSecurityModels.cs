@@ -19,7 +19,8 @@ public sealed record AccountUser(
     DateTime? LastLoginAt,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    IReadOnlyCollection<string> Roles);
+    IReadOnlyCollection<string> Roles,
+    string? ConcurrencyToken = null);
 
 public sealed record CreateAccountData(
     long? DepartmentId,

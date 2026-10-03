@@ -192,6 +192,7 @@ CREATE TABLE dbo.users (
     last_login_at   DATETIME2(0) NULL,
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_users_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_users_updated_at DEFAULT (SYSUTCDATETIME()),
+    row_version     ROWVERSION NOT NULL,
     CONSTRAINT pk_users PRIMARY KEY (id),
     CONSTRAINT uq_users_email UNIQUE (email),
     CONSTRAINT ck_users_status CHECK (status IN (N'ACTIVE', N'INACTIVE', N'SUSPENDED')),
@@ -2200,3 +2201,10 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.passwor
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.password_recovery_requests') AND name=N'ix_password_recovery_email')
     CREATE INDEX ix_password_recovery_email ON dbo.password_recovery_requests(email_hash,id DESC);
 COMMIT TRANSACTION;
+
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+IF COL_LENGTH('dbo.users', 'row_version') IS NULL
+    ALTER TABLE dbo.users ADD row_version rowversion NOT NULL;
+COMMIT;
+GO

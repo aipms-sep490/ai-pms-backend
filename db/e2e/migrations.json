@@ -30,5 +30,6 @@
   "20260929_add_reporting_cycles_and_action_items.sql",
   "20260930_add_policy_evaluation_schemes.sql",
   "20261001_add_password_recovery_queue.sql",
-  "20261002_add_video_meetings.sql"
+  "20261002_add_video_meetings.sql",
+  "20261003_add_user_row_version.sql"
 ]
