@@ -188,6 +188,8 @@ public static class DependencyInjection
         services.AddScoped<IProjectAccessService, ProjectAccessService>();
         services.AddScoped<AIPMS.Application.Features.Projects.Abstractions.IProjectGovernanceService,
             Services.Projects.ProjectGovernanceService>();
+        services.AddScoped<AIPMS.Application.Features.Calendar.Abstractions.ICalendarService,
+            Services.Projects.CalendarService>();
         services.AddScoped<IProjectExecutionGuard, ProjectExecutionGuard>();
         services.AddScoped<IProjectActivationService, ProjectActivationService>();
         services.AddScoped<IAcademicStructureRepository, AcademicStructureRepository>();
