@@ -47,14 +47,14 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
     private static readonly System.Linq.Expressions.Expression<Func<Generated.Models.User, AcademicProfileDto>> Projection = u => new AcademicProfileDto(
         u.Id, u.FullName, u.Email, u.StudentCode, u.DepartmentId, u.Department == null ? null : u.Department.Name,
         u.MajorId, u.Major == null ? null : u.Major.Name, u.AcademicProfileStatus ?? "PENDING",
-        u.AcademicProfileReviewedBy, u.AcademicProfileReviewedAt, u.AcademicProfileRejectionReason);
+        u.AcademicProfileReviewedBy, u.AcademicProfileReviewedAt, u.AcademicProfileRejectionReason, null);
 
     public Task<AcademicProfileDto?> GetAsync(long userId, CancellationToken ct = default) =>
         db.Users.AsNoTracking().Where(u => u.Id == userId && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Student))
             .Select(u => new AcademicProfileDto(u.Id, u.FullName, u.Email, u.StudentCode, u.DepartmentId,
                 u.Department == null ? null : u.Department.Name, u.MajorId, u.Major == null ? null : u.Major.Name,
                 u.AcademicProfileStatus ?? "PENDING", u.AcademicProfileReviewedBy, u.AcademicProfileReviewedAt,
-                u.AcademicProfileRejectionReason)).SingleOrDefaultAsync(ct);
+                u.AcademicProfileRejectionReason, null)).SingleOrDefaultAsync(ct);
 
     public async Task<PagedResult<AcademicProfileDto>> SearchAsync(string? status, long? departmentId, int page, int pageSize, CancellationToken ct = default)
     {
