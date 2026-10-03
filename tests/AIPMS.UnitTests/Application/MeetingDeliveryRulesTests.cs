@@ -4,6 +4,14 @@ namespace AIPMS.UnitTests.Application;
 
 public sealed class MeetingDeliveryRulesTests
 {
+    [Fact]
+    public void LegacyRequestsWithoutVideoMetadataRemainValid() =>
+        Assert.True(MeetingDeliveryRules.IsValid(null, null, null, null));
+
+    [Fact]
+    public void ExternalLinkRejectsCredentialsInUrl() =>
+        Assert.False(MeetingDeliveryRules.IsValid("REMOTE", "EXTERNAL_LINK", null, "https://user:pass@example.test/room"));
+
     [Theory]
     [InlineData("ONSITE", "NONE", "Room 1", null, true)]
     [InlineData("REMOTE", "EXTERNAL_LINK", null, "https://meet.example.test/room", true)]
