@@ -30,4 +30,9 @@ public sealed class AcademicProfilesController(ISender sender) : ControllerBase
     [HttpPost("/api/v1/users/{userId:long}/academic-profile/reject")]
     public Task<AcademicProfileDto> Reject(long userId, RejectAcademicProfileRequest request, CancellationToken ct)
         => sender.Send(new RejectAcademicProfileCommand(userId, request.Reason), ct);
+
+    [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
+    [HttpPatch("/api/v1/users/{userId:long}/academic-profile")]
+    public Task<AcademicProfileDto> Update(long userId, UpdateAcademicProfileRequest request, CancellationToken ct)
+        => sender.Send(new UpdateAcademicProfileCommand(userId, request), ct);
 }

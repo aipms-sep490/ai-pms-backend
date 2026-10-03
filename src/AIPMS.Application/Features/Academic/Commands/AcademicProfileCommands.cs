@@ -10,6 +10,22 @@ namespace AIPMS.Application.Features.Academic.Commands;
 
 public sealed record VerifyAcademicProfileCommand(long UserId) : IRequest<AcademicProfileDto>;
 public sealed record RejectAcademicProfileCommand(long UserId, string Reason) : IRequest<AcademicProfileDto>;
+public sealed record UpdateAcademicProfileCommand(long UserId, UpdateAcademicProfileRequest Request) : IRequest<AcademicProfileDto>;
+
+public sealed class UpdateAcademicProfileHandler(
+    IAcademicProfileRepository repository, AcademicAccessService access, IAuditTrail audit, TimeProvider clock)
+    : IRequestHandler<UpdateAcademicProfileCommand, AcademicProfileDto>
+{
+    public Task<AcademicProfileDto> Handle(UpdateAcademicProfileCommand request, CancellationToken ct) =>
+        repository.InTransactionAsync(async token =>
+        {
+            var result = await repository.UpdateAcademicScopeAsync(request.UserId, request.Request.DepartmentId,
+                request.Request.MajorId, request.Request.ConcurrencyToken, access.ActorUserId, clock.GetUtcNow().UtcDateTime, token);
+            await audit.RecordAsync(new AuditEntry(access.ActorUserId, "ACADEMIC_PROFILE_SCOPE_UPDATED", "USER", request.UserId,
+                new Dictionary<string, object?> { ["departmentId"] = result.DepartmentId, ["majorId"] = result.MajorId }), token);
+            return result;
+        }, ct);
+}
 
 public sealed class VerifyAcademicProfileHandler(
     IAcademicProfileRepository repository, AcademicAccessService access, IAuditTrail audit, TimeProvider clock)

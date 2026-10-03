@@ -1,5 +1,6 @@
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Evaluations.Commands;
+using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Queries;
 using MediatR;
@@ -16,7 +17,7 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(403)]
 [ProducesResponseType<ProblemDetails>(404)]
 [ProducesResponseType<ProblemDetails>(409)]
-public sealed class EvaluationDraftsController(ISender sender) : ControllerBase
+public sealed class EvaluationDraftsController(ISender sender, IEvaluationAssignmentAccessService assignmentAccess) : ControllerBase
 {
     /// <summary>Lists assignable evaluators for the selected evaluation period, in persisted academic scope.</summary>
     [HttpGet("api/v1/projects/{projectId:long}/eligible-evaluators")]
@@ -48,6 +49,12 @@ public sealed class EvaluationDraftsController(ISender sender) : ControllerBase
     [ProducesResponseType<EvaluationAssignmentDto>(200)]
     public async Task<ActionResult<EvaluationAssignmentDto>> Revoke(long id, RevokeEvaluatorRequest request, CancellationToken ct) =>
         Ok(await sender.Send(new RevokeEvaluatorCommand(id, request), ct));
+
+    [HttpGet("api/v1/evaluation-assignments/{id:long}")]
+    public Task<EvaluationAssignmentDetailDto> AssignmentDetail(long id, CancellationToken ct) => assignmentAccess.GetAsync(id, ct);
+
+    [HttpGet("api/v1/evaluation-assignments/{id:long}/evidence")]
+    public Task<EvaluationAssignmentEvidenceDto> AssignmentEvidence(long id, CancellationToken ct) => assignmentAccess.EvidenceAsync(id, ct);
 
     [HttpPost("api/v1/evaluation-assignments/{id:long}/evaluation")]
     [ProducesResponseType<EvaluationDraftDto>(201)]

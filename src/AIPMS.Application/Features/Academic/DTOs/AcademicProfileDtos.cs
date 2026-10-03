@@ -12,6 +12,12 @@ public sealed record AcademicProfileDto(
     string Status,
     long? ReviewedBy,
     DateTime? ReviewedAt,
-    string? RejectionReason);
+    string? RejectionReason,
+    string? ConcurrencyToken = null);
+
+public sealed record UpdateAcademicProfileRequest(
+    long? DepartmentId,
+    long? MajorId,
+    string ConcurrencyToken);
 
 public sealed record RejectAcademicProfileRequest(string Reason);
