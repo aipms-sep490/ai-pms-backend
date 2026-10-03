@@ -817,9 +817,13 @@ CREATE TABLE dbo.meetings (
     created_by      BIGINT NOT NULL,
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_meetings_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_meetings_updated_at DEFAULT (SYSUTCDATETIME()),
+    meeting_delivery_mode VARCHAR(20) NULL CONSTRAINT df_meetings_delivery_mode DEFAULT ('ONSITE'),
+    video_channel   VARCHAR(30) NULL CONSTRAINT df_meetings_video_channel DEFAULT ('NONE'),
     CONSTRAINT pk_meetings PRIMARY KEY (id),
     CONSTRAINT ck_meetings_dates CHECK (end_at IS NULL OR end_at >= start_at),
     CONSTRAINT ck_meetings_status CHECK (status IN (N'SCHEDULED', N'COMPLETED', N'CANCELLED')),
+    CONSTRAINT ck_meetings_delivery_mode CHECK (meeting_delivery_mode IN ('ONSITE','REMOTE','HYBRID')),
+    CONSTRAINT ck_meetings_video_channel CHECK (video_channel IN ('NONE','EXTERNAL_LINK','IN_APP_VIDEO')),
     CONSTRAINT fk_meetings_project FOREIGN KEY (project_id)
         REFERENCES dbo.projects(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_meetings_created_by FOREIGN KEY (created_by)
@@ -844,6 +848,87 @@ CREATE TABLE dbo.meeting_participants (
 );
 GO
 
+CREATE TABLE dbo.meeting_video_sessions (
+    id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_meeting_video_sessions PRIMARY KEY,
+    meeting_id BIGINT NOT NULL,
+    provider VARCHAR(30) NOT NULL,
+    provider_room_key VARCHAR(255) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    started_by BIGINT NULL,
+    started_at DATETIME2(7) NULL,
+    ended_at DATETIME2(7) NULL,
+    failure_code VARCHAR(80) NULL,
+    concurrency_token UNIQUEIDENTIFIER NOT NULL CONSTRAINT df_meeting_video_sessions_token DEFAULT NEWSEQUENTIALID(),
+    created_at DATETIME2(7) NOT NULL CONSTRAINT df_meeting_video_sessions_created DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2(7) NOT NULL CONSTRAINT df_meeting_video_sessions_updated DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT pk_meeting_video_sessions_check CHECK(status IN ('CREATED','LIVE','ENDED','FAILED')),
+    CONSTRAINT fk_meeting_video_sessions_meeting FOREIGN KEY(meeting_id) REFERENCES dbo.meetings(id),
+    CONSTRAINT fk_meeting_video_sessions_started_by FOREIGN KEY(started_by) REFERENCES dbo.users(id)
+);
+CREATE UNIQUE INDEX uq_meeting_video_sessions_room ON dbo.meeting_video_sessions(provider,provider_room_key);
+CREATE UNIQUE INDEX ux_meeting_video_sessions_one_active ON dbo.meeting_video_sessions(meeting_id) WHERE status IN ('CREATED','LIVE');
+CREATE INDEX ix_meeting_video_sessions_meeting_status ON dbo.meeting_video_sessions(meeting_id,status);
+GO
+CREATE TABLE dbo.meeting_video_participant_bindings (
+    id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_meeting_video_bindings PRIMARY KEY,
+    meeting_video_session_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    provider_participant_identity VARCHAR(255) NOT NULL,
+    created_at DATETIME2(7) NOT NULL CONSTRAINT df_meeting_video_bindings_created DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT fk_meeting_video_bindings_session FOREIGN KEY(meeting_video_session_id) REFERENCES dbo.meeting_video_sessions(id) ON DELETE CASCADE,
+    CONSTRAINT fk_meeting_video_bindings_user FOREIGN KEY(user_id) REFERENCES dbo.users(id)
+);
+CREATE UNIQUE INDEX ux_meeting_video_bindings_session_user ON dbo.meeting_video_participant_bindings(meeting_video_session_id,user_id);
+CREATE UNIQUE INDEX ux_meeting_video_bindings_identity ON dbo.meeting_video_participant_bindings(provider_participant_identity);
+GO
+CREATE TABLE dbo.meeting_video_presence_sessions (
+    id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_meeting_video_presence PRIMARY KEY,
+    meeting_video_session_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    provider_participant_identity VARCHAR(255) NOT NULL,
+    provider_connection_id VARCHAR(255) NULL,
+    joined_at DATETIME2(7) NOT NULL,
+    left_at DATETIME2(7) NULL,
+    disconnect_reason NVARCHAR(255) NULL,
+    created_at DATETIME2(7) NOT NULL CONSTRAINT df_meeting_video_presence_created DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2(7) NOT NULL CONSTRAINT df_meeting_video_presence_updated DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT fk_meeting_video_presence_session FOREIGN KEY(meeting_video_session_id) REFERENCES dbo.meeting_video_sessions(id) ON DELETE CASCADE,
+    CONSTRAINT fk_meeting_video_presence_user FOREIGN KEY(user_id) REFERENCES dbo.users(id)
+);
+CREATE INDEX ix_meeting_video_presence_lookup ON dbo.meeting_video_presence_sessions(meeting_video_session_id,user_id,joined_at);
+GO
+CREATE TABLE dbo.video_provider_events (
+    id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_video_provider_events PRIMARY KEY,
+    provider VARCHAR(30) NOT NULL,
+    provider_event_id VARCHAR(255) NOT NULL,
+    event_type VARCHAR(80) NOT NULL,
+    meeting_video_session_id BIGINT NULL,
+    received_at DATETIME2(7) NOT NULL CONSTRAINT df_video_provider_events_received DEFAULT SYSUTCDATETIME(),
+    processed_at DATETIME2(7) NULL,
+    payload_hash CHAR(64) NOT NULL,
+    processing_status VARCHAR(20) NOT NULL,
+    error_code VARCHAR(80) NULL,
+    CONSTRAINT fk_video_provider_events_session FOREIGN KEY(meeting_video_session_id) REFERENCES dbo.meeting_video_sessions(id)
+);
+CREATE UNIQUE INDEX ux_video_provider_events_id ON dbo.video_provider_events(provider,provider_event_id);
+GO
+CREATE TABLE dbo.video_provider_cleanup_jobs (
+    id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_video_provider_cleanup_jobs PRIMARY KEY,
+    meeting_video_session_id BIGINT NOT NULL,
+    provider_room_key VARCHAR(255) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    attempt_count INT NOT NULL CONSTRAINT df_video_cleanup_attempts DEFAULT 0,
+    next_attempt_at DATETIME2(7) NOT NULL,
+    lease_token UNIQUEIDENTIFIER NULL,
+    lease_until DATETIME2(7) NULL,
+    last_error_code VARCHAR(80) NULL,
+    created_at DATETIME2(7) NOT NULL CONSTRAINT df_video_cleanup_created DEFAULT SYSUTCDATETIME(),
+    completed_at DATETIME2(7) NULL,
+    CONSTRAINT ck_video_cleanup_status CHECK(status IN ('PENDING','PROCESSING','SUCCEEDED','FAILED')),
+    CONSTRAINT fk_video_cleanup_session FOREIGN KEY(meeting_video_session_id) REFERENCES dbo.meeting_video_sessions(id) ON DELETE CASCADE
+);
+CREATE INDEX ix_video_cleanup_claim ON dbo.video_provider_cleanup_jobs(status,next_attempt_at,lease_until);
+GO
 CREATE TABLE dbo.deliverables (
     id              BIGINT IDENTITY(1,1) NOT NULL,
     project_id      BIGINT NOT NULL,

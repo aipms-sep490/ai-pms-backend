@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace AIPMS.Infrastructure.Persistence.Generated.Models;
@@ -31,12 +31,15 @@ public partial class Meeting
 
     public DateTime UpdatedAt { get; set; }
     public Guid ConcurrencyToken { get; set; }
+    public string MeetingDeliveryMode { get; set; } = "ONSITE";
+    public string VideoChannel { get; set; } = "NONE";
 
     public virtual User CreatedByNavigation { get; set; } = null!;
 
     public virtual ICollection<File> Files { get; set; } = new List<File>();
 
     public virtual ICollection<MeetingParticipant> MeetingParticipants { get; set; } = new List<MeetingParticipant>();
+    public virtual ICollection<MeetingVideoSession> MeetingVideoSessions { get; set; } = new List<MeetingVideoSession>();
 
     public virtual Project Project { get; set; } = null!;
 

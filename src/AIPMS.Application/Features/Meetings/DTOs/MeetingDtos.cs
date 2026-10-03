@@ -22,7 +22,9 @@ public sealed record MeetingDto(
     string? ConcurrencyToken = null,
     string? Minutes = null,
     string? Decisions = null,
-    string? Blockers = null);
+    string? Blockers = null,
+    string MeetingDeliveryMode = "ONSITE",
+    string VideoChannel = "NONE");
 
 public sealed record MeetingDetailDto(
     long Id,
@@ -44,7 +46,9 @@ public sealed record MeetingDetailDto(
     string? ConcurrencyToken = null,
     string? Minutes = null,
     string? Decisions = null,
-    string? Blockers = null);
+    string? Blockers = null,
+    string MeetingDeliveryMode = "ONSITE",
+    string VideoChannel = "NONE");
 
 public sealed record MeetingParticipantDto(
     long Id,
@@ -77,7 +81,9 @@ public sealed record CreateMeetingRequest(
     IReadOnlyList<long>? ParticipantUserIds,
     string? Minutes = null,
     string? Decisions = null,
-    string? Blockers = null);
+    string? Blockers = null,
+    string? MeetingDeliveryMode = null,
+    string? VideoChannel = null);
 
 public sealed record UpdateMeetingRequest(
     string Title,
@@ -89,7 +95,9 @@ public sealed record UpdateMeetingRequest(
     string? ConcurrencyToken = null,
     string? Minutes = null,
     string? Decisions = null,
-    string? Blockers = null);
+    string? Blockers = null,
+    string? MeetingDeliveryMode = null,
+    string? VideoChannel = null);
 
 public sealed record UpdateMeetingNotesRequest(
     string? MeetingNotes,

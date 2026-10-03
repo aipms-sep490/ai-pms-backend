@@ -26,7 +26,8 @@ public sealed class UpdateMeetingCommandHandler(
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
     IAuditTrail audit,
-    TimeProvider clock) : IRequestHandler<UpdateMeetingCommand, MeetingDto>
+    TimeProvider clock,
+    IMeetingVideoMetadataRepository? videoMetadata = null) : IRequestHandler<UpdateMeetingCommand, MeetingDto>
 {
     public async Task<MeetingDto> Handle(UpdateMeetingCommand command, CancellationToken cancellationToken)
     {
@@ -46,6 +47,9 @@ public sealed class UpdateMeetingCommandHandler(
         if (status is "COMPLETED" or "CANCELLED")
             throw new ConflictException("Cannot update a meeting that is completed or cancelled.");
 
+        var delivery = AIPMS.Application.Features.Meetings.Validators.MeetingDeliveryRules.Legacy(command.Request.Location, command.Request.OnlineUrl);
+        var mode = command.Request.MeetingDeliveryMode ?? delivery.Mode;
+        var channel = command.Request.VideoChannel ?? delivery.Channel;
         var now = clock.GetUtcNow().UtcDateTime;
         var result = await repository.UpdateAsync(
             command.Id,
@@ -61,6 +65,7 @@ public sealed class UpdateMeetingCommandHandler(
             command.Request.Blockers,
             async updated =>
             {
+                if (videoMetadata != null) await videoMetadata.SetAsync(updated.Id, mode, channel, cancellationToken);
                 await audit.RecordAsync(new AuditEntry(
                     actorId,
                     "MEETING_UPDATED",
@@ -74,6 +79,6 @@ public sealed class UpdateMeetingCommandHandler(
             },
             cancellationToken);
 
-        return result;
+        return videoMetadata is null ? result : result with { MeetingDeliveryMode = mode, VideoChannel = channel };
     }
 }

@@ -24,7 +24,8 @@ public sealed class CompleteMeetingCommandHandler(
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
     IAuditTrail audit,
-    TimeProvider clock) : IRequestHandler<CompleteMeetingCommand, MeetingDto>
+    TimeProvider clock,
+    AIPMS.Application.Features.Meetings.Abstractions.IVideoCleanupScheduler? cleanup = null) : IRequestHandler<CompleteMeetingCommand, MeetingDto>
 {
     public async Task<MeetingDto> Handle(CompleteMeetingCommand command, CancellationToken cancellationToken)
     {
@@ -56,6 +57,7 @@ public sealed class CompleteMeetingCommandHandler(
             now,
             async completed =>
             {
+                if (cleanup != null) await cleanup.EnqueueForMeetingAsync(command.Id, cancellationToken);
                 await audit.RecordAsync(new AuditEntry(
                     actorId,
                     "MEETING_COMPLETED",

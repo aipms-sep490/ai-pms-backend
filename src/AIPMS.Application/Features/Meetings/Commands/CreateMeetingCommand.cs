@@ -22,7 +22,8 @@ public sealed class CreateMeetingCommandHandler(
     ICurrentUser currentUser,
     IAuditTrail audit,
     TimeProvider? clock = null,
-    IPublisher? publisher = null) : IRequestHandler<CreateMeetingCommand, MeetingDto>
+    IPublisher? publisher = null,
+    IMeetingVideoMetadataRepository? videoMetadata = null) : IRequestHandler<CreateMeetingCommand, MeetingDto>
 {
     public async Task<MeetingDto> Handle(CreateMeetingCommand command, CancellationToken cancellationToken)
     {
@@ -49,6 +50,9 @@ public sealed class CreateMeetingCommandHandler(
             }
         }
 
+        var delivery = AIPMS.Application.Features.Meetings.Validators.MeetingDeliveryRules.Legacy(command.Request.Location, command.Request.OnlineUrl);
+        var mode = command.Request.MeetingDeliveryMode ?? delivery.Mode;
+        var channel = command.Request.VideoChannel ?? delivery.Channel;
         var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         var result = await repository.CreateAsync(
             projectId,
@@ -66,6 +70,7 @@ public sealed class CreateMeetingCommandHandler(
             command.Request.Blockers,
             async created =>
             {
+                if (videoMetadata != null) await videoMetadata.SetAsync(created.Id, mode, channel, cancellationToken);
                 await audit.RecordAsync(new AuditEntry(
                     actorId,
                     "MEETING_SCHEDULED",
@@ -89,6 +94,6 @@ public sealed class CreateMeetingCommandHandler(
             },
             cancellationToken);
 
-        return result;
+        return videoMetadata is null ? result : result with { MeetingDeliveryMode = mode, VideoChannel = channel };
     }
 }
