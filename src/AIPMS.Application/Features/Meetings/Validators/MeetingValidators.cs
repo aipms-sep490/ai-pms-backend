@@ -36,11 +36,7 @@ public sealed class UpdateMeetingValidator : AbstractValidator<UpdateMeetingComm
         RuleFor(x => x.Id).GreaterThan(0);
         RuleFor(x => x.Request.Title).NotEmpty().MaximumLength(255).WithMessage("Title is required and must not exceed 255 characters.");
         RuleFor(x => x.Request.StartAt).NotEmpty().WithMessage("StartAt is required.");
-        RuleFor(x => x.Request).Must(x =>
-            MeetingDeliveryRules.IsValid(x.MeetingDeliveryMode, x.VideoChannel, x.Location, x.OnlineUrl)
-            // Requests created before video metadata was introduced omit the legacy location.
-            || (x.MeetingDeliveryMode == "ONSITE" && x.VideoChannel == "NONE" && string.IsNullOrWhiteSpace(x.Location) && string.IsNullOrWhiteSpace(x.OnlineUrl)))
-            .WithMessage("Meeting delivery mode and video channel combination is invalid.");
+        RuleFor(x => x.Request).Must(x => MeetingDeliveryRules.IsValid(x.MeetingDeliveryMode, x.VideoChannel, x.Location, x.OnlineUrl)).WithMessage("Meeting delivery mode and video channel combination is invalid.");
         When(x => x.Request.EndAt.HasValue, () =>
         {
             RuleFor(x => x.Request.EndAt!.Value)

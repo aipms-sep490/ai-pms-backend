@@ -6,17 +6,19 @@ IF COL_LENGTH(N'dbo.meetings', N'meeting_delivery_mode') IS NULL
 IF COL_LENGTH(N'dbo.meetings', N'video_channel') IS NULL
     ALTER TABLE dbo.meetings ADD video_channel VARCHAR(30) NULL;
 
-UPDATE dbo.meetings
-SET meeting_delivery_mode = CASE WHEN location IS NOT NULL THEN CASE WHEN online_url IS NULL THEN 'ONSITE' ELSE 'HYBRID' END ELSE CASE WHEN online_url IS NULL THEN 'ONSITE' ELSE 'REMOTE' END END,
-    video_channel = CASE WHEN online_url IS NULL THEN 'NONE' ELSE 'EXTERNAL_LINK' END
+EXEC(N'UPDATE dbo.meetings
+SET meeting_delivery_mode = CASE WHEN location IS NOT NULL THEN CASE WHEN online_url IS NULL THEN ''ONSITE'' ELSE ''HYBRID'' END ELSE CASE WHEN online_url IS NULL THEN ''ONSITE'' ELSE ''REMOTE'' END END,
+    video_channel = CASE WHEN online_url IS NULL THEN ''NONE'' ELSE ''EXTERNAL_LINK'' END
 WHERE meeting_delivery_mode IS NULL OR video_channel IS NULL;
 
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_meetings_delivery_mode')
-    ALTER TABLE dbo.meetings ADD CONSTRAINT ck_meetings_delivery_mode CHECK (meeting_delivery_mode IN ('ONSITE','REMOTE','HYBRID'));
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_meetings_video_channel')
-    ALTER TABLE dbo.meetings ADD CONSTRAINT ck_meetings_video_channel CHECK (video_channel IN ('NONE','EXTERNAL_LINK','IN_APP_VIDEO'));
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.meetings') AND name = N'ix_meetings_video_channel')
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N''ck_meetings_delivery_mode'')
+    ALTER TABLE dbo.meetings ADD CONSTRAINT ck_meetings_delivery_mode CHECK (meeting_delivery_mode IN (''ONSITE'',''REMOTE'',''HYBRID''));
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N''ck_meetings_video_channel'')
+    ALTER TABLE dbo.meetings ADD CONSTRAINT ck_meetings_video_channel CHECK (video_channel IN (''NONE'',''EXTERNAL_LINK'',''IN_APP_VIDEO''));
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N''dbo.meetings'') AND name = N''ix_meetings_video_channel'')
     CREATE INDEX ix_meetings_video_channel ON dbo.meetings(video_channel, status);
+
+');
 
 IF OBJECT_ID(N'dbo.meeting_video_sessions', N'U') IS NULL
 BEGIN

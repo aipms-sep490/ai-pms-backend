@@ -1,9 +1,9 @@
+using System.Threading.Tasks;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Meetings.Video;
 using AIPMS.Application.Features.Meetings.Abstractions;
@@ -11,76 +11,90 @@ using Microsoft.Extensions.Options;
 
 namespace AIPMS.Infrastructure.Video;
 
-internal sealed class LiveKitVideoMeetingProvider(IHttpClientFactory clients, IOptions<VideoMeetingOptions> options) : IVideoMeetingProvider
+internal sealed class LiveKitVideoMeetingProvider(IHttpClientFactory clients, IOptions<VideoMeetingOptions> options, TimeProvider clock) : IVideoMeetingProvider
 {
     private readonly VideoMeetingOptions settings = options.Value;
     public string Provider => "LIVEKIT";
 
     public async Task CreateRoomAsync(VideoProviderRoomRequest request, CancellationToken cancellationToken)
     {
-        await SendAsync("twirp/livekit.RoomService/CreateRoom", new { name = request.RoomKey, empty_timeout = 300 }, cancellationToken);
+        using var response = await SendAsync("CreateRoom", new { name = request.RoomKey, empty_timeout = 300 }, request.RoomKey, cancellationToken);
     }
 
-    public async Task<VideoJoinCredentialDto> CreateJoinCredentialAsync(VideoProviderJoinRequest request, CancellationToken cancellationToken)
+    public Task<VideoJoinCredentialDto> CreateJoinCredentialAsync(VideoProviderJoinRequest request, CancellationToken cancellationToken)
     {
-        var token = CreateToken(request);
-        return await Task.FromResult(new VideoJoinCredentialDto(Provider, settings.ServerUrl, request.ParticipantIdentity, request.ParticipantName, token, request.ExpiresAt, new VideoJoinCapabilities(true, true, true, request.Moderator)));
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureReady();
+        var now = clock.GetUtcNow().UtcDateTime;
+        if (request.ExpiresAt <= now || request.ExpiresAt > now.AddSeconds(300)) throw new ArgumentException("Join token must expire within five minutes.");
+        // Moderation is an AI-PMS capability. A media token must never authorize the RoomService API.
+        var token = CreateJwt(new() { ["sub"] = request.ParticipantIdentity, ["name"] = request.ParticipantName,
+            ["video"] = new { roomJoin = true, room = request.RoomKey, canPublish = true, canPublishData = true, canSubscribe = true } }, request.ExpiresAt);
+        return Task.FromResult(new VideoJoinCredentialDto(Provider, SocketUrl(), request.ParticipantIdentity, request.ParticipantName,
+            token, request.ExpiresAt, new(true, true, true, request.Moderator)));
     }
 
     public async Task CloseRoomAsync(string roomKey, CancellationToken cancellationToken)
     {
-        await SendAsync("twirp/livekit.RoomService/DeleteRoom", new { room = roomKey }, cancellationToken);
+        using var response = await SendAsync("DeleteRoom", new { room = roomKey }, roomKey, cancellationToken);
     }
 
     public async Task<VideoProviderRoomSnapshot?> GetRoomAsync(string roomKey, CancellationToken cancellationToken)
     {
-        using var response = await SendAsync("twirp/livekit.RoomService/ListRooms", new { names = new[] { roomKey } }, cancellationToken);
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if (!document.RootElement.TryGetProperty("rooms", out var rooms) || rooms.GetArrayLength() == 0) return null;
+        using var response = await SendAsync("ListRooms", new { names = new[] { roomKey } }, roomKey, cancellationToken);
+        using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+        if (!doc.RootElement.TryGetProperty("rooms", out var rooms) || rooms.GetArrayLength() == 0) return null;
         var room = rooms[0];
-        var count = room.TryGetProperty("numParticipants", out var value) && value.TryGetInt32(out var parsed) ? parsed : (int?)null;
-        return new VideoProviderRoomSnapshot(roomKey, count);
+        int? count = (room.TryGetProperty("numParticipants", out var value) || room.TryGetProperty("num_participants", out value))
+            && value.TryGetInt32(out var parsed) ? parsed : null;
+        return new(roomKey, count);
     }
 
-    private async Task<HttpResponseMessage> SendAsync(string path, object body, CancellationToken cancellationToken)
+    private async Task<HttpResponseMessage> SendAsync(string method, object body, string room, CancellationToken ct)
     {
-        if (!settings.IsReady) throw new ServiceUnavailableException("Video provider is not configured.");
-        var client = clients.CreateClient("livekit");
-        var restBase = settings.ServerUrl.TrimEnd('/');
-        if (restBase.StartsWith("wss://", StringComparison.OrdinalIgnoreCase)) restBase = "https://" + restBase[6..];
-        else if (restBase.StartsWith("ws://", StringComparison.OrdinalIgnoreCase)) restBase = "http://" + restBase[5..];
-        client.BaseAddress = new Uri(restBase + "/");
-        using var request = new HttpRequestMessage(HttpMethod.Post, path);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", CreateAdminToken());
+        EnsureReady();
+        var url = new UriBuilder(settings.ServerUrl) { Scheme = "https", Port = -1, Path = "/twirp/livekit.RoomService/" + method };
+        using var request = new HttpRequestMessage(HttpMethod.Post, url.Uri);
+        var grant = method switch
+        {
+            "CreateRoom" => new Dictionary<string, object> { ["roomCreate"] = true },
+            "ListRooms" => new Dictionary<string, object> { ["roomList"] = true },
+            _ => new Dictionary<string, object> { ["roomAdmin"] = true, ["room"] = room }
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", CreateJwt(new() { ["video"] = grant }, clock.GetUtcNow().UtcDateTime.AddMinutes(1)));
         request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-        HttpResponseMessage response;
         try
         {
-            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            var response = await clients.CreateClient("livekit").SendAsync(request, ct);
+            if (response.IsSuccessStatusCode || (method == "DeleteRoom" && response.StatusCode == HttpStatusCode.NotFound)) return response;
+            var status = response.StatusCode;
+            response.Dispose();
+            if (status is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                throw new VideoProviderPermanentException();
+            var code = status is HttpStatusCode.RequestTimeout or HttpStatusCode.GatewayTimeout ? "VIDEO_PROVIDER_TIMEOUT" : "VIDEO_PROVIDER_UNAVAILABLE";
+            throw new ServiceUnavailableException("The video provider is temporarily unavailable.", code);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new ServiceUnavailableException("VIDEO_PROVIDER_TIMEOUT", "VIDEO_PROVIDER_TIMEOUT");
-        }
-        using (response)
-        {
-            if (response.IsSuccessStatusCode) return new HttpResponseMessage(response.StatusCode) { Content = new StringContent(await response.Content.ReadAsStringAsync(cancellationToken)) };
-            var status = response.StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout ? "VIDEO_PROVIDER_TIMEOUT" : "VIDEO_PROVIDER_UNAVAILABLE";
-            throw new ServiceUnavailableException(status, status);
-        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        { throw new ServiceUnavailableException("The video provider timed out.", "VIDEO_PROVIDER_TIMEOUT"); }
+        catch (HttpRequestException)
+        { throw new ServiceUnavailableException("The video provider is temporarily unavailable.", "VIDEO_PROVIDER_UNAVAILABLE"); }
     }
 
-    private string CreateAdminToken() => CreateJwt(new Dictionary<string, object> { ["video"] = new Dictionary<string, object> { ["roomAdmin"] = true, ["roomCreate"] = true, ["roomList"] = true, ["roomRecord"] = false } });
-    private string CreateToken(VideoProviderJoinRequest request) => CreateJwt(new Dictionary<string, object> { ["sub"] = request.ParticipantIdentity, ["name"] = request.ParticipantName, ["video"] = new Dictionary<string, object> { ["roomJoin"] = true, ["room"] = request.RoomKey, ["canPublish"] = true, ["canPublishData"] = true, ["canSubscribe"] = true, ["roomAdmin"] = request.Moderator } }, request.ExpiresAt);
-    private string CreateJwt(Dictionary<string, object> claims, DateTime? expires = null)
+    private void EnsureReady()
     {
-        var header = Base64Url(JsonSerializer.SerializeToUtf8Bytes(new { alg = "HS256", typ = "JWT" }));
-        var payload = new Dictionary<string, object>(claims) { ["iss"] = settings.ApiKey, ["iat"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ["exp"] = new DateTimeOffset(expires ?? DateTime.UtcNow.AddMinutes(5)).ToUnixTimeSeconds() };
-        var encoded = header + "." + Base64Url(JsonSerializer.SerializeToUtf8Bytes(payload));
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(settings.ApiSecret));
-        return encoded + "." + Base64Url(hmac.ComputeHash(Encoding.UTF8.GetBytes(encoded)));
+        if (!settings.Enabled || !settings.IsReady) throw new ServiceUnavailableException("Video is disabled or not configured.", "VIDEO_NOT_ENABLED");
+    }
+    private string SocketUrl() => new UriBuilder(settings.ServerUrl) { Scheme = "wss", Port = -1 }.Uri.ToString().TrimEnd('/');
+    private string CreateJwt(Dictionary<string, object> claims, DateTime expires)
+    {
+        claims["iss"] = settings.ApiKey;
+        claims["iat"] = clock.GetUtcNow().ToUnixTimeSeconds();
+        claims["nbf"] = clock.GetUtcNow().ToUnixTimeSeconds();
+        claims["exp"] = new DateTimeOffset(DateTime.SpecifyKind(expires, DateTimeKind.Utc)).ToUnixTimeSeconds();
+        var data = Base64Url(JsonSerializer.SerializeToUtf8Bytes(new { alg = "HS256", typ = "JWT" })) + "." + Base64Url(JsonSerializer.SerializeToUtf8Bytes(claims));
+        return data + "." + Base64Url(HMACSHA256.HashData(Encoding.UTF8.GetBytes(settings.ApiSecret), Encoding.UTF8.GetBytes(data)));
     }
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
 
-
+internal sealed class VideoProviderPermanentException : Exception;

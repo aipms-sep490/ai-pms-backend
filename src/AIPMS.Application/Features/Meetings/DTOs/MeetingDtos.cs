@@ -82,8 +82,8 @@ public sealed record CreateMeetingRequest(
     string? Minutes = null,
     string? Decisions = null,
     string? Blockers = null,
-    string MeetingDeliveryMode = "ONSITE",
-    string VideoChannel = "NONE");
+    string? MeetingDeliveryMode = null,
+    string? VideoChannel = null);
 
 public sealed record UpdateMeetingRequest(
     string Title,
@@ -96,8 +96,8 @@ public sealed record UpdateMeetingRequest(
     string? Minutes = null,
     string? Decisions = null,
     string? Blockers = null,
-    string MeetingDeliveryMode = "ONSITE",
-    string VideoChannel = "NONE");
+    string? MeetingDeliveryMode = null,
+    string? VideoChannel = null);
 
 public sealed record UpdateMeetingNotesRequest(
     string? MeetingNotes,

@@ -244,6 +244,7 @@ public static class DependencyInjection
         services.AddScoped<Application.Features.Teams.Abstractions.ITeamFormationPolicyProvider, DatabaseTeamFormationPolicyProvider>();
         services.AddScoped<IAuditTrail, DatabaseAuditTrail>();
         services.AddScoped<IPasswordResetNotifier, SmtpPasswordResetNotifier>();
+        services.AddScoped<VideoCleanupProcessor>();
         services.AddVideoMeetings();
 
         return services;

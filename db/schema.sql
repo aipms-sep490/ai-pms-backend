@@ -817,8 +817,8 @@ CREATE TABLE dbo.meetings (
     created_by      BIGINT NOT NULL,
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_meetings_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_meetings_updated_at DEFAULT (SYSUTCDATETIME()),
-    meeting_delivery_mode VARCHAR(20) NOT NULL CONSTRAINT df_meetings_delivery_mode DEFAULT ('ONSITE'),
-    video_channel   VARCHAR(30) NOT NULL CONSTRAINT df_meetings_video_channel DEFAULT ('NONE'),
+    meeting_delivery_mode VARCHAR(20) NULL CONSTRAINT df_meetings_delivery_mode DEFAULT ('ONSITE'),
+    video_channel   VARCHAR(30) NULL CONSTRAINT df_meetings_video_channel DEFAULT ('NONE'),
     CONSTRAINT pk_meetings PRIMARY KEY (id),
     CONSTRAINT ck_meetings_dates CHECK (end_at IS NULL OR end_at >= start_at),
     CONSTRAINT ck_meetings_status CHECK (status IN (N'SCHEDULED', N'COMPLETED', N'CANCELLED')),
@@ -928,7 +928,8 @@ CREATE TABLE dbo.video_provider_cleanup_jobs (
     CONSTRAINT fk_video_cleanup_session FOREIGN KEY(meeting_video_session_id) REFERENCES dbo.meeting_video_sessions(id) ON DELETE CASCADE
 );
 CREATE INDEX ix_video_cleanup_claim ON dbo.video_provider_cleanup_jobs(status,next_attempt_at,lease_until);
-GOCREATE TABLE dbo.deliverables (
+GO
+CREATE TABLE dbo.deliverables (
     id              BIGINT IDENTITY(1,1) NOT NULL,
     project_id      BIGINT NOT NULL,
     milestone_id    BIGINT NULL,

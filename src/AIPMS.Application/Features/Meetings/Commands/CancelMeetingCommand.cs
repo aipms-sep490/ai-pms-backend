@@ -51,6 +51,7 @@ public sealed class CancelMeetingCommandHandler(
             now,
             async cancelled =>
             {
+                if (cleanup != null) await cleanup.EnqueueForMeetingAsync(command.Id, cancellationToken);
                 await audit.RecordAsync(new AuditEntry(
                     actorId,
                     "MEETING_CANCELLED",
@@ -64,7 +65,6 @@ public sealed class CancelMeetingCommandHandler(
             },
             cancellationToken);
 
-        if (cleanup != null) await cleanup.EnqueueForMeetingAsync(command.Id, cancellationToken);
         return result;
     }
 }

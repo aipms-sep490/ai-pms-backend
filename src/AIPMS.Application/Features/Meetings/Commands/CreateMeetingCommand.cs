@@ -50,6 +50,9 @@ public sealed class CreateMeetingCommandHandler(
             }
         }
 
+        var delivery = AIPMS.Application.Features.Meetings.Validators.MeetingDeliveryRules.Legacy(command.Request.Location, command.Request.OnlineUrl);
+        var mode = command.Request.MeetingDeliveryMode ?? delivery.Mode;
+        var channel = command.Request.VideoChannel ?? delivery.Channel;
         var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         var result = await repository.CreateAsync(
             projectId,
@@ -67,6 +70,7 @@ public sealed class CreateMeetingCommandHandler(
             command.Request.Blockers,
             async created =>
             {
+                if (videoMetadata != null) await videoMetadata.SetAsync(created.Id, mode, channel, cancellationToken);
                 await audit.RecordAsync(new AuditEntry(
                     actorId,
                     "MEETING_SCHEDULED",
@@ -90,11 +94,6 @@ public sealed class CreateMeetingCommandHandler(
             },
             cancellationToken);
 
-        if (videoMetadata != null)
-        {
-            await videoMetadata.SetAsync(result.Id, command.Request.MeetingDeliveryMode, command.Request.VideoChannel, cancellationToken);
-            return result with { MeetingDeliveryMode = command.Request.MeetingDeliveryMode, VideoChannel = command.Request.VideoChannel };
-        }
-        return result;
+        return videoMetadata is null ? result : result with { MeetingDeliveryMode = mode, VideoChannel = channel };
     }
 }
