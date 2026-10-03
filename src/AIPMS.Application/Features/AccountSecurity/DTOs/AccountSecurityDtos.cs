@@ -19,7 +19,8 @@ public sealed record UserAccountDto(
     DateTime? LastLoginAt,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    IReadOnlyCollection<string> Roles);
+    IReadOnlyCollection<string> Roles,
+    string? ConcurrencyToken = null);
 
 public sealed record CreateUserAccountRequest(
     long? DepartmentId,
@@ -48,7 +49,9 @@ public sealed record SecurityRoleDto(
     bool IsSystemRole,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    IReadOnlyCollection<SecurityPermissionDto> Permissions);
+    IReadOnlyCollection<SecurityPermissionDto> Permissions,
+    bool IsAssignableGlobalRole = false,
+    string AssignmentKind = "RESOURCE");
 
 public sealed record SecurityPermissionDto(
     long Id,
@@ -108,7 +111,7 @@ internal static class AccountSecurityDtoMapper
             user.LastLoginAt,
             user.CreatedAt,
             user.UpdatedAt,
-            user.Roles);
+            user.Roles, user.ConcurrencyToken);
 
     public static SecurityPermissionDto ToDto(this SecurityPermission permission) =>
         new(
@@ -129,7 +132,10 @@ internal static class AccountSecurityDtoMapper
             role.IsSystemRole,
             role.CreatedAt,
             role.UpdatedAt,
-            role.Permissions.Select(static permission => permission.ToDto()).ToArray());
+            role.Permissions.Select(static permission => permission.ToDto()).ToArray(),
+            IsGlobalRole(role.Code), IsGlobalRole(role.Code) ? "GLOBAL" : "RESOURCE");
+
+    private static bool IsGlobalRole(string code) => code is "ADMIN" or "DEPARTMENT_STAFF" or "LECTURER" or "STUDENT";
 
     public static AuditRecordDto ToDto(this AuditRecord record) =>
         new(

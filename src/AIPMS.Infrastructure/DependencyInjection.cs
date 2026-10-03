@@ -186,6 +186,10 @@ public static class DependencyInjection
         services.AddScoped<IRolePermissionRepository, AccountSecurityRepository>();
         services.AddScoped<IAuditLogRepository, AccountSecurityRepository>();
         services.AddScoped<IProjectAccessService, ProjectAccessService>();
+        services.AddScoped<AIPMS.Application.Features.Projects.Abstractions.IProjectGovernanceService,
+            Services.Projects.ProjectGovernanceService>();
+        services.AddScoped<AIPMS.Application.Features.Calendar.Abstractions.ICalendarService,
+            Services.Projects.CalendarService>();
         services.AddScoped<IProjectExecutionGuard, ProjectExecutionGuard>();
         services.AddScoped<IProjectActivationService, ProjectActivationService>();
         services.AddScoped<IAcademicStructureRepository, AcademicStructureRepository>();
@@ -212,6 +216,8 @@ public static class DependencyInjection
         services.AddScoped<Application.Features.Topics.Services.TopicWorkflow>();
         services.AddScoped<Application.Features.Topics.Abstractions.ITopicSelectionGuard, Application.Features.Topics.Services.TopicSelectionGuard>();
         services.AddScoped<IEvaluationDraftRepository, EvaluationDraftRepository>();
+        services.AddScoped<AIPMS.Application.Features.Evaluations.Abstractions.IEvaluationAssignmentAccessService,
+            Services.Projects.EvaluationAssignmentAccessService>();
         services.AddScoped<IEvaluationSchemeService, EvaluationSchemeService>();
         services.AddScoped<Application.Features.Semesters.Abstractions.IPeriodPolicyService, PeriodPolicyService>();
         services.AddScoped<IProjectResultRepository, ProjectResultRepository>();

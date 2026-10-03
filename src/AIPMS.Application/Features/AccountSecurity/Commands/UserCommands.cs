@@ -310,6 +310,9 @@ public sealed class AssignUserRoleCommandHandler(
         var role = await roleRepository.GetRoleAsync(request.RoleId, cancellationToken)
             ?? throw new NotFoundException("Role", request.RoleId);
 
+        if (role.Code is not (AppRoles.Admin or AppRoles.DepartmentStaff or AppRoles.Lecturer or AppRoles.Student))
+            throw new ConflictException("Resource roles must be assigned through their project or evaluation workflow.");
+
         if (await userRepository.UserHasRoleAsync(
             request.UserId, role.Code, cancellationToken))
         {

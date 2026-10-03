@@ -71,6 +71,8 @@ public sealed class AcademicProfileVerificationTests
             Task.FromResult(new PagedResult<AcademicProfileDto>([Current], page, pageSize, 1));
         public Task<AcademicProfileDto> SetStatusAsync(long userId, string status, long reviewerId, string? reason, DateTime now, CancellationToken ct = default)
         { Current = Current with { Status = status, ReviewedBy = reviewerId, ReviewedAt = now, RejectionReason = reason }; return Task.FromResult(Current); }
+        public Task<AcademicProfileDto> UpdateAcademicScopeAsync(long userId, long? departmentId, long? majorId, string expectedToken, long actorId, DateTime now, CancellationToken ct = default)
+        { Current = Current with { DepartmentId = departmentId, MajorId = majorId, Status = "PENDING", ConcurrencyToken = now.ToString("O") }; return Task.FromResult(Current); }
         public Task<bool> IsVerifiedAsync(long userId, CancellationToken ct = default) => Task.FromResult(Current.Status == "VERIFIED");
     }
 
