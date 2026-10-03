@@ -34,4 +34,6 @@ Only active project participants can join. Meeting creator, current leader, and 
 
 Presence is evidence. Existing Meeting attendance remains the official attendance workflow. Ending a room never completes a Meeting.
 
+Frontend integration details, capability handling, token handling, and the acceptance checklist are in [video-meeting-frontend-integration.md](video-meeting-frontend-integration.md).
+
 Apply `db/changes/20261002_add_video_meetings.sql` before enabling `VideoMeeting__Enabled`. Run provider smoke tests only against an isolated database and LiveKit staging project. Recording, transcription, and AI minutes are not part of this MVP.
