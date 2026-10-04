@@ -8,6 +8,7 @@ public static class WebApplicationExtensions
 {
     public static WebApplication UseApiPipeline(this WebApplication app)
     {
+        app.UseForwardedHeaders();
         app.UseSerilogRequestLogging();
         app.UseMiddleware<ExceptionHandlingMiddleware>();
         app.UseSwagger();

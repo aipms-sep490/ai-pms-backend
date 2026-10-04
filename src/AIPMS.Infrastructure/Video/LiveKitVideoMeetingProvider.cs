@@ -57,7 +57,8 @@ internal sealed class LiveKitVideoMeetingProvider(IHttpClientFactory clients, IO
         using var request = new HttpRequestMessage(HttpMethod.Post, url.Uri);
         var grant = method switch
         {
-            "CreateRoom" => new Dictionary<string, object> { ["roomCreate"] = true },
+            // LiveKit requires roomCreate for both creating and deleting rooms.
+            "CreateRoom" or "DeleteRoom" => new Dictionary<string, object> { ["roomCreate"] = true },
             "ListRooms" => new Dictionary<string, object> { ["roomList"] = true },
             _ => new Dictionary<string, object> { ["roomAdmin"] = true, ["room"] = room }
         };

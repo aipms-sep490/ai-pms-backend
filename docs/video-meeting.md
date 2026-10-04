@@ -34,6 +34,31 @@ Only active project participants can join. Meeting creator, current leader, and 
 
 Presence is evidence. Existing Meeting attendance remains the official attendance workflow. Ending a room never completes a Meeting.
 
+## LiveKit webhook authentication
+
+The anonymous webhook endpoint authenticates each request using LiveKit's signed
+JWT in `Authorization`. The raw compact JWT is supported; `Bearer` remains
+accepted for compatibility. Validation requires HS256, the configured API key as
+issuer, a valid signature, expiration and not-before (10 seconds of clock
+tolerance). The `sha256` claim must match standard Base64 SHA-256 of the exact
+UTF-8 body, not a reserialized JSON document or a hex digest. Invalid signatures
+return 401 before any event persistence. The database's audit payload hash remains
+hex; this is separate from the provider's signed claim.
+
+Room creation and deletion use LiveKit's server-side `roomCreate` grant. This
+grant is never added to participant join tokens. Room-specific `roomAdmin` alone
+does not authorize LiveKit `DeleteRoom`.
+
+Provider-only smoke testing can use `scripts/smoke-livekit-webhook.py` with an
+explicit private config path and `--execute`. It creates and deletes one uniquely
+named room, verifies cleanup, and does not create an academic Meeting. A failed
+cleanup can be retried with `--cleanup-room` and that exact smoke room name.
+Configured webhooks still write event metadata in the target backend database;
+use an isolated backend by default, or explicitly authorize shared-database smoke.
+
+Protocol references: [LiveKit WebhookReceiver](https://github.com/livekit/node-sdks/blob/main/packages/livekit-server-sdk/src/WebhookReceiver.ts)
+and [RoomServiceClient](https://github.com/livekit/node-sdks/blob/main/packages/livekit-server-sdk/src/RoomServiceClient.ts).
+
 Frontend integration details, capability handling, token handling, and the acceptance checklist are in [video-meeting-frontend-integration.md](video-meeting-frontend-integration.md).
 
 Apply `db/changes/20261002_add_video_meetings.sql` before enabling `VideoMeeting__Enabled`. Run provider smoke tests only against an isolated database and LiveKit staging project. Recording, transcription, and AI minutes are not part of this MVP.

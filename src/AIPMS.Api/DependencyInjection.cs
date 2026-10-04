@@ -22,6 +22,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApi(this IServiceCollection services)
     {
+        services.AddTrustedProxyHeaders();
         services.AddOptions<ScheduledNotificationSettings>()
             .BindConfiguration(ScheduledNotificationSettings.SectionName)
             .ValidateDataAnnotations().ValidateOnStart();
