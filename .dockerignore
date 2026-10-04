@@ -1,0 +1,14 @@
+**
+!global.json
+!Directory.Build.props
+!src/
+!src/**
+src/**/bin/**
+src/**/obj/**
+src/**/appsettings*.json
+src/**/.env*
+src/**/*.pfx
+src/**/*.pem
+src/**/*.key
+src/**/logs/**
+src/**/private-files/**

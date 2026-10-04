@@ -1,0 +1,62 @@
+name: aipms
+
+services:
+  api:
+    image: aipms-api:${AIPMS_IMAGE_TAG:-local}
+    container_name: aipms-api
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      ASPNETCORE_HTTP_PORTS: "8080"
+    ports:
+      - "127.0.0.1:5088:8080"
+    volumes:
+      - type: bind
+        source: ${AIPMS_CONFIG_FILE:?Set AIPMS_CONFIG_FILE to the private WSL JSON file}
+        target: /app/appsettings.Staging.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AIPMS_FILES_PATH:?Set AIPMS_FILES_PATH to the existing shared upload directory}
+        target: /var/lib/aipms/files
+        bind:
+          create_host_path: false
+      - keys:/var/lib/aipms/keys
+      - logs:/var/log/aipms
+    networks:
+      tunnel:
+        aliases: [aipms-api]
+      database: {}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, --show-error, http://127.0.0.1:8080/api/v1/system]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  keys: {}
+  logs: {}
+
+networks:
+  tunnel:
+    external: true
+    name: go-exe_goexe-net
+  database:
+    external: true
+    name: aipms-data

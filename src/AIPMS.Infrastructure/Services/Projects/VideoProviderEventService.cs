@@ -1,26 +1,23 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AIPMS.Application.Common.Exceptions;
-using AIPMS.Application.Features.Meetings.Video;
+using AIPMS.Infrastructure.Video;
 using AIPMS.Application.Features.Meetings.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Options;
 using System.Threading.Tasks;
 using AsyncTask = System.Threading.Tasks.Task;
 
 namespace AIPMS.Infrastructure.Services.Projects;
 
-internal sealed class VideoProviderEventService(AipmsDbContext db, IOptions<VideoMeetingOptions> options, TimeProvider clock) : IVideoProviderEventService
+internal sealed class VideoProviderEventService(AipmsDbContext db, LiveKitWebhookVerifier verifier, TimeProvider clock) : IVideoProviderEventService
 {
-    private readonly VideoMeetingOptions settings = options.Value;
     public async AsyncTask ProcessLiveKitAsync(string rawBody, string? authorization, CancellationToken ct)
     {
-        if (!settings.Enabled || string.IsNullOrWhiteSpace(authorization) || !authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) || !Verify(authorization[7..], rawBody)) throw new UnauthorizedException("Invalid provider signature.");
+        if (!verifier.Verify(authorization, rawBody)) throw new UnauthorizedException("Invalid provider signature.");
         using var doc = JsonDocument.Parse(rawBody); var root = doc.RootElement;
         var eventId = root.TryGetProperty("id", out var id) ? id.GetString() : null; var type = root.TryGetProperty("event", out var ev) ? ev.GetString() : null;
         if (string.IsNullOrWhiteSpace(eventId) || string.IsNullOrWhiteSpace(type)) throw new ValidationException(new Dictionary<string, string[]> { ["event"] = ["Provider event id and type are required."] });
@@ -50,22 +47,6 @@ internal sealed class VideoProviderEventService(AipmsDbContext db, IOptions<Vide
         await db.SaveChangesAsync(ct);
     }
 
-    private bool Verify(string token, string rawBody)
-    {
-        try
-        {
-            var handler = new JwtSecurityTokenHandler(); var jwt = handler.ReadJwtToken(token);
-            if (jwt.Header.Alg is not "HS256" || jwt.Issuer != settings.ApiKey || jwt.ValidTo <= DateTime.UtcNow) return false;
-            var separator = jwt.RawData.LastIndexOf('.'); if (separator <= 0) return false;
-            var signing = jwt.RawData[..separator]; var signature = jwt.RawData[(separator + 1)..];
-            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(settings.ApiSecret));
-            var expected = Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(signing))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-            if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(signature))) return false;
-            var expectedBodyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawBody))).ToLowerInvariant();
-            return jwt.Payload.TryGetValue("sha256", out var bodyHash) && string.Equals(bodyHash?.ToString(), expectedBodyHash, StringComparison.OrdinalIgnoreCase);
-        }
-        catch { return false; }
-    }
     private static string? ReadRoom(JsonElement root) => root.TryGetProperty("room", out var room) && room.TryGetProperty("name", out var name) ? name.GetString() : null;
     private static string? ReadParticipant(JsonElement root) => root.TryGetProperty("participant", out var p) && p.TryGetProperty("identity", out var id) ? id.GetString() : null;
     private static string? ReadConnection(JsonElement root) => root.TryGetProperty("participant", out var p) && p.TryGetProperty("sid", out var id) ? id.GetString() : null;
