@@ -5,6 +5,9 @@
 The core two-person video flow works against real LiveKit Cloud from the current
 frontend. Full video acceptance is still blocked by out-of-order presence handling.
 
+This is the original pre-fix result. The subsequent presence fix and retest are
+documented in [video-presence-ordering.md](video-presence-ordering.md).
+
 - Frontend: `develop` at `1b365a8`, served at `http://localhost:5173`.
 - Backend base: `origin/develop` at `dde3ceb`, plus the local credentialed-CORS fix
   on `fix/frontend-credentialed-cors`.

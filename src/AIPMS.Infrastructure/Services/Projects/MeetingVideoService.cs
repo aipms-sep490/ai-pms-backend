@@ -159,10 +159,17 @@ internal sealed class MeetingVideoService(AipmsDbContext db, ICurrentUser curren
     public async Task<VideoPresenceDto> GetPresenceAsync(long meetingId, CancellationToken ct)
     {
         await LoadAsync(meetingId, ct);
-        var rows = await db.MeetingVideoPresenceSessions.AsNoTracking().Where(x => x.MeetingVideoSession.MeetingId == meetingId).ToListAsync(ct);
+        var now = Now;
+        var raw = await db.MeetingVideoPresenceSessions.AsNoTracking().Where(x => x.MeetingVideoSession.MeetingId == meetingId)
+            .Select(x => new { x.UserId, x.JoinedAt, x.LeftAt,
+                Boundary = x.MeetingVideoSession.EndedAt ?? (x.MeetingVideoSession.Status == "ENDED" || x.MeetingVideoSession.Status == "FAILED"
+                    ? (DateTime?)x.MeetingVideoSession.UpdatedAt : null) }).ToListAsync(ct);
+        // Exclude impossible legacy evidence and never let an ended room accrue more time.
+        var rows = raw.Where(x => (x.LeftAt == null || x.LeftAt >= x.JoinedAt) && (x.Boundary == null || x.JoinedAt <= x.Boundary))
+            .Select(x => new { x.UserId, x.JoinedAt, LeftAt = x.Boundary is { } end && (x.LeftAt == null || x.LeftAt > end) ? end : x.LeftAt }).ToList();
         return new(meetingId, rows.GroupBy(x => x.UserId).Select(g => new VideoPresenceParticipantDto(g.Key, g.Min(x => (DateTime?)x.JoinedAt),
             g.Any(x => x.LeftAt == null) ? null : g.Max(x => x.LeftAt),
-            g.Sum(x => Math.Max(0, (long)((x.LeftAt ?? Now) - x.JoinedAt).TotalSeconds)), g.Count())).ToList());
+            g.Sum(x => Math.Max(0, (long)((x.LeftAt ?? now) - x.JoinedAt).TotalSeconds)), g.Count())).ToList());
     }
 
     private async Task<(Meeting, long)> LockAndLoad(long id, CancellationToken ct)
