@@ -19,7 +19,8 @@ public sealed class ConfigureCorsOptions(IOptions<CorsSettings> settings,
         {
             policy.WithOrigins(settings.Value.AllowedOrigins)
                 .AllowAnyHeader()
-                .AllowAnyMethod();
+                .AllowAnyMethod()
+                .AllowCredentials();
         });
     }
 }
