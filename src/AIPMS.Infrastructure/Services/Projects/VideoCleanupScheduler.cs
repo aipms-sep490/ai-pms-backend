@@ -11,7 +11,7 @@ internal sealed class VideoCleanupScheduler(AipmsDbContext db, TimeProvider cloc
     public async Task EnqueueForMeetingAsync(long meetingId, CancellationToken ct)
     {
         var now = clock.GetUtcNow().UtcDateTime;
-        var sessions = await db.MeetingVideoSessions.Where(x => x.MeetingId == meetingId).ToListAsync(ct);
+        var sessions = await db.MeetingVideoSessions.FromSqlInterpolated($"SELECT * FROM dbo.meeting_video_sessions WITH (UPDLOCK,HOLDLOCK) WHERE meeting_id={meetingId}").ToListAsync(ct);
         foreach (var session in sessions)
         {
             if (session.Status is "CREATED" or "LIVE")
@@ -21,6 +21,11 @@ internal sealed class VideoCleanupScheduler(AipmsDbContext db, TimeProvider cloc
                 session.UpdatedAt = now;
                 session.ConcurrencyToken = Guid.NewGuid();
             }
+            var cutoff = session.EndedAt ?? session.UpdatedAt;
+            await db.MeetingVideoPresenceSessions.Where(x => x.MeetingVideoSessionId == session.Id
+                    && (x.LeftAt == null || x.LeftAt > cutoff))
+                .ExecuteUpdateAsync(x => x.SetProperty(p => p.LeftAt, p => p.JoinedAt > cutoff ? p.JoinedAt : cutoff)
+                    .SetProperty(p => p.DisconnectReason, "session_ended").SetProperty(p => p.UpdatedAt, now), ct);
             var job = await db.VideoProviderCleanupJobs.SingleOrDefaultAsync(x => x.MeetingVideoSessionId == session.Id, ct);
             if (job is null)
             {

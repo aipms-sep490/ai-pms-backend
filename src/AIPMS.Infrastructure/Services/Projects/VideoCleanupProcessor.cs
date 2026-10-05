@@ -75,6 +75,10 @@ public sealed class VideoCleanupProcessor(AipmsDbContext db, IVideoMeetingProvid
         var status = error is null ? "SUCCEEDED" : permanent || job.AttemptCount >= 5 ? "FAILED" : "PENDING";
         var retry = now.AddSeconds(Math.Min(240, 30 * Math.Pow(2, job.AttemptCount - 1)));
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // Match lifecycle/webhook ordering: session before cleanup job and presence.
+        var session = await db.MeetingVideoSessions.FromSqlInterpolated($"SELECT * FROM dbo.meeting_video_sessions WITH (UPDLOCK,HOLDLOCK) WHERE id={job.MeetingVideoSessionId}")
+            .AsNoTracking().SingleAsync(ct);
+        var cutoff = session.EndedAt ?? (session.Status is "FAILED" or "ENDED" ? session.UpdatedAt : now);
         var changed = await db.VideoProviderCleanupJobs.Where(x => x.Id == job.Id && x.Status == "PROCESSING" && x.LeaseToken == job.LeaseToken && x.LeaseUntil > now)
             .ExecuteUpdateAsync(x => x.SetProperty(p => p.Status, status).SetProperty(p => p.LastErrorCode, error)
                 .SetProperty(p => p.NextAttemptAt, retry).SetProperty(p => p.CompletedAt, status == "PENDING" ? (DateTime?)null : now)
@@ -82,8 +86,10 @@ public sealed class VideoCleanupProcessor(AipmsDbContext db, IVideoMeetingProvid
         if (changed == 1)
         {
             if (error is null)
-                await db.MeetingVideoPresenceSessions.Where(x => x.MeetingVideoSessionId == job.MeetingVideoSessionId && x.LeftAt == null)
-                    .ExecuteUpdateAsync(x => x.SetProperty(p => p.LeftAt, now).SetProperty(p => p.DisconnectReason, "provider_cleanup").SetProperty(p => p.UpdatedAt, now), ct);
+                await db.MeetingVideoPresenceSessions.Where(x => x.MeetingVideoSessionId == job.MeetingVideoSessionId
+                        && (x.LeftAt == null || x.LeftAt > cutoff))
+                    .ExecuteUpdateAsync(x => x.SetProperty(p => p.LeftAt, p => p.JoinedAt > cutoff ? p.JoinedAt : cutoff)
+                        .SetProperty(p => p.DisconnectReason, "provider_cleanup").SetProperty(p => p.UpdatedAt, now), ct);
             else await audit.RecordAsync(new(null, "VIDEO_CLEANUP_FAILED", "MEETING_VIDEO_SESSION", job.MeetingVideoSessionId,
                 new Dictionary<string, object?> { ["errorCode"] = error, ["attempt"] = job.AttemptCount, ["status"] = status }), ct);
         }
