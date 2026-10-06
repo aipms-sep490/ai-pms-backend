@@ -52,6 +52,12 @@ internal sealed class MeetingReminderWorker(IServiceScopeFactory scopes, IOption
             var delivery = await queue.ClaimNextAsync(clock.GetUtcNow().UtcDateTime, ct, IMeetingReminderService.NotificationType);
             if (delivery is null) break;
             if (!delivery.ShouldSend) continue;
+            if (delivery.AttemptCount > settings.MaxAttempts)
+            {
+                await queue.MarkFailedAsync(delivery.RecipientId, clock.GetUtcNow().UtcDateTime,
+                    "Meeting reminder attempt budget exhausted.", true, ct, delivery.AttemptCount);
+                continue;
+            }
             var sent = await scope.ServiceProvider.GetRequiredService<INotificationEmailSender>().TrySendAsync(delivery, ct);
             if (sent) await queue.MarkSentAsync(delivery.RecipientId, clock.GetUtcNow().UtcDateTime, ct, delivery.AttemptCount);
             else await queue.MarkFailedAsync(delivery.RecipientId,

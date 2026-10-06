@@ -22,7 +22,7 @@ public sealed class MeetingReminderWorkerTests
         Assert.Equal(new long[] { 0, 2, 3 }, state.Cursors);
         Assert.Equal(new long[] { 2, 3, 4 }, state.Sent);
         Assert.Equal(new[] { (3L, 1) }, state.MarkedSent);
-        Assert.Equal(new[] { (2L, false, Now.AddSeconds(30), 1), (4L, true, Now.AddSeconds(240), 5) }, state.Failures);
+        Assert.Equal(new[] { (2L, false, Now.AddSeconds(30), 1), (4L, true, Now.AddSeconds(240), 5), (5L, true, Now, 6) }, state.Failures);
     }
 
     [Fact]
@@ -45,7 +45,8 @@ public sealed class MeetingReminderWorkerTests
             new NotificationEmailDelivery(1, 1, "nobody@example.test", "Test", "Reminder", "Body", false),
             new NotificationEmailDelivery(2, 1, "nobody@example.test", "Test", "Reminder", "Body"),
             new NotificationEmailDelivery(3, 1, "nobody@example.test", "Test", "Reminder", "Body"),
-            new NotificationEmailDelivery(4, 5, "nobody@example.test", "Test", "Reminder", "Body")
+            new NotificationEmailDelivery(4, 5, "nobody@example.test", "Test", "Reminder", "Body"),
+            new NotificationEmailDelivery(5, 6, "nobody@example.test", "Test", "Reminder", "Body")
         });
         public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }

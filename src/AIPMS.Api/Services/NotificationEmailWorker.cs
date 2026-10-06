@@ -22,6 +22,12 @@ internal sealed class NotificationEmailWorker(IServiceScopeFactory scopes,
                     var delivery = await queue.ClaimNextAsync(clock.GetUtcNow().UtcDateTime, stoppingToken);
                     if (delivery is null) break;
                     if (!delivery.ShouldSend) continue;
+                    if (delivery.AttemptCount > settings.MaxAttempts)
+                    {
+                        await queue.MarkFailedAsync(delivery.RecipientId, clock.GetUtcNow().UtcDateTime,
+                            "Notification email attempt budget exhausted.", true, stoppingToken, delivery.AttemptCount);
+                        continue;
+                    }
                     var sent = await scope.ServiceProvider.GetRequiredService<INotificationEmailSender>()
                         .TrySendAsync(delivery, stoppingToken);
                     if (sent) await queue.MarkSentAsync(delivery.RecipientId, clock.GetUtcNow().UtcDateTime, stoppingToken, delivery.AttemptCount);
