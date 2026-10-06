@@ -227,6 +227,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationInboxRepository, NotificationInboxRepository>();
         services.AddScoped<IWorkflowNotificationWriter, WorkflowNotificationWriter>();
         services.AddScoped<IScheduledNotificationService, ScheduledNotificationService>();
+        services.AddScoped<IMeetingReminderService, MeetingReminderService>();
         services.AddScoped<INotificationEmailQueue, NotificationEmailQueue>();
         services.AddSingleton<INotificationEmailSender, SmtpNotificationEmailSender>();
         services.AddScoped<IContributionRepository, ContributionRepository>();

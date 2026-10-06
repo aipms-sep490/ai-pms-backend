@@ -2,7 +2,9 @@
 
 The API can run a background sweep for active projects in an active semester and
 organization. It uses the server UTC clock and the existing notification inbox.
-There is no public endpoint to trigger a sweep and no external email/push delivery.
+There is no public endpoint to trigger a sweep. SMTP email delivery is optional;
+there is no external push delivery. Meeting reminders run in a separate worker:
+see [Meeting email reminders](meeting-email-reminders.md).
 
 The optional SMTP notification worker is configured separately with
 `NotificationEmail__Enabled=true`. It queues every in-app notification after its

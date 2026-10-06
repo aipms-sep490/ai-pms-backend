@@ -21,9 +21,10 @@ internal sealed class NotificationEmailWorker(IServiceScopeFactory scopes,
                     var queue = scope.ServiceProvider.GetRequiredService<INotificationEmailQueue>();
                     var delivery = await queue.ClaimNextAsync(clock.GetUtcNow().UtcDateTime, stoppingToken);
                     if (delivery is null) break;
+                    if (!delivery.ShouldSend) continue;
                     var sent = await scope.ServiceProvider.GetRequiredService<INotificationEmailSender>()
                         .TrySendAsync(delivery, stoppingToken);
-                    if (sent) await queue.MarkSentAsync(delivery.RecipientId, clock.GetUtcNow().UtcDateTime, stoppingToken);
+                    if (sent) await queue.MarkSentAsync(delivery.RecipientId, clock.GetUtcNow().UtcDateTime, stoppingToken, delivery.AttemptCount);
                     else
                     {
                         var permanent = delivery.AttemptCount >= settings.MaxAttempts;
@@ -31,7 +32,7 @@ internal sealed class NotificationEmailWorker(IServiceScopeFactory scopes,
                         var retryAt = clock.GetUtcNow().UtcDateTime.AddMinutes(delayMinutes);
                         await queue.MarkFailedAsync(delivery.RecipientId, retryAt,
                             permanent ? "SMTP delivery failed after the maximum attempts." : "SMTP delivery failed or is not configured.",
-                            permanent, stoppingToken);
+                            permanent, stoppingToken, delivery.AttemptCount);
                     }
                 }
             }
