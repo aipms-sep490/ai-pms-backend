@@ -35,6 +35,8 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
                 // Local User Secrets must not start external-delivery workers in endpoint tests.
                 ["NotificationEmail:Enabled"] = "false",
                 ["ScheduledNotifications:Enabled"] = "false",
+                ["MeetingReminders:Enabled"] = "false",
+                ["VideoMeeting:Enabled"] = "false",
                 ["GoogleAuth:Enabled"] = "false",
                 ["PasswordRecovery:Enabled"] = "false",
                 ["Observability:LogFilePath"] = Path.Combine(

@@ -123,11 +123,13 @@ public sealed class ExternalIntegrationTests
         Assert.Equal("AI-PMS", transport.SenderName); Assert.Contains("body", transport.Body);
     }
 
-    [Fact]
-    public void SMTP_configuration_requires_tls_credentials_when_enabled()
+    [Theory]
+    [InlineData("NotificationEmail:Enabled")]
+    [InlineData("MeetingReminders:Enabled")]
+    public void SMTP_configuration_requires_tls_credentials_when_enabled(string feature)
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        { ["NotificationEmail:Enabled"] = "true" }).Build();
+        { [feature] = "true" }).Build();
         var result = new IntegrationConfigurationValidator(config).Validate(null, new EmailSettings { Host = "smtp.example.com", SenderAddress = "bad" });
         Assert.True(result.Failed);
         Assert.True(new IntegrationConfigurationValidator(config).Validate(null, EmailSettings()).Succeeded);

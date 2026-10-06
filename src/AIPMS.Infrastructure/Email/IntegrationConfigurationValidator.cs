@@ -13,6 +13,7 @@ internal sealed class IntegrationConfigurationValidator(IConfiguration config) :
             && !GoogleDriveSettings.Read(config).IsValid)
             return ValidateOptionsResult.Fail("GoogleDrive requires credentials, FolderId and a valid timeout.");
         var notifications = bool.TryParse(config["NotificationEmail:Enabled"], out var enabled) && enabled;
+        notifications |= bool.TryParse(config["MeetingReminders:Enabled"], out var meetingsEnabled) && meetingsEnabled;
         if (!notifications && !settings.IsConfigured && string.IsNullOrWhiteSpace(settings.Username)
             && string.IsNullOrWhiteSpace(settings.Password) && string.IsNullOrWhiteSpace(settings.Host)
             && string.IsNullOrWhiteSpace(settings.SenderAddress)) return ValidateOptionsResult.Success;

@@ -6,13 +6,14 @@ public sealed record NotificationEmailDelivery(
     string Email,
     string RecipientName,
     string Subject,
-    string Body);
+    string Body,
+    bool ShouldSend = true);
 
 public interface INotificationEmailQueue
 {
-    Task<NotificationEmailDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct);
-    Task MarkSentAsync(long recipientId, DateTime nowUtc, CancellationToken ct);
-    Task MarkFailedAsync(long recipientId, DateTime nextAttemptAtUtc, string error, bool permanent, CancellationToken ct);
+    Task<NotificationEmailDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct, string? notificationType = null);
+    Task MarkSentAsync(long recipientId, DateTime nowUtc, CancellationToken ct, int? expectedAttempt = null);
+    Task MarkFailedAsync(long recipientId, DateTime nextAttemptAtUtc, string error, bool permanent, CancellationToken ct, int? expectedAttempt = null);
 }
 
 public interface INotificationEmailSender

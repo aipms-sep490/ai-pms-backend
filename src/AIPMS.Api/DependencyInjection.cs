@@ -29,6 +29,10 @@ public static class DependencyInjection
         services.AddOptions<NotificationEmailSettings>()
             .BindConfiguration(NotificationEmailSettings.SectionName)
             .ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<MeetingReminderSettings>()
+            .BindConfiguration(MeetingReminderSettings.SectionName)
+            .ValidateDataAnnotations().ValidateOnStart();
+        services.AddHostedService<Services.MeetingReminderWorker>();
         services.AddHostedService<Services.ScheduledNotificationWorker>();
         services.AddHostedService<Services.NotificationEmailWorker>();
         services.AddHostedService<Services.PasswordRecoveryWorker>();
