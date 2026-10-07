@@ -38,6 +38,10 @@ public static class DependencyInjection
         services.AddHostedService<Services.PasswordRecoveryWorker>();
         services.AddHostedService<Services.GoogleChallengeCleanupWorker>();
         services.AddHostedService<Services.VideoCleanupWorker>();
+        services.AddHostedService<Services.ChatOutboxWorker>();
+        services.AddSingleton<Hubs.ChatConnections>();
+        services.AddScoped<Hubs.ChatDelivery>();
+        services.AddSingleton<Hubs.ChatHubFilter>();
         services.AddOptions<CorsSettings>()
             .BindConfiguration(CorsSettings.SectionName)
             .ValidateDataAnnotations()
@@ -47,6 +51,14 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         services.AddHttpContextAccessor();
+        services.AddScoped<AIPMS.Application.Features.Chat.Abstractions.IChatCredentialGuard, ChatCredentialGuard>();
+        services.AddRateLimiter(options => options.AddPolicy("chat-read", context =>
+            RateLimitPartition.GetFixedWindowLimiter(context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = 180, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })));
+        services.AddRateLimiter(options => options.AddPolicy("chat-write", context =>
+            RateLimitPartition.GetFixedWindowLimiter(context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = context.RequestServices.GetRequiredService<IOptions<AIPMS.Application.Features.Chat.ChatSettings>>().Value.SendsPerMinute,
+                    Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })));
         services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
         services.AddScoped<IRequestContext, HttpRequestContext>();
         services.AddScoped<IAuthorizationHandler, ProjectAccessAuthorizationHandler>();
@@ -160,6 +172,7 @@ public static class DependencyInjection
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = async (context, cancellationToken) =>
             {
+                context.HttpContext.Response.Headers.RetryAfter = "60";
                 var isAuth = context.HttpContext.Request.Path.StartsWithSegments("/api/v1/auth");
                 await Results.Problem(
                     statusCode: StatusCodes.Status429TooManyRequests,
