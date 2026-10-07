@@ -42,6 +42,13 @@ internal sealed class ConfigureJwtBearerOptions(IOptions<JwtSettings> settings)
         };
         options.Events = new JwtBearerEvents
         {
+            OnMessageReceived = context =>
+            {
+                var token = context.Request.Query["access_token"];
+                if (context.HttpContext.Request.Path.Equals("/hubs/chat", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(token)) context.Token = token;
+                return Task.CompletedTask;
+            },
             OnTokenValidated = async context =>
             {
                 var userIdValue = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);

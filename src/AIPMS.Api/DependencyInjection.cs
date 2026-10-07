@@ -38,6 +38,10 @@ public static class DependencyInjection
         services.AddHostedService<Services.PasswordRecoveryWorker>();
         services.AddHostedService<Services.GoogleChallengeCleanupWorker>();
         services.AddHostedService<Services.VideoCleanupWorker>();
+        services.AddHostedService<Services.ChatOutboxWorker>();
+        services.AddSingleton<Hubs.ChatConnections>();
+        services.AddScoped<Hubs.ChatDelivery>();
+        services.AddSingleton<Hubs.ChatHubFilter>();
         services.AddOptions<CorsSettings>()
             .BindConfiguration(CorsSettings.SectionName)
             .ValidateDataAnnotations()
