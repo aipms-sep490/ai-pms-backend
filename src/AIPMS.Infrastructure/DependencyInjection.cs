@@ -48,6 +48,12 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
+        services.AddOptions<AIPMS.Application.Features.Chat.ChatSettings>().BindConfiguration("Chat").ValidateDataAnnotations().ValidateOnStart();
+        services.AddScoped<Chat.ChatAccessService>();
+        services.AddScoped<AIPMS.Application.Features.Chat.IChatAccessService>(sp => sp.GetRequiredService<Chat.ChatAccessService>());
+        services.AddScoped<AIPMS.Application.Features.Chat.IChatService, Chat.ChatService>();
+        services.AddScoped<AIPMS.Application.Features.Chat.IChatOutbox, Chat.ChatOutboxQueue>();
+        services.AddSingleton<AIPMS.Application.Features.Chat.IChatWakeSignal, Chat.ChatWakeSignal>();
         services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ExecutionConcurrencyBehavior<,>));
         services.AddScoped<IMeetingGovernanceService, MeetingGovernanceService>();
         services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
