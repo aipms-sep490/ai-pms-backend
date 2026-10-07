@@ -47,7 +47,7 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         services.AddHttpContextAccessor();
-        services.AddScoped<AIPMS.Application.Features.Chat.IChatCredentialGuard, ChatCredentialGuard>();
+        services.AddScoped<AIPMS.Application.Features.Chat.Abstractions.IChatCredentialGuard, ChatCredentialGuard>();
         services.AddRateLimiter(options => options.AddPolicy("chat-read", context =>
             RateLimitPartition.GetFixedWindowLimiter(context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous",
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = 180, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })));

@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Chat;
+using AIPMS.Application.Features.Chat.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using Microsoft.Data.SqlClient;

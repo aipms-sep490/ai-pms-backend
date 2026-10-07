@@ -1,5 +1,6 @@
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Chat;
+using AIPMS.Application.Features.Chat.Abstractions;
 using AIPMS.Infrastructure.Chat;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.IntegrationTests.FinalSubmissions;

@@ -1,6 +1,7 @@
 using System.Data;
 using System.Threading.Tasks;
 using AIPMS.Application.Features.Chat;
+using AIPMS.Application.Features.Chat.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using Microsoft.EntityFrameworkCore;

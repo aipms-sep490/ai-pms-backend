@@ -2,6 +2,7 @@ using System.Security.Claims;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Chat;
+using AIPMS.Application.Features.Chat.Abstractions;
 
 namespace AIPMS.Api.Security;
 

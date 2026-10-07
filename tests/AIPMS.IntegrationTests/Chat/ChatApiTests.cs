@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using AIPMS.Application.Features.Chat;
+using AIPMS.Application.Features.Chat.Abstractions;
 using AIPMS.IntegrationTests.FinalSubmissions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
