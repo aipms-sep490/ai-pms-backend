@@ -8,10 +8,10 @@ Implementation status: **DEPART_DONE for backend code and isolated local accepta
 
 | Order | PR | Branch / implementation commit |
 | --- | --- | --- |
-| 1 | [#102](https://github.com/aipms-sep490/ai-pms-backend/pull/102) | `feature/depart-governance-certificate` / `6d57178` |
-| 2 | [#103](https://github.com/aipms-sep490/ai-pms-backend/pull/103) | `feature/depart-assignment-capabilities` / `6dd4d6d` |
-| 3 | [#104](https://github.com/aipms-sep490/ai-pms-backend/pull/104) | `feature/depart-authorized-export` / `ee0a97a` |
-| 4 | [#105](https://github.com/aipms-sep490/ai-pms-backend/pull/105) | `feature/depart-be-completion` / tested package `ac330a5` |
+| 1 | [#102](https://github.com/aipms-sep490/ai-pms-backend/pull/102) | `feature/depart-governance-certificate` / `9de7deb` |
+| 2 | [#103](https://github.com/aipms-sep490/ai-pms-backend/pull/103) | `feature/depart-assignment-capabilities` / `36a2cd1` |
+| 3 | [#104](https://github.com/aipms-sep490/ai-pms-backend/pull/104) | `feature/depart-authorized-export` / `dd1fcfe` |
+| 4 | [#105](https://github.com/aipms-sep490/ai-pms-backend/pull/105) | `feature/depart-be-completion` / tested package `085138b` |
 
 The PRs are stacked so each diff shows only its own changes. After the preceding PR merges, retarget the next PR to `develop` and require its CI/review again. Local acceptance does not constitute merge or deployment approval.
 

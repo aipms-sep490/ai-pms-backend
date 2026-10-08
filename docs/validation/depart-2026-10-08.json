@@ -1,8 +1,8 @@
 {
   "date": "2026-10-08",
   "baseline": "94a6fcb0dac789d1fa7bcea7389144d803b508ae",
-  "implementationHead": "ee0a97a",
-  "acceptancePackage": "ac330a5",
+  "implementationHead": "dd1fcfe",
+  "acceptancePackage": "085138b",
   "scope": "Local backend acceptance; CI and deployment tracked separately",
   "releaseBuildWarnings": 0,
   "releaseBuildErrors": 0,
