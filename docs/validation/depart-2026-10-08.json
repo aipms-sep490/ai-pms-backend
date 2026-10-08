@@ -1,0 +1,140 @@
+{
+  "date": "2026-10-08",
+  "baseline": "94a6fcb0dac789d1fa7bcea7389144d803b508ae",
+  "implementationHead": "dd1fcfe",
+  "acceptancePackage": "085138b",
+  "scope": "Local backend acceptance; CI and deployment tracked separately",
+  "releaseBuildWarnings": 0,
+  "releaseBuildErrors": 0,
+  "unitTestsPassed": 994,
+  "uniqueIntegrationTestsPassed": 539,
+  "regressionSuites": [
+    {
+      "suite": "TeamEndpointTests",
+      "passed": true,
+      "executed": 92,
+      "failed": 0
+    },
+    {
+      "suite": "InterdisciplinaryWorkflowTests",
+      "passed": true,
+      "executed": 28,
+      "failed": 0
+    },
+    {
+      "suite": "SupervisorRequestEndpointTests",
+      "passed": true,
+      "executed": 60,
+      "failed": 0
+    },
+    {
+      "suite": "SupervisorAssignmentEndpointTests",
+      "passed": true,
+      "executed": 18,
+      "failed": 0
+    },
+    {
+      "suite": "PolicyEvaluationEndpointTests",
+      "passed": true,
+      "executed": 13,
+      "failed": 0
+    },
+    {
+      "suite": "FinalSubmissionEndpointTests",
+      "passed": true,
+      "executed": 36,
+      "failed": 0
+    },
+    {
+      "suite": "DashboardRepositoryTests",
+      "passed": true,
+      "executed": 2,
+      "failed": 0
+    },
+    {
+      "suite": "GovernanceMigrationTests",
+      "passed": true,
+      "executed": 1,
+      "failed": 0
+    },
+    {
+      "suite": "DepartOpenApiTests",
+      "passed": true,
+      "executed": 3,
+      "failed": 0
+    },
+    {
+      "suite": "ProjectRepositoryTests",
+      "passed": true,
+      "executed": 20,
+      "failed": 0
+    },
+    {
+      "suite": "ProjectEndpointTests",
+      "passed": true,
+      "executed": 31,
+      "failed": 0
+    },
+    {
+      "suite": "ProjectRequirementsEndpointTests",
+      "passed": true,
+      "executed": 20,
+      "failed": 0
+    },
+    {
+      "suite": "DeliverableEndpointTests",
+      "passed": true,
+      "executed": 25,
+      "failed": 0
+    },
+    {
+      "suite": "EvaluationDraftEndpointTests",
+      "passed": true,
+      "executed": 87,
+      "failed": 0
+    },
+    {
+      "suite": "AcademicStructureEndpointTests",
+      "passed": true,
+      "executed": 6,
+      "failed": 0
+    },
+    {
+      "suite": "SemesterEndpointTests",
+      "passed": true,
+      "executed": 23,
+      "failed": 0
+    },
+    {
+      "suite": "WorkflowContextTests",
+      "passed": true,
+      "executed": 13,
+      "failed": 0
+    }
+  ],
+  "candidateSuite": {
+    "passed": 29,
+    "failed": 0
+  },
+  "finalContractChecks": {
+    "failed": 0,
+    "passed": 20,
+    "note": "After final parser, candidate metadata and upload OpenAPI changes; overlaps regression. Earlier capacity expectations were corrected and all 29 candidate tests rerun."
+  },
+  "migrationRerunPassed": true,
+  "fullApiLifecycles": true,
+  "sharedDatabase": {
+    "passed": 45,
+    "checks": 45,
+    "mutationPerformed": false,
+    "mode": "read-only"
+  },
+  "migrationDecision": "NO_DB_CHANGE",
+  "frontendChanged": false,
+  "deployed": false,
+  "eligibilityRegression": {
+    "failed": 0,
+    "passed": 33,
+    "note": "Includes one certificate test already in regression; 32 additional eligibility tests. Fixtures capture major-to-department mappings before profile changes."
+  }
+}

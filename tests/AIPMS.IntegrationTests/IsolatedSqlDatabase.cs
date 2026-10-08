@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
+using DotNet.Testcontainers.Builders;
 using Testcontainers.MsSql;
 
 namespace AIPMS.IntegrationTests;
@@ -20,7 +21,12 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
         {
             if (string.IsNullOrWhiteSpace(source))
             {
-                container = new MsSqlBuilder().WithImage("mcr.microsoft.com/mssql/server:2022-latest").Build();
+                // The current SQL Server image ships sqlcmd18 under /opt/mssql-tools18;
+                // wait on the database port and let the connection retry below verify readiness.
+                container = new MsSqlBuilder()
+                    .WithImage("mcr.microsoft.com/mssql/server:2022-latest")
+                    .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(1433))
+                    .Build();
                 await container.StartAsync(ct);
                 source = container.GetConnectionString();
             }

@@ -18,7 +18,7 @@ IF EXISTS (SELECT 1 FROM (VALUES ('meeting_decisions'),('meeting_action_items'),
     ('final_submissions'),('project_results'),('project_result_policies'),('project_major_requirements'),
     ('team_major_responsibilities'),('task_disciplines'),('project_evidence')) t(name)
     WHERE OBJECT_ID('dbo.'+t.name,'U') IS NULL) THROW 51011, 'Workflow table missing.', 1;
-IF EXISTS (SELECT 1 FROM (VALUES ('uq_evaluation_assignments_active'),('ix_meeting_decisions_meeting'),('ix_meeting_action_items_meeting'),
+IF EXISTS (SELECT 1 FROM (VALUES ('uq_scoped_evaluation_assignment'),('uq_legacy_evaluation_assignment'),('ix_meeting_decisions_meeting'),('ix_meeting_action_items_meeting'),
     ('ix_result_policy_items_assignment'),('ux_supervisor_assignments_one_primary_active')) t(name)
     WHERE NOT EXISTS (SELECT 1 FROM sys.indexes i WHERE i.name=t.name AND i.is_disabled=0)) THROW 51012, 'Workflow index missing.', 1;
 IF EXISTS (SELECT 1 FROM dbo.users WHERE email LIKE N'%@e2e.invalid' AND (password_hash LIKE N'%Aipms%' OR password_hash LIKE N'%password%')) THROW 51008, 'Plaintext-like password detected.', 1;
