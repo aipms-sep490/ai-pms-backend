@@ -20,7 +20,7 @@ public sealed class SupervisorAssignmentHandlerTests
         var handler = new EndSupervisorAssignmentCommandHandler(fixture.Workflow);
         var result = await handler.Handle(new(1, " Finished "), default);
         Assert.NotNull(result.EndedAt);
-        Assert.Equal(result, await handler.Handle(new(1, "New reason"), default));
+        Assert.Equivalent(result, await handler.Handle(new(1, "New reason"), default));
         Assert.Equal(1, fixture.Repository.Writes);
         var audit = Assert.Single(fixture.Audit.Entries);
         Assert.Equal("SUPERVISOR_ASSIGNMENT_ENDED", audit.Action);
@@ -42,14 +42,31 @@ public sealed class SupervisorAssignmentHandlerTests
     }
 
     [Theory]
-    [InlineData("ACTIVE")]
+    [InlineData("COMPLETED")]
+    [InlineData("ARCHIVED")]
     [InlineData("FINAL_SUBMISSION")]
-    public async Task Even_admin_cannot_end_an_unfinished_project(string status)
+    public async Task Even_admin_cannot_end_assignments_outside_active_execution(string status)
     {
         var f = new Fixture(AppRoles.Admin);
         f.Repository.Assignment = f.Repository.Assignment with { ProjectStatus = status };
         await Assert.ThrowsAsync<ConflictException>(() => new EndSupervisorAssignmentCommandHandler(f.Workflow).Handle(new(1, "Done"), default));
         Assert.Equal(0, f.Repository.Writes);
+    }
+
+    [Fact]
+    public async Task Unknown_scope_blocks_owner_and_admin_mutation_and_capabilities()
+    {
+        foreach (var role in new[] { AppRoles.Lecturer, AppRoles.Admin })
+        {
+            var f = new Fixture(role);
+            f.Repository.Assignment = f.Repository.Assignment with { HasKnownAcademicScope = false };
+            var detail = await f.Workflow.GetAsync(1, default);
+            Assert.All(detail.AllowedActions!, a => Assert.False(a.Allowed));
+            Assert.Contains("ACADEMIC_SCOPE_UNKNOWN", detail.Reasons!);
+            await Assert.ThrowsAsync<ConflictException>(() => f.Workflow.EndAsync(1, "Done", default));
+            Assert.Equal(0, f.Repository.Writes);
+            Assert.Empty(f.Audit.Entries);
+        }
     }
 
     [Fact]
@@ -118,7 +135,7 @@ public sealed class SupervisorAssignmentHandlerTests
     private sealed class Repository : ISupervisorAssignmentRepository
     {
         public SupervisorAssignmentModel Assignment { get; set; } = new(1, 10, 5, 20, "Lecturer", 2, true,
-            DateTime.UnixEpoch, null, "COMPLETED");
+            DateTime.UnixEpoch, null, "ACTIVE") { HasKnownAcademicScope = true };
         public bool DepartmentMatches { get; set; } = true;
         public bool InTransaction { get; private set; }
         public int Writes { get; private set; }
@@ -137,6 +154,7 @@ public sealed class SupervisorAssignmentHandlerTests
         public Task<SupervisorAssignmentModel?> GetAsync(long id, CancellationToken ct) => Task.FromResult<SupervisorAssignmentModel?>(Assignment);
         public Task<bool> ProjectExistsAsync(long id, CancellationToken ct) => Task.FromResult(true);
         public Task<bool> IsProjectDepartmentAsync(long id, long department, CancellationToken ct) => Task.FromResult(DepartmentMatches);
+        public Task<bool> IsAssignmentDepartmentAsync(long id, long department, CancellationToken ct) => Task.FromResult(DepartmentMatches);
         public Task<PagedResult<SupervisorAssignmentModel>> SearchAsync(SupervisorAssignmentSearch search, CancellationToken ct)
         {
             LastSearch = search;

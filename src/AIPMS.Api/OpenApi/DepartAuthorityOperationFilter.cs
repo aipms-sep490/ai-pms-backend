@@ -17,5 +17,8 @@ public sealed class DepartAuthorityOperationFilter : IOperationFilter
             && (path.EndsWith("/result", StringComparison.Ordinal) || path.EndsWith("/result/preview", StringComparison.Ordinal)))
             operation.Description = "Cross-department project publication requires ADMIN. Staff may publish a student result only in their frozen department scope. "
                 + "Project preview reports publication blockers; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.";
+        if (path.StartsWith("api/v1/supervisor-assignments/", StringComparison.Ordinal) && path.EndsWith("/end", StringComparison.Ordinal))
+            operation.Description = "Only ACTIVE projects allow ending an unended assignment. Owner lecturer, platform Admin or the assignment's responsible department may end it. "
+                + "COMPLETED/ARCHIVED projects are read-only. Replacement is separately restricted to the responsible department.";
     }
 }

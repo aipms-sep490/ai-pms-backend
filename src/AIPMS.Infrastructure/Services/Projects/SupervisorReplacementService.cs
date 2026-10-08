@@ -18,7 +18,8 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed class SupervisorReplacementService(AipmsDbContext context, ISupervisorRequestRepository requests,
     ISupervisorCandidateRepository candidates, ISupervisorProfileRepository profiles,
-    SupervisorAccessService access, IAuditTrail audit, TimeProvider clock, IPublisher events) : ISupervisorReplacementService
+    SupervisorAccessService access, IAuditTrail audit, TimeProvider clock, IPublisher events,
+    SupervisorAssignmentWorkflow assignmentWorkflow) : ISupervisorReplacementService
 {
     public Task<SupervisorAssignmentDto> ReplaceAsync(long assignmentId, long supervisorProfileId, string reason, CancellationToken ct) =>
         requests.InTransactionAsync(async token =>
@@ -33,11 +34,10 @@ internal sealed class SupervisorReplacementService(AipmsDbContext context, ISupe
                 await context.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.supervisor_profiles WITH (UPDLOCK, HOLDLOCK) WHERE id = {profileId}").ToListAsync(token);
             await requests.LockSupervisorAndProjectAsync(supervisorProfileId, old.ProjectId, token);
             old = await context.SupervisorAssignments.SingleAsync(a => a.Id == assignmentId, token);
-            var scope = await ProjectAcademicScopeReader.ReadAsync(context, old.ProjectId, token);
-            var authority = old.IsPrimary ? scope.LeadDepartmentId
-                : await context.Majors.Where(m => m.Id == old.MajorId && scope.MajorIds.Contains(m.Id))
-                    .Select(m => (long?)m.DepartmentId).SingleOrDefaultAsync(token);
-            if (!old.IsPrimary && old.MajorId is long frozenMajor && scope.MajorDepartmentIds is not null)
+            var scope = await ProjectAcademicScopeReader.ReadAsync(context, old.ProjectId, token, requireFrozenScope: true);
+            long? authority = old.IsPrimary && old.AssignmentType == "PRIMARY" ? scope.LeadDepartmentId : null;
+            if (!old.IsPrimary && old.AssignmentType == "DISCIPLINE_MENTOR" && old.MajorId is long frozenMajor
+                && scope.MajorIds.Contains(frozenMajor) && scope.MajorDepartmentIds is not null)
                 authority = scope.MajorDepartmentIds.TryGetValue(frozenMajor, out var frozenDepartment) ? frozenDepartment : null;
             if (authority is null || actor.DepartmentId != authority || !scope.DepartmentIds.Contains(authority.Value))
                 throw new ForbiddenException("Only the responsible department can replace this assignment.");
@@ -46,7 +46,7 @@ internal sealed class SupervisorReplacementService(AipmsDbContext context, ISupe
             if (priorReplacement is not null)
             {
                 if (priorReplacement.SupervisorProfileId == supervisorProfileId && old.EndReason == reason.Trim())
-                    return priorReplacement.ToDto();
+                    return await assignmentWorkflow.GetAsync(priorReplacement.Id, token);
                 throw new ConflictException("This assignment was already replaced.");
             }
             var now = clock.GetUtcNow().UtcDateTime;
@@ -100,6 +100,6 @@ internal sealed class SupervisorReplacementService(AipmsDbContext context, ISupe
             await audit.RecordAsync(new AuditEntry(actor.UserId, "SUPERVISOR_REPLACED", "SUPERVISOR_ASSIGNMENT", replacement.Id,
                 new Dictionary<string, object?> { ["previousAssignmentId"] = old.Id, ["after"] = result.ToDto(), ["reason"] = reason.Trim() }), token);
             await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.SupervisorReplaced, replacement.Id, actor.UserId, now), token);
-            return result.ToDto();
+            return await assignmentWorkflow.GetAsync(result.Id, token);
         }, ct);
 }

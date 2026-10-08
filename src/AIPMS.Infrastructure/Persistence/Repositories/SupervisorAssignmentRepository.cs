@@ -6,6 +6,8 @@ using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Application.Features.Supervisors.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Mappers;
+using AIPMS.Infrastructure.Persistence.Models;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -47,9 +49,25 @@ internal sealed class SupervisorAssignmentRepository(AipmsDbContext context,
         await requests.LockSupervisorAndProjectAsync(keys.SupervisorProfileId, keys.ProjectId, ct);
     }
 
-    public Task<SupervisorAssignmentModel?> GetAsync(long assignmentId, CancellationToken ct) =>
-        context.SupervisorAssignments.AsNoTracking().Where(a => a.Id == assignmentId)
+    public async Task<SupervisorAssignmentModel?> GetAsync(long assignmentId, CancellationToken ct)
+    {
+        var assignment = await context.SupervisorAssignments.AsNoTracking().Where(a => a.Id == assignmentId)
             .Select(SupervisorAssignmentMapper.Projection).SingleOrDefaultAsync(ct);
+        if (assignment is null) return null;
+        return (await WithScopeAsync([assignment], ct))[0];
+    }
+
+    private async Task<SupervisorAssignmentModel[]> WithScopeAsync(IReadOnlyList<SupervisorAssignmentModel> assignments, CancellationToken ct)
+    {
+        var projectIds = assignments.Select(a => a.ProjectId).Distinct().ToArray();
+        var snapshots = context.Set<ProjectRegistrationSnapshot>().AsNoTracking();
+        var rows = await snapshots.Where(s => projectIds.Contains(s.ProjectId)
+            && !snapshots.Any(newer => newer.ProjectId == s.ProjectId && newer.Id > s.Id))
+            .Select(s => new { s.ProjectId, s.SnapshotJson }).ToListAsync(ct);
+        var known = rows.Where(s => ProjectAcademicScopeReader.ParseEvidence(s.SnapshotJson) is not null)
+            .Select(s => s.ProjectId).ToHashSet();
+        return assignments.Select(a => a with { HasKnownAcademicScope = known.Contains(a.ProjectId) }).ToArray();
+    }
 
     public Task<bool> ProjectExistsAsync(long projectId, CancellationToken ct) =>
         context.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, ct);
@@ -57,6 +75,41 @@ internal sealed class SupervisorAssignmentRepository(AipmsDbContext context,
     public async Task<bool> IsProjectDepartmentAsync(long projectId, long departmentId, CancellationToken ct) =>
         (await AIPMS.Infrastructure.Services.Projects.ProjectAcademicScopeReader.ReadAsync(context, projectId, ct))
             .DepartmentIds.Contains(departmentId);
+
+    public async Task<bool> CanReplaceAsync(long assignmentId, long departmentId, CancellationToken ct)
+    {
+        return await context.SupervisorAssignments.AnyAsync(a => a.Id == assignmentId && a.EndedAt == null
+            && a.Project.Status == "ACTIVE", ct) && await IsAssignmentDepartmentAsync(assignmentId, departmentId, ct);
+    }
+
+    public async Task<bool> IsAssignmentDepartmentAsync(long assignmentId, long departmentId, CancellationToken ct)
+    {
+        var assignment = await context.SupervisorAssignments.AsNoTracking()
+            .Where(a => a.Id == assignmentId)
+            .Select(a => new { a.ProjectId, a.IsPrimary, a.AssignmentType, a.MajorId, a.EndedAt, a.Project.Status })
+            .SingleOrDefaultAsync(ct);
+        if (assignment is null) return false;
+        var scope = await AIPMS.Infrastructure.Services.Projects.ProjectAcademicScopeReader.ReadAsync(context, assignment.ProjectId, ct, requireFrozenScope: true);
+        long? authority = assignment.IsPrimary && assignment.AssignmentType == "PRIMARY" ? scope.LeadDepartmentId : null;
+        if (!assignment.IsPrimary && assignment.AssignmentType == "DISCIPLINE_MENTOR"
+            && assignment.MajorId is long major && scope.MajorIds.Contains(major))
+            authority = scope.MajorDepartmentIds is not null && scope.MajorDepartmentIds.TryGetValue(major, out var frozen)
+                ? frozen : null;
+        return authority == departmentId && scope.DepartmentIds.Contains(departmentId);
+    }
+
+    public async Task<IReadOnlySet<long>> GetReplaceableIdsAsync(long projectId, long departmentId, CancellationToken ct)
+    {
+        var scope = await AIPMS.Infrastructure.Services.Projects.ProjectAcademicScopeReader.ReadAsync(context, projectId, ct, requireFrozenScope: true);
+        if (!scope.DepartmentIds.Contains(departmentId)) return new HashSet<long>();
+        var majors = scope.MajorDepartmentIds?.Where(m => m.Value == departmentId && scope.MajorIds.Contains(m.Key))
+            .Select(m => m.Key).ToArray() ?? [];
+        return (await context.SupervisorAssignments.AsNoTracking().Where(a => a.ProjectId == projectId
+            && a.EndedAt == null && a.Project.Status == "ACTIVE"
+            && ((a.IsPrimary && a.AssignmentType == "PRIMARY" && scope.LeadDepartmentId == departmentId)
+                || (!a.IsPrimary && a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId.HasValue && majors.Contains(a.MajorId.Value))))
+            .Select(a => a.Id).ToListAsync(ct)).ToHashSet();
+    }
 
     public async Task<PagedResult<SupervisorAssignmentModel>> SearchAsync(SupervisorAssignmentSearch search, CancellationToken ct)
     {
@@ -71,7 +124,7 @@ internal sealed class SupervisorAssignmentRepository(AipmsDbContext context,
         var items = await query.OrderByDescending(a => a.AssignedAt).ThenByDescending(a => a.Id)
             .Skip((search.Page - 1) * search.PageSize).Take(search.PageSize)
             .Select(SupervisorAssignmentMapper.Projection).ToListAsync(ct);
-        return new(items, search.Page, search.PageSize, count);
+        return new(await WithScopeAsync(items, ct), search.Page, search.PageSize, count);
     }
 
     public async Task<SupervisorAssignmentModel> EndAsync(long assignmentId, DateTime now, CancellationToken ct, long? actorId = null, string? reason = null)

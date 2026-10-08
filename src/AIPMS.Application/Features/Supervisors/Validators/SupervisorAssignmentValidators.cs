@@ -18,6 +18,17 @@ public sealed class GetSupervisorAssignmentQueryValidator : AbstractValidator<Ge
     public GetSupervisorAssignmentQueryValidator() => RuleFor(r => r.AssignmentId).GreaterThan(0);
 }
 
+public sealed class GetSupervisorReplacementCandidatesQueryValidator : AbstractValidator<GetSupervisorReplacementCandidatesQuery>
+{
+    public GetSupervisorReplacementCandidatesQueryValidator()
+    {
+        RuleFor(r => r.AssignmentId).GreaterThan(0);
+        RuleFor(r => r.Page).InclusiveBetween(1, 1_000_000);
+        RuleFor(r => r.PageSize).InclusiveBetween(1, 100);
+        RuleFor(r => r.Search).MaximumLength(200);
+    }
+}
+
 public sealed class GetSupervisorAssignmentsQueryValidator : AbstractValidator<GetSupervisorAssignmentsQuery>
 {
     public GetSupervisorAssignmentsQueryValidator()

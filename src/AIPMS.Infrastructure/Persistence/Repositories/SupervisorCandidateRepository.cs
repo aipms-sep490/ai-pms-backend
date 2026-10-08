@@ -55,6 +55,7 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
                 && p.User.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Lecturer)
                 && !p.SupervisorRequests.Any(r => r.ProjectId == search.ProjectId && r.Status == "PENDING"
                     && r.AssignmentType == search.AssignmentType && r.MajorId == search.MajorId));
+        if (search.ExcludedProfileId.HasValue) profiles = profiles.Where(p => p.Id != search.ExcludedProfileId);
         if (!string.IsNullOrWhiteSpace(search.Search))
             profiles = profiles.Where(p => p.User.FullName.Contains(search.Search));
         if (!string.IsNullOrWhiteSpace(search.Expertise))
@@ -71,8 +72,9 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
             {
                 Profile = p,
                 AlreadyAssigned = p.SupervisorAssignments.Any(a => a.EndedAt == null && a.ProjectId == search.ProjectId),
-                Active = p.SupervisorAssignments.Where(a => a.EndedAt == null).Select(a => a.ProjectId).Distinct().Count(),
-                SemesterActive = p.SupervisorAssignments.Where(a => a.EndedAt == null
+                Active = p.SupervisorAssignments.Where(a => a.EndedAt == null && a.Project.Status != "COMPLETED" && a.Project.Status != "ARCHIVED")
+                    .Select(a => a.ProjectId).Distinct().Count(),
+                SemesterActive = p.SupervisorAssignments.Where(a => a.EndedAt == null && a.Project.Status != "COMPLETED" && a.Project.Status != "ARCHIVED"
                     && a.Project.Team.AcademicSemesterId == search.AcademicSemesterId)
                     .Select(a => a.ProjectId).Distinct().Count()
             })
@@ -83,6 +85,6 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
         var items = await candidates.OrderBy(c => c.Profile.User.FullName).ThenBy(c => c.Profile.Id)
             .Skip((search.Page - 1) * search.PageSize).Take(search.PageSize).ToListAsync(ct);
         return new(items.Select(c => new SupervisorCandidateModel(c.Profile.ToApplication(),
-            c.Profile.MaxActiveProjects, c.Active, c.SemesterActive)).ToArray(), search.Page, search.PageSize, count);
+            c.Profile.MaxActiveProjects, c.Active, c.SemesterActive, c.AlreadyAssigned)).ToArray(), search.Page, search.PageSize, count);
     }
 }
