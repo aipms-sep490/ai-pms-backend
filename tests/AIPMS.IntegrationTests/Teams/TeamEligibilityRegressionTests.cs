@@ -348,7 +348,7 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
                 DateTime.UtcNow.AddDays(-1),
                 DateTime.UtcNow.AddDays(7),
                 [new RegisteredMemberDto(s.Students[0], "Leader", s.SeMajorId, true)],
-                [deptAId]
+                [deptAId], MajorDepartmentIds: new Dictionary<long, long> { [s.SeMajorId] = deptAId }
             );
 
             var snapshot = new ProjectRegistrationSnapshot
@@ -529,7 +529,7 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
                 DateTime.UtcNow.AddDays(-1),
                 DateTime.UtcNow.AddDays(7),
                 [new RegisteredMemberDto(s.Students[0], "Leader", s.SeMajorId, true)],
-                [deptAId, deptBId]
+                [deptAId, deptBId], MajorDepartmentIds: new Dictionary<long, long> { [s.SeMajorId] = deptAId, [deptBMajorId] = deptBId }
             );
 
             var snapshot = new ProjectRegistrationSnapshot
@@ -696,7 +696,7 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
                 DateTime.UtcNow.AddDays(-1),
                 DateTime.UtcNow.AddDays(7),
                 [new RegisteredMemberDto(s.Students[0], "Leader", s.SeMajorId, true)],
-                [deptAId]
+                [deptAId], MajorDepartmentIds: new Dictionary<long, long> { [s.SeMajorId] = deptAId }
             );
 
             var snapshot = new ProjectRegistrationSnapshot
@@ -844,7 +844,7 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
                 DateTime.UtcNow.AddDays(-1),
                 DateTime.UtcNow.AddDays(7),
                 [new RegisteredMemberDto(s.Students[0], "Leader", s.SeMajorId, true)],
-                [deptAId]
+                [deptAId], MajorDepartmentIds: new Dictionary<long, long> { [s.SeMajorId] = deptAId }
             );
 
             var snapshot = new ProjectRegistrationSnapshot
@@ -1022,7 +1022,7 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
                 DateTime.UtcNow.AddDays(-1),
                 DateTime.UtcNow.AddDays(7),
                 [new RegisteredMemberDto(s.Students[0], "Leader", s.SeMajorId, true)],
-                [deptAId, deptBId]
+                [deptAId, deptBId], MajorDepartmentIds: new Dictionary<long, long> { [s.SeMajorId] = deptAId, [deptBMajorId] = deptBId }
             );
 
             var snapshot = new ProjectRegistrationSnapshot
