@@ -8,6 +8,8 @@ public sealed record SupervisorAssignmentModel(long Id, long ProjectId, long Sup
     string AssignmentType = "PRIMARY", long? MajorId = null, long? AssignedBy = null,
     long? EndedBy = null, string? EndReason = null, long? ReplacesAssignmentId = null)
 {
+    public bool HasKnownAcademicScope { get; init; }
+
     public SupervisorAssignmentDto ToDto() => new(Id, ProjectId, SupervisorProfileId,
         SupervisorUserId, SupervisorName, SupervisorRequestId, IsPrimary, AssignedAt, EndedAt,
         AssignmentType, MajorId, AssignedBy, EndedBy, EndReason, ReplacesAssignmentId);

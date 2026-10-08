@@ -23,6 +23,12 @@ public sealed class SupervisorAssignmentsController(ISender sender) : Controller
     public async Task<ActionResult<SupervisorAssignmentDto>> Get(long assignmentId, CancellationToken ct) =>
         Ok(await sender.Send(new GetSupervisorAssignmentQuery(assignmentId), ct));
 
+    [HttpGet("{assignmentId:long}/replacement-candidates")]
+    [ProducesResponseType<PagedResult<SupervisorReplacementCandidateDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<SupervisorReplacementCandidateDto>>> ReplacementCandidates(long assignmentId,
+        [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) =>
+        Ok(await sender.Send(new GetSupervisorReplacementCandidatesQuery(assignmentId, search, page, pageSize), ct));
+
     [HttpGet("/api/v1/projects/{projectId:long}/supervisor-assignments")]
     [ProducesResponseType<PagedResult<SupervisorAssignmentDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<SupervisorAssignmentDto>>> ProjectAssignments(long projectId,

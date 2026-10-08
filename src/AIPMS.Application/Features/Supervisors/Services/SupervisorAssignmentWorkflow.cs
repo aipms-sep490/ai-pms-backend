@@ -18,7 +18,7 @@ public sealed class SupervisorAssignmentWorkflow(ISupervisorAssignmentRepository
         var assignment = await RequireAssignmentAsync(assignmentId, ct);
         // Former supervisors retain access to their own assignment record, not the project workspace.
         if (!IsOwner(actor, assignment)) await RequireProjectReaderAsync(actor, assignment.ProjectId, ct);
-        return assignment.ToDto();
+        return await WithCapabilitiesAsync(actor, assignment, ct);
     }
 
     public async Task<PagedResult<SupervisorAssignmentDto>> ListAsync(long? projectId, string? status,
@@ -37,7 +37,16 @@ public sealed class SupervisorAssignmentWorkflow(ISupervisorAssignmentRepository
             throw new ForbiddenException("Only lecturers can view their own assignments.");
         var result = await repository.SearchAsync(new(projectId, projectId.HasValue ? null : actor.UserId,
             status, page, pageSize), ct);
-        return new(result.Items.Select(a => a.ToDto()).ToArray(), result.Page, result.PageSize, result.TotalCount);
+        IReadOnlySet<long> replaceable = new HashSet<long>();
+        if (projectId is long scopeProject && actor.HasActiveAcademicScope && actor.Roles.Contains(AppRoles.DepartmentStaff)
+            && actor.DepartmentId is long departmentId)
+        {
+            replaceable = await repository.GetReplaceableIdsAsync(scopeProject, departmentId, ct);
+        }
+        var items = new List<SupervisorAssignmentDto>(result.Items.Count);
+        foreach (var item in result.Items) items.Add(await WithCapabilitiesAsync(actor, item, ct,
+            replaceable.Contains(item.Id)));
+        return new(items, result.Page, result.PageSize, result.TotalCount);
     }
 
     public Task<SupervisorAssignmentDto> EndAsync(long assignmentId, string reason, CancellationToken ct) =>
@@ -49,11 +58,12 @@ public sealed class SupervisorAssignmentWorkflow(ISupervisorAssignmentRepository
             var permitted = actor.Roles.Contains(AppRoles.Admin) || IsOwner(actor, before)
                 || (actor.HasActiveAcademicScope && actor.Roles.Contains(AppRoles.DepartmentStaff)
                     && actor.DepartmentId is long departmentId
-                    && await repository.IsProjectDepartmentAsync(before.ProjectId, departmentId, token));
+                    && await repository.IsAssignmentDepartmentAsync(before.Id, departmentId, token));
             if (!permitted) throw new ForbiddenException("You cannot end this supervisor assignment.");
-            if (before.EndedAt.HasValue) return before.ToDto();
-            if (before.ProjectStatus is not ("COMPLETED" or "ARCHIVED"))
-                throw new ConflictException("Only assignments on completed or archived projects can be ended. Use the replacement endpoint for ACTIVE projects.");
+            if (before.EndedAt.HasValue) return await WithCapabilitiesAsync(actor, before, token);
+            if (!before.HasKnownAcademicScope) throw new ConflictException("ACADEMIC_SCOPE_UNKNOWN");
+            if (before.ProjectStatus != "ACTIVE")
+                throw new ConflictException("Only assignments on ACTIVE projects can be ended. Completed and archived projects are read-only.");
             var now = clock.GetUtcNow().UtcDateTime;
             if (now < before.AssignedAt)
                 throw new ConflictException("The assignment cannot end before its assigned time.");
@@ -61,7 +71,7 @@ public sealed class SupervisorAssignmentWorkflow(ISupervisorAssignmentRepository
             await audit.RecordAsync(new AuditEntry(actor.UserId, "SUPERVISOR_ASSIGNMENT_ENDED", "SUPERVISOR_ASSIGNMENT",
                 assignmentId, new Dictionary<string, object?> { ["before"] = before.ToDto(),
                     ["after"] = after.ToDto(), ["reason"] = reason.Trim() }), token);
-            return after.ToDto();
+            return await WithCapabilitiesAsync(actor, after, token);
         }, ct);
 
     private static bool IsOwner(SupervisorAccount actor, SupervisorAssignmentModel assignment) =>
@@ -76,4 +86,33 @@ public sealed class SupervisorAssignmentWorkflow(ISupervisorAssignmentRepository
 
     private async Task<SupervisorAssignmentModel> RequireAssignmentAsync(long id, CancellationToken ct) =>
         await repository.GetAsync(id, ct) ?? throw new NotFoundException("SupervisorAssignment", id);
+
+    private async Task<SupervisorAssignmentDto> WithCapabilitiesAsync(SupervisorAccount actor,
+        SupervisorAssignmentModel assignment, CancellationToken ct, bool? replaceable = null)
+    {
+        var reasons = new List<string>();
+        var canReplace = false;
+        var canEnd = false;
+        var isStaff = actor.HasActiveAcademicScope && actor.Roles.Contains(AppRoles.DepartmentStaff);
+        if (!assignment.HasKnownAcademicScope) reasons.Add("ACADEMIC_SCOPE_UNKNOWN");
+        if (assignment.EndedAt.HasValue) reasons.Add("ASSIGNMENT_ENDED");
+        if (assignment.ProjectStatus is "COMPLETED" or "ARCHIVED") reasons.Add("PROJECT_READ_ONLY");
+        if (isStaff && assignment.HasKnownAcademicScope && assignment.ProjectStatus == "ACTIVE" && !assignment.EndedAt.HasValue)
+        {
+            // Replacement authority is ultimately revalidated by the mutation service; this read model only exposes a safe preview.
+            canReplace = replaceable ?? (actor.DepartmentId is long departmentId
+                && await repository.CanReplaceAsync(assignment.Id, departmentId, ct));
+            if (!canReplace) reasons.Add("OUTSIDE_ASSIGNMENT_SCOPE");
+        }
+        else if (assignment.ProjectStatus != "ACTIVE") reasons.Add("REPLACEMENT_REQUIRES_ACTIVE_PROJECT");
+        var owner = IsOwner(actor, assignment);
+        canEnd = assignment.HasKnownAcademicScope && !assignment.EndedAt.HasValue && assignment.ProjectStatus == "ACTIVE"
+            && (actor.Roles.Contains(AppRoles.Admin) || owner || canReplace);
+        if (!canEnd && assignment.ProjectStatus != "ACTIVE") reasons.Add("END_REQUIRES_ACTIVE_PROJECT");
+        return assignment.ToDto() with
+        {
+            AllowedActions = new[] { new SupervisorActionCapabilityDto("REPLACE", canReplace), new SupervisorActionCapabilityDto("END", canEnd) },
+            Reasons = reasons.Distinct().ToArray()
+        };
+    }
 }

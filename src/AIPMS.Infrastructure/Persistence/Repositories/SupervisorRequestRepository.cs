@@ -87,8 +87,10 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
     public async Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct, long? excludeProjectId = null) =>
         await context.SupervisorProfiles.AsNoTracking().Where(p => p.Id == profileId)
             .Select(p => new SupervisorWorkload(p.MaxActiveProjects,
-                p.SupervisorAssignments.Where(a => a.EndedAt == null && a.ProjectId != excludeProjectId).Select(a => a.ProjectId).Distinct().Count(),
-                p.SupervisorAssignments.Where(a => a.EndedAt == null && a.ProjectId != excludeProjectId && a.Project.Team.AcademicSemesterId == semesterId)
+                p.SupervisorAssignments.Where(a => a.EndedAt == null && a.Project.Status != "COMPLETED" && a.Project.Status != "ARCHIVED"
+                    && a.ProjectId != excludeProjectId).Select(a => a.ProjectId).Distinct().Count(),
+                p.SupervisorAssignments.Where(a => a.EndedAt == null && a.Project.Status != "COMPLETED" && a.Project.Status != "ARCHIVED"
+                    && a.ProjectId != excludeProjectId && a.Project.Team.AcademicSemesterId == semesterId)
                     .Select(a => a.ProjectId).Distinct().Count())).SingleOrDefaultAsync(ct)
             ?? throw new NotFoundException("SupervisorProfile", profileId);
 
