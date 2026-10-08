@@ -503,7 +503,8 @@ internal sealed class AcademicStructureRepository(AipmsDbContext context)
         CancellationToken cancellationToken = default) =>
         context.Users
             .AsNoTracking()
-            .Where(user => user.Id == userId && user.DepartmentId.HasValue)
+            .Where(user => user.Id == userId && user.Status == "ACTIVE" && user.DepartmentId.HasValue
+                && user.Department!.IsActive && user.Department.Organization.IsActive)
             .Select(user => new AcademicUserScope(
                 user.Department!.OrganizationId,
                 user.DepartmentId!.Value))
