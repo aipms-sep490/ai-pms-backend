@@ -4,10 +4,16 @@
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
     <PackageReference Include="MediatR" Version="12.5.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
+    <PackageReference Include="PDFsharp" Version="6.2.3" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AIPMS.Domain\AIPMS.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Features/Dashboards/Fonts/DejaVuSans.ttf" />
+    <InternalsVisibleTo Include="AIPMS.UnitTests" />
   </ItemGroup>
 
 </Project>

@@ -38,11 +38,18 @@ public sealed class DashboardsController(ISender sender) : ControllerBase
         sender.Send(new GetAdminDashboardQuery(semesterId, departmentId, majorId, status, search, page, pageSize), ct);
 
     [HttpGet("portfolio/export")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> Export(CancellationToken ct, [FromQuery] long? semesterId = null,
         [FromQuery] long? departmentId = null, [FromQuery] long? majorId = null, [FromQuery] string? status = null,
         [FromQuery] string? search = null, [FromQuery] string format = "csv")
     {
         var result = await sender.Send(new ExportPortfolioDashboardQuery(semesterId, departmentId, majorId, status, search, format), ct);
-        return File(result.Content, "text/csv; charset=utf-8", result.FileName);
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers.CacheControl = "no-store";
+        return File(result.Content, result.ContentType, result.FileName);
     }
 }

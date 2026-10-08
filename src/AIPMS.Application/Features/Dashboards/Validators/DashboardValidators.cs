@@ -61,8 +61,8 @@ public sealed class ExportPortfolioDashboardQueryValidator : AbstractValidator<E
         RuleFor(q => q.DepartmentId).GreaterThan(0);
         RuleFor(q => q.MajorId).GreaterThan(0);
         RuleFor(q => q.Search).MaximumLength(200);
-        RuleFor(q => q.Format).Must(f => f is null or "csv")
-            .WithMessage("Only CSV export is supported.");
+        RuleFor(q => q.Format).Must(f => f is null || f.Trim().ToLowerInvariant() is "csv" or "xlsx" or "pdf")
+            .WithMessage("Export format must be csv, xlsx or pdf.");
         RuleFor(q => q.Status).Must(s => s is null or "DRAFT" or "SUBMITTED" or "UNDER_REVIEW"
             or "REVISION_REQUIRED" or "REJECTED" or "APPROVED" or "SUPERVISOR_PENDING" or "ACTIVE"
             or "FINAL_SUBMISSION" or "COMPLETED" or "ARCHIVED");

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO.Compression;
 using System.Text;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.AI;
@@ -110,6 +111,50 @@ internal static class DashboardCsvWriter
     private static string Escape(string value) => $"\"{value.Replace("\"", "\"\"")}\"";
 }
 
+internal static class DashboardSpreadsheetWriter
+{
+    public static byte[] Write(IEnumerable<(DashboardProjectFacts Project, ProjectProgressAnalysisDto Analysis)> rows)
+    {
+        var values = rows.Select(x => new[] { x.Project.Id.ToString(CultureInfo.InvariantCulture), x.Project.Code,
+            x.Project.Title, x.Project.Status, x.Project.SemesterId.ToString(CultureInfo.InvariantCulture),
+            x.Analysis.RiskLevel, x.Analysis.ProgressSummary.ProgressPercentage.ToString(CultureInfo.InvariantCulture),
+            x.Analysis.ProgressSummary.TotalTasks.ToString(CultureInfo.InvariantCulture),
+            x.Analysis.ProgressSummary.DoneTasks.ToString(CultureInfo.InvariantCulture),
+            x.Analysis.ProgressSummary.OverdueTasks.ToString(CultureInfo.InvariantCulture) }).ToArray();
+        var headers = new[] { "projectId", "code", "title", "status", "semesterId", "riskLevel", "progressPercentage", "totalTasks", "doneTasks", "overdueTasks" };
+        using var output = new MemoryStream();
+        using (var zip = new ZipArchive(output, ZipArchiveMode.Create, true))
+        {
+            Add(zip, "[Content_Types].xml", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>");
+            Add(zip, "_rels/.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>");
+            Add(zip, "xl/_rels/workbook.xml.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>");
+            Add(zip, "xl/workbook.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Portfolio\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>");
+            var sheet = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
+            AddRow(sheet, 1, headers);
+            for (var i = 0; i < values.Length; i++) AddRow(sheet, i + 2, values[i]);
+            sheet.Append("</sheetData></worksheet>");
+            Add(zip, "xl/worksheets/sheet1.xml", sheet.ToString());
+        }
+        return output.ToArray();
+    }
+
+    private static void AddRow(StringBuilder sheet, int row, IReadOnlyList<string> cells)
+    {
+        sheet.Append($"<row r=\"{row}\">");
+        for (var i = 0; i < cells.Count; i++)
+        {
+            var column = (char)('A' + i);
+            sheet.Append($"<c r=\"{column}{row}\" t=\"inlineStr\"><is><t>{System.Security.SecurityElement.Escape(cells[i])}</t></is></c>");
+        }
+        sheet.Append("</row>");
+    }
+    private static void Add(ZipArchive zip, string name, string content)
+    {
+        using var writer = new StreamWriter(zip.CreateEntry(name).Open(), new UTF8Encoding(false));
+        writer.Write(content);
+    }
+}
+
 public sealed class GetStudentDashboardQueryHandler(IDashboardRepository repository, ICurrentUser currentUser,
     IWorkflowContextReader workflow, IContributionRepository contributions, IProgressAnalysisService analysis,
     TimeProvider clock) : IRequestHandler<GetStudentDashboardQuery, StudentDashboardDto>
@@ -219,24 +264,32 @@ public sealed class ExportPortfolioDashboardQueryHandler(IDashboardRepository re
         return repository.InReadTransactionAsync(async token =>
         {
             await repository.RequireRoleAsync(actor, isAdmin ? AppRoles.Admin : AppRoles.DepartmentStaff, token);
-            if (request.Format is not null && !string.Equals(request.Format, "csv", StringComparison.OrdinalIgnoreCase))
-                throw new DomainException("Only CSV export is supported.");
+            var format = (request.Format ?? "csv").Trim().ToLowerInvariant();
+            if (format is not ("csv" or "xlsx" or "pdf"))
+                throw new DomainException("Export format must be csv, xlsx or pdf.");
             var filter = new DashboardPortfolioFilter(request.SemesterId, isAdmin ? request.DepartmentId : null,
                 request.MajorId, request.Status, request.Search?.Trim(), 1, 10000);
             var now = clock.GetUtcNow();
             var facts = await repository.GetPortfolioAsync(actor, isAdmin, filter, now.UtcDateTime, token);
+            if (facts.Projects.Count > 10000)
+                throw new DomainException("The export exceeds the bounded 10000-row limit.");
             var analyzed = facts.Projects.Select(p => (Project: p, Analysis: analysis.Analyze(p.Facts, now.UtcDateTime, token))).ToArray();
-            var content = DashboardCsvWriter.Write(analyzed, now.UtcDateTime);
+            var (content, extension, contentType) = format switch
+            {
+                "xlsx" => (DashboardSpreadsheetWriter.Write(analyzed), "xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                "pdf" => (DashboardPdfWriter.Write(analyzed), "pdf", "application/pdf"),
+                _ => (DashboardCsvWriter.Write(analyzed, now.UtcDateTime), "csv", "text/csv; charset=utf-8")
+            };
             await audit.RecordAsync(new AuditEntry(actor, "DASHBOARD_EXPORTED", "DASHBOARD", null,
                 new Dictionary<string, object?>
                 {
                     ["role"] = isAdmin ? AppRoles.Admin : AppRoles.DepartmentStaff,
-                    ["format"] = "csv", ["rowCount"] = facts.Projects.Count,
-                    ["semesterId"] = filter.SemesterId, ["departmentId"] = filter.DepartmentId,
+                    ["format"] = format, ["rowCount"] = facts.Projects.Count, ["result"] = "SUCCEEDED",
+                    ["semesterId"] = filter.SemesterId, ["departmentId"] = facts.DepartmentId,
                     ["majorId"] = filter.MajorId, ["status"] = filter.Status, ["search"] = filter.Search
                 }), token);
             var scope = isAdmin ? "admin" : "department";
-            return new DashboardCsvExport(content, $"dashboard-{scope}-{now:yyyyMMddHHmmss}.csv");
+            return new DashboardCsvExport(content, $"dashboard-{scope}-{now:yyyyMMddHHmmss}.{extension}", contentType);
         }, ct);
     }
 }

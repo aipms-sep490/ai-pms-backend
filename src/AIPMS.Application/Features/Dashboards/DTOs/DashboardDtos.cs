@@ -21,7 +21,8 @@ public sealed record PortfolioDashboardDto(DateTimeOffset AsOfUtc, long? Departm
     DashboardPortfolioSummaryDto Summary, PagedResult<DashboardProjectDto> Projects);
 public sealed record DashboardPortfolioFilter(long? SemesterId, long? DepartmentId, long? MajorId,
     string? Status, string? Search, int Page = 1, int PageSize = 20);
-public sealed record DashboardCsvExport(byte[] Content, string FileName);
+public sealed record DashboardCsvExport(byte[] Content, string FileName,
+    string ContentType = "text/csv; charset=utf-8");
 public sealed record DashboardTaskDto(long Id, string Title, string Status, DateTime DueAtUtc, bool IsOverdue);
 public sealed record DashboardMilestoneDto(long Id, string Title, string Status, DateOnly DueDate, bool IsOverdue);
 public sealed record StudentDashboardDto(DateTimeOffset AsOfUtc, UserWorkflowContextDto Context,
