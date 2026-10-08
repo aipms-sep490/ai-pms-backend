@@ -20,7 +20,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Release build failed; see build.log.' }
     }
     # SQL containers/fixtures must not compete for all the memory on a developer host.
-    foreach ($suite in @('TeamEndpointTests', 'InterdisciplinaryWorkflowTests', 'SupervisorRequestEndpointTests',
+    foreach ($suite in @('TeamEndpointTests', 'InterdisciplinaryWorkflowTests', 'TeamEligibilityRegressionTests',
+        'TeamEligibilityGovernanceIntegrationTests', 'SupervisorRequestEndpointTests',
         'SupervisorAssignmentEndpointTests', 'SupervisorCandidateEndpointTests', 'PolicyEvaluationEndpointTests', 'FinalSubmissionEndpointTests',
         'DashboardRepositoryTests', 'GovernanceMigrationTests', 'DepartOpenApiTests', 'ProjectRepositoryTests',
         'ProjectEndpointTests', 'ProjectRequirementsEndpointTests', 'DeliverableEndpointTests', 'EvaluationDraftEndpointTests',

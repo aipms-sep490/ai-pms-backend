@@ -2,16 +2,16 @@
 
 Baseline: `develop` at `94a6fcb0dac789d1fa7bcea7389144d803b508ae`.
 Branch: `feature/depart-be-completion`. Backend/database/docs only; no frontend changes.
-Release status: **final validation in progress; not deployed**.
+Implementation status: **DEPART_DONE for backend code and isolated local acceptance**. PR review/CI, merge and deployment are separate gates; this branch has not been deployed. FE/browser acceptance is not claimed.
 
 ## Review stack
 
 | Order | PR | Branch / implementation commit |
 | --- | --- | --- |
-| 1 | [#102](https://github.com/aipms-sep490/ai-pms-backend/pull/102) | `feature/depart-governance-certificate` / `23f7322` |
-| 2 | [#103](https://github.com/aipms-sep490/ai-pms-backend/pull/103) | `feature/depart-assignment-capabilities` / `7579699` |
-| 3 | [#104](https://github.com/aipms-sep490/ai-pms-backend/pull/104) | `feature/depart-authorized-export` / `acc524c` |
-| 4 | Acceptance/handoff PR | `feature/depart-be-completion` |
+| 1 | [#102](https://github.com/aipms-sep490/ai-pms-backend/pull/102) | `feature/depart-governance-certificate` / `6d57178` |
+| 2 | [#103](https://github.com/aipms-sep490/ai-pms-backend/pull/103) | `feature/depart-assignment-capabilities` / `6dd4d6d` |
+| 3 | [#104](https://github.com/aipms-sep490/ai-pms-backend/pull/104) | `feature/depart-authorized-export` / `ee0a97a` |
+| 4 | [#105](https://github.com/aipms-sep490/ai-pms-backend/pull/105) | `feature/depart-be-completion` / tested package `ac330a5` |
 
 The PRs are stacked so each diff shows only its own changes. After the preceding PR merges, retarget the next PR to `develop` and require its CI/review again. Local acceptance does not constitute merge or deployment approval.
 
@@ -26,9 +26,20 @@ The PRs are stacked so each diff shows only its own changes. After the preceding
 | D05 | Semester/period mutations and qualification policy remain AdminOnly | `Depart_D05_staff_cannot_mutate_structure`; lifecycle policy denial; OpenAPI | DELIVERED: decision preserved |
 | D06 | Admin required for cross-department publication even when all project-weight rubrics are in the lead department | Single/interdisciplinary lifecycle; policy evaluation and result tests | DELIVERED: authority hardened |
 | D07 | CSV/XLSX/paginated Unicode PDF; server scope, bounded query, audit and correlation header | `Depart_D07_exports_use_server_scope_valid_formats_and_audit_every_download`; `DepartExportTests`; dashboard tests | DELIVERED |
-| D08 | Per-run SQL databases, two full API lifecycles, migration rerun and ownership protection | `Depart_D08_qualification_to_archive_uses_real_api_transitions(false/true)`; `scripts/test-depart.ps1` | PARTIAL: final regression pending |
+| D08 | Per-run SQL databases, two full API lifecycles, migration rerun and ownership protection | `Depart_D08_qualification_to_archive_uses_real_api_transitions(false/true)`; `scripts/test-depart.ps1` | DELIVERED |
 
-DELIVERED describes code in this branch, not deployment or FE acceptance. Review order: governance/certificate -> assignment -> export -> acceptance/handoff. Do not label the release DEPART_DONE until the final acceptance report passes.
+DELIVERED describes code and local backend acceptance, not deployment or FE acceptance. Review order: governance/certificate -> assignment -> export -> acceptance/handoff.
+
+## Validation evidence (2026-10-08)
+
+- Release solution build with warnings as errors: 0 warnings, 0 errors; PR1 and PR2 also built independently from their split commits.
+- All 994 unit tests passed.
+- 539 distinct integration tests passed: 478 in the sequential regression, 29 candidate tests, and 32 additional eligibility tests. Twenty final contract checks and the certificate regression were rerun and overlap these counts.
+- Both single-major and interdisciplinary API lifecycle cases passed, including real mutations, audit/history and publication authority.
+- Isolated bootstrap/migration rerun passed, including seed stability after reconnect, protected-name/ownership refusal and checksum validation.
+- Shared AI_PMS schema: 45/45 read-only checks; no DDL/data mutation required or performed.
+
+Machine-readable sanitized evidence: [validation/depart-2026-10-08.json](validation/depart-2026-10-08.json). GitHub CI runs the full solution test suite separately on each PR; use the current PR checks for that result, not the local focused-suite count. CI exposed missing frozen mappings in older test fixtures and a PR-splitting dependency; both were corrected without relaxing production authorization.
 
 ## Governance and publication
 
@@ -108,4 +119,4 @@ Assertions cover 401/403/404/409/422, history/audit, wrong mentor department, du
 
 Performance: candidates count/filter/page in SQL; list capabilities share one project scope read; portfolio facts are batched for the bounded project set, not fetched once per project. Result readiness reuses the existing scorer and frozen inputs.
 
-Final report counts, PR links and release status are updated after validation. FE adapter/browser acceptance is a separate handoff step.
+FE adapter/browser acceptance is a separate handoff step. Before merge/deployment, require current PR checks and review, then repeat target schema readiness and the deployment smoke checks.
