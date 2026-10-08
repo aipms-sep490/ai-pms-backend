@@ -21,11 +21,11 @@ UNION ALL
 SELECT 'column',t.name+'.concurrency_token',CONVERT(bit,CASE WHEN EXISTS (
  SELECT 1 FROM sys.columns c WHERE c.object_id=OBJECT_ID('dbo.'+t.name) AND c.name='concurrency_token'
  AND TYPE_NAME(c.system_type_id)='uniqueidentifier' AND c.is_nullable=0 AND c.default_object_id<>0) THEN 1 ELSE 0 END)
-FROM (VALUES ('tasks'),('milestones'),('progress_reports'),('meetings'),('meeting_action_items')) t(name)
+FROM (VALUES ('tasks'),('milestones'),('progress_reports'),('meetings'),('meeting_action_items'),('student_qualifications')) t(name)
 UNION ALL
 SELECT 'index',t.table_name+'.'+t.index_name,CONVERT(bit,CASE WHEN EXISTS (SELECT 1 FROM sys.indexes i
  WHERE i.object_id=OBJECT_ID('dbo.'+t.table_name) AND i.name=t.index_name AND i.is_disabled=0) THEN 1 ELSE 0 END)
-FROM (VALUES ('evaluation_assignments','uq_evaluation_assignments_active'),('meeting_decisions','ix_meeting_decisions_meeting'),
+FROM (VALUES ('evaluation_assignments','uq_scoped_evaluation_assignment'),('evaluation_assignments','uq_legacy_evaluation_assignment'),('meeting_decisions','ix_meeting_decisions_meeting'),
  ('meeting_action_items','ix_meeting_action_items_meeting'),('project_result_policy_items','ix_result_policy_items_assignment'),
  ('supervisor_assignments','ux_supervisor_assignments_one_primary_active')) t(table_name,index_name)
 UNION ALL
