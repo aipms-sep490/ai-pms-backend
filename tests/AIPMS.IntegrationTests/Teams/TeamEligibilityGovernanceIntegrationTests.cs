@@ -322,6 +322,8 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
             await ctx.SaveChangesAsync();
             projectId = project.Id;
             concurrencyToken = Convert.ToBase64String(project.RowVersion);
+            var department = await ctx.Majors.Where(m => m.Id == s.SeMajorId).Select(m => m.DepartmentId).SingleAsync();
+            await AcademicSnapshotFixture.AddAsync(ctx, project.Id, s.PeriodId, department, s.Students[0], DateTime.UtcNow);
         }
 
         Assert.Equal(HttpStatusCode.Forbidden, (await clientAdmin.PostAsJsonAsync($"/api/v1/projects/{projectId}/revision",
@@ -384,6 +386,8 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
             await ctx.SaveChangesAsync();
             projectId1 = project1.Id;
             concurrencyToken1 = Convert.ToBase64String(project1.RowVersion);
+            var department = await ctx.Majors.Where(m => m.Id == s.SeMajorId).Select(m => m.DepartmentId).SingleAsync();
+            await AcademicSnapshotFixture.AddAsync(ctx, project1.Id, s.PeriodId, department, s.Students[0], DateTime.UtcNow);
         }
 
         // Request revision on Project 1
