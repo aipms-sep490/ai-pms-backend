@@ -19,7 +19,8 @@ public sealed record DepartmentDecisionDto(long DepartmentId, string Decision, l
     DateTime? DecidedAt, string? Reason);
 
 public sealed record RegistrationSnapshotDto(long Id, long ProjectPeriodId, long SubmittedBy,
-    DateTime SubmittedAt, RegistrationEvidence Evidence, IReadOnlyList<DepartmentDecisionDto> Decisions);
+    DateTime SubmittedAt, RegistrationEvidence? Evidence, IReadOnlyList<DepartmentDecisionDto> Decisions,
+    string AcademicScopeProvenance = "UNKNOWN");
 
 public sealed record ProjectAcademicReviewDto(string ConcurrencyToken, TeamAcademicScopeDto? AcademicScope,
     RegistrationSnapshotDto? LatestSubmission, IReadOnlyList<RegistrationSnapshotDto>? SubmissionHistory = null);

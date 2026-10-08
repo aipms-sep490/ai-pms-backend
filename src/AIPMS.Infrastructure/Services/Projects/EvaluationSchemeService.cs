@@ -104,7 +104,8 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
     {
         var snapshot = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking().Where(x => x.ProjectId == projectId)
             .OrderByDescending(x => x.Id).FirstOrDefaultAsync(ct) ?? throw new ConflictException("A frozen registration snapshot is required.");
-        return JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson) ?? throw new ConflictException("Registration snapshot unavailable.");
+        return ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson)
+            ?? throw new ConflictException("Frozen registration scope is unknown. Legacy schemes remain read-only.");
     }
     private async Task Validate(EvaluationScheme row, CancellationToken ct)
     {

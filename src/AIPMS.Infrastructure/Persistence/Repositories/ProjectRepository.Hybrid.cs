@@ -208,19 +208,22 @@ public sealed partial class ProjectRepository
         var project = await context.Projects.AsNoTracking().SingleOrDefaultAsync(p => p.Id == projectId, ct)
             ?? throw new NotFoundException("Project", projectId);
         var snapshot = await LatestRegistrationAsync(projectId, ct);
-        var dto = snapshot is null ? null : new RegistrationSnapshotDto(snapshot.Id, snapshot.ProjectPeriodId,
-            snapshot.SubmittedBy, snapshot.SubmittedAt, JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!,
+        var evidence = snapshot is null ? null : Services.Projects.ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson);
+        var dto = snapshot is null || evidence is null ? null : new RegistrationSnapshotDto(snapshot.Id, snapshot.ProjectPeriodId,
+            snapshot.SubmittedBy, snapshot.SubmittedAt, evidence,
             snapshot.Decisions.OrderBy(d => d.DepartmentId).Select(d => new DepartmentDecisionDto(d.DepartmentId,
-                d.Decision, d.DecidedBy, d.DecidedAt, d.Reason)).ToArray());
+                d.Decision, d.DecidedBy, d.DecidedAt, d.Reason)).ToArray(), "FROZEN_REGISTRATION_SNAPSHOT");
         var scope = await GetTeamScopeAsync(project.TeamId, ct);
-        var effectiveScope = project.Status is not ("DRAFT" or "REVISION_REQUIRED") && dto is not null
-            ? dto.Evidence.Scope : scope is null ? null : TeamAcademicScopeDto.FromScope(scope);
+        var effectiveScope = project.Status is not ("DRAFT" or "REVISION_REQUIRED")
+            ? dto?.Evidence?.Scope : scope is null ? null : TeamAcademicScopeDto.FromScope(scope);
         var rounds = await context.Set<ProjectRegistrationSnapshot>().AsNoTracking().Include(s => s.Decisions)
             .Where(s => s.ProjectId == projectId).OrderByDescending(s => s.Id).ToListAsync(ct);
         var history = rounds.Select(s => new RegistrationSnapshotDto(s.Id, s.ProjectPeriodId, s.SubmittedBy,
-            s.SubmittedAt, JsonSerializer.Deserialize<RegistrationEvidence>(s.SnapshotJson)!,
+            s.SubmittedAt, Services.Projects.ProjectAcademicScopeReader.ReadHistoricalEvidence(s.SnapshotJson),
             s.Decisions.OrderBy(d => d.DepartmentId).Select(d => new DepartmentDecisionDto(d.DepartmentId,
-                d.Decision, d.DecidedBy, d.DecidedAt, d.Reason)).ToArray())).ToArray();
+                d.Decision, d.DecidedBy, d.DecidedAt, d.Reason)).ToArray(),
+            Services.Projects.ProjectAcademicScopeReader.ParseEvidence(s.SnapshotJson) is null
+                ? "UNKNOWN" : "FROZEN_REGISTRATION_SNAPSHOT")).ToArray();
         return new(Convert.ToBase64String(project.RowVersion), effectiveScope, dto, history);
     }
 
@@ -237,16 +240,10 @@ public sealed partial class ProjectRepository
     {
         if (newStatus is not ("UNDER_REVIEW" or "REVISION_REQUIRED" or "REJECTED" or "APPROVED")) return;
         var departmentId = await RequireAcademicReviewerAsync(actorId, ct);
-        if (await GetTeamScopeAsync(project.TeamId, ct) is null)
-        {
-            var legacyScope = await AIPMS.Infrastructure.Services.Projects.ProjectAcademicScopeReader.ReadAsync(context, project.Id, ct);
-            if (legacyScope.LeadDepartmentId != departmentId)
-                throw new ForbiddenException("Only the responsible department can change the proposal review state.");
-            return;
-        }
         var snapshot = await LatestRegistrationAsync(project.Id, ct)
             ?? throw new ConflictException("This proposal must be submitted with a current academic scope snapshot.");
-        var evidence = JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!;
+        var evidence = Services.Projects.ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson)
+            ?? throw new ConflictException("ACADEMIC_SCOPE_UNKNOWN");
         if (departmentId != evidence.Scope.LeadDepartmentId)
             throw new ForbiddenException("Only the lead department can change the proposal review state; participating departments record their own decision.");
         if (newStatus == "APPROVED" && evidence.Scope.ProjectMode == "INTERDISCIPLINARY"
@@ -263,6 +260,8 @@ public sealed partial class ProjectRepository
         if (Convert.ToBase64String(project.RowVersion) != request.ConcurrencyToken) throw new ConflictException("Project changed. Refresh and retry.");
         var snapshot = await LatestRegistrationAsync(projectId, ct);
         if (snapshot is null || snapshot.Id != request.SnapshotId) throw new ConflictException("The submission has changed. Review the latest snapshot.");
+        if (Services.Projects.ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson) is null)
+            throw new ConflictException("ACADEMIC_SCOPE_UNKNOWN");
         var departmentId = await RequireAcademicReviewerAsync(actorId, ct);
         var decision = snapshot.Decisions.SingleOrDefault(d => d.DepartmentId == departmentId)
             ?? throw new ForbiddenException("Your department is not a required reviewer for this submission.");

@@ -9,5 +9,6 @@ public sealed record ProjectProposalSnapshotDto(string Title, string? Descriptio
     string? Objectives, string? ExpectedOutput, string ProposalSource, long? TopicId,
     IReadOnlyList<long> MajorIds, IReadOnlyList<ProjectTagDto> Tags);
 public sealed record ProjectReviewSnapshotDto(long Id, int SubmissionNumber, long ProjectPeriodId, long SubmittedBy,
-    DateTime SubmittedAt, RegistrationEvidence Evidence, bool ProposalAvailable, IReadOnlyList<DepartmentDecisionDto> Decisions);
+    DateTime SubmittedAt, RegistrationEvidence? Evidence, bool ProposalAvailable, IReadOnlyList<DepartmentDecisionDto> Decisions,
+    string AcademicScopeProvenance = "UNKNOWN");
 public sealed record ProjectReviewHistoryDto(int Page, int PageSize, int TotalCount, IReadOnlyList<ProjectReviewSnapshotDto> Items);

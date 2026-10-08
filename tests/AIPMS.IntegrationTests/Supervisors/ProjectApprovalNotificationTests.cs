@@ -20,6 +20,11 @@ public sealed partial class SupervisorRequestEndpointTests
         var row = await db.Projects.SingleAsync(p => p.Id == project.Id);
         row.Status = "UNDER_REVIEW";
         await db.SaveChangesAsync();
+        if (!await db.Set<AIPMS.Infrastructure.Persistence.Models.ProjectRegistrationSnapshot>().AnyAsync(s => s.ProjectId == row.Id))
+        {
+            var department = await db.ProjectMajors.Where(m => m.ProjectId == row.Id).Select(m => m.Major.DepartmentId).SingleAsync();
+            await AcademicSnapshotFixture.AddAsync(db, row.Id, project.PeriodId, department, project.LeaderId, Now);
+        }
         return Convert.ToBase64String(row.RowVersion);
     }
 

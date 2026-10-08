@@ -52,8 +52,11 @@ internal sealed class ProjectResultRepository(AipmsDbContext db) : IProjectResul
     {
         RequireTransaction();
         if (await db.Projects.Where(p => p.Id == input.ProjectId && p.Status == "FINAL_SUBMISSION")
-            .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, "COMPLETED").SetProperty(p => p.UpdatedAt, input.PublishedAt), ct) != 1)
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, "COMPLETED").SetProperty(p => p.UpdatedAt, input.PublishedAt)
+                .SetProperty(p => p.CompletedAt, input.PublishedAt), ct) != 1)
             throw new ConflictException("Project state changed before publication.");
+        db.ProjectStatusHistories.Add(new() { ProjectId = input.ProjectId, OldStatus = "FINAL_SUBMISSION", NewStatus = "COMPLETED",
+            ChangedBy = input.PublishedBy, ChangedAt = input.PublishedAt, Reason = "Project result published" });
         var row = new ProjectResult { ProjectId = input.ProjectId, FinalSubmissionId = input.FinalSubmissionId,
             PublishedBy = input.PublishedBy, PublishedAt = input.PublishedAt, SnapshotJson = JsonSerializer.Serialize(input),
             Evaluations = input.Contributions.Select(c => new ProjectResultEvaluation { EvaluationId = c.EvaluationId }).ToArray() };

@@ -188,8 +188,9 @@ public sealed class ProjectRequirementsEndpointTests(SupervisorDatabaseFixture d
         using var leader = factory.CreateAuthenticatedClient(s.Users.Student);
         var response = await leader.GetFromJsonAsync<ProjectReviewHistoryDto>($"/api/v1/projects/{s.Project}/review-snapshots");
         var item = Assert.Single(response!.Items);
-        Assert.False(item.ProposalAvailable); Assert.Null(item.Evidence.Proposal); Assert.Null(item.Evidence.ProjectRequirements);
-        Assert.Equal("historical-v1", item.Evidence.Policy.Version);
+        Assert.False(item.ProposalAvailable); Assert.Null(item.Evidence!.Proposal); Assert.Null(item.Evidence!.ProjectRequirements);
+        Assert.Equal("historical-v1", item.Evidence!.Policy.Version);
+        Assert.Equal("UNKNOWN", item.AcademicScopeProvenance);
         Assert.Equal(json, await db.Set<ProjectRegistrationSnapshot>().Where(x => x.ProjectId == s.Project).Select(x => x.SnapshotJson).SingleAsync());
     }
 

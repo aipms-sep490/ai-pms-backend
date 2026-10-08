@@ -31,8 +31,8 @@ public sealed partial class InterdisciplinaryWorkflowTests
         var first = await Body<ProjectReviewHistoryDto>(await leader.GetAsync(url + "/review-snapshots"));
         var oldRound = Assert.Single(first.Items);
         Assert.True(oldRound.ProposalAvailable);
-        Assert.Equal("Hybrid proposal", oldRound.Evidence.Proposal!.Title);
-        Assert.Equal("Round one software", oldRound.Evidence.ProjectRequirements!.Single(x => x.MajorId == s.Team.SeMajorId).Responsibility);
+        Assert.Equal("Hybrid proposal", oldRound.Evidence!.Proposal!.Title);
+        Assert.Equal("Round one software", oldRound.Evidence!.ProjectRequirements!.Single(x => x.MajorId == s.Team.SeMajorId).Responsibility);
         Assert.Equal(HttpStatusCode.Conflict, (await leader.PutAsJsonAsync(url + "/major-requirements", new ReplaceProjectRequirementsRequest(requirements, project.ConcurrencyToken))).StatusCode);
         project = await Transition(lead, project, "start-review");
         var review = await Decide(other, project.Id, await Review(leader, project.Id), "REJECTED");
@@ -45,10 +45,10 @@ public sealed partial class InterdisciplinaryWorkflowTests
         project = await Transition(leader, project, "resubmit");
         var history = await Body<ProjectReviewHistoryDto>(await leader.GetAsync(url + "/review-snapshots"));
         Assert.Equal(2, history.TotalCount); Assert.Equal([2, 1], history.Items.Select(x => x.SubmissionNumber));
-        Assert.Equal("Round two software", history.Items[0].Evidence.ProjectRequirements!.Single(x => x.MajorId == s.Team.SeMajorId).Responsibility);
-        Assert.Equal("Round one software", history.Items[1].Evidence.ProjectRequirements!.Single(x => x.MajorId == s.Team.SeMajorId).Responsibility);
-        Assert.Equal("Revised proposal", history.Items[0].Evidence.Proposal!.Title);
-        Assert.Equal("Hybrid proposal", history.Items[1].Evidence.Proposal!.Title);
+        Assert.Equal("Round two software", history.Items[0].Evidence!.ProjectRequirements!.Single(x => x.MajorId == s.Team.SeMajorId).Responsibility);
+        Assert.Equal("Round one software", history.Items[1].Evidence!.ProjectRequirements!.Single(x => x.MajorId == s.Team.SeMajorId).Responsibility);
+        Assert.Equal("Revised proposal", history.Items[0].Evidence!.Proposal!.Title);
+        Assert.Equal("Hybrid proposal", history.Items[1].Evidence!.Proposal!.Title);
         Assert.All(history.Items[0].Decisions, d => Assert.Equal("PENDING", d.Decision));
         Assert.Contains(history.Items[1].Decisions, d => d.DepartmentId == s.OtherDepartment && d.Decision == "REJECTED");
         Assert.Equal(HttpStatusCode.Conflict, (await other.PostAsJsonAsync(url + "/department-decisions",

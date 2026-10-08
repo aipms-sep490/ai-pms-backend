@@ -256,6 +256,7 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
     {
         var actor = await ActorAsync(ct);
         var file = await repository.GetFileAsync(id, ct) ?? throw new NotFoundException("File", id);
+        if (file.ParentCount == 0) throw new NotFoundException("Project file", id);
         if (file.ParentCount != 1) throw new ConflictException("The file must have exactly one parent.");
         await ProjectAsync(actor, file.ProjectId, ct);
         return file;

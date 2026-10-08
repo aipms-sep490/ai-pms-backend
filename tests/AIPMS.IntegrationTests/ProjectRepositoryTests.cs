@@ -322,17 +322,11 @@ public class ProjectRepositoryTests
             new[] { "Slot" },
             default);
 
-        // Transition status through UpdateStatusAsync to test filtered-index slot release semantics
+        // This fixture tests the filtered index, not the authorized review workflow.
         using var contextTransition = _fixture.CreateContext();
-        var repoTransition = new ProjectRepository(contextTransition);
-        var updated1 = await repoTransition.UpdateStatusAsync(
-            project1.Id,
-            project1.ConcurrencyToken,
-            "DRAFT",
-            "REJECTED",
-            await contextTransition.Users.Where(u => u.Email == "staff@aipms.test").Select(u => u.Id).SingleAsync(),
-            "Rejected by department staff",
-            default);
+        var updated1 = await contextTransition.Projects.SingleAsync(p => p.Id == project1.Id);
+        updated1.Status = "REJECTED";
+        await contextTransition.SaveChangesAsync();
 
         Assert.Equal("REJECTED", updated1.Status);
 

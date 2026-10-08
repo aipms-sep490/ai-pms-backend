@@ -28,7 +28,8 @@ public sealed record ProjectDto(
     AIPMS.Application.Features.Teams.DTOs.TeamAcademicScopeDto? AcademicScope = null,
     long? TopicId = null,
     string ProposalSource = "STUDENT_PROPOSAL",
-    SelectedTopicDto? SelectedTopic = null);
+    SelectedTopicDto? SelectedTopic = null,
+    string AcademicScopeProvenance = "UNKNOWN");
 
 public sealed record SelectedTopicDto(
     long Id,

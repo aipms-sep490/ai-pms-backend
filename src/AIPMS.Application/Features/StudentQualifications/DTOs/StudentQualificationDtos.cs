@@ -20,6 +20,7 @@ public sealed record StudentQualificationDto(
     long? VerifiedBy,
     DateTime? VerifiedAt,
     string? RejectionReason,
+    Guid ConcurrencyToken,
     DateTime CreatedAt,
     DateTime UpdatedAt)
 {
@@ -36,7 +37,10 @@ public sealed record SubmitStudentQualificationEvidenceRequest(
     DateTime? IssuedAt,
     DateTime? ExpiresAt);
 
-public sealed record DecideStudentQualificationRequest(string? Reason);
+public sealed record VerifyStudentQualificationRequest(Guid? ExpectedConcurrencyToken = null);
+public sealed record DecideStudentQualificationRequest(string? Reason, Guid? ExpectedConcurrencyToken = null);
+public sealed record StudentQualificationCertificateDto(long QualificationId, long FileId,
+    string FileName, string ContentType, long SizeBytes, string? ChecksumSha256);
 
 public static class StudentQualificationDtoMapper
 {
@@ -45,7 +49,7 @@ public static class StudentQualificationDtoMapper
         model.DepartmentId, model.MajorId, model.QualificationType, model.TrainingStatus,
         model.VerificationStatus, model.CertificateNumber, model.CertificateFileId,
         model.IssuedAt, model.ExpiresAt, model.VerifiedBy, model.VerifiedAt,
-        model.RejectionReason, model.CreatedAt, model.UpdatedAt);
+        model.RejectionReason, model.ConcurrencyToken, model.CreatedAt, model.UpdatedAt);
 }
 
 public sealed record ProjectPeriodQualificationPolicyDto(

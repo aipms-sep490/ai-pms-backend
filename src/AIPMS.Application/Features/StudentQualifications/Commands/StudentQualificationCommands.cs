@@ -7,10 +7,20 @@ namespace AIPMS.Application.Features.StudentQualifications.Commands;
 public sealed record SubmitStudentQualificationEvidenceCommand(
     SubmitStudentQualificationEvidenceRequest Request) : IRequest<StudentQualificationDto>;
 
-public sealed record VerifyStudentQualificationCommand(long QualificationId)
+public sealed record UploadStudentQualificationCertificateCommand(SubmitStudentQualificationEvidenceRequest Request,
+    AIPMS.Application.Features.Deliverables.Models.UploadContent File) : IRequest<StudentQualificationDto>;
+
+public sealed class UploadStudentQualificationCertificateCommandHandler(StudentQualificationWorkflow workflow)
+    : IRequestHandler<UploadStudentQualificationCertificateCommand, StudentQualificationDto>
+{
+    public Task<StudentQualificationDto> Handle(UploadStudentQualificationCertificateCommand request, CancellationToken ct) =>
+        workflow.UploadCertificateAsync(request.Request, request.File, ct);
+}
+
+public sealed record VerifyStudentQualificationCommand(long QualificationId, Guid? ExpectedConcurrencyToken = null)
     : IRequest<StudentQualificationDto>;
 
-public sealed record RejectStudentQualificationCommand(long QualificationId, string? Reason)
+public sealed record RejectStudentQualificationCommand(long QualificationId, string? Reason, Guid? ExpectedConcurrencyToken = null)
     : IRequest<StudentQualificationDto>;
 
 public sealed record SetProjectPeriodQualificationPolicyCommand(
@@ -31,7 +41,7 @@ public sealed class VerifyStudentQualificationCommandHandler(StudentQualificatio
 {
     public Task<StudentQualificationDto> Handle(
         VerifyStudentQualificationCommand request, CancellationToken cancellationToken) =>
-        workflow.VerifyAsync(request.QualificationId, cancellationToken);
+        workflow.VerifyAsync(request.QualificationId, request.ExpectedConcurrencyToken, cancellationToken);
 }
 
 public sealed class RejectStudentQualificationCommandHandler(StudentQualificationWorkflow workflow)
@@ -39,7 +49,7 @@ public sealed class RejectStudentQualificationCommandHandler(StudentQualificatio
 {
     public Task<StudentQualificationDto> Handle(
         RejectStudentQualificationCommand request, CancellationToken cancellationToken) =>
-        workflow.RejectAsync(request.QualificationId, request.Reason, cancellationToken);
+        workflow.RejectAsync(request.QualificationId, request.Reason, request.ExpectedConcurrencyToken, cancellationToken);
 }
 
 public sealed class SetProjectPeriodQualificationPolicyCommandHandler(StudentQualificationWorkflow workflow)
