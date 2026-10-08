@@ -41,11 +41,13 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         if (entity.Status is not ("DRAFT" or "REVISION_REQUIRED"))
         {
             var snapshot = await LatestRegistrationAsync(entity.Id, cancellationToken);
-            if (snapshot is not null)
-                return entity.ToDto() with { AcademicScope = System.Text.Json.JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!.Scope };
+            var frozen = snapshot is null ? null : Services.Projects.ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson);
+            return entity.ToDto() with { AcademicScope = frozen?.Scope,
+                AcademicScopeProvenance = frozen is null ? "UNKNOWN" : "FROZEN_REGISTRATION_SNAPSHOT" };
         }
         var scope = await GetTeamScopeAsync(entity.TeamId, cancellationToken);
-        return entity.ToDto() with { AcademicScope = scope is null ? null : AIPMS.Application.Features.Teams.DTOs.TeamAcademicScopeDto.FromScope(scope) };
+        return entity.ToDto() with { AcademicScope = scope is null ? null : AIPMS.Application.Features.Teams.DTOs.TeamAcademicScopeDto.FromScope(scope),
+            AcademicScopeProvenance = scope is null ? "UNKNOWN" : "CURRENT_CONFIGURATION" };
     }
 
     public Task<PagedResult<ProjectSummaryDto>> GetProjectsAsync(
@@ -647,7 +649,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         if (snapshot is null || string.IsNullOrWhiteSpace(snapshot.SnapshotJson))
             return null;
 
-        var evidence = System.Text.Json.JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson);
+        var evidence = Services.Projects.ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson);
         return evidence?.DepartmentIds is { Count: > 0 } deptIds ? deptIds : null;
     }
 

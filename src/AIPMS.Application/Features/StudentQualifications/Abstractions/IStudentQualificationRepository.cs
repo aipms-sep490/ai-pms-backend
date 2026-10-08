@@ -5,6 +5,8 @@ namespace AIPMS.Application.Features.StudentQualifications.Abstractions;
 
 public interface IStudentQualificationRepository
 {
+    Task<long> AddCertificateFileAsync(long actorId, string storageKey,
+        AIPMS.Application.Features.Deliverables.Models.ValidatedUpload file, DateTime now, CancellationToken ct);
     Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken);
 
     Task<StudentQualificationModel?> GetForUserAsync(
@@ -13,6 +15,10 @@ public interface IStudentQualificationRepository
         CancellationToken cancellationToken = default);
 
     Task<StudentQualificationModel?> GetAsync(
+        long qualificationId,
+        CancellationToken cancellationToken = default);
+
+    Task<StudentQualificationCertificateModel?> GetCertificateAsync(
         long qualificationId,
         CancellationToken cancellationToken = default);
 
@@ -41,6 +47,7 @@ public interface IStudentQualificationRepository
         string verificationStatus,
         long actorUserId,
         string? reason,
+        Guid? expectedConcurrencyToken,
         DateTime utcNow,
         CancellationToken cancellationToken = default);
     Task<ProjectPeriodQualificationPolicyModel?> GetPeriodPolicyAsync(

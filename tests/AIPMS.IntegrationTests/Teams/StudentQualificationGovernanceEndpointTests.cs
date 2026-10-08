@@ -49,10 +49,13 @@ public sealed partial class TeamEndpointTests
         var staffId = await AddStaffAsync(scenario);
         using var verifier = app.CreateAuthenticatedClient(staffId, roles: ["DEPARTMENT_STAFF"]);
         using var rejecter = app.CreateAuthenticatedClient(staffId, roles: ["DEPARTMENT_STAFF"]);
+        Guid version;
+        await using (var before = database.CreateContext())
+            version = (await before.Set<StudentQualification>().FindAsync(qualificationId))!.ConcurrencyToken;
 
         var responses = await Task.WhenAll(
-            verifier.PostAsync($"/api/v1/student-qualifications/{qualificationId}/verify", null),
-            rejecter.PostAsJsonAsync($"/api/v1/student-qualifications/{qualificationId}/reject", new { reason = "Concurrent review" }));
+            verifier.PostAsJsonAsync($"/api/v1/student-qualifications/{qualificationId}/verify", new { expectedConcurrencyToken = version }),
+            rejecter.PostAsJsonAsync($"/api/v1/student-qualifications/{qualificationId}/reject", new { reason = "Concurrent review", expectedConcurrencyToken = version }));
 
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
@@ -113,7 +116,8 @@ public sealed partial class TeamEndpointTests
         await using var db = database.CreateContext();
         Assert.False(await db.Set<StudentQualification>().AnyAsync(x => x.UserId == scenario.Students[0]
             && x.QualificationType == "CAPSTONE_READINESS"));
-        Assert.False(await db.AuditLogs.AnyAsync(x => x.Action == "STUDENT_QUALIFICATION_EVIDENCE_SUBMITTED"));
+        Assert.False(await db.AuditLogs.AnyAsync(x => x.Action == "STUDENT_QUALIFICATION_EVIDENCE_SUBMITTED"
+            && x.ActorUserId == scenario.Students[0]));
     }
 
     [Fact]

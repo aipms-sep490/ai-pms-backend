@@ -5,6 +5,7 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.StudentQualifications.Abstractions;
 using AIPMS.Application.Features.StudentQualifications.Models;
+using AIPMS.Domain.Exceptions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.Data.SqlClient;
@@ -15,6 +16,18 @@ namespace AIPMS.Infrastructure.Persistence.Repositories;
 internal sealed class StudentQualificationRepository(AipmsDbContext context)
     : IStudentQualificationRepository
 {
+    public async Task<long> AddCertificateFileAsync(long actorId, string storageKey,
+        AIPMS.Application.Features.Deliverables.Models.ValidatedUpload file, DateTime now, CancellationToken ct)
+    {
+        if (context.Database.CurrentTransaction is null) throw new InvalidOperationException("Certificate upload requires a transaction.");
+        var row = new Generated.Models.File { UploadedBy = actorId, OriginalFileName = file.FileName,
+            StoragePath = storageKey, MimeType = file.ContentType, FileSizeBytes = file.Bytes.Length,
+            ChecksumSha256 = file.Sha256, CreatedAt = now, UpdatedAt = now };
+        context.Files.Add(row);
+        await context.SaveChangesAsync(ct);
+        return row.Id;
+    }
+
     public async Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken)
     {
         if (context.Database.CurrentTransaction is not null)
@@ -94,6 +107,7 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
             x.Qualification.VerifiedBy,
             x.Qualification.VerifiedAt,
             x.Qualification.RejectionReason,
+            x.Qualification.ConcurrencyToken,
             x.Qualification.CreatedAt,
             x.Qualification.UpdatedAt));
     }
@@ -109,6 +123,22 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
         long qualificationId,
         CancellationToken cancellationToken = default) =>
         Query(qualificationId: qualificationId).SingleOrDefaultAsync(cancellationToken);
+
+    public Task<StudentQualificationCertificateModel?> GetCertificateAsync(
+        long qualificationId, CancellationToken cancellationToken = default) =>
+        (from qualification in context.Set<StudentQualification>().AsNoTracking()
+         join file in context.Files.AsNoTracking() on qualification.CertificateFileId equals file.Id
+         join user in context.Users.AsNoTracking() on qualification.UserId equals user.Id
+         where qualification.Id == qualificationId && file.UploadedBy == qualification.UserId
+            && file.DeliverableVersionId == null && file.ProgressReportId == null && file.MeetingId == null
+            && file.SupervisorFeedbackId == null && file.TaskId == null
+            && (file.MimeType == "application/pdf" || file.MimeType == "image/png" || file.MimeType == "image/jpeg")
+         select new StudentQualificationCertificateModel(
+             qualification.Id, qualification.UserId, qualification.OrganizationId,
+             user.Major != null ? user.Major.DepartmentId : (user.DepartmentId ?? 0),
+             file.Id, file.OriginalFileName, file.MimeType ?? "application/octet-stream",
+             file.FileSizeBytes, file.ChecksumSha256, file.StoragePath, file.UploadedBy))
+        .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<PagedResult<StudentQualificationModel>> SearchVerificationQueueAsync(
         long organizationId,
@@ -165,6 +195,7 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
                 x.Qualification.VerifiedBy,
                 x.Qualification.VerifiedAt,
                 x.Qualification.RejectionReason,
+                x.Qualification.ConcurrencyToken,
                 x.Qualification.CreatedAt,
                 x.Qualification.UpdatedAt))
             .ToListAsync(cancellationToken);
@@ -201,10 +232,14 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
 
         if (certificateFileId.HasValue)
         {
-            var fileExists = await context.Files.AsNoTracking()
-                .AnyAsync(f => f.Id == certificateFileId.Value && f.UploadedBy == userId, cancellationToken);
-            if (!fileExists)
+            var file = await context.Files.AsNoTracking()
+                .SingleOrDefaultAsync(f => f.Id == certificateFileId.Value && f.UploadedBy == userId, cancellationToken);
+            if (file is null)
                 throw new ConflictException("The qualification evidence file must belong to the current student.");
+            if (file.MimeType is not ("application/pdf" or "image/png" or "image/jpeg")
+                || file.DeliverableVersionId.HasValue || file.ProgressReportId.HasValue || file.MeetingId.HasValue
+                || file.SupervisorFeedbackId.HasValue || file.TaskId.HasValue)
+                throw new DomainException("A certificate must be a dedicated PDF, PNG or JPEG file, not a project attachment.");
         }
 
         var entity = await context.Set<StudentQualification>()
@@ -253,6 +288,7 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
         string verificationStatus,
         long actorUserId,
         string? reason,
+        Guid? expectedConcurrencyToken,
         DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
@@ -262,6 +298,8 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
 
         if (entity.VerificationStatus != StudentQualificationStatuses.PendingVerification)
             throw new ConflictException("The qualification was already processed.");
+        if (expectedConcurrencyToken.HasValue && entity.ConcurrencyToken != expectedConcurrencyToken.Value)
+            throw new ConflictException("The qualification changed concurrently. Reload before deciding.");
 
         entity.VerificationStatus = verificationStatus;
         entity.VerifiedBy = actorUserId;

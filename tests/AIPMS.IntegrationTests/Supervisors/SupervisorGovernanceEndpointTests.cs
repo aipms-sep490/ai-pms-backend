@@ -31,6 +31,7 @@ public sealed partial class SupervisorRequestEndpointTests
         // Mentor assignment remains possible during execution after initial supervisor selection closes.
         (await db.ProjectPeriods.FindAsync(p.PeriodId))!.Status = "CLOSED";
         await db.SaveChangesAsync();
+        await AcademicSnapshotFixture.AddAsync(db, p.Id, p.PeriodId, s.DepartmentId, p.LeaderId, Now);
         return (p, majorId, second.Id, profileId);
     }
 
@@ -56,7 +57,7 @@ public sealed partial class SupervisorRequestEndpointTests
     }
 
     [Fact]
-    public async Task Legacy_project_review_requires_persisted_staff_in_the_responsible_department()
+    public async Task Legacy_project_without_frozen_scope_is_read_only_even_for_responsible_staff()
     {
         var s = await database.SeedAsync(); var p = await SeedProject(s);
         string version;
@@ -74,9 +75,9 @@ public sealed partial class SupervisorRequestEndpointTests
         }
         using var staff = app.CreateAuthenticatedClient(s.Staff, roles: ["DEPARTMENT_STAFF"]);
         var response = await staff.PostAsJsonAsync(url, new { concurrencyToken = version });
-        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         await using var check = database.CreateContext();
-        Assert.Equal("UNDER_REVIEW", (await check.Projects.FindAsync(p.Id))!.Status);
+        Assert.Equal("SUBMITTED", (await check.Projects.FindAsync(p.Id))!.Status);
     }
 
     [Fact]
@@ -162,7 +163,7 @@ public sealed partial class SupervisorRequestEndpointTests
         Assert.Equal(HttpStatusCode.BadRequest, (await staff.PostAsJsonAsync(url, new { supervisorProfileId = m.Mentor, reason = " " })).StatusCode);
         var replacement = await Body<SupervisorAssignmentDto>(await staff.PostAsJsonAsync(url, input));
         Assert.True(replacement.IsPrimary); Assert.Equal(id, replacement.ReplacesAssignmentId); Assert.Equal(s.Staff, replacement.AssignedBy);
-        Assert.Equal(replacement, await Body<SupervisorAssignmentDto>(await staff.PostAsJsonAsync(url, input)));
+        Assert.Equivalent(replacement, await Body<SupervisorAssignmentDto>(await staff.PostAsJsonAsync(url, input)));
         using var oldLecturer = app.CreateAuthenticatedClient(s.Lecturer);
         using var newLecturer = app.CreateAuthenticatedClient(s.NewLecturer);
         Assert.Equal(HttpStatusCode.Forbidden, (await oldLecturer.GetAsync($"/api/v1/milestones/project/{m.Project.Id}")).StatusCode);

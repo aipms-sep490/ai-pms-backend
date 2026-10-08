@@ -102,9 +102,9 @@ public sealed partial class InterdisciplinaryWorkflowTests
         await Body<PeriodPolicyDto>(await manager.PutAsJsonAsync(policyUrl + "/policy", request with {
             ExpectedVersion = successor.Version, Operation = "PUBLISH", ConcurrencyToken = successor.ConcurrencyToken }));
         var review = await Review(leader, submitted.Id);
-        Assert.Equal(version, review.LatestSubmission!.Evidence.PolicyVersion);
-        Assert.Equal("PUBLISHED_TOPIC", review.LatestSubmission.Evidence.AllowedProposalSources);
-        Assert.Equal("PUBLISHED_TOPIC", review.LatestSubmission.Evidence.ProposalSource);
+        Assert.Equal(version, review.LatestSubmission!.Evidence!.PolicyVersion);
+        Assert.Equal("PUBLISHED_TOPIC", review.LatestSubmission.Evidence!.AllowedProposalSources);
+        Assert.Equal("PUBLISHED_TOPIC", review.LatestSubmission.Evidence!.ProposalSource);
         await using var check = database.CreateContext();
         Assert.Single(await check.Projects.Where(p => p.TeamId == team.Id).ToListAsync());
         Assert.True((await check.ProjectPeriods.FindAsync(s.Team.PeriodId))!.PolicyVersion > version);
@@ -158,6 +158,6 @@ public sealed partial class InterdisciplinaryWorkflowTests
         using var outsider = app.CreateAuthenticatedClient(outsideStaff, roles: ["DEPARTMENT_STAFF"]);
         Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync($"/api/v1/projects/{submitted.Id}/academic-review")).StatusCode);
         var review = await Review(leader, submitted.Id);
-        Assert.Equal(s.OtherDepartment, review.LatestSubmission!.Evidence.MajorDepartmentIds![s.Team.IsMajorId]);
+        Assert.Equal(s.OtherDepartment, review.LatestSubmission!.Evidence!.MajorDepartmentIds![s.Team.IsMajorId]);
     }
 }

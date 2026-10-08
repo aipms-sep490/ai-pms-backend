@@ -29,7 +29,8 @@ public sealed partial class EvaluationDraftEndpointTests
                     SnapshotJson = JsonSerializer.Serialize(new RegistrationEvidence(
                         new TeamAcademicScopeDto("SINGLE_MAJOR", major, s.Scope.Users.DepartmentId, [new MajorRequirementDto(major, 1, 5, "Engineering")], Guid.NewGuid()),
                         new(1, 5, 1, "test"), s.Scope.OrganizationId, EvaluationDraftDatabaseFixture.Now.AddDays(-2), EvaluationDraftDatabaseFixture.Now.AddDays(2),
-                        [new(student.Id, student.FullName, major, true)], [s.Scope.Users.DepartmentId])) });
+                        [new(student.Id, student.FullName, major, true)], [s.Scope.Users.DepartmentId],
+                        MajorDepartmentIds: new Dictionary<long, long> { [major] = s.Scope.Users.DepartmentId })) });
             await db.SaveChangesAsync();
             var rubricId = (await db.ProjectPeriods.FindAsync(s.PeriodId))!.RubricId!.Value;
             SchemeComponentInput[] components = firstWeight.HasValue ?

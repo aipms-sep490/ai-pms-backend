@@ -28,7 +28,7 @@ public sealed partial class FinalSubmissionEndpointTests
                 new TeamAcademicScopeDto("SINGLE_MAJOR", majorId, s.Users.DepartmentId, [new(majorId, 1, 5, "Project delivery")], Guid.NewGuid()),
                 new(1, 5, 1, "acceptance"), await db.AcademicSemesters.Where(x => x.Id == s.SemesterId).Select(x => x.OrganizationId).SingleAsync(),
                 Now.AddDays(-3), Now.AddDays(-1), members.Select(m => new RegisteredMemberDto(m.UserId, m.User.FullName, majorId, m.IsLeader)).ToArray(),
-                [s.Users.DepartmentId])) });
+                [s.Users.DepartmentId], MajorDepartmentIds: new Dictionary<long, long> { [majorId] = s.Users.DepartmentId })) });
         await db.SaveChangesAsync();
     }
 

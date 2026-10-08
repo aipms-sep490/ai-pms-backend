@@ -102,6 +102,8 @@ internal sealed class FinalSubmissionRepository(AipmsDbContext db) : IFinalSubmi
         var changed = await db.Projects.Where(p => p.Id == input.ProjectId && p.Status == "ACTIVE")
             .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, "FINAL_SUBMISSION").SetProperty(p => p.UpdatedAt, input.SubmittedAt), ct);
         if (changed != 1) throw new ConflictException("PROJECT_NOT_ACTIVE");
+        db.ProjectStatusHistories.Add(new() { ProjectId = input.ProjectId, OldStatus = "ACTIVE", NewStatus = "FINAL_SUBMISSION",
+            ChangedBy = input.SubmittedBy, ChangedAt = input.SubmittedAt, Reason = "Final package submitted" });
         var row = new FinalSubmission { ProjectId = input.ProjectId, ProjectPeriodId = input.ProjectPeriodId,
             SubmittedBy = input.SubmittedBy, SubmittedAt = input.SubmittedAt, Deadline = input.Deadline, Notes = input.Notes,
             DraftConcurrencyToken = Guid.Parse(input.DraftConcurrencyToken), RequirementsConcurrencyToken = Guid.Parse(input.RequirementsConcurrencyToken),

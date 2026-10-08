@@ -116,10 +116,11 @@ internal sealed class ProjectRequirementsService(AipmsDbContext db, ICurrentUser
         return new(page, pageSize, count, rows.Select(x =>
         {
             var s = x.Snapshot;
-            var evidence = JsonSerializer.Deserialize<RegistrationEvidence>(s.SnapshotJson)!;
+            var evidence = ProjectAcademicScopeReader.ReadHistoricalEvidence(s.SnapshotJson);
             return new ProjectReviewSnapshotDto(s.Id, x.Number, s.ProjectPeriodId, s.SubmittedBy, s.SubmittedAt, evidence,
-                evidence.Proposal is not null, decisions.Where(d => d.SnapshotId == s.Id)
-                    .Select(d => new DepartmentDecisionDto(d.DepartmentId, d.Decision, d.DecidedBy, d.DecidedAt, d.Reason)).ToArray());
+                evidence?.Proposal is not null, decisions.Where(d => d.SnapshotId == s.Id)
+                    .Select(d => new DepartmentDecisionDto(d.DepartmentId, d.Decision, d.DecidedBy, d.DecidedAt, d.Reason)).ToArray(),
+                ProjectAcademicScopeReader.ParseEvidence(s.SnapshotJson) is null ? "UNKNOWN" : "FROZEN_REGISTRATION_SNAPSHOT");
         }).ToArray());
     }
 

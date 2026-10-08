@@ -113,7 +113,7 @@ public sealed partial class InterdisciplinaryWorkflowTests(TeamDatabaseFixture d
         Assert.Equal(HttpStatusCode.Conflict, (await lead.PostAsJsonAsync($"/api/v1/projects/{project.Id}/approve", new { concurrencyToken = project.ConcurrencyToken })).StatusCode);
         var review = await Review(leader, project.Id);
         Assert.Equal(2, review.LatestSubmission!.Decisions.Count);
-        Assert.Equal(2, review.LatestSubmission.Evidence.Members.Count);
+        Assert.Equal(2, review.LatestSubmission.Evidence!.Members.Count);
         review = await Decide(other, project.Id, review);
         await AssertAction(other, project.Id, "approve_department", false, "DEPARTMENT_ALREADY_DECIDED");
         await AssertAction(lead, project.Id, "approve_project", false, "DEPARTMENT_APPROVALS_INCOMPLETE");
@@ -356,7 +356,7 @@ public sealed partial class InterdisciplinaryWorkflowTests(TeamDatabaseFixture d
         var after = await Review(other, project.Id);
         Assert.Equal(before.ConcurrencyToken, after.ConcurrencyToken);
         Assert.Equal(before.LatestSubmission!.Id, after.LatestSubmission!.Id);
-        Assert.Contains(s.OtherDepartment, after.LatestSubmission.Evidence.DepartmentIds);
+        Assert.Contains(s.OtherDepartment, after.LatestSubmission.Evidence!.DepartmentIds);
         await AssertAction(other, project.Id, "approve_department", true);
         Assert.Single((await Body<PagedResult<ProjectSummaryDto>>(await other.GetAsync($"/api/v1/projects?teamId={team.Id}"))).Items);
         var queue = await Body<PagedResult<ProjectSummaryDto>>(await other.GetAsync("/api/v1/projects/review-queue"));

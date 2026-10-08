@@ -43,8 +43,8 @@ public sealed partial class InterdisciplinaryWorkflowTests
         project = await Body<ProjectDto>(await leader.GetAsync($"/api/v1/projects/{project.Id}"));
         await Transition(leader, project, "resubmit");
         var history = await Body<ProjectReviewHistoryDto>(await leader.GetAsync($"/api/v1/projects/{project.Id}/review-snapshots"));
-        Assert.Equal("Revised backend", Assert.Single(history.Items[0].Evidence.TeamResponsibilities!).Content);
-        Assert.Equal("Design backend", history.Items[1].Evidence.TeamResponsibilities![0].Content);
+        Assert.Equal("Revised backend", Assert.Single(history.Items[0].Evidence!.TeamResponsibilities!).Content);
+        Assert.Equal("Design backend", history.Items[1].Evidence!.TeamResponsibilities![0].Content);
         var current = await Body<ResponsibilityListDto>(await leader.GetAsync(projectUrl));
         Assert.Equal("Revised backend", Assert.Single(current.Items).Content);
     }

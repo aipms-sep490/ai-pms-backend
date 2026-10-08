@@ -43,8 +43,22 @@ public sealed record StudentQualificationModel(
     long? VerifiedBy,
     DateTime? VerifiedAt,
     string? RejectionReason,
+    Guid ConcurrencyToken,
     DateTime CreatedAt,
     DateTime UpdatedAt);
+
+public sealed record StudentQualificationCertificateModel(
+    long QualificationId,
+    long OwnerUserId,
+    long OrganizationId,
+    long DepartmentId,
+    long FileId,
+    string FileName,
+    string ContentType,
+    long SizeBytes,
+    string? ChecksumSha256,
+    string StorageKey,
+    long UploadedBy);
 
 public sealed record ProjectPeriodQualificationPolicyModel(
     long ProjectPeriodId,

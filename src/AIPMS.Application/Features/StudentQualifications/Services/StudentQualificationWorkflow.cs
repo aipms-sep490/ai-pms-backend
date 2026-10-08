@@ -7,6 +7,11 @@ using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.StudentQualifications.Abstractions;
 using AIPMS.Application.Features.StudentQualifications.DTOs;
 using AIPMS.Application.Features.StudentQualifications.Models;
+using AIPMS.Application.Abstractions.Storage;
+using AIPMS.Application.Features.Deliverables.DTOs;
+using AIPMS.Application.Features.Deliverables.Models;
+using AIPMS.Application.Features.Deliverables.Services;
+using Microsoft.Extensions.Logging;
 
 namespace AIPMS.Application.Features.StudentQualifications.Services;
 
@@ -15,9 +20,46 @@ public sealed class StudentQualificationWorkflow(
     IAcademicStructureRepository academic,
     ICurrentUser currentUser,
     IAuditTrail audit,
-    TimeProvider clock)
+    TimeProvider clock,
+    IFileStorage storage, ILogger<StudentQualificationWorkflow> logger)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
+
+    public async Task<StudentQualificationDto> UploadCertificateAsync(SubmitStudentQualificationEvidenceRequest request,
+        UploadContent upload, CancellationToken ct)
+    {
+        var actor = RequireRole(AppRoles.Student);
+        if (upload.ContentType is not ("application/pdf" or "image/png" or "image/jpeg"))
+            throw new AIPMS.Domain.Exceptions.DomainException("Certificates must be PDF, PNG or JPEG.");
+        var file = await UploadValidator.ReadAsync(upload, ct);
+        var key = Guid.NewGuid().ToString("N");
+        var actionCompleted = false;
+        try
+        {
+            return await repository.InTransactionAsync(async token =>
+            {
+                using var content = new MemoryStream(file.Bytes, writable: false);
+                await storage.WriteAsync(key, content, token);
+                var fileId = await repository.AddCertificateFileAsync(actor, key, file, Now, token);
+                var result = await SubmitEvidenceAsync(request with { CertificateFileId = fileId }, token);
+                await audit.RecordAsync(new(actor, "QUALIFICATION_CERTIFICATE_UPLOADED", "STUDENT_QUALIFICATION", result.Id,
+                    new Dictionary<string, object?> { ["fileId"] = fileId, ["concurrencyToken"] = result.ConcurrencyToken }), token);
+                actionCompleted = true;
+                return result;
+            }, ct);
+        }
+        catch
+        {
+            // An ambiguous commit must not delete a file that may already be referenced.
+            if (!actionCompleted)
+            {
+                try { await storage.DeleteAsync(key, CancellationToken.None); }
+                catch (Exception) { logger.LogError("Certificate cleanup requires reconciliation for object {ObjectKey}", key); }
+            }
+            else logger.LogError("Certificate commit requires reconciliation for object {ObjectKey}", key);
+            throw;
+        }
+    }
 
     public async Task<StudentQualificationDto?> MineAsync(
         string qualificationType,
@@ -28,6 +70,50 @@ public sealed class StudentQualificationWorkflow(
             actorId, NormalizeType(qualificationType), cancellationToken);
         return result?.ToDto();
     }
+
+    public async Task<StudentQualificationCertificateDto> CertificateAsync(long qualificationId, CancellationToken ct)
+    {
+        var file = await AuthorizedCertificateAsync(qualificationId, ct);
+        return new(file.QualificationId, file.FileId, SafeFileName(file.FileName), file.ContentType,
+            file.SizeBytes, file.ChecksumSha256);
+    }
+
+    public async Task<FileDownload> DownloadCertificateAsync(long qualificationId, CancellationToken ct)
+    {
+        var file = await AuthorizedCertificateAsync(qualificationId, ct);
+        try
+        {
+            var stream = await storage.OpenReadAsync(file.StorageKey, ct);
+            return new(stream, file.ContentType, SafeFileName(file.FileName));
+        }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new NotFoundException("Certificate file", file.FileId);
+        }
+    }
+
+    private async Task<StudentQualificationCertificateModel> AuthorizedCertificateAsync(long qualificationId, CancellationToken ct)
+    {
+        if (!currentUser.IsAuthenticated || currentUser.UserId is not long actorId)
+            throw new UnauthorizedException();
+        var file = await repository.GetCertificateAsync(qualificationId, ct)
+            ?? throw new NotFoundException("StudentQualification certificate", qualificationId);
+        var isAdmin = currentUser.Roles.Contains(AppRoles.Admin);
+        var isOwner = file.OwnerUserId == actorId && currentUser.Roles.Contains(AppRoles.Student);
+        var staffScope = currentUser.Roles.Contains(AppRoles.DepartmentStaff)
+            ? await academic.GetUserScopeAsync(actorId, ct)
+            : null;
+        var isStaff = staffScope is not null && staffScope.OrganizationId == file.OrganizationId
+            && staffScope.DepartmentId == file.DepartmentId;
+        if (!isAdmin && !isOwner && !isStaff)
+            throw new ForbiddenException("You cannot access this qualification certificate.");
+        if (file.UploadedBy != file.OwnerUserId)
+            throw new ForbiddenException("The certificate file is not owned by the qualification holder.");
+        return file;
+    }
+
+    private static string SafeFileName(string name) =>
+        Path.GetFileName(string.IsNullOrWhiteSpace(name) ? "certificate" : name);
 
     public async Task<StudentQualificationDto> SubmitEvidenceAsync(
         SubmitStudentQualificationEvidenceRequest request,
@@ -95,14 +181,16 @@ public sealed class StudentQualificationWorkflow(
 
     public Task<StudentQualificationDto> VerifyAsync(
         long qualificationId,
+        Guid? expectedConcurrencyToken,
         CancellationToken cancellationToken) =>
-        DecideAsync(qualificationId, StudentQualificationStatuses.Verified, null, cancellationToken);
+        DecideAsync(qualificationId, StudentQualificationStatuses.Verified, null, expectedConcurrencyToken, cancellationToken);
 
     public Task<StudentQualificationDto> RejectAsync(
         long qualificationId,
         string? reason,
+        Guid? expectedConcurrencyToken,
         CancellationToken cancellationToken) =>
-        DecideAsync(qualificationId, StudentQualificationStatuses.Rejected, reason, cancellationToken);
+        DecideAsync(qualificationId, StudentQualificationStatuses.Rejected, reason, expectedConcurrencyToken, cancellationToken);
 
     public async Task<ProjectPeriodQualificationPolicyDto> GetPeriodPolicyAsync(
         long projectPeriodId,
@@ -155,6 +243,7 @@ public sealed class StudentQualificationWorkflow(
         long qualificationId,
         string status,
         string? reason,
+        Guid? expectedConcurrencyToken,
         CancellationToken cancellationToken)
     {
         return await repository.InTransactionAsync(async token =>
@@ -169,6 +258,9 @@ public sealed class StudentQualificationWorkflow(
                 throw new ForbiddenException("Department staff can only verify students in their assigned department.");
             if (current.VerificationStatus != StudentQualificationStatuses.PendingVerification)
                 throw new ConflictException("Only a pending qualification can be verified or rejected.");
+            var expected = expectedConcurrencyToken ?? current.ConcurrencyToken;
+            if (expected != current.ConcurrencyToken)
+                throw new ConflictException("The qualification changed concurrently. Reload before deciding.");
             if (status == StudentQualificationStatuses.Verified
                 && current.TrainingStatus != StudentTrainingStatuses.Completed)
                 throw new ConflictException("Training must be completed before qualification verification.");
@@ -176,7 +268,7 @@ public sealed class StudentQualificationWorkflow(
                 throw new ConflictException("A rejection reason is required.");
 
             var result = await repository.DecideAsync(
-                qualificationId, status, actorId, Trim(reason), Now, token);
+                qualificationId, status, actorId, Trim(reason), expected, Now, token);
 
             await audit.RecordAsync(new AuditEntry(
                 actorId,
@@ -188,6 +280,8 @@ public sealed class StudentQualificationWorkflow(
                 {
                     ["studentUserId"] = result.UserId,
                     ["qualificationType"] = result.QualificationType,
+                    ["reviewedConcurrencyToken"] = expected,
+                    ["concurrencyToken"] = result.ConcurrencyToken,
                     ["verificationStatus"] = result.VerificationStatus,
                     ["reason"] = result.RejectionReason
                 }), token);

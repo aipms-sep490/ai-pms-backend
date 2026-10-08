@@ -4,6 +4,16 @@ using FluentValidation;
 
 namespace AIPMS.Application.Features.StudentQualifications.Validators;
 
+public sealed class UploadStudentQualificationCertificateCommandValidator : AbstractValidator<UploadStudentQualificationCertificateCommand>
+{
+    public UploadStudentQualificationCertificateCommandValidator()
+    {
+        RuleFor(x => x.Request.QualificationType).NotEmpty().MaximumLength(50);
+        RuleFor(x => x.Request.TrainingStatus).NotEmpty().MaximumLength(30);
+        RuleFor(x => x.Request.CertificateNumber).MaximumLength(100);
+    }
+}
+
 public sealed class SubmitStudentQualificationEvidenceCommandValidator
     : AbstractValidator<SubmitStudentQualificationEvidenceCommand>
 {

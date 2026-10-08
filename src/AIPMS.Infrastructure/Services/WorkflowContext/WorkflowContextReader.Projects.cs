@@ -25,15 +25,13 @@ internal sealed partial class WorkflowContextReader
         var snapshot = academicReview.LatestSubmission;
         var departmentIds = await projects.GetProjectMajorDepartmentIdsAsync(projectId, ct);
         var hasScope = project.AcademicScope is not null;
-        var reviewer = hasScope
-            ? actor.Staff && actor.Academic.HasActiveDepartmentScope && snapshot?.Evidence.Scope.LeadDepartmentId == staffDepartment
-            : actor.Staff && actor.Academic.HasActiveDepartmentScope && staffDepartment.HasValue
-                && departmentIds.Count == 1 && departmentIds.Contains(staffDepartment.Value);
+        var reviewer = hasScope && actor.Staff && actor.Academic.HasActiveDepartmentScope
+            && snapshot?.Evidence?.Scope.LeadDepartmentId == staffDepartment;
         var reviewGate = (reviewer, hasScope ? "LEAD_DEPARTMENT_REVIEWER_REQUIRED" : "REVIEWER_SCOPE_REQUIRED");
-        var reviewEvidence = (!hasScope || snapshot is not null, "SUBMISSION_SNAPSHOT_REQUIRED");
+        var reviewEvidence = (hasScope && snapshot is not null, "SUBMISSION_SNAPSHOT_REQUIRED");
         var myDecision = snapshot?.Decisions.SingleOrDefault(d => d.DepartmentId == staffDepartment);
-        var hybrid = team.Team.AcademicScope is not null && snapshot?.Evidence.Scope.ProjectMode == "INTERDISCIPLINARY";
-        var departmentsApproved = !hybrid || (snapshot!.Decisions.Count == snapshot.Evidence.DepartmentIds.Count
+        var hybrid = snapshot?.Evidence?.Scope.ProjectMode == "INTERDISCIPLINARY";
+        var departmentsApproved = !hybrid || (snapshot!.Decisions.Count == snapshot.Evidence!.DepartmentIds.Count
             && snapshot.Decisions.All(d => d.Decision == "APPROVED"));
         var canTransition = Enum.TryParse<ProjectStatus>(project.Status.Replace("_", ""), true, out var status);
         bool Transition(ProjectStatus target) => canTransition && ProjectStateMachine.CanTransition(status, target);

@@ -16,7 +16,7 @@ internal sealed partial class EvaluationSchemeService
 {
     private sealed record ResultCheck(ProjectResultPreviewDto Preview, EvaluationScheme Scheme, long PackageId,
         long? MajorId, string FrozenInputs);
-    private async Task<ResultCheck> Check(long projectId, long? studentId, CancellationToken ct)
+    private async Task<ResultCheck> Check(long projectId, long? studentId, CancellationToken ct, bool publishing = false)
     {
         await Manage(projectId, ct);
         var scheme = await db.Set<EvaluationScheme>().Include(x => x.Components)
@@ -30,16 +30,22 @@ internal sealed partial class EvaluationSchemeService
             ?? throw new NotFoundException("StudentResult", studentId) : null;
         var components = scheme.Components.Where(c => target is null ? c.ProjectWeightPercent > 0
             : c.StudentWeightPercent > 0 && (c.Scope == "COMMON" || c.MajorId == target.MajorId)).OrderBy(c => c.Id).ToArray();
+        var registration = ProjectAcademicScopeReader.ParseEvidence(scheme.RegistrationSnapshotJson)
+            ?? throw new ConflictException("Frozen academic scope is unknown. Legacy results remain read-only.");
+        var publicationForbidden = false;
         if (!actor.IsAdmin)
         {
             var targetDepartment = target?.DepartmentId;
-            if (target is not null ? targetDepartment != actor.DepartmentId
-                : await db.Rubrics.AnyAsync(r => components.Select(c => c.RubricId).Contains(r.Id) && r.DepartmentId != actor.DepartmentId, ct))
+            var outsideReadScope = target is not null ? targetDepartment != actor.DepartmentId
+                : await db.Rubrics.AnyAsync(r => components.Select(c => c.RubricId).Contains(r.Id) && r.DepartmentId != actor.DepartmentId, ct);
+            publicationForbidden = outsideReadScope || target is null && registration.DepartmentIds.Any(id => id != actor.DepartmentId);
+            if (outsideReadScope || publicationForbidden && publishing)
                 throw new ForbiddenException("Staff may publish their students; cross-department project results require an administrator.");
         }
         var project = (await evaluations.GetProjectAsync(projectId, ct))!;
         var package = await submissions.GetAsync(projectId, ct) ?? throw new ConflictException("Locked final package required.");
         var blockers = new List<string>();
+        if (publicationForbidden) blockers.Add("ADMIN_REQUIRED_FOR_CROSS_DEPARTMENT_PUBLICATION");
         if (!project.ActiveScope) blockers.Add("ACADEMIC_SCOPE_INACTIVE");
         if (package.Items.Count == 0 || package.Items.Any(i => i.Files.Count == 0)) blockers.Add("LOCKED_PACKAGE_REQUIRED");
         if (project.Status != "FINAL_SUBMISSION" && !(studentId.HasValue && project.Status == "COMPLETED")) blockers.Add("PROJECT_NOT_FINAL_SUBMISSION");
@@ -106,7 +112,7 @@ internal sealed partial class EvaluationSchemeService
     public Task<ProjectResultDto> PublishProjectAsync(long projectId, string token, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
     {
         await evaluations.LockProjectAsync(projectId, ct);
-        var check = await Check(projectId, null, ct); Confirm(check, token); var now = Now;
+        var check = await Check(projectId, null, ct, publishing: true); Confirm(check, token); var now = Now;
         var saved = await results.PublishAsync(new(0, projectId, check.PackageId, check.Preview.TotalScore!.Value,
             check.Scheme.PassThreshold, check.Preview.Outcome!, EvaluationSchemeRules.CalculationRule, Actor, now,
             check.Scheme.ConcurrencyToken.ToString("N"), check.Preview.Contributions, check.Scheme.Id, check.Scheme.PolicyVersionId, check.FrozenInputs), ct);
@@ -117,7 +123,7 @@ internal sealed partial class EvaluationSchemeService
     public Task<StudentResultDto> PublishStudentAsync(long projectId, long studentId, string token, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
     {
         await evaluations.LockProjectAsync(projectId, ct);
-        var check = await Check(projectId, studentId, ct); Confirm(check, token);
+        var check = await Check(projectId, studentId, ct, publishing: true); Confirm(check, token);
         var row = new StudentResult { ProjectId = projectId, StudentId = studentId, MajorId = check.MajorId!.Value,
             SchemeId = check.Scheme.Id, TotalScore = check.Preview.TotalScore!.Value, PassThreshold = check.Scheme.PassThreshold,
             Outcome = check.Preview.Outcome!, CalculationRule = EvaluationSchemeRules.CalculationRule,
