@@ -24,7 +24,7 @@ internal sealed class ProjectGovernanceService(AipmsDbContext db, ICurrentUser c
         var assignments = await db.Set<EvaluationAssignment>().AsNoTracking().Where(a => a.ProjectId == projectId)
             .Select(a => new GovernanceEvaluatorDto(a.Id, a.EvaluatorId, a.EvaluationType, a.Scope, a.MajorId, a.StudentId, a.Status)).ToListAsync(ct);
         var final = await db.Set<FinalSubmission>().AsNoTracking().Where(x => x.ProjectId == projectId)
-            .Select(x => new { x.Id, x.SubmittedAt }).SingleOrDefaultAsync(ct);
+            .Select(x => new { x.Id }).SingleOrDefaultAsync(ct);
         var projectResultPublished = await db.Set<ProjectResult>().AsNoTracking().AnyAsync(x => x.ProjectId == projectId, ct);
         var publishedScheme = await db.Set<EvaluationScheme>().AsNoTracking().AnyAsync(x => x.ProjectId == projectId && x.Status == "PUBLISHED", ct);
         var frozenScope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: true);
@@ -62,7 +62,7 @@ internal sealed class ProjectGovernanceService(AipmsDbContext db, ICurrentUser c
         if (scopeValid && project.Status is not ("ARCHIVED" or "COMPLETED")
             && isStaff && scopeDepartments.Any(x => x.DepartmentId == actorDept)) actions.Add("MANAGE_GOVERNANCE");
         if (canEvaluate) actions.Add("READ_ASSIGNED_EVALUATION");
-        var finalStatus = final is null ? null : "SUBMITTED";
+        var finalStatus = final is null ? null : "LOCKED";
         var resultStatus = projectResultPublished ? "PUBLISHED" : final is null ? "NOT_PUBLISHED" : "PENDING";
         var canPublish = false;
         if ((isAdmin || isStaff) && scopeValid && project.Status == "FINAL_SUBMISSION" && final is not null

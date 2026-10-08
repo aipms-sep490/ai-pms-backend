@@ -17,6 +17,7 @@ public sealed partial class PolicyEvaluationEndpointTests
         var url = $"/api/v1/projects/{s.ProjectId}/governance";
         var resultUrl = $"/api/v1/projects/{s.ProjectId}/result";
         var missing = await Body<ProjectGovernanceDto>(await staff.GetAsync(url));
+        Assert.Equal("LOCKED", missing.FinalSubmissionStatus);
         Assert.False(missing.Readiness.CanPublishResult);
         Assert.Contains(missing.Blockers, x => x.StartsWith("MISSING_EVALUATOR:", StringComparison.Ordinal));
         await Evaluate(staff, lecturer, s, scheme.Components.Single(c => c.Scope == "COMMON"), 8);
