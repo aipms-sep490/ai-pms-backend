@@ -59,10 +59,10 @@ public sealed class DashboardValidatorTests
     }
 
     [Fact]
-    public void ExportQuery_OnlyAllowsCsvAndValidStatus()
+    public void ExportQuery_AllowsSupportedFormatsAndValidStatus()
     {
         var result = new ExportPortfolioDashboardQueryValidator().TestValidate(
-            new ExportPortfolioDashboardQuery(Format: "xlsx", Status: "NOT_A_PROJECT_STATE"));
+            new ExportPortfolioDashboardQuery(Format: "xml", Status: "NOT_A_PROJECT_STATE"));
 
         result.ShouldHaveValidationErrorFor(x => x.Format);
         result.ShouldHaveValidationErrorFor(x => x.Status);
