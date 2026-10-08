@@ -108,13 +108,13 @@ public sealed class SupervisorCandidateEndpointTests(SupervisorDatabaseFixture d
     }
 
     [Theory]
-    [InlineData(3, 5, 1)]
+    [InlineData(3, 5, 2)]
     [InlineData(10, 2, 1)]
     [InlineData(null, 5, 4)]
-    [InlineData(2, 5, 0)]
+    [InlineData(2, 5, 1)]
     [InlineData(10, 1, 0)]
     [InlineData(0, 5, 0)]
-    public async Task BR61_capacity_counts_all_unended_projects_and_applies_both_limits(
+    public async Task BR61_capacity_excludes_closed_projects_and_applies_both_limits(
         int? profileLimit, int semesterLimit, int remaining)
     {
         var s = await database.SeedAsync();
@@ -139,7 +139,7 @@ public sealed class SupervisorCandidateEndpointTests(SupervisorDatabaseFixture d
         }
         var candidate = Assert.Single(result.Items);
         Assert.Equal(s.ProfileId, candidate.Id);
-        Assert.Equal(2, candidate.ActiveProjects);
+        Assert.Equal(1, candidate.ActiveProjects);
         Assert.Equal(1, candidate.SemesterActiveProjects);
         Assert.Equal(profileLimit, candidate.ProfileLimit);
         Assert.Equal(semesterLimit, candidate.SemesterLimit);
