@@ -49,6 +49,7 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
         services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.IStudentRosterService, Services.StudentRosters.StudentRosterService>();
+        services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.IStudentAccountImportService, Services.StudentRosters.StudentAccountImportService>();
         services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.ITeamRosterExportService, Services.StudentRosters.TeamRosterExportService>();
         services.AddOptions<AIPMS.Application.Features.Chat.ChatSettings>().BindConfiguration("Chat").ValidateDataAnnotations().ValidateOnStart();
         services.AddScoped<Chat.ChatAccessService>();

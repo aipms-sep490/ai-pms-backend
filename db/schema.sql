@@ -180,6 +180,7 @@ CREATE TABLE dbo.users (
     phone           NVARCHAR(30) NULL,
     student_code    NVARCHAR(50) NULL,
     curriculum_code NVARCHAR(100) NULL,
+    google_enrollment_pending BIT NOT NULL CONSTRAINT df_users_google_enrollment_pending DEFAULT (0),
     employee_code   NVARCHAR(50) NULL,
     title           NVARCHAR(100) NULL,
     status          NVARCHAR(20) NOT NULL CONSTRAINT df_users_status DEFAULT (N'ACTIVE'),

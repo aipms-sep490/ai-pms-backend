@@ -27,6 +27,106 @@ public sealed class GoogleAuthEndpointTests(GoogleAuthEndpointTests.Factory fact
     private const string Root = "/api/v1/auth/";
 
     [Fact]
+    public async Task File_imported_student_signs_in_with_google_without_a_password_link_step()
+    {
+        var adminId = await factory.SeedAsync(); long majorId = 0;
+        await factory.WithDb(async db =>
+        {
+            var role = await db.Roles.SingleOrDefaultAsync(x => x.Code == "ADMIN") ?? new Role { Code = "ADMIN", Name = "Admin" };
+            db.UserRoles.Add(new UserRole { UserId = adminId, Role = role });
+            var major = new Major { Code = "SE", Name = "SE", IsActive = true, Department = new Department { Code = "IT", Name = "IT", IsActive = true,
+                Organization = new Organization { Code = Guid.NewGuid().ToString("N"), Name = "Test", IsActive = true } } };
+            db.Majors.Add(major); await db.SaveChangesAsync(); majorId = major.Id;
+        });
+        var code = Guid.NewGuid().ToString("N"); var email = $"import-{code}@gmail.com";
+        using var admin = factory.CreateAuthenticatedClient(adminId, roles: ["ADMIN"]);
+        using var form = new MultipartFormDataContent(); form.Add(new StringContent(majorId.ToString()), "majorId");
+        form.Add(new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes($"MSSV,Ho ten,Email\n{code},Imported Student,{email}")), "file", "students.csv");
+        var previewResponse = await admin.PostAsync("/api/v1/users/student-import/preview", form);
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+        var preview = (await previewResponse.Content.ReadFromJsonAsync<AIPMS.Application.Features.StudentRosters.StudentAccountImportPreview>())!;
+        Assert.True(preview.CanCommit);
+        var commit = await admin.PostAsJsonAsync("/api/v1/users/student-import/commit", new { majorId, rows = preview.Rows.Select(x => x.Account) });
+        Assert.Equal(HttpStatusCode.Created, commit.StatusCode);
+        using var client = Client(); var challenge = await Challenge(client, "LOGIN");
+        var response = await client.PostAsJsonAsync(Root + "google/login", new { challengeId = challenge.ChallengeId,
+            idToken = JsonSerializer.Serialize(new GoogleIdentity("import-" + code, email, challenge.Nonce, true)) });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var session = (await response.Content.ReadFromJsonAsync<LoginResponse>())!;
+        Assert.Equal(email, session.User.Email); Assert.Equal("STUDENT", Assert.Single(session.User.Roles));
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(Root + "refresh", new { refreshToken = session.RefreshToken })).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("locked")][InlineData("inactive")][InlineData("privileged")][InlineData("different-email")]
+    public async Task Pending_enrollment_cannot_bypass_account_guards(string scenario)
+    {
+        var id = await factory.SeedAsync();
+        await factory.WithDb(async db =>
+        {
+            var user = await db.Users.FindAsync(id); user!.GoogleEnrollmentPending = true;
+            if (scenario == "locked") user.LockoutEndAt = DateTime.UtcNow.AddMinutes(30);
+            if (scenario == "inactive") user.Status = "INACTIVE";
+            if (scenario == "privileged")
+            {
+                var role = await db.Roles.SingleOrDefaultAsync(x => x.Code == "ADMIN") ?? new Role { Code = "ADMIN", Name = "Admin" };
+                db.UserRoles.Add(new UserRole { UserId = id, Role = role });
+            }
+            await db.SaveChangesAsync();
+        });
+        using var client = Client(); var challenge = await Challenge(client, "LOGIN");
+        var response = await client.PostAsJsonAsync(Root + "google/login", new { challengeId = challenge.ChallengeId,
+            idToken = JsonSerializer.Serialize(new GoogleIdentity(id.ToString(), scenario == "different-email" ? "other@gmail.com" : Email(id), challenge.Nonce, true)) });
+        Assert.False(response.IsSuccessStatusCode);
+        await factory.WithDb(async db => { Assert.True((await db.Users.FindAsync(id))!.GoogleEnrollmentPending); Assert.False(await db.UserExternalLogins.AnyAsync(x => x.UserId == id)); });
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Imported_student_can_enroll_once_only_with_authoritative_google_email(bool authoritative)
+    {
+        var id = await factory.SeedAsync();
+        await factory.WithDb(async db => { var user = await db.Users.FindAsync(id); user!.GoogleEnrollmentPending = true; await db.SaveChangesAsync(); });
+        using var client = Client(); var challenge = await Challenge(client, "LOGIN");
+        var response = await client.PostAsJsonAsync(Root + "google/login", new { challengeId = challenge.ChallengeId,
+            idToken = JsonSerializer.Serialize(new GoogleIdentity(id.ToString(), Email(id), challenge.Nonce, authoritative)) });
+        Assert.Equal(authoritative ? HttpStatusCode.OK : HttpStatusCode.Unauthorized, response.StatusCode);
+        await factory.WithDb(async db =>
+        {
+            Assert.Equal(!authoritative, (await db.Users.FindAsync(id))!.GoogleEnrollmentPending);
+            Assert.Equal(authoritative ? 1 : 0, await db.UserExternalLogins.CountAsync(x => x.UserId == id));
+        });
+        if (!authoritative) return;
+        var session = (await response.Content.ReadFromJsonAsync<LoginResponse>())!;
+        Assert.Equal(id, session.User.Id); Assert.Contains("STUDENT", session.User.Roles);
+        using var owner = Client(id);
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.PostAsJsonAsync(Root + "google/unlink", new { currentPassword = Password })).StatusCode);
+        var next = await Challenge(client, "LOGIN");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync(Root + "google/login", new { challengeId = next.ChallengeId,
+            idToken = JsonSerializer.Serialize(new GoogleIdentity(id.ToString(), Email(id), next.Nonce, true)) })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Enrollment_audit_failure_rolls_back_link_flag_and_refresh_session()
+    {
+        var id = await factory.SeedAsync();
+        await factory.WithDb(async db => { var user = await db.Users.FindAsync(id); user!.GoogleEnrollmentPending = true; await db.SaveChangesAsync(); });
+        using var client = Client(); var challenge = await Challenge(client, "LOGIN"); factory.FailAudit = true;
+        try
+        {
+            Assert.Equal(HttpStatusCode.InternalServerError, (await client.PostAsJsonAsync(Root + "google/login", new { challengeId = challenge.ChallengeId,
+                idToken = JsonSerializer.Serialize(new GoogleIdentity(id.ToString(), Email(id), challenge.Nonce, true)) })).StatusCode);
+        }
+        finally { factory.FailAudit = false; }
+        await factory.WithDb(async db =>
+        {
+            Assert.True((await db.Users.FindAsync(id))!.GoogleEnrollmentPending);
+            Assert.False(await db.UserExternalLogins.AnyAsync(x => x.UserId == id)); Assert.False(await db.RefreshTokens.AnyAsync(x => x.UserId == id));
+        });
+    }
+
+    [Fact]
     public async Task Link_login_refresh_logout_and_unlink_preserve_existing_contract()
     {
         var id = await factory.SeedAsync();

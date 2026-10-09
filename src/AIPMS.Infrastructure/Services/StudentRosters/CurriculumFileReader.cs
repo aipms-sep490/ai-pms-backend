@@ -56,7 +56,7 @@ internal static class CurriculumFileReader
         }
     }
 
-    private static List<string[]> ReadCsv(byte[] bytes)
+    internal static List<string[]> ReadCsv(byte[] bytes)
     {
         using var reader = new StringReader(new UTF8Encoding(false, true).GetString(bytes));
         using var parser = new TextFieldParser(reader) { HasFieldsEnclosedInQuotes = true, TrimWhiteSpace = false };
@@ -71,7 +71,7 @@ internal static class CurriculumFileReader
         return rows;
     }
 
-    private static List<string[]> ReadExcel(byte[] bytes)
+    internal static List<string[]> ReadExcel(byte[] bytes)
     {
         // Bound decompression before handing the workbook to the spreadsheet library.
         using (var zip = new ZipArchive(new MemoryStream(bytes)))

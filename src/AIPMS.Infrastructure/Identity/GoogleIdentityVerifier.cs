@@ -80,7 +80,12 @@ internal sealed class GoogleIdentityVerifier(IGoogleSigningKeys keys, IOptions<G
             || !token.TryGetPayloadValue<string>("nonce", out var nonce) || string.IsNullOrWhiteSpace(nonce) || nonce.Length > 256
             || !token.TryGetPayloadValue<long>("iat", out var issued) || issued > clock.GetUtcNow().AddSeconds(30).ToUnixTimeSeconds()) throw Invalid();
         if (token.TryGetPayloadValue<string>("azp", out var presenter) && presenter != settings.Value.ClientId) throw Invalid();
-        return new GoogleIdentity(subject, email.Trim(), nonce);
+        var domain = email.Trim().Split('@').Last();
+        var authoritative = domain.Equals("gmail.com", StringComparison.OrdinalIgnoreCase)
+            || domain.Equals("googlemail.com", StringComparison.OrdinalIgnoreCase)
+            || token.TryGetPayloadValue<string>("hd", out var hostedDomain)
+                && !string.IsNullOrWhiteSpace(hostedDomain) && domain.Equals(hostedDomain, StringComparison.OrdinalIgnoreCase);
+        return new GoogleIdentity(subject, email.Trim(), nonce, authoritative);
     }
 
     private static UnauthorizedException Invalid() => new("Google authentication failed.");

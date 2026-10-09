@@ -33,5 +33,6 @@
   "20261002_add_video_meetings.sql",
   "20261003_add_user_row_version.sql",
   "20261007_add_realtime_chat.sql",
-  "20261009_add_student_curriculum_code.sql"
+  "20261009_add_student_curriculum_code.sql",
+  "20261009_add_google_enrollment_pending.sql"
 ]
