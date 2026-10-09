@@ -15,6 +15,10 @@
       "schemeVersion": null,
       "rubricVersion": null,
       "lockedPackageVersion": null,
+      "fileLimits": {
+        "transportCeilingBytes": 23068672,
+        "businessFileMaxBytes": 20971520
+      },
       "request": {
         "method": "POST",
         "path": "/api/v1/student-qualifications/me/certificate",
@@ -31,6 +35,7 @@
         "verificationStatus": "PENDING",
         "qualificationType": "CAPSTONE_READINESS"
       },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Certificate_file_size_contract_distinguishes_transport_and_business_limits",
       "tags": ["allowed", "qualification"]
     },
     {
@@ -44,6 +49,11 @@
       "schemeVersion": null,
       "rubricVersion": null,
       "lockedPackageVersion": null,
+      "fileLimits": {
+        "transportCeilingBytes": 23068672,
+        "businessFileMaxBytes": 20971520
+      },
+      "note": "Rejects empty file or file > 20 MiB with 400 Bad Request.",
       "request": {
         "method": "POST",
         "path": "/api/v1/student-qualifications/me/certificate",
@@ -53,6 +63,7 @@
       "expectedStatus": 400,
       "expectedBodyClass": "ProblemDetails",
       "expectedReadback": null,
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Certificate_file_size_contract_distinguishes_transport_and_business_limits",
       "tags": ["validation", "qualification"]
     },
     {
@@ -148,6 +159,7 @@
         "status": "ACTIVE",
         "scope": "COMMON"
       },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Single_major_fixture_creates_mutates_and_reads_back_isolated_state",
       "tags": ["allowed", "evaluation-assignments"]
     },
     {
@@ -197,6 +209,7 @@
         "canScore": true,
         "legacyReadOnly": false
       },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Single_major_fixture_creates_mutates_and_reads_back_isolated_state",
       "tags": ["allowed", "read-only", "evaluation-assignments"]
     },
     {
@@ -220,6 +233,7 @@
         "scope": "MAJOR_SPECIFIC",
         "isReadOnly": true
       },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Evaluation_evidence_endpoint_returns_expected_metadata_contract",
       "tags": ["allowed", "read-only", "evaluation-assignments"]
     },
     {
@@ -362,6 +376,86 @@
         "studentId": 201
       },
       "tags": ["allowed", "student-results"]
+    },
+    {
+      "scenarioId": "SCENARIO_INTERDISCIPLINARY_01_ASSIGNMENT_BOUNDARIES",
+      "mode": "INTERDISCIPLINARY",
+      "actor": "LEAD_STAFF",
+      "assignment": null,
+      "scope": "MAJOR_SPECIFIC",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": "v1.0",
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/projects/{projectId}/evaluation-assignments",
+        "body": {
+          "evaluationType": "LECTURER",
+          "scope": "MAJOR_SPECIFIC"
+        }
+      },
+      "expectedStatus": 201,
+      "expectedBodyClass": "EvaluationAssignmentDto",
+      "expectedReadback": {
+        "scope": "MAJOR_SPECIFIC",
+        "status": "ACTIVE"
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Interdisciplinary_fixture_enforces_multi_major_boundaries_and_persisted_readback",
+      "tags": ["allowed", "denied", "privacy", "interdisciplinary", "evaluation-assignments"]
+    },
+    {
+      "scenarioId": "SCENARIO_INTERDISCIPLINARY_02_POLICY_EVALUATION",
+      "mode": "INTERDISCIPLINARY",
+      "actor": "ADMIN",
+      "assignment": null,
+      "scope": "INTERDISCIPLINARY",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": "v1.0",
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/evaluation-schemes",
+        "body": {
+          "name": "Two departments"
+        }
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "EvaluationSchemeDto",
+      "expectedReadback": {
+        "status": "PUBLISHED"
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Evaluations.PolicyEvaluationEndpointTests.Two_departments_multiple_evaluators_and_individual_targets_use_frozen_weights_and_visibility",
+      "tags": ["allowed", "interdisciplinary", "policy-evaluation"]
+    },
+    {
+      "scenarioId": "SCENARIO_INTERDISCIPLINARY_03_WORKFLOW_JOURNEY",
+      "mode": "INTERDISCIPLINARY",
+      "actor": "LEAD_STAFF",
+      "assignment": null,
+      "scope": "INTERDISCIPLINARY",
+      "projectState": "ACTIVE",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/projects/{id}/department-decisions",
+        "body": {
+          "decision": "APPROVED"
+        }
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "ProjectAcademicReviewDto",
+      "expectedReadback": {
+        "canRegister": true
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Teams.InterdisciplinaryWorkflowTests.Cross_department_journey_requires_all_decisions_and_locks_roster",
+      "tags": ["allowed", "denied", "interdisciplinary", "workflow"]
     }
   ]
 }

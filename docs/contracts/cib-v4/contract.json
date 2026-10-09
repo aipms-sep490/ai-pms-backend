@@ -8,7 +8,15 @@
     "generatedAt": "2026-10-10T00:00:00Z",
     "documentReference": "AI-PMS-CIB-004",
     "environment": "Integration / Acceptance",
-    "specificationBase": "ASP.NET Core Web API + SQL Server (LocalDB for Isolated Acceptance)"
+    "specificationBase": "ASP.NET Core Web API + SQL Server (LocalDB for Isolated Acceptance)",
+    "openapiSpecificationPath": "openapi.json",
+    "contractRole": "CIB metadata and decision manifest. Machine-readable companion to openapi.json. Does not masquerade as an OpenAPI document."
+  },
+  "fileLimits": {
+    "certificateTransportCeilingBytes": 23068672,
+    "certificateTransportCeilingNote": "22 MB HTTP/request-body transport limit ([RequestSizeLimit] and [RequestFormLimits]). Requests > 22 MB fail with 413 Payload Too Large.",
+    "certificateBusinessMaxBytes": 20971520,
+    "certificateBusinessMaxNote": "20 MiB business validation limit enforced by UploadValidator.MaxBytes. Files > 20 MiB fail with 400 Bad Request."
   },
   "gates": {
     "mockContractStatus": "DONE",
@@ -58,6 +66,8 @@
         "path": "/api/v1/student-qualifications/me/certificate",
         "contentType": "multipart/form-data",
         "requestSizeLimitBytes": 23068672,
+        "businessFileMaxBytes": 20971520,
+        "fileSizeRule": "HTTP transport body ceiling is 22 MB (23,068,672 bytes) via RequestSizeLimit/RequestFormLimits. Files must be <= 20 MiB (20,971,520 bytes) via UploadValidator. Files between 20 MiB and 22 MB fail business validation with 400 Bad Request; requests > 22 MB fail at transport with 413 Payload Too Large.",
         "authRoles": ["STUDENT"],
         "formFields": {
           "file": { "type": "binary", "required": true, "allowedExtensions": [".pdf", ".png", ".jpg", ".jpeg"] },

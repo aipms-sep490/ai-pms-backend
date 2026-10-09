@@ -46,13 +46,19 @@ AI-PMS provides a layered fixture architecture in `tests/AIPMS.IntegrationTests`
   - Score aggregation and student owner privacy readback (`snapshotJson = "{}"`).
 
 ### 3.2 INTERDISCIPLINARY Acceptance Fixture
-- **Scope**: Two departments (`LeadDepartment = Dept_A`, `ParticipatingDepartment = Dept_B`), distinct majors (`SE` + `IS`).
-- **Team**: Multi-major team with defined responsibility ratios.
+- **Scope**: Two departments (`LeadDepartment = Dept_A`, `ParticipatingDepartment = Dept_B`), distinct majors (`SE` + `IS` / `BA`).
+- **Team**: Multi-major team with defined responsibility ratios and registration scope snapshot.
 - **Validation Focus**:
   - Verification that participating staff cannot unilaterally alter lead decisions.
   - Assignment scoping across `MAJOR_SPECIFIC` and `COMMON` evaluators.
-  - Prevention of cross-major scoring leaks.
+  - Authorization enforcement ensuring evaluators from different departments cannot access out-of-scope assignments (`403 Forbidden`).
+  - Prevention of cross-major scoring leaks with frozen evaluation weights.
+  - Persistent SQL readback on isolated LocalDB confirming multi-major assignment records.
   - Blocking unapproved features gracefully (`BLOCKED_BY_CONTRACT`).
+- **Executed Acceptance Evidence**:
+  - Primary Fixture Test: `AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Interdisciplinary_fixture_enforces_multi_major_boundaries_and_persisted_readback` (seeds isolated 2-department, 2-major registration snapshot, creates `MAJOR_SPECIFIC` scheme/assignment, asserts foreign lecturer rejection with `403 Forbidden`, and verifies direct SQL persistence).
+  - Multi-Evaluator Policy Test: `AIPMS.IntegrationTests.Evaluations.PolicyEvaluationEndpointTests.Two_departments_multiple_evaluators_and_individual_targets_use_frozen_weights_and_visibility` (asserts cross-department evaluator scoping and frozen weights).
+  - Cross-Department Workflow Test: `AIPMS.IntegrationTests.Teams.InterdisciplinaryWorkflowTests.Cross_department_journey_requires_all_decisions_and_locks_roster` (asserts lead vs non-lead approval barriers).
 
 ---
 
@@ -68,7 +74,8 @@ $env:AIPMS_TEST_SQL_CONNECTION = "Server=(localdb)\MSSQLLocalDB;Database=aipms_s
 ### Step 2: Execute Targeted Acceptance Tests
 ```powershell
 # Run acceptance foundation and contract validation without running full suite
-dotnet test tests/AIPMS.IntegrationTests/AIPMS.IntegrationTests.csproj -c Release --no-build --filter "FullyQualifiedName~CibV4AcceptanceFoundationTests"
+$env:AIPMS_TEST_SQL_CONNECTION = "Server=(localdb)\MSSQLLocalDB;Integrated Security=true;TrustServerCertificate=true;"
+dotnet test tests/AIPMS.IntegrationTests/AIPMS.IntegrationTests.csproj -c Release --no-build --filter "FullyQualifiedName~CibV4AcceptanceFoundationTests|FullyQualifiedName~Two_departments_multiple_evaluators"
 ```
 
 ### Step 3: Verify Persistence & Readback

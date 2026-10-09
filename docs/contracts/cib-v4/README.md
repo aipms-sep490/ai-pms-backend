@@ -22,10 +22,11 @@
 
 ## 2. Package Structure
 
-- [`contract.json`](./contract.json): Machine-readable contract specification covering metadata, endpoints, DTO models, and gate statuses.
+- [`openapi.json`](./openapi.json): Authoritative OpenAPI 3.0 specification generated from the ASP.NET Core Swashbuckle runtime covering all active API routes, schemas, operations, and status codes.
+- [`contract.json`](./contract.json): Machine-readable CIB metadata and decision manifest. Defines release tickets (BE-FE-01..04, DBX-01..13), parameter decisions, gate statuses, and synthetic scenario configurations. **Note: `contract.json` is a metadata companion and does NOT masquerade as an OpenAPI document.**
 - [`permission-matrix.md`](./permission-matrix.md): Exhaustive authority matrix across 8 actors and 12 protected operations with negative assertion cases.
 - [`error-semantics.md`](./error-semantics.md): Error status codes, RFC 7807 `ProblemDetails` models, optimistic concurrency tokens, and confirmation token lifecycles.
-- [`scenario-manifest.json`](./scenario-manifest.json): Machine-readable manifest of testable integration scenarios covering `SINGLE_MAJOR` and `INTERDISCIPLINARY` modes.
+- [`scenario-manifest.json`](./scenario-manifest.json): Machine-readable manifest of testable integration scenarios covering `SINGLE_MAJOR` and `INTERDISCIPLINARY` modes, mapped directly to traceable integration tests.
 - [`examples/`](./examples/): Request/response payload examples with synthetic identifiers across all current surfaces.
 - [`acceptance/README.md`](./acceptance/README.md): Operational runbook for executing acceptance tests against isolated LocalDB without touching shared `AI_PMS`.
 
@@ -36,9 +37,12 @@
 ### A. Qualification Certificate Upload
 - **Route**: `POST /api/v1/student-qualifications/me/certificate`
 - **Method / Content-Type**: `POST`, `multipart/form-data`
-- **Payload Limits**: Max 22 MB request length limit (`RequestSizeLimit(22 * 1024 * 1024)`).
+- **Payload & File Size Limits (Two Distinct Boundaries)**:
+  - **HTTP Request Transport Body Ceiling**: Max 22 MB (23,068,672 bytes) enforced via controller `[RequestSizeLimit(22 * 1024 * 1024)]` and `[RequestFormLimits(MultipartBodyLengthLimit = 22 * 1024 * 1024)]`. Any request body or multipart stream exceeding 22 MB is rejected by Kestrel / ASP.NET Core with `413 Payload Too Large`.
+  - **Accepted Certificate File Size (Business Validation)**: `<= 20 MiB` (20,971,520 bytes) enforced by `UploadValidator.MaxBytes`. If an uploaded certificate file exceeds 20 MiB, the domain service rejects it with `400 Bad Request` (`detail: "File name or size is invalid (maximum 20 MiB)."`).
+  - *Boundary Rule*: An uploaded certificate file of 21–22 MiB will pass HTTP transport limits but will fail business validation with `400 Bad Request`. API clients must never assume a certificate > 20 MiB is valid.
 - **Form Fields**:
-  - `file`: Required `IFormFile`. Allowed MIME types: PDF, PNG, JPEG.
+  - `file`: Required `IFormFile` (size `<= 20 MiB`). Allowed MIME types: PDF, PNG, JPEG.
   - `qualificationType`: String, default `"CAPSTONE_READINESS"`.
   - `trainingStatus`: String, default `"TRAINING_COMPLETED"`.
   - `certificateNumber`: Optional string.
@@ -46,11 +50,11 @@
   - `expiresAt`: Optional UTC ISO-8601 string.
 - **Authorization**: `STUDENT` global role, active account.
 - **Responses**:
-  - `200 OK`: `StudentQualificationDto`
-  - `400 Bad Request`: Validation failure (empty file, invalid dates, unknown type).
+  - `200 OK`: `StudentQualificationDto` (file `<= 20 MiB`, valid metadata).
+  - `400 Bad Request`: Validation failure (empty file, file size `> 20 MiB`, invalid dates, unknown type).
   - `401 Unauthorized`: Missing or invalid bearer token.
   - `403 Forbidden`: Authenticated user is not a student or account is inactive.
-  - `413 Payload Too Large`: Upload exceeds body length limit.
+  - `413 Payload Too Large`: Overall HTTP multipart request body exceeds 22 MB (23,068,672 bytes).
   - `422 Unprocessable Entity`: Business rejection (e.g. invalid certificate state).
 
 ### B. Tasks Listing

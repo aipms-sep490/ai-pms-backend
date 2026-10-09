@@ -1,15 +1,20 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Text.Json;
+using AIPMS.Api.Controllers;
 using AIPMS.Application.Common.Models;
+using AIPMS.Application.Features.Deliverables.Services;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Teams.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.IntegrationTests.Evaluations;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using File = System.IO.File;
+using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 using Task = System.Threading.Tasks.Task;
 
 namespace AIPMS.IntegrationTests.Acceptance;
@@ -22,6 +27,12 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
         var content = await response.Content.ReadFromJsonAsync<T>();
         Assert.NotNull(content);
         return content!;
+    }
+
+    private static string GetContractsRootDir()
+    {
+        var rootDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
+        return Path.Combine(rootDir, "docs", "contracts", "cib-v4");
     }
 
     private async Task<(EvaluationScenario Scenario, long Major)> SeedAsync()
@@ -72,11 +83,55 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
     }
 
     [Fact]
+    public async Task OpenApi_specification_artifact_is_generated_and_covers_cib_v4_routes()
+    {
+        using var app = new AipmsWebApplicationFactory();
+        using var client = app.CreateClient();
+        var swaggerJson = await client.GetStringAsync("/swagger/v1/swagger.json");
+        Assert.False(string.IsNullOrWhiteSpace(swaggerJson));
+
+        var contractsDir = GetContractsRootDir();
+        var openApiPath = Path.Combine(contractsDir, "openapi.json");
+
+        using var doc = JsonDocument.Parse(swaggerJson);
+        var formatted = JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(openApiPath, formatted);
+
+        Assert.True(File.Exists(openApiPath), $"Expected openapi.json at {openApiPath}");
+        var paths = doc.RootElement.GetProperty("paths");
+
+        // Verify CIB v4 routes in actual OpenAPI specification
+        var requiredRoutes = new[]
+        {
+            "/api/v1/student-qualifications/me/certificate",
+            "/api/v1/tasks/project/{projectId}",
+            "/api/v1/projects/{projectId}/eligible-evaluators",
+            "/api/v1/projects/{projectId}/evaluation-assignments",
+            "/api/v1/evaluation-assignments/my",
+            "/api/v1/evaluation-assignments/{id}/revoke",
+            "/api/v1/evaluation-assignments/{id}",
+            "/api/v1/evaluation-assignments/{id}/evidence",
+            "/api/v1/evaluation-assignments/{id}/evaluation",
+            "/api/v1/evaluations/{id}",
+            "/api/v1/evaluations/{id}/draft",
+            "/api/v1/evaluations/{id}/finalize",
+            "/api/v1/projects/{projectId}/final-submission",
+            "/api/v1/projects/{projectId}/result",
+            "/api/v1/projects/{projectId}/students/{studentId}/result"
+        };
+
+        foreach (var route in requiredRoutes)
+        {
+            Assert.True(paths.TryGetProperty(route, out _), $"OpenAPI spec missing required route: {route}");
+        }
+    }
+
+    [Fact]
     public async Task Contract_and_scenario_manifest_files_are_consistent_and_complete()
     {
-        var rootDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
-        var contractPath = Path.Combine(rootDir, "docs", "contracts", "cib-v4", "contract.json");
-        var manifestPath = Path.Combine(rootDir, "docs", "contracts", "cib-v4", "scenario-manifest.json");
+        var contractsDir = GetContractsRootDir();
+        var contractPath = Path.Combine(contractsDir, "contract.json");
+        var manifestPath = Path.Combine(contractsDir, "scenario-manifest.json");
 
         Assert.True(File.Exists(contractPath), $"contract.json not found at {contractPath}");
         Assert.True(File.Exists(manifestPath), $"scenario-manifest.json not found at {manifestPath}");
@@ -92,20 +147,43 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
         Assert.Equal("1.0.0-cib.v4", contractVersion);
         Assert.Equal(contractVersion, manifestVersion);
 
+        // Verify OpenAPI artifact distinction
+        var openapiSpecPath = contractDoc.RootElement.GetProperty("metadata").GetProperty("openapiSpecificationPath").GetString();
+        Assert.Equal("openapi.json", openapiSpecPath);
+
+        // Verify documented file limits match runtime constants
+        var fileLimits = contractDoc.RootElement.GetProperty("fileLimits");
+        var docBusinessMax = fileLimits.GetProperty("certificateBusinessMaxBytes").GetInt64();
+        var docTransportCeiling = fileLimits.GetProperty("certificateTransportCeilingBytes").GetInt64();
+        Assert.Equal(UploadValidator.MaxBytes, docBusinessMax);
+        Assert.Equal(22L * 1024 * 1024, docTransportCeiling);
+
         var scenarios = manifestDoc.RootElement.GetProperty("scenarios");
         Assert.True(scenarios.GetArrayLength() >= 10, "Expected at least 10 documented scenarios");
 
         var modes = new HashSet<string>();
         var tags = new HashSet<string>();
+        var evidencedScenariosCount = 0;
+
         foreach (var sc in scenarios.EnumerateArray())
         {
-            modes.Add(sc.GetProperty("mode").GetString()!);
+            var mode = sc.GetProperty("mode").GetString()!;
+            modes.Add(mode);
+
             if (sc.TryGetProperty("tags", out var tProp))
             {
                 foreach (var tag in tProp.EnumerateArray())
                 {
                     tags.Add(tag.GetString()!);
                 }
+            }
+
+            if (sc.TryGetProperty("acceptanceEvidence", out var evProp) && !string.IsNullOrWhiteSpace(evProp.GetString()))
+            {
+                var evidenceString = evProp.GetString()!;
+                var method = ResolveTestMethod(evidenceString);
+                Assert.NotNull(method);
+                evidencedScenariosCount++;
             }
         }
 
@@ -116,6 +194,45 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
         Assert.Contains("stale/conflict", tags);
         Assert.Contains("privacy", tags);
         Assert.Contains("BLOCKED_BY_CONTRACT", tags);
+        Assert.True(evidencedScenariosCount >= 5, $"Expected at least 5 scenarios with verified acceptance evidence, found {evidencedScenariosCount}");
+    }
+
+    private static MethodInfo? ResolveTestMethod(string evidenceString)
+    {
+        var lastDot = evidenceString.LastIndexOf('.');
+        if (lastDot <= 0) return null;
+        var typeName = evidenceString[..lastDot];
+        var methodName = evidenceString[(lastDot + 1)..];
+        var type = typeof(CibV4AcceptanceFoundationTests).Assembly.GetType(typeName);
+        return type?.GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+    }
+
+    [Fact]
+    public async Task Certificate_file_size_contract_distinguishes_transport_and_business_limits()
+    {
+        // 1. Business file size limit in UploadValidator
+        Assert.Equal(20 * 1024 * 1024, UploadValidator.MaxBytes);
+
+        // 2. Transport body ceiling on StudentQualificationsController.UploadCertificate
+        var method = typeof(StudentQualificationsController).GetMethod(nameof(StudentQualificationsController.UploadCertificate));
+        Assert.NotNull(method);
+        var requestSizeLimit = method!.GetCustomAttribute<RequestSizeLimitAttribute>();
+        Assert.NotNull(requestSizeLimit);
+        Assert.IsAssignableFrom<Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata>(requestSizeLimit);
+        var sizeLimitMeta = (Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata)requestSizeLimit!;
+        Assert.Equal(22L * 1024 * 1024, sizeLimitMeta.MaxRequestBodySize);
+
+        var requestFormLimits = method.GetCustomAttribute<RequestFormLimitsAttribute>();
+        Assert.NotNull(requestFormLimits);
+        Assert.Equal(22L * 1024 * 1024, requestFormLimits!.MultipartBodyLengthLimit);
+
+        // 3. Verify documented contract limits match the actual code
+        var contractPath = Path.Combine(GetContractsRootDir(), "contract.json");
+        var contractJson = await File.ReadAllTextAsync(contractPath);
+        using var contractDoc = JsonDocument.Parse(contractJson);
+        var fileLimits = contractDoc.RootElement.GetProperty("fileLimits");
+        Assert.Equal(UploadValidator.MaxBytes, fileLimits.GetProperty("certificateBusinessMaxBytes").GetInt64());
+        Assert.Equal(sizeLimitMeta.MaxRequestBodySize, fileLimits.GetProperty("certificateTransportCeilingBytes").GetInt64());
     }
 
     [Fact]
@@ -174,6 +291,139 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
             Assert.NotNull(persistedRevoked);
             Assert.Equal("REVOKED", persistedRevoked!.Status);
             Assert.NotNull(persistedRevoked.RevokedAt);
+        }
+    }
+
+    [Fact]
+    public async Task Interdisciplinary_fixture_enforces_multi_major_boundaries_and_persisted_readback()
+    {
+        var (s, firstMajor) = await SeedAsync();
+        long secondMajor, secondDepartmentId, secondLecturerId, secondRubricId;
+
+        // Provision second department and major on isolated DB
+        await using (var db = database.CreateContext())
+        {
+            var suffix = Guid.NewGuid().ToString("N")[..6];
+            var dept = new M.Department
+            {
+                Code = "B_" + suffix,
+                Name = "Business " + suffix,
+                OrganizationId = (await db.Departments.FindAsync(s.Scope.Users.DepartmentId))!.OrganizationId,
+                IsActive = true
+            };
+            db.Departments.Add(dept);
+            await db.SaveChangesAsync();
+            secondDepartmentId = dept.Id;
+
+            var major = new M.Major
+            {
+                DepartmentId = secondDepartmentId,
+                Code = "BA_" + suffix,
+                Name = "Business Analysis " + suffix,
+                IsActive = true
+            };
+            db.Majors.Add(major);
+
+            var secondRubric = new M.Rubric
+            {
+                Code = "R_" + suffix,
+                Name = "Business assessment",
+                DepartmentId = secondDepartmentId,
+                AcademicSemesterId = s.Scope.SemesterId,
+                CreatedBy = s.Scope.Users.OutsideStaff,
+                IsActive = true,
+                RubricCriteria = [new()
+                {
+                    Criterion = new() { Code = "C_" + suffix, Name = "Business outcome", IsActive = true },
+                    WeightPercent = 100,
+                    MaxScore = 10,
+                    IsRequired = true
+                }]
+            };
+            db.Rubrics.Add(secondRubric);
+
+            var secondLecturer = new M.User
+            {
+                Email = $"other_lecturer_{suffix}@example.test",
+                FullName = "Other Lecturer",
+                PasswordHash = "unused",
+                Status = "ACTIVE",
+                DepartmentId = secondDepartmentId,
+                UserRoleUsers = [new() { RoleId = await db.Roles.Where(r => r.Code == "LECTURER").Select(r => r.Id).SingleAsync() }]
+            };
+            db.Users.Add(secondLecturer);
+            db.ProjectMajors.Add(new() { ProjectId = s.ProjectId, Major = major });
+            await db.SaveChangesAsync();
+            secondMajor = major.Id;
+            secondLecturerId = secondLecturer.Id;
+            secondRubricId = secondRubric.Id;
+
+            db.Add(new RubricVersion
+            {
+                RubricId = secondRubric.Id,
+                RootRubricId = secondRubric.Id,
+                VersionNumber = 1,
+                Status = "PUBLISHED",
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Update registration snapshot with INTERDISCIPLINARY mode and multiple department IDs
+            var snapshot = await db.Set<ProjectRegistrationSnapshot>().SingleAsync(x => x.ProjectId == s.ProjectId);
+            var evidence = JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!;
+            snapshot.SnapshotJson = JsonSerializer.Serialize(evidence with
+            {
+                Scope = evidence.Scope with
+                {
+                    ProjectMode = "INTERDISCIPLINARY",
+                    PrimaryMajorId = null,
+                    Requirements = [.. evidence.Scope.Requirements, new(secondMajor, 1, 3, "Business deliverables")]
+                },
+                DepartmentIds = [s.Scope.Users.DepartmentId, secondDepartmentId],
+                MajorDepartmentIds = new Dictionary<long, long> { [firstMajor] = s.Scope.Users.DepartmentId, [secondMajor] = secondDepartmentId }
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var factory = new EvaluationFactory(database);
+        var adminClient = factory.CreateAuthenticatedClient(s.Scope.Users.Admin, roles: ["ADMIN"]);
+
+        // Setup interdisciplinary scheme with MAJOR_SPECIFIC component for both majors
+        var schemeRequest = new SaveEvaluationSchemeRequest(s.ProjectId, s.PeriodId, "Interdisciplinary Scheme", 5,
+            [
+                new("Common", "COMMON", null, s.RubricId, 50, 50, 1),
+                new("Major Specific 1", "MAJOR_SPECIFIC", firstMajor, s.RubricId, 25, 50, 1),
+                new("Major Specific 2", "MAJOR_SPECIFIC", secondMajor, secondRubricId, 25, 50, 1)
+            ]);
+        var draft = await ReadJsonAsync<EvaluationSchemeDto>(await adminClient.PostAsJsonAsync("/api/v1/evaluation-schemes", schemeRequest));
+        var scheme = await ReadJsonAsync<EvaluationSchemeDto>(await adminClient.PostAsJsonAsync($"/api/v1/evaluation-schemes/{draft.Id}/publish", new SchemeTokenRequest(draft.ConcurrencyToken)));
+
+        var majorComponent = scheme.Components.First(c => c.Scope == "MAJOR_SPECIFIC" && c.MajorId == firstMajor);
+
+        // Admin assigns evaluator to MAJOR_SPECIFIC component
+        var assignResponse = await adminClient.PostAsJsonAsync(
+            $"/api/v1/projects/{s.ProjectId}/evaluation-assignments",
+            new AssignEvaluatorRequest(s.Scope.Users.Lecturer, s.PeriodId, "LECTURER", "MAJOR_SPECIFIC", firstMajor, null, majorComponent.Id));
+        var assignment = await ReadJsonAsync<EvaluationAssignmentDto>(assignResponse);
+
+        Assert.Equal("MAJOR_SPECIFIC", assignment.Scope);
+        Assert.Equal(firstMajor, assignment.MajorId);
+
+        // Verify foreign lecturer (different department) cannot view assignment detail
+        var foreignLecturerClient = factory.CreateAuthenticatedClient(secondLecturerId, roles: ["LECTURER"]);
+        var foreignResponse = await foreignLecturerClient.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}");
+        Assert.Equal(HttpStatusCode.Forbidden, foreignResponse.StatusCode);
+
+        // Readback: Direct persistent SQL readback confirms interdisciplinary assignment state
+        await using (var verifyDb = database.CreateContext())
+        {
+            var persisted = await verifyDb.Set<EvaluationAssignment>()
+                .AsNoTracking()
+                .SingleOrDefaultAsync(a => a.Id == assignment.Id);
+
+            Assert.NotNull(persisted);
+            Assert.Equal("MAJOR_SPECIFIC", persisted!.Scope);
+            Assert.Equal(firstMajor, persisted.MajorId);
+            Assert.Equal("ACTIVE", persisted.Status);
         }
     }
 
