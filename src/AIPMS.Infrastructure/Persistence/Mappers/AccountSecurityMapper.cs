@@ -26,7 +26,7 @@ internal static class AccountSecurityMapper
             user.UserRoleUsers
                 .Select(static assignment => assignment.Role.Code)
                 .OrderBy(static code => code, StringComparer.Ordinal)
-                .ToArray(), Convert.ToBase64String(user.RowVersion));
+                .ToArray(), Convert.ToBase64String(user.RowVersion), user.CurriculumCode);
 
     public static SecurityPermission ToApplication(this Permission permission) =>
         new(

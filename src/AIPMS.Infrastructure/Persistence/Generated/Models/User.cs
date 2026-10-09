@@ -20,6 +20,7 @@ public partial class User
     public string? Phone { get; set; }
 
     public string? StudentCode { get; set; }
+    public string? CurriculumCode { get; set; }
 
     public string? EmployeeCode { get; set; }
 

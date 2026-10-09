@@ -67,7 +67,7 @@ public sealed class UsersController(ISender sender) : ControllerBase
                 request.StudentCode,
                 request.EmployeeCode,
                 request.Title,
-                request.RoleIds),
+                request.RoleIds, request.CurriculumCode),
             cancellationToken);
         return CreatedAtAction(nameof(GetUser), new { userId = result.Id }, result);
     }

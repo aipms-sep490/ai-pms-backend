@@ -38,6 +38,7 @@ public sealed class CreateUserAccountCommandValidator : AbstractValidator<Create
         RuleFor(static command => command.FullName).NotEmpty().MaximumLength(255);
         RuleFor(static command => command.Phone).MaximumLength(30);
         RuleFor(static command => command.StudentCode).MaximumLength(50);
+        RuleFor(static command => command.CurriculumCode).MaximumLength(100).Must(c => c is null || !c.Any(char.IsControl));
         RuleFor(static command => command.EmployeeCode).MaximumLength(50);
         RuleFor(static command => command.Title).MaximumLength(100);
         RuleFor(static command => command.DepartmentId).GreaterThan(0).When(static command => command.DepartmentId.HasValue);
@@ -85,6 +86,7 @@ internal sealed class CreateUserAccountRequestValidator
         RuleFor(static request => request.FullName).NotEmpty().MaximumLength(255);
         RuleFor(static request => request.Phone).MaximumLength(30);
         RuleFor(static request => request.StudentCode).MaximumLength(50);
+        RuleFor(static request => request.CurriculumCode).MaximumLength(100).Must(c => c is null || !c.Any(char.IsControl));
         RuleFor(static request => request.EmployeeCode).MaximumLength(50);
         RuleFor(static request => request.Title).MaximumLength(100);
         RuleFor(static request => request.DepartmentId).GreaterThan(0).When(static request => request.DepartmentId.HasValue);

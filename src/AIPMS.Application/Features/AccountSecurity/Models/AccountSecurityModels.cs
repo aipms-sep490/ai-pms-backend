@@ -20,7 +20,7 @@ public sealed record AccountUser(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     IReadOnlyCollection<string> Roles,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null, string? CurriculumCode = null);
 
 public sealed record CreateAccountData(
     long? DepartmentId,
@@ -32,7 +32,7 @@ public sealed record CreateAccountData(
     string? StudentCode,
     string? EmployeeCode,
     string? Title,
-    IReadOnlyCollection<long> RoleIds);
+    IReadOnlyCollection<long> RoleIds, string? CurriculumCode = null);
 
 public sealed record UpdateProfileData(
     string FullName,
