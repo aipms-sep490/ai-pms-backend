@@ -39,12 +39,15 @@ internal static class TeamRosterWorkbook
             var first = rowNumber;
             foreach (var row in team)
             {
-                sheet.Row(rowNumber).Height = 32;
                 sheet.Range(rowNumber, 1, rowNumber, 8).Style.Fill.BackgroundColor =
                     XLColor.FromHtml(groupNumber % 2 == 0 ? "#E2EBFA" : "#FFFFFF");
                 sheet.Cell(rowNumber, 1).Value = rowNumber - 1;
                 string[] values = [row.TeamCode, row.StudentCode ?? "", row.FullName,
                     row.IsLeader ? "Trưởng nhóm" : "Thành viên", row.Phone ?? "", row.Email, row.CurriculumCode ?? ""];
+                // Estimate wrapped lines without depending on OS fonts in the Linux container.
+                var lines = values.Select((value, i) => value.Split('\n').Sum(line =>
+                    Math.Max(1, (int)Math.Ceiling(line.Length / (widths[i + 1] * 0.75))))).Max();
+                sheet.Row(rowNumber).Height = Math.Min(409, Math.Max(32, lines * 15 + 8));
                 for (var c = 2; c <= 8; c++)
                 {
                     // Assign a string value, never FormulaA1: source data is untrusted text.

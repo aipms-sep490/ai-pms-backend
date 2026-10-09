@@ -33,6 +33,18 @@ public sealed class TeamRosterWorkbookTests
     }
 
     [Fact]
+    public void Long_source_text_has_wrapping_space()
+    {
+        var curriculum = new string('W', 100);
+        using var book = new XLWorkbook(new MemoryStream(TeamRosterWorkbook.Create([
+            new(1, "SE", 1, true, "DE01", "Student", "0123", "student@example.test", curriculum)
+        ])));
+        Assert.Equal(curriculum, book.Worksheet(1).Cell("H2").GetString());
+        Assert.True(book.Worksheet(1).Row(2).Height >= 83);
+        Assert.True(book.Worksheet(1).Cell("H2").Style.Alignment.WrapText);
+    }
+
+    [Fact]
     public void Empty_result_has_header_without_fabricated_student()
     {
         using var book = new XLWorkbook(new MemoryStream(TeamRosterWorkbook.Create([])));
