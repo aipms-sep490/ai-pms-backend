@@ -78,10 +78,10 @@ internal sealed class StudentRosterService(AipmsDbContext db, ICurrentUser curre
             {
                 await db.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.users WITH (UPDLOCK,HOLDLOCK) WHERE id={row.UserId}").ToListAsync(ct);
                 var user = await db.Users.Include(u => u.UserRoleUsers).ThenInclude(r => r.Role).SingleOrDefaultAsync(u => u.Id == row.UserId, ct)
-                    ?? throw new ConflictException("IMPORT_STUDENT_CHANGED");
+                    ?? throw new ConflictException("IMPORT_STUDENT_CHANGED", "IMPORT_STUDENT_CHANGED");
                 if (!string.Equals(user.StudentCode, row.StudentCode.Trim(), StringComparison.OrdinalIgnoreCase)
-                    || !user.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")) throw new ConflictException("IMPORT_STUDENT_CHANGED");
-                if (Convert.ToBase64String(user.RowVersion) != row.ExpectedConcurrencyToken) throw new ConflictException("IMPORT_STALE_VERSION");
+                    || !user.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")) throw new ConflictException("IMPORT_STUDENT_CHANGED", "IMPORT_STUDENT_CHANGED");
+                if (Convert.ToBase64String(user.RowVersion) != row.ExpectedConcurrencyToken) throw new ConflictException("IMPORT_STALE_VERSION", "IMPORT_STALE_VERSION");
                 var code = row.CurriculumCode.Trim();
                 if (user.CurriculumCode == code) continue;
                 changes.Add(new { userId = user.Id, before = user.CurriculumCode, after = code });
@@ -99,7 +99,7 @@ internal sealed class StudentRosterService(AipmsDbContext db, ICurrentUser curre
             await transaction.RollbackAsync(CancellationToken.None);
             db.ChangeTracker.Clear();
             for (Exception? inner = ex; inner is not null; inner = inner.InnerException)
-                if (inner is DbUpdateConcurrencyException or SqlException { Number: 1205 or 1222 }) throw new ConflictException("IMPORT_CONCURRENT_CHANGE");
+                if (inner is DbUpdateConcurrencyException or SqlException { Number: 1205 or 1222 }) throw new ConflictException("IMPORT_CONCURRENT_CHANGE", "IMPORT_CONCURRENT_CHANGE");
             throw;
         }
     }
