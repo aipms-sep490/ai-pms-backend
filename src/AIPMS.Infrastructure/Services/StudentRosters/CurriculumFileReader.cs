@@ -81,6 +81,11 @@ internal static class CurriculumFileReader
                     || x.FullName.StartsWith("xl/externalLinks/", StringComparison.OrdinalIgnoreCase)))
                 throw Invalid("IMPORT_WORKBOOK_UNSUPPORTED");
         }
+        using (var package = SpreadsheetDocument.Open(new MemoryStream(bytes), false))
+        {
+            if (package.WorkbookPart?.Workbook?.Sheets is null)
+                throw Invalid("IMPORT_FILE_INVALID");
+        }
         using var book = new XLWorkbook(new MemoryStream(bytes));
         if (book.Worksheets.Count != 1) throw Invalid("IMPORT_REQUIRES_ONE_WORKSHEET");
         var sheet = book.Worksheet(1);
