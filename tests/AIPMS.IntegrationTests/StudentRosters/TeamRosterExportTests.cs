@@ -139,6 +139,10 @@ public sealed class TeamRosterExportTests(TeamDatabaseFixture database) : IClass
         using var doc = JsonDocument.Parse(await swagger.Content.ReadAsStringAsync());
         foreach (var path in new[] { "/api/v1/teams/export", "/api/v1/users/curriculum-import/preview", "/api/v1/users/curriculum-import/commit" })
             Assert.True(doc.RootElement.GetProperty("paths").TryGetProperty(path, out _));
+        var export = doc.RootElement.GetProperty("paths").GetProperty("/api/v1/teams/export").GetProperty("get");
+        Assert.Equal("binary", export.GetProperty("responses").GetProperty("200").GetProperty("content")
+            .GetProperty("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").GetProperty("schema").GetProperty("format").GetString());
+        Assert.True(export.GetProperty("parameters").EnumerateArray().Single(p => p.GetProperty("name").GetString() == "semesterId").GetProperty("required").GetBoolean());
     }
 }
 

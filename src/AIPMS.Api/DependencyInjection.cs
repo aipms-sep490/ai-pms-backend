@@ -138,6 +138,7 @@ public static class DependencyInjection
             options.SchemaFilter<AIPMS.Api.OpenApi.WorkflowProblemDetailsSchemaFilter>();
             options.SchemaFilter<AIPMS.Api.OpenApi.DepartContractSchemaFilter>();
             options.OperationFilter<AIPMS.Api.OpenApi.DepartAuthorityOperationFilter>();
+            options.OperationFilter<AIPMS.Api.OpenApi.StudentRosterOperationFilter>();
             options.SwaggerDoc("v1", new OpenApiInfo
             {
                 Title = "AI-PMS API",
