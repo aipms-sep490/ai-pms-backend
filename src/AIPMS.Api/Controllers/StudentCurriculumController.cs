@@ -1,5 +1,6 @@
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.StudentRosters;
+using AIPMS.Application.Features.StudentRosters.Abstractions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

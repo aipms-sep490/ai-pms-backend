@@ -48,7 +48,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
-        services.AddScoped<AIPMS.Application.Features.StudentRosters.IStudentRosterService, Services.StudentRosters.StudentRosterService>();
+        services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.IStudentRosterService, Services.StudentRosters.StudentRosterService>();
         services.AddOptions<AIPMS.Application.Features.Chat.ChatSettings>().BindConfiguration("Chat").ValidateDataAnnotations().ValidateOnStart();
         services.AddScoped<Chat.ChatAccessService>();
         services.AddScoped<AIPMS.Application.Features.Chat.Abstractions.IChatAccessService>(sp => sp.GetRequiredService<Chat.ChatAccessService>());
@@ -266,3 +266,4 @@ public static class DependencyInjection
         return services;
     }
 }
+

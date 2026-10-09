@@ -8,8 +8,3 @@ public sealed record CurriculumUpdate(long UserId, string StudentCode, string Cu
 public sealed record CurriculumCommitRequest(IReadOnlyList<CurriculumUpdate> Rows);
 public sealed record CurriculumCommitDto(int Updated, int Unchanged);
 
-public interface IStudentRosterService
-{
-    Task<CurriculumPreviewDto> PreviewAsync(Stream file, string fileName, CancellationToken ct);
-    Task<CurriculumCommitDto> CommitAsync(CurriculumCommitRequest request, CancellationToken ct);
-}

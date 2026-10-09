@@ -5,6 +5,7 @@ using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.StudentRosters;
+using AIPMS.Application.Features.StudentRosters.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
