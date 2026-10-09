@@ -21,6 +21,16 @@ public sealed class GoogleIdentityVerifierTests : IDisposable
         Assert.Equal("CaseSensitiveSubject", result.Subject);
         Assert.Equal("student@gmail.com", result.Email);
         Assert.Equal("nonce", result.Nonce);
+        Assert.True(result.IsAuthoritativeEmail);
+    }
+
+    [Theory]
+    [InlineData("student@fpt.edu.vn", "fpt.edu.vn", true)]
+    [InlineData("student@fpt.edu.vn", null, false)]
+    [InlineData("student@fpt.edu.vn", "other.example", false)]
+    public async Task Workspace_email_requires_matching_signed_hosted_domain(string email, string? hostedDomain, bool expected)
+    {
+        Assert.Equal(expected, (await Verifier().VerifyAsync(Token(email: email, hostedDomain: hostedDomain), default)).IsAuthoritativeEmail);
     }
 
     [Theory]
@@ -54,11 +64,13 @@ public sealed class GoogleIdentityVerifierTests : IDisposable
     private GoogleIdentityVerifier Verifier() => new(new Keys(new RsaSecurityKey(rsa) { KeyId = "test" }),
         Options.Create(new GoogleAuthSettings { ClientId = Client }), TimeProvider.System);
 
-    private string Token(string? defect = null)
+    private string Token(string? defect = null, string? email = null, string? hostedDomain = null)
     {
         var now = DateTime.UtcNow;
         var claims = new Dictionary<string, object>
         { ["sub"] = "CaseSensitiveSubject", ["email"] = "student@gmail.com", ["email_verified"] = true, ["nonce"] = "nonce" };
+        if (email is not null) claims["email"] = email;
+        if (hostedDomain is not null) claims["hd"] = hostedDomain;
         if (defect is "nonce" or "sub" or "email") claims.Remove(defect);
         if (defect == "email_verified") claims["email_verified"] = false;
         if (defect == "azp") claims["azp"] = "drive-client";

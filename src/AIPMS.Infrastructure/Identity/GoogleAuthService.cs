@@ -45,6 +45,30 @@ internal sealed class GoogleAuthService(AipmsDbContext db, IGoogleIdentityVerifi
             var link = await db.UserExternalLogins.AsNoTracking().SingleOrDefaultAsync(x => x.Provider == "GOOGLE" && x.Subject == identity.Subject, ct);
             User? user = null;
             if (link is not null) user = await LockedAccountAsync(link.UserId, ct);
+            if (link is null && identity.IsAuthoritativeEmail)
+            {
+                var email = identity.Email.Trim().ToLowerInvariant();
+                var candidate = await db.Users.AsNoTracking().Where(x => x.Email == email && x.GoogleEnrollmentPending)
+                    .Select(x => (long?)x.Id).SingleOrDefaultAsync(ct);
+                if (candidate is not null)
+                {
+                    user = await LockedAccountAsync(candidate.Value, ct);
+                    if (!user.GoogleEnrollmentPending || !EmailMatches(user.Email, identity.Email)
+                        || await db.UserExternalLogins.AnyAsync(x => x.UserId == user.Id && x.Provider == "GOOGLE", ct)
+                        || !await db.UserRoles.AnyAsync(x => x.UserId == user.Id && x.Role.Code == "STUDENT", ct)
+                        || await db.UserRoles.AnyAsync(x => x.UserId == user.Id && x.Role.Code != "STUDENT", ct))
+                        return await DeniedAsync<LoginResponse>(null, "AUTH_GOOGLE_LOGIN", Invalid(), ct);
+                    var enrollmentDenial = AccountDenial(user);
+                    if (enrollmentDenial is not null) return await DeniedAsync<LoginResponse>(user.Id, "AUTH_GOOGLE_LOGIN", enrollmentDenial, ct);
+                    var enrolledAt = clock.GetUtcNow().UtcDateTime;
+                    link = new UserExternalLogin { UserId = user.Id, Provider = "GOOGLE", Subject = identity.Subject,
+                        Email = identity.Email, CreatedAt = enrolledAt, UpdatedAt = enrolledAt };
+                    db.UserExternalLogins.Add(link);
+                    user.GoogleEnrollmentPending = false;
+                    await db.SaveChangesAsync(ct);
+                    await AuditAsync(user.Id, "AUTH_GOOGLE_ENROLLED", "SUCCESS", ct);
+                }
+            }
             // Re-read after the user lock: unlink may have completed while login was waiting.
             if (user is null || !await db.UserExternalLogins.AnyAsync(x => x.Id == link!.Id, ct))
                 return await DeniedAsync<LoginResponse>(null, "AUTH_GOOGLE_LOGIN", Invalid(), ct);
@@ -85,6 +109,7 @@ internal sealed class GoogleAuthService(AipmsDbContext db, IGoogleIdentityVerifi
             var now = clock.GetUtcNow().UtcDateTime;
             if (existing is null) db.UserExternalLogins.Add(new UserExternalLogin { UserId = userId,
                 Subject = identity.Subject, Email = identity.Email, CreatedAt = now, UpdatedAt = now });
+            user.GoogleEnrollmentPending = false;
             user.AccessFailedCount = 0; user.LockoutEndAt = null;
             await AuditAsync(userId, "AUTH_GOOGLE_LINK", "SUCCESS", ct);
             return new Outcome<bool>(true, null);
@@ -101,6 +126,7 @@ internal sealed class GoogleAuthService(AipmsDbContext db, IGoogleIdentityVerifi
             var denial = CheckPassword(user, currentPassword);
             if (denial is not null) return await DeniedAsync<bool>(userId, "AUTH_GOOGLE_UNLINK", denial, ct);
             await db.UserExternalLogins.Where(x => x.UserId == userId && x.Provider == "GOOGLE").ExecuteDeleteAsync(ct);
+            user.GoogleEnrollmentPending = false;
             var now = clock.GetUtcNow().UtcDateTime;
             await db.RefreshTokens.Where(x => x.UserId == userId && x.RevokedAt == null)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, now).SetProperty(x => x.RevokedByIp, request.IpAddress), ct);

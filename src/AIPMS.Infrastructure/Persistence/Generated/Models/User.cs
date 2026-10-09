@@ -21,6 +21,7 @@ public partial class User
 
     public string? StudentCode { get; set; }
     public string? CurriculumCode { get; set; }
+    public bool GoogleEnrollmentPending { get; set; }
 
     public string? EmployeeCode { get; set; }
 
