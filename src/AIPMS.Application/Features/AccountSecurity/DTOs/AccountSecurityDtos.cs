@@ -20,7 +20,7 @@ public sealed record UserAccountDto(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     IReadOnlyCollection<string> Roles,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null, string? CurriculumCode = null);
 
 public sealed record CreateUserAccountRequest(
     long? DepartmentId,
@@ -32,7 +32,7 @@ public sealed record CreateUserAccountRequest(
     string? StudentCode,
     string? EmployeeCode,
     string? Title,
-    IReadOnlyCollection<long> RoleIds);
+    IReadOnlyCollection<long> RoleIds, string? CurriculumCode = null);
 
 public sealed record ImportUserAccountsRequest(
     IReadOnlyCollection<CreateUserAccountRequest> Accounts);
@@ -111,7 +111,7 @@ internal static class AccountSecurityDtoMapper
             user.LastLoginAt,
             user.CreatedAt,
             user.UpdatedAt,
-            user.Roles, user.ConcurrencyToken);
+            user.Roles, user.ConcurrencyToken, user.CurriculumCode);
 
     public static SecurityPermissionDto ToDto(this SecurityPermission permission) =>
         new(

@@ -179,6 +179,7 @@ CREATE TABLE dbo.users (
     full_name       NVARCHAR(255) NOT NULL,
     phone           NVARCHAR(30) NULL,
     student_code    NVARCHAR(50) NULL,
+    curriculum_code NVARCHAR(100) NULL,
     employee_code   NVARCHAR(50) NULL,
     title           NVARCHAR(100) NULL,
     status          NVARCHAR(20) NOT NULL CONSTRAINT df_users_status DEFAULT (N'ACTIVE'),

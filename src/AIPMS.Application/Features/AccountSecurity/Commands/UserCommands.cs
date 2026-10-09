@@ -20,7 +20,7 @@ public sealed record CreateUserAccountCommand(
     string? StudentCode,
     string? EmployeeCode,
     string? Title,
-    IReadOnlyCollection<long> RoleIds) : IRequest<UserAccountDto>;
+    IReadOnlyCollection<long> RoleIds, string? CurriculumCode = null) : IRequest<UserAccountDto>;
 
 public sealed class CreateUserAccountCommandHandler(
     IUserAccountRepository userRepository,
@@ -65,7 +65,7 @@ public sealed class CreateUserAccountCommandHandler(
                 studentCode,
                 employeeCode,
                 NormalizeOptional(request.Title),
-                roleIds),
+                roleIds, NormalizeOptional(request.CurriculumCode)),
             accessService.ActorUserId,
             utcNow,
             cancellationToken);
@@ -121,7 +121,7 @@ public sealed class ImportUserAccountsCommandHandler(
             NormalizeCode(account.StudentCode),
             NormalizeCode(account.EmployeeCode),
             NormalizeOptional(account.Title),
-            account.RoleIds.Distinct().ToArray())).ToArray();
+            account.RoleIds.Distinct().ToArray(), NormalizeOptional(account.CurriculumCode))).ToArray();
 
         EnsureBatchIdentifiersAreUnique(normalized);
 

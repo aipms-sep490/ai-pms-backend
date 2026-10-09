@@ -2040,6 +2040,7 @@ public partial class AipmsDbContext : DbContext
 
         modelBuilder.Entity<User>(entity =>
         {
+            entity.Property(e => e.CurriculumCode).HasMaxLength(100).HasColumnName("curriculum_code");
             entity.Property(e => e.RowVersion).HasColumnName("row_version").IsRowVersion();
             entity.HasKey(e => e.Id).HasName("pk_users");
 
