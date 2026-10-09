@@ -4,6 +4,7 @@ using System.Text;
 using System.Xml;
 using AIPMS.Application.Common.Exceptions;
 using ClosedXML.Excel;
+using DocumentFormat.OpenXml.Packaging;
 using Microsoft.VisualBasic.FileIO;
 
 namespace AIPMS.Infrastructure.Services.StudentRosters;
@@ -48,7 +49,8 @@ internal static class CurriculumFileReader
             if (result.Count is < 1 or > MaxRows) throw Invalid("IMPORT_REQUIRES_1_TO_500_ROWS");
             return result;
         }
-        catch (Exception ex) when (ex is InvalidDataException or XmlException or FormatException or ArgumentException or MalformedLineException)
+        catch (Exception ex) when (ex is InvalidDataException or XmlException or FormatException or ArgumentException
+            or MalformedLineException or OpenXmlPackageException or InvalidOperationException or KeyNotFoundException or NotSupportedException)
         {
             throw Invalid("IMPORT_FILE_INVALID");
         }

@@ -1,4 +1,5 @@
 using System.Text;
+using System.IO.Compression;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Infrastructure.Services.StudentRosters;
 using ClosedXML.Excel;
@@ -31,6 +32,18 @@ public sealed class CurriculumFileReaderTests
         var csv = "MSSV,Khung\n" + string.Join('\n', Enumerable.Range(0, 501).Select(i => $"S{i},SE"));
         Assert.Throws<ValidationException>(() => CurriculumFileReader.Read(Encoding.UTF8.GetBytes(csv), "data.csv"));
         Assert.Throws<ValidationException>(() => CurriculumFileReader.Read([0xff, 0xfe, 0x80], "data.csv"));
+    }
+
+    [Fact]
+    public void Valid_zip_without_workbook_is_a_validation_error()
+    {
+        using var stream = new MemoryStream();
+        using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, true))
+        {
+            using var writer = new StreamWriter(zip.CreateEntry("unrelated.txt").Open());
+            writer.Write("Not a workbook");
+        }
+        Assert.Throws<ValidationException>(() => CurriculumFileReader.Read(stream.ToArray(), "data.xlsx"));
     }
 
     [Fact]
