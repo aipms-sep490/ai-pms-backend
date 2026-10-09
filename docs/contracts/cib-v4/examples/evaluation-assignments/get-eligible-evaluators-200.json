@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/projects/42/eligible-evaluators?periodId=10&page=1&pageSize=20",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STAFF]"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "userId": 3001,
+          "fullName": "Dr. Alan Turing",
+          "email": "aturing@example.test",
+          "departmentId": 1,
+          "departmentName": "Computer Science",
+          "activeAssignmentCount": 2,
+          "isAssignedToProject": false,
+          "eligibleEvaluationTypes": ["LECTURER"]
+        },
+        {
+          "userId": 3002,
+          "fullName": "Dr. Grace Hopper",
+          "email": "ghopper@example.test",
+          "departmentId": 1,
+          "departmentName": "Computer Science",
+          "activeAssignmentCount": 1,
+          "isAssignedToProject": false,
+          "eligibleEvaluationTypes": ["LECTURER", "SUPERVISOR"]
+        }
+      ],
+      "page": 1,
+      "pageSize": 20,
+      "totalCount": 2,
+      "totalPages": 1,
+      "hasNextPage": false,
+      "hasPreviousPage": false
+    }
+  }
+}

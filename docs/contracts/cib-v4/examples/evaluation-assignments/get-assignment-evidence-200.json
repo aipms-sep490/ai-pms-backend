@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/evaluation-assignments/101/evidence",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_EVALUATOR]"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "assignmentId": 101,
+      "projectId": 42,
+      "scope": "COMMON",
+      "majorId": null,
+      "studentId": null,
+      "finalSubmissionId": 501,
+      "submittedAt": "2026-10-08T14:30:00Z",
+      "itemCount": 3,
+      "isReadOnly": true
+    }
+  }
+}

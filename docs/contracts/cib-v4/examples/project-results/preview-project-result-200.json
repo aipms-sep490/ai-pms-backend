@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/projects/42/result/preview",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STAFF]"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "projectId": 42,
+      "totalScore": 8.2,
+      "passThreshold": 5.0,
+      "outcome": "PASSED",
+      "calculationRule": "WEIGHTED_MEAN",
+      "confirmationToken": "CONFIRM-PRJ-42-88219-XYZ",
+      "evaluatorCount": 2,
+      "missingEvaluatorCount": 0
+    }
+  }
+}

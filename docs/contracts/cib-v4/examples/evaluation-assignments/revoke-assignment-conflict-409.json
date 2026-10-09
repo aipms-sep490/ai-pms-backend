@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/evaluation-assignments/101/revoke",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STAFF]",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "concurrencyToken": "00000000-0000-0000-0000-000000000000",
+      "reason": "Evaluator reassigned"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "type": "https://tools.ietf.org/html/rfc7231#section-6.5.8",
+      "title": "Conflict",
+      "status": 409,
+      "detail": "The assignment has been modified or the concurrency token is stale.",
+      "instance": "/api/v1/evaluation-assignments/101/revoke"
+    }
+  }
+}

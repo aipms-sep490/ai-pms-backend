@@ -1,0 +1,296 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contractVersion": "1.0.0-cib.v4",
+  "metadata": {
+    "title": "AI-PMS CIB v4 Integration Contract",
+    "backendSha": "09abf9595193cbb721130f5db8dd84d67cd13116",
+    "frontendSha": "eef31c2e3f733e4bc3c25f2fd5b790dcbf40a741",
+    "generatedAt": "2026-10-10T00:00:00Z",
+    "documentReference": "AI-PMS-CIB-004",
+    "environment": "Integration / Acceptance",
+    "specificationBase": "ASP.NET Core Web API + SQL Server (LocalDB for Isolated Acceptance)"
+  },
+  "gates": {
+    "mockContractStatus": "DONE",
+    "dbReadinessStatus": "PARTIAL",
+    "dbIntegrityStatus": "PARTIAL",
+    "realLifecycleStatus": "FE_DONE_BE_PENDING"
+  },
+  "tickets": {
+    "BE-FE-04": {
+      "selected": true,
+      "status": "DELIVERED",
+      "summary": "Versioned OpenAPI / integration contract package, scenario manifest, acceptance fixture definitions, runbook, and reset/readback validation foundation."
+    },
+    "BE-FE-01": {
+      "selected": true,
+      "status": "BLOCKED_DECISION_REQUIRED",
+      "summary": "Task discipline filter in GET /api/v1/tasks/project/{projectId}.",
+      "parameterNaming": "DECISION_REQUIRED",
+      "allowedCandidates": ["majorId", "discipline"],
+      "blockerReason": "Neither Frontend nor Backend baseline specifies a frozen query parameter name. Implementation cannot wire repository join before naming is approved."
+    },
+    "BE-FE-02": {
+      "selected": true,
+      "status": "BLOCKED_DECISION_REQUIRED",
+      "summary": "Evaluation assignment evidence read model.",
+      "projectionDepth": "DECISION_REQUIRED",
+      "currentEndpoint": "GET /api/v1/evaluation-assignments/{id}/evidence",
+      "currentDto": "EvaluationAssignmentEvidenceDto",
+      "blockerReason": "Lightweight metadata DTO exists in backend, but release specification requires confirming whether individual file items with protected download routes are required."
+    },
+    "BE-FE-03": {
+      "selected": false,
+      "status": "NOT_SELECTED",
+      "summary": "Typed breakdown DTO for StudentResult.",
+      "reason": "Not selected for release. Backend preserves authoritative SnapshotJson redacted as '{}' for student owner."
+    },
+    "DBX-01-to-13": {
+      "selected": false,
+      "status": "NOT_SELECTED",
+      "summary": "Proposed database schema extensions DBX-01 through DBX-13 remain unapproved. Core schema reuses existing tables."
+    }
+  },
+  "endpoints": {
+    "qualification": [
+      {
+        "method": "POST",
+        "path": "/api/v1/student-qualifications/me/certificate",
+        "contentType": "multipart/form-data",
+        "requestSizeLimitBytes": 23068672,
+        "authRoles": ["STUDENT"],
+        "formFields": {
+          "file": { "type": "binary", "required": true, "allowedExtensions": [".pdf", ".png", ".jpg", ".jpeg"] },
+          "qualificationType": { "type": "string", "required": true, "default": "CAPSTONE_READINESS" },
+          "trainingStatus": { "type": "string", "required": true, "default": "TRAINING_COMPLETED" },
+          "certificateNumber": { "type": "string", "required": false },
+          "issuedAt": { "type": "string", "format": "date-time", "required": false },
+          "expiresAt": { "type": "string", "format": "date-time", "required": false }
+        },
+        "responses": {
+          "200": { "bodyClass": "StudentQualificationDto" },
+          "400": { "bodyClass": "ProblemDetails" },
+          "401": { "bodyClass": "ProblemDetails" },
+          "403": { "bodyClass": "ProblemDetails" },
+          "413": { "bodyClass": "ProblemDetails" },
+          "422": { "bodyClass": "ProblemDetails" }
+        }
+      }
+    ],
+    "tasks": [
+      {
+        "method": "GET",
+        "path": "/api/v1/tasks/project/{projectId}",
+        "authRoles": ["ADMIN", "DEPARTMENT_STAFF", "LECTURER", "STUDENT"],
+        "supportedParameters": {
+          "projectId": { "in": "path", "type": "integer", "format": "int64", "required": true },
+          "milestoneId": { "in": "query", "type": "integer", "format": "int64", "required": false },
+          "status": { "in": "query", "type": "string", "enum": ["TODO", "IN_PROGRESS", "DONE", "BLOCKED", "CANCELLED"], "required": false },
+          "priority": { "in": "query", "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"], "required": false },
+          "assigneeUserId": { "in": "query", "type": "integer", "format": "int64", "required": false },
+          "search": { "in": "query", "type": "string", "required": false },
+          "dueFrom": { "in": "query", "type": "string", "format": "date-time", "required": false },
+          "dueTo": { "in": "query", "type": "string", "format": "date-time", "required": false },
+          "isOverdue": { "in": "query", "type": "boolean", "required": false },
+          "isBlocked": { "in": "query", "type": "boolean", "required": false },
+          "page": { "in": "query", "type": "integer", "default": 1 },
+          "pageSize": { "in": "query", "type": "integer", "default": 10 }
+        },
+        "pendingParameters": {
+          "disciplineFilter": {
+            "status": "NOT_YET_AVAILABLE",
+            "decisionPending": "BE-FE-01 CONTRACT DECISION REQUIRED",
+            "note": "Naming (majorId vs discipline) must be finalized by team before implementation."
+          }
+        },
+        "responses": {
+          "200": { "bodyClass": "PagedResult<TaskDto>" },
+          "401": { "bodyClass": "ProblemDetails" },
+          "403": { "bodyClass": "ProblemDetails" },
+          "404": { "bodyClass": "ProblemDetails" }
+        }
+      }
+    ],
+    "evaluationAssignments": [
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/{projectId}/eligible-evaluators",
+        "parameters": {
+          "projectId": { "in": "path", "type": "integer", "format": "int64", "required": true },
+          "periodId": { "in": "query", "type": "integer", "format": "int64", "required": true },
+          "page": { "in": "query", "type": "integer", "default": 1 },
+          "pageSize": { "in": "query", "type": "integer", "default": 20 }
+        },
+        "responses": { "200": { "bodyClass": "PagedResult<EligibleEvaluatorDto>" } }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/projects/{projectId}/evaluation-assignments",
+        "requestBody": {
+          "evaluatorId": { "type": "integer", "format": "int64", "required": true },
+          "periodId": { "type": "integer", "format": "int64", "required": true },
+          "evaluationType": { "type": "string", "enum": ["LECTURER", "SUPERVISOR"], "required": true },
+          "scope": { "type": "string", "enum": ["COMMON", "MAJOR_SPECIFIC", "INDIVIDUAL"], "required": true },
+          "majorId": { "type": "integer", "format": "int64", "required": false },
+          "studentId": { "type": "integer", "format": "int64", "required": false },
+          "componentId": { "type": "integer", "format": "int64", "required": false }
+        },
+        "responses": {
+          "201": { "bodyClass": "EvaluationAssignmentDto" },
+          "400": { "bodyClass": "ProblemDetails" },
+          "409": { "bodyClass": "ProblemDetails" }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/{projectId}/evaluation-assignments",
+        "parameters": {
+          "projectId": { "in": "path", "type": "integer", "format": "int64", "required": true },
+          "status": { "in": "query", "type": "string", "required": false },
+          "page": { "in": "query", "type": "integer", "default": 1 },
+          "pageSize": { "in": "query", "type": "integer", "default": 20 }
+        },
+        "responses": { "200": { "bodyClass": "PagedResult<EvaluationAssignmentDto>" } }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/evaluation-assignments/my",
+        "parameters": {
+          "page": { "in": "query", "type": "integer", "default": 1 },
+          "pageSize": { "in": "query", "type": "integer", "default": 20 }
+        },
+        "responses": { "200": { "bodyClass": "PagedResult<EvaluationAssignmentDto>" } }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/evaluation-assignments/{id}/revoke",
+        "requestBody": {
+          "concurrencyToken": { "type": "string", "required": true },
+          "reason": { "type": "string", "required": true }
+        },
+        "responses": {
+          "200": { "bodyClass": "EvaluationAssignmentDto" },
+          "409": { "bodyClass": "ProblemDetails" }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/evaluation-assignments/{id}",
+        "responses": {
+          "200": { "bodyClass": "EvaluationAssignmentDetailDto" },
+          "403": { "bodyClass": "ProblemDetails" },
+          "404": { "bodyClass": "ProblemDetails" }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/evaluation-assignments/{id}/evidence",
+        "note": "Returns lightweight metadata DTO. Detailed item/file projection pending BE-FE-02 decision.",
+        "responses": {
+          "200": { "bodyClass": "EvaluationAssignmentEvidenceDto" },
+          "403": { "bodyClass": "ProblemDetails" },
+          "404": { "bodyClass": "ProblemDetails" }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/evaluation-assignments/{id}/evaluation",
+        "responses": {
+          "201": { "bodyClass": "EvaluationDraftDto" },
+          "409": { "bodyClass": "ProblemDetails" }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/evaluations/{id}/finalize",
+        "requestBody": {
+          "concurrencyToken": { "type": "string", "required": true }
+        },
+        "responses": {
+          "200": { "bodyClass": "EvaluationDraftDto" },
+          "409": { "bodyClass": "ProblemDetails" }
+        }
+      }
+    ],
+    "finalSubmissions": [
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/{projectId}/final-submission/requirements",
+        "responses": { "200": { "bodyClass": "FinalRequirementsDto" } }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/{projectId}/final-submission/checklist",
+        "responses": { "200": { "bodyClass": "FinalSubmissionChecklistDto" } }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/projects/{projectId}/final-submission",
+        "requestBody": {
+          "requirementsConcurrencyToken": { "type": "string", "format": "uuid", "required": true },
+          "draftConcurrencyToken": { "type": "string", "format": "uuid", "required": true }
+        },
+        "responses": {
+          "201": { "bodyClass": "FinalSubmissionDto" },
+          "400": { "bodyClass": "ProblemDetails" },
+          "409": { "bodyClass": "ProblemDetails" }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/{projectId}/final-submission",
+        "responses": {
+          "200": { "bodyClass": "FinalSubmissionDto" },
+          "404": { "bodyClass": "ProblemDetails" }
+        }
+      }
+    ],
+    "projectResults": [
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/{projectId}/result/preview",
+        "responses": { "200": { "bodyClass": "ProjectResultPreviewDto" } }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/projects/{projectId}/result",
+        "requestBody": {
+          "confirmationToken": { "type": "string", "required": true }
+        },
+        "responses": {
+          "201": { "bodyClass": "ProjectResultDto" },
+          "409": { "bodyClass": "ProblemDetails" }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/{projectId}/result",
+        "responses": { "200": { "bodyClass": "ProjectResultDto" } }
+      }
+    ],
+    "studentResults": [
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/{projectId}/students/{studentId}/result/preview",
+        "responses": { "200": { "bodyClass": "ProjectResultPreviewDto" } }
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/projects/{projectId}/students/{studentId}/result",
+        "requestBody": {
+          "confirmationToken": { "type": "string", "required": true }
+        },
+        "responses": {
+          "200": { "bodyClass": "StudentResultDto" },
+          "409": { "bodyClass": "ProblemDetails" }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/{projectId}/students/{studentId}/result",
+        "privacyRule": "When requested by student owner, snapshotJson is redacted to '{}'. Full snapshot is only exposed to staff/admin.",
+        "responses": { "200": { "bodyClass": "StudentResultDto" } }
+      }
+    ]
+  }
+}

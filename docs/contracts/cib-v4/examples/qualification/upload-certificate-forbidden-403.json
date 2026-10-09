@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/student-qualifications/me/certificate",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_LECTURER]"
+    },
+    "form": {
+      "qualificationType": "CAPSTONE_READINESS",
+      "trainingStatus": "TRAINING_COMPLETED",
+      "file": "[binary: cert.pdf]"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "type": "https://tools.ietf.org/html/rfc7231#section-6.5.3",
+      "title": "Forbidden",
+      "status": 403,
+      "detail": "Only students are authorized to manage qualification certificates.",
+      "instance": "/api/v1/student-qualifications/me/certificate",
+      "traceId": "00-7d1a2b3c4e5f6a7b8c9d0e1f2a3b4c5d-0000000000000000-00"
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/tasks/project/42?page=1&pageSize=2",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STUDENT]"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "id": 501,
+          "milestoneId": 12,
+          "parentTaskId": null,
+          "title": "Design System Architecture",
+          "description": "Produce C4 component diagrams and API contracts",
+          "status": "IN_PROGRESS",
+          "priority": "HIGH",
+          "startAt": "2026-09-15T00:00:00Z",
+          "dueAt": "2026-09-25T00:00:00Z",
+          "completedAt": null,
+          "createdByUserId": 2001,
+          "createdByName": "Student Leader",
+          "createdAt": "2026-09-15T08:00:00Z",
+          "updatedAt": "2026-09-18T10:00:00Z",
+          "concurrencyToken": "11111111-2222-3333-4444-555555555555",
+          "assignees": [
+            { "userId": 2001, "fullName": "Student Leader", "email": "leader@example.test" }
+          ],
+          "dependencies": []
+        },
+        {
+          "id": 502,
+          "milestoneId": 12,
+          "parentTaskId": null,
+          "title": "Setup CI/CD Pipeline",
+          "description": "Configure GitHub actions for build and unit tests",
+          "status": "DONE",
+          "priority": "MEDIUM",
+          "startAt": "2026-09-16T00:00:00Z",
+          "dueAt": "2026-09-22T00:00:00Z",
+          "completedAt": "2026-09-21T16:00:00Z",
+          "createdByUserId": 2002,
+          "createdByName": "Student Member",
+          "createdAt": "2026-09-16T09:00:00Z",
+          "updatedAt": "2026-09-21T16:00:00Z",
+          "concurrencyToken": "66666666-7777-8888-9999-000000000000",
+          "assignees": [
+            { "userId": 2002, "fullName": "Student Member", "email": "member@example.test" }
+          ],
+          "dependencies": []
+        }
+      ],
+      "page": 1,
+      "pageSize": 2,
+      "totalCount": 14,
+      "totalPages": 7,
+      "hasNextPage": true,
+      "hasPreviousPage": false
+    }
+  }
+}

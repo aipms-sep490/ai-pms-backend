@@ -1,0 +1,31 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/evaluations/801/finalize",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_EVALUATOR]",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "concurrencyToken": "d4e5f6a7-b8c9-0d1e-2f3a-4b5c6d7e8f9a"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": 801,
+      "projectId": 42,
+      "evaluationPeriodId": 10,
+      "evaluatorUserId": 3001,
+      "evaluationType": "LECTURER",
+      "rubricId": 5,
+      "status": "FINALIZED",
+      "generalComments": "Satisfactory execution with thorough architecture analysis.",
+      "totalScore": 8.5,
+      "concurrencyToken": "e5f6a7b8-c9d0-1e2f-3a4b-5c6d7e8f9a0b",
+      "details": [
+        { "criterionId": 11, "score": 8.5, "comments": "Good architecture model" }
+      ]
+    }
+  }
+}
