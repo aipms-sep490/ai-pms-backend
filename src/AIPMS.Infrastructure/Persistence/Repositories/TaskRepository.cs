@@ -484,12 +484,12 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
         long projectId,
         CancellationToken cancellationToken = default)
     {
-        var existsInProjectMajors = await context.ProjectMajors
-            .AsNoTracking()
-            .AnyAsync(pm => pm.ProjectId == projectId && pm.MajorId == majorId, cancellationToken);
-        if (existsInProjectMajors) return true;
+        var scope = await ProjectAcademicScopeReader.ReadAsync(
+            context,
+            projectId,
+            cancellationToken,
+            requireFrozenScope: true);
 
-        var scope = await ProjectAcademicScopeReader.ReadAsync(context, projectId, cancellationToken);
         return scope.MajorIds.Contains(majorId);
     }
 }

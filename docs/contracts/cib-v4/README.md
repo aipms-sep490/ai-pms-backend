@@ -79,7 +79,7 @@
   - **Semantics**:
     - **Omitted `majorId`**: Preserves existing behavior without discipline filtering.
     - **`majorId <= 0`**: Rejected with `400 Bad Request`.
-    - **Foreign major**: `majorId` outside the requested project's academic scope is rejected with `403 Forbidden`.
+    - **Foreign major**: `majorId` outside the requested project's academic scope is rejected with `403 Forbidden` (non-draft projects validate against the frozen registration snapshot first; foreign or missing snapshot fails closed).
     - **Server-side filtering**: Filtering occurs before count, ordering, and pagination.
     - **Multi-discipline deduplication**: Tasks mapped to multiple disciplines are not duplicated in filtered results.
     - **Composition**: All existing filters (`status`, `priority`, `milestoneId`, `assigneeUserId`, `search`, date ranges, flags) and stable ordering remain supported.
@@ -140,11 +140,13 @@
   - **Additive**: All 9 existing `EvaluationAssignmentEvidenceDto` fields are retained without alteration.
   - **Items Projection**: Extended additively with `items: [...]` collection (`EvaluationAssignmentEvidenceItemDto`).
   - **Scope Enforcement**:
-    - `COMMON`: All project deliverable items and project evidence.
+    - `COMMON`: All locked deliverable items from the frozen package.
     - `MAJOR_SPECIFIC`: Filtered strictly to evidence matching the assignment's `majorId`.
     - `INDIVIDUAL`: Filtered strictly to evidence matching the assignment's `studentId`.
-  - **Package Immutability**: Uses exact frozen final submission snapshot (`FinalSubmissionItem.FilesJson`). Subsequent deliverable versions uploaded after submission lock never replace frozen evidence.
-  - **Protected Download**: Dedicated narrow route `GET /api/v1/evaluation-assignments/{id}/evidence/files/{fileId}` enforces evaluator assignment authority, assignment scope boundary, nosniff headers, and returns the frozen stream directly from `IFileStorage`.
+    - `UNKNOWN` or legacy scopes: Strictly fails closed with empty `items: []` and file download rejected with `403 Forbidden`.
+  - **Package Immutability**: Uses exact frozen final submission package (`FinalSubmissionItem.FilesJson`). Live `ProjectEvidence` rows and subsequent deliverable versions uploaded after submission lock are strictly excluded.
+  - **Frozen Provenance Attribution**: Student and major attribution is resolved strictly from frozen authoritative target metadata and frozen registration snapshot / published evaluation scheme provenance; free-text fields (Title, Description, Notes), physical uploader, Deliverable.CreatedBy, and live Users profiles are never used to infer ownership; missing provenance fails closed.
+  - **Protected Download**: Dedicated narrow route `GET /api/v1/evaluation-assignments/{id}/evidence/files/{fileId}` enforces evaluator assignment authority, assignment scope boundary (returns `403 Forbidden` for out-of-scope files), locked package boundary (returns `404 Not Found` for files outside locked package), nosniff headers, and returns the frozen stream directly from `IFileStorage`.
 
 ### E. Locked Final Submission
 - **Requirements**: `GET /api/v1/projects/{projectId}/final-submission/requirements`

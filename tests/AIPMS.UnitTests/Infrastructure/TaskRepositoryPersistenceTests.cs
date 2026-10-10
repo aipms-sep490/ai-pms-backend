@@ -3,10 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
 using AIPMS.Application.Common.Exceptions;
+using AIPMS.Application.Features.Projects.DTOs;
+using AIPMS.Application.Features.Teams.DTOs;
 using AIPMS.Infrastructure.Identity;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
+using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.Infrastructure.Persistence.Repositories;
 using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.EntityFrameworkCore;
@@ -388,12 +392,16 @@ public sealed class TaskRepositoryPersistenceTests
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task MajorBelongsToProjectAsync_ValidatesProjectMajorAssociation()
+    public async System.Threading.Tasks.Task MajorBelongsToProjectAsync_DraftProject_UsesCurrentProjectMajors()
     {
         using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
-        await SeedBaseProjectAndMilestoneAsync(db, projectId: 1, milestoneId: 1);
-        await SeedBaseProjectAndMilestoneAsync(db, projectId: 2, milestoneId: 2);
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 1, milestoneId: 1, projectStatus: "DRAFT");
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 2, milestoneId: 2, projectStatus: "DRAFT");
 
+        db.Majors.AddRange(
+            new Major { Id = 10, DepartmentId = 1, Code = "M10", Name = "Major 10" },
+            new Major { Id = 20, DepartmentId = 1, Code = "M20", Name = "Major 20" }
+        );
         db.ProjectMajors.AddRange(
             new ProjectMajor { Id = 1, ProjectId = 1, MajorId = 10, CreatedAt = DateTime.UtcNow },
             new ProjectMajor { Id = 2, ProjectId = 2, MajorId = 20, CreatedAt = DateTime.UtcNow }
@@ -406,5 +414,61 @@ public sealed class TaskRepositoryPersistenceTests
         Assert.False(await repo.MajorBelongsToProjectAsync(20, 1, CancellationToken.None));
         Assert.True(await repo.MajorBelongsToProjectAsync(20, 2, CancellationToken.None));
         Assert.False(await repo.MajorBelongsToProjectAsync(10, 2, CancellationToken.None));
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task MajorBelongsToProjectAsync_ActiveProject_UsesFrozenScope_IgnoresProjectMajors()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 1, milestoneId: 1, projectStatus: "ACTIVE");
+
+        // ProjectMajors has both Major 10 and Major 20
+        db.ProjectMajors.AddRange(
+            new ProjectMajor { Id = 1, ProjectId = 1, MajorId = 10, CreatedAt = DateTime.UtcNow },
+            new ProjectMajor { Id = 2, ProjectId = 1, MajorId = 20, CreatedAt = DateTime.UtcNow }
+        );
+
+        // But frozen registration snapshot strictly contains ONLY Major 10
+        var evidence = new RegistrationEvidence(
+            new TeamAcademicScopeDto("SINGLE_MAJOR", 10, 100, [new MajorRequirementDto(10, 1, 5, "Engineering")], Guid.NewGuid()),
+            new(1, 5, 1, "test"), 1, DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddDays(2),
+            [new(1, "Student", 10, true)], [100],
+            MajorDepartmentIds: new Dictionary<long, long> { [10] = 100 });
+
+        db.Set<ProjectRegistrationSnapshot>().Add(new ProjectRegistrationSnapshot
+        {
+            Id = 1,
+            ProjectId = 1,
+            ProjectPeriodId = 1,
+            LeadDepartmentId = 100,
+            SubmittedBy = 1,
+            SubmittedAt = DateTime.UtcNow.AddDays(-1),
+            SnapshotJson = JsonSerializer.Serialize(evidence)
+        });
+        await db.SaveChangesAsync();
+
+        var repo = new TaskRepository(db);
+
+        // Major 10 is in frozen snapshot -> True
+        Assert.True(await repo.MajorBelongsToProjectAsync(10, 1, CancellationToken.None));
+
+        // Major 20 is only in live ProjectMajors, not in snapshot -> False (no fallback to ProjectMajors)
+        Assert.False(await repo.MajorBelongsToProjectAsync(20, 1, CancellationToken.None));
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task MajorBelongsToProjectAsync_ActiveProject_MissingOrInvalidSnapshot_FailsClosed()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 1, milestoneId: 1, projectStatus: "ACTIVE");
+
+        // ProjectMajors has Major 10, but NO frozen snapshot exists for non-draft project
+        db.ProjectMajors.Add(new ProjectMajor { Id = 1, ProjectId = 1, MajorId = 10, CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+
+        var repo = new TaskRepository(db);
+
+        // Missing snapshot for non-draft project fails closed
+        Assert.False(await repo.MajorBelongsToProjectAsync(10, 1, CancellationToken.None));
     }
 }

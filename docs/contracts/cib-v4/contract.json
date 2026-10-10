@@ -40,7 +40,7 @@
       "semantics": {
         "omitted": "Preserves existing behavior without discipline filtering",
         "invalidValue": "majorId <= 0 returns 400 Bad Request",
-        "foreignMajor": "major outside requested project returns 403 Forbidden",
+        "foreignMajor": "major outside requested project returns 403 Forbidden; project scope validation checks frozen registration snapshot first for non-draft projects",
         "orderingAndPaging": "Filter occurs server-side before count and pagination",
         "multiDiscipline": "Multi-discipline tasks are not duplicated in filtered result",
         "composition": "Existing filters (milestoneId, status, priority, assigneeUserId, search, dates, flags) and stable ordering remain supported"
@@ -56,9 +56,10 @@
       "dto": "EvaluationAssignmentEvidenceDto",
       "semantics": {
         "additiveCollection": "Existing 9 metadata fields preserved unchanged; additive items collection added",
-        "assignmentScoped": "Items strictly filtered by assignment project and scope (COMMON, MAJOR_SPECIFIC, INDIVIDUAL)",
-        "frozenPackage": "Items resolved from exact frozen final submission snapshot, later uploads do not overwrite",
-        "protectedDownload": "Dedicated assignment-scoped download endpoint verifies evaluator assignment, project, and scope"
+        "assignmentScoped": "Items strictly filtered by assignment project and scope (COMMON, MAJOR_SPECIFIC, INDIVIDUAL); UNKNOWN or legacy scope fails closed with 0 items and download returns 403 Forbidden",
+        "frozenPackage": "Items resolved only from exact frozen final submission package (FinalSubmission + FilesJson); live ProjectEvidence rows are excluded",
+        "frozenProvenance": "Attribution strictly uses frozen authoritative target metadata and frozen registration snapshot / published evaluation scheme provenance; free-text fields (Title, Description, Notes), physical uploader, Deliverable.CreatedBy, and live Users profiles are never used to infer ownership; missing provenance fails closed",
+        "protectedDownload": "Dedicated assignment-scoped download endpoint verifies evaluator assignment, project, and scope; files outside assignment scope return 403 Forbidden; files outside frozen submission package return 404 Not Found"
       }
     },
     "BE-FE-03": {

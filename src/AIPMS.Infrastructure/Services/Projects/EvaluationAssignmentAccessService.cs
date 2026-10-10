@@ -13,7 +13,6 @@ using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.FinalSubmissions.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
-using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -50,7 +49,7 @@ internal sealed class EvaluationAssignmentAccessService(
         return new(dto, canScore && !legacy, legacy, legacy ? "LEGACY_SCOPE_UNKNOWN" : null);
     }
 
-    private async Task<(FinalSubmission? Final, IReadOnlyList<InternalEvidenceItem> AllItems, IReadOnlyList<EvaluationAssignmentEvidenceItemDto> ScopedItems)> ResolveEvidenceItemsAsync(EvaluationAssignment row, CancellationToken ct)
+    private async Task<(FinalSubmission? Final, IReadOnlyList<InternalEvidenceItem> AllItems, IReadOnlyList<InternalEvidenceItem> ScopedItems)> ResolveEvidenceItemsAsync(EvaluationAssignment row, CancellationToken ct)
     {
         var final = await db.Set<FinalSubmission>().AsNoTracking()
             .Include(x => x.Items)
@@ -58,164 +57,109 @@ internal sealed class EvaluationAssignmentAccessService(
             .OrderByDescending(x => x.SubmittedAt)
             .FirstOrDefaultAsync(ct);
 
-        var projectEvidences = await db.Set<ProjectEvidence>().AsNoTracking()
-            .Where(pe => pe.ProjectId == row.ProjectId)
-            .ToListAsync(ct);
-
-        var deliverableIds = final?.Items.Select(i => i.DeliverableId).Distinct().ToList() ?? new List<long>();
-        var deliverables = deliverableIds.Count > 0
-            ? await db.Deliverables.AsNoTracking().Where(d => deliverableIds.Contains(d.Id)).ToDictionaryAsync(d => d.Id, ct)
-            : new Dictionary<long, Deliverable>();
-
-        var userIds = new HashSet<long>();
-        if (final != null)
+        if (final == null)
         {
-            userIds.Add(final.SubmittedBy);
-            foreach (var del in deliverables.Values)
-                userIds.Add(del.CreatedBy);
+            return (null, [], []);
         }
-        foreach (var pe in projectEvidences)
-            userIds.Add(pe.SubmittedBy);
 
-        var users = userIds.Count > 0
-            ? await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, ct)
-            : new Dictionary<long, User>();
+        // NOTE — CASE B: The typed frozen payload (FinalSnapshotFile / ProjectFileDto) contains NO structured
+        // TargetStudentId or TargetMajorId fields. Therefore item-level student and major attribution cannot be
+        // proven from the frozen package alone.
+        //
+        // Per security policy:
+        //   COMMON     — all items from the locked final submission package are visible.
+        //   INDIVIDUAL — zero items visible (no provenance to prove item-level student ownership).
+        //   MAJOR_SPECIFIC — zero items visible (no provenance to prove item-level major ownership).
+        //
+        // Free-text fields (Deliverable.Title, Deliverable.Description, FinalSubmission.Notes),
+        // Deliverable.CreatedBy, and file UploadedBy are NEVER used for attribution.
+        // Only structured typed data from the frozen snapshot is authoritative.
 
         var rawItems = new List<InternalEvidenceItem>();
 
-        if (final != null)
+        foreach (var item in final.Items)
         {
-            foreach (var item in final.Items)
+            // CASE B: no structured target provenance in typed payload — always null
+            long? studentId = null;
+            long? majorId = null;
+
+            FinalSnapshotFile[]? snapshotFiles = null;
+            if (!string.IsNullOrWhiteSpace(item.FilesJson))
             {
-                FinalSnapshotFile[]? snapshotFiles = null;
-                if (!string.IsNullOrWhiteSpace(item.FilesJson))
+                try
                 {
-                    try
-                    {
-                        snapshotFiles = JsonSerializer.Deserialize<FinalSnapshotFile[]>(item.FilesJson);
-                    }
-                    catch (JsonException)
-                    {
-                        snapshotFiles = null;
-                    }
+                    snapshotFiles = JsonSerializer.Deserialize<FinalSnapshotFile[]>(item.FilesJson);
                 }
-
-                deliverables.TryGetValue(item.DeliverableId, out var del);
-                var matchingPe = projectEvidences.FirstOrDefault(pe => pe.DeliverableId == item.DeliverableId || pe.SourceId == item.DeliverableId);
-
-                if (snapshotFiles != null && snapshotFiles.Length > 0)
+                catch (JsonException)
                 {
-                    foreach (var f in snapshotFiles)
-                    {
-                        var studentId = f.Metadata.UploadedBy > 0 ? f.Metadata.UploadedBy : (del?.CreatedBy ?? final.SubmittedBy);
-                        long? majorId = matchingPe?.MajorId;
-                        if (!majorId.HasValue && users.TryGetValue(studentId, out var submitterUser))
-                        {
-                            majorId = submitterUser.MajorId;
-                        }
-
-                        var dto = new EvaluationAssignmentEvidenceItemDto(
-                            f.Metadata.Id,
-                            item.Title,
-                            $"Version {item.VersionNumber} - {item.StatusAtSubmission}",
-                            "DELIVERABLE",
-                            item.DeliverableId,
-                            f.Metadata.Id,
-                            f.Metadata.FileName,
-                            f.Metadata.ContentType,
-                            f.Metadata.SizeBytes,
-                            majorId,
-                            studentId,
-                            f.Metadata.CreatedAt != default ? f.Metadata.CreatedAt : final.SubmittedAt,
-                            $"/api/v1/evaluation-assignments/{row.Id}/evidence/files/{f.Metadata.Id}");
-
-                        rawItems.Add(new(dto, f.StorageKey));
-                    }
+                    snapshotFiles = null;
                 }
-                else
-                {
-                    var studentId = del?.CreatedBy ?? final.SubmittedBy;
-                    long? majorId = matchingPe?.MajorId;
-                    if (!majorId.HasValue && users.TryGetValue(studentId, out var submitterUser))
-                    {
-                        majorId = submitterUser.MajorId;
-                    }
+            }
 
+            if (snapshotFiles != null && snapshotFiles.Length > 0)
+            {
+                foreach (var f in snapshotFiles)
+                {
                     var dto = new EvaluationAssignmentEvidenceItemDto(
-                        item.DeliverableVersionId,
+                        f.Metadata.Id,
                         item.Title,
                         $"Version {item.VersionNumber} - {item.StatusAtSubmission}",
                         "DELIVERABLE",
                         item.DeliverableId,
-                        null,
-                        null,
-                        null,
-                        null,
+                        f.Metadata.Id,
+                        f.Metadata.FileName,
+                        f.Metadata.ContentType,
+                        f.Metadata.SizeBytes,
                         majorId,
                         studentId,
-                        final.SubmittedAt,
-                        null);
+                        f.Metadata.CreatedAt != default ? f.Metadata.CreatedAt : final.SubmittedAt,
+                        $"/api/v1/evaluation-assignments/{row.Id}/evidence/files/{f.Metadata.Id}");
 
-                    rawItems.Add(new(dto, null));
+                    rawItems.Add(new(dto, f.StorageKey));
                 }
             }
-        }
-
-        // Also include standalone ProjectEvidence if not already covered
-        foreach (var pe in projectEvidences)
-        {
-            if (pe.DeliverableId.HasValue && rawItems.Any(r => r.Dto.SourceId == pe.DeliverableId.Value))
-                continue;
-
-            long? majorId = pe.MajorId;
-            if (!majorId.HasValue && users.TryGetValue(pe.SubmittedBy, out var submitterUser))
-                majorId = submitterUser.MajorId;
-
-            string? fileName = null;
-            string? contentType = null;
-            long? fileSize = null;
-            string? storageKey = null;
-
-            if (pe.FileId.HasValue)
+            else
             {
-                var file = await db.Files.AsNoTracking().FirstOrDefaultAsync(f => f.Id == pe.FileId.Value && f.DeliverableVersionId == null, ct);
-                if (file != null)
-                {
-                    fileName = file.OriginalFileName;
-                    contentType = file.MimeType;
-                    fileSize = file.FileSizeBytes;
-                    storageKey = file.StoragePath;
-                }
+                var dto = new EvaluationAssignmentEvidenceItemDto(
+                    item.DeliverableVersionId,
+                    item.Title,
+                    $"Version {item.VersionNumber} - {item.StatusAtSubmission}",
+                    "DELIVERABLE",
+                    item.DeliverableId,
+                    null,
+                    null,
+                    null,
+                    null,
+                    majorId,
+                    studentId,
+                    final.SubmittedAt,
+                    null);
+
+                rawItems.Add(new(dto, null));
             }
-
-            var dto = new EvaluationAssignmentEvidenceItemDto(
-                pe.Id,
-                pe.Notes ?? pe.SourceType,
-                pe.Notes,
-                pe.SourceType,
-                pe.SourceId,
-                pe.FileId,
-                fileName,
-                contentType,
-                fileSize,
-                majorId,
-                pe.SubmittedBy,
-                pe.SubmittedAt,
-                pe.FileId.HasValue ? $"/api/v1/evaluation-assignments/{row.Id}/evidence/files/{pe.FileId.Value}" : null);
-
-            rawItems.Add(new(dto, storageKey));
         }
 
-        // Apply assignment scope filtering
-        var scopedItems = rawItems.Select(r => r.Dto).ToList();
-
-        if (row.Scope == "MAJOR_SPECIFIC" && row.MajorId.HasValue)
+        // Apply assignment scope filtering:
+        // COMMON      — all items from locked frozen package.
+        // MAJOR_SPECIFIC / INDIVIDUAL — fail closed (0 items) because typed payload carries no item-level provenance.
+        // UNKNOWN / legacy — fail closed (0 items).
+        List<InternalEvidenceItem> scopedItems;
+        switch (row.Scope)
         {
-            scopedItems = scopedItems.Where(i => i.MajorId == row.MajorId.Value).ToList();
-        }
-        else if (row.Scope == "INDIVIDUAL" && row.StudentId.HasValue)
-        {
-            scopedItems = scopedItems.Where(i => i.StudentId == row.StudentId.Value).ToList();
+            case "COMMON":
+                scopedItems = rawItems;
+                break;
+            case "MAJOR_SPECIFIC" when row.MajorId.HasValue && row.MajorId.Value > 0:
+                // Item-level majorId is always null (CASE B) → filter produces 0 items. Fail closed.
+                scopedItems = rawItems.Where(i => i.Dto.MajorId == row.MajorId.Value).ToList();
+                break;
+            case "INDIVIDUAL" when row.StudentId.HasValue && row.StudentId.Value > 0:
+                // Item-level studentId is always null (CASE B) → filter produces 0 items. Fail closed.
+                scopedItems = rawItems.Where(i => i.Dto.StudentId == row.StudentId.Value).ToList();
+                break;
+            default:
+                scopedItems = [];
+                break;
         }
 
         return (final, rawItems, scopedItems);
@@ -225,30 +169,37 @@ internal sealed class EvaluationAssignmentAccessService(
     {
         var (row, _) = await Load(assignmentId, ct);
         var (final, _, scopedItems) = await ResolveEvidenceItemsAsync(row, ct);
-        return new(row.Id, row.ProjectId, row.Scope, row.MajorId, row.StudentId, final?.Id, final?.SubmittedAt, scopedItems.Count, true, scopedItems);
+        var dtos = scopedItems.Select(x => x.Dto).ToList();
+        return new(row.Id, row.ProjectId, row.Scope, row.MajorId, row.StudentId, final?.Id, final?.SubmittedAt, dtos.Count, true, dtos);
     }
 
     public async Task<FileDownload> DownloadEvidenceFileAsync(long assignmentId, long fileId, CancellationToken ct = default)
     {
         var (row, _) = await Load(assignmentId, ct);
+        if (row.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL")
+            || (row.Scope == "MAJOR_SPECIFIC" && (!row.MajorId.HasValue || row.MajorId.Value <= 0))
+            || (row.Scope == "INDIVIDUAL" && (!row.StudentId.HasValue || row.StudentId.Value <= 0)))
+        {
+            throw new ForbiddenException("Legacy or unknown evaluation assignment scope cannot access evidence files.");
+        }
+
         var (_, allItems, scopedItems) = await ResolveEvidenceItemsAsync(row, ct);
 
-        var scopedMatch = scopedItems.FirstOrDefault(i => i.FileId == fileId);
+        var scopedMatch = scopedItems.FirstOrDefault(i => i.Dto.FileId == fileId);
         if (scopedMatch == null)
         {
-            // Check if file belongs to the project at all
+            // Check if file belongs to the locked final submission package at all
             var inAllProjectItems = allItems.Any(i => i.Dto.FileId == fileId);
             if (inAllProjectItems)
             {
-                // File belongs to project but outside the scope of THIS assignment
+                // File belongs to project locked submission but outside the scope of THIS assignment
                 throw new ForbiddenException("The requested file is outside the scope of this evaluation assignment.");
             }
 
             throw new NotFoundException("File", fileId);
         }
 
-        var internalItem = allItems.FirstOrDefault(i => i.Dto.FileId == fileId);
-        var storageKey = internalItem?.StorageKey;
+        var storageKey = scopedMatch.StorageKey;
         if (string.IsNullOrWhiteSpace(storageKey))
         {
             var file = await db.Files.AsNoTracking().FirstOrDefaultAsync(f => f.Id == fileId, ct);
@@ -259,7 +210,7 @@ internal sealed class EvaluationAssignmentAccessService(
         try
         {
             var stream = await storage.OpenReadAsync(storageKey, ct);
-            return new FileDownload(stream, scopedMatch.ContentType ?? "application/octet-stream", scopedMatch.FileName ?? $"evidence_{fileId}");
+            return new FileDownload(stream, scopedMatch.Dto.ContentType ?? "application/octet-stream", scopedMatch.Dto.FileName ?? $"evidence_{fileId}");
         }
         catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {

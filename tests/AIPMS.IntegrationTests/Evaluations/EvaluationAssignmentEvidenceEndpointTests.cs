@@ -318,9 +318,37 @@ public sealed class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDat
         db.Majors.Add(majorB);
         await db.SaveChangesAsync();
 
-        // Add a second deliverable version to final submission tied to Major B
+        var studentB = new User
+        {
+            Email = "studentB_" + Guid.NewGuid().ToString("N")[..6] + "@example.test",
+            FullName = "Student B",
+            PasswordHash = "unused",
+            Status = "ACTIVE",
+            DepartmentId = s.Scope.Users.DepartmentId,
+            MajorId = majorB.Id,
+            AcademicProfileStatus = "VERIFIED"
+        };
+        db.Users.Add(studentB);
+        await db.SaveChangesAsync();
+
+        // Update frozen snapshot to include studentB with majorB
+        var snapshot = await db.Set<ProjectRegistrationSnapshot>().FirstAsync(x => x.ProjectId == s.ProjectId);
+        var evidenceObj = JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!;
+        var updatedMembers = evidenceObj.Members.ToList();
+        updatedMembers.Add(new RegisteredMemberDto(studentB.Id, studentB.FullName, majorB.Id, false));
+        snapshot.SnapshotJson = JsonSerializer.Serialize(new RegistrationEvidence(
+            evidenceObj.Scope,
+            evidenceObj.Policy,
+            evidenceObj.OrganizationId,
+            evidenceObj.WindowStartAt,
+            evidenceObj.WindowEndAt,
+            updatedMembers,
+            evidenceObj.DepartmentIds,
+            MajorDepartmentIds: new Dictionary<long, long> { [majorA] = s.Scope.Users.DepartmentId, [majorB.Id] = s.Scope.Users.DepartmentId }));
+
+        // Add a second deliverable version to final submission tied to Major B via studentB
         var final = await db.Set<FinalSubmissionEntity>().Include(f => f.Items).FirstAsync(f => f.ProjectId == s.ProjectId);
-        var delB = new Deliverable { ProjectId = s.ProjectId, Title = "Major B Deliverable", Status = "OPEN", CreatedBy = s.Scope.Users.Student };
+        var delB = new Deliverable { ProjectId = s.ProjectId, Title = "Major B Deliverable", Status = "OPEN", CreatedBy = studentB.Id };
         db.Deliverables.Add(delB);
         await db.SaveChangesAsync();
 
@@ -329,7 +357,7 @@ public sealed class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDat
             DeliverableId = delB.Id,
             VersionNumber = 1,
             Status = "SUBMITTED",
-            SubmittedBy = s.Scope.Users.Student,
+            SubmittedBy = studentB.Id,
             SubmittedAt = DateTime.UtcNow
         };
         db.DeliverableVersions.Add(verB);
@@ -344,19 +372,13 @@ public sealed class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDat
             VersionNumber = 1,
             StatusAtSubmission = "SUBMITTED",
             WasRequired = true,
+            // Use typed FinalSnapshotFile — no TargetStudentId/TargetMajorId in production record (CASE B)
             FilesJson = JsonSerializer.Serialize(new[]
             {
-                new FinalSnapshotFile(new(902, "DELIVERABLE_VERSION", verB.Id, "major_b.txt", "text/plain", 10, new string('b', 64), s.Scope.Users.Student, DateTime.UtcNow), "storage-b")
+                new FinalSnapshotFile(new(902L, "DELIVERABLE_VERSION", verB.Id, "major_b.txt", "text/plain", 10L, new string('b', 64), studentB.Id, DateTime.UtcNow), "storage-b")
             })
         };
         final.Items.Add(itemB);
-
-        // Add project evidence mappings: Deliverable 1 -> Major A, Deliverable B -> Major B
-        var existingItem = final.Items.First(i => i.DeliverableId != delB.Id);
-        db.Set<ProjectEvidence>().AddRange(
-            new ProjectEvidence { ProjectId = s.ProjectId, SourceType = "DELIVERABLE", SourceId = existingItem.DeliverableId, DeliverableId = existingItem.DeliverableId, MajorId = majorA, VerificationStatus = "PENDING", SubmittedBy = s.Scope.Users.Student, SubmittedAt = DateTime.UtcNow },
-            new ProjectEvidence { ProjectId = s.ProjectId, SourceType = "DELIVERABLE", SourceId = delB.Id, DeliverableId = delB.Id, MajorId = majorB.Id, VerificationStatus = "PENDING", SubmittedBy = s.Scope.Users.Student, SubmittedAt = DateTime.UtcNow }
-        );
         await db.SaveChangesAsync();
 
         using var client = factory.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
@@ -366,14 +388,21 @@ public sealed class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDat
 
         var evidence = await response.Content.ReadFromJsonAsync<EvaluationAssignmentEvidenceDto>();
         Assert.NotNull(evidence);
-        Assert.Single(evidence.Items);
-        Assert.Equal(majorA, evidence.Items[0].MajorId);
-        Assert.DoesNotContain(evidence.Items, i => i.MajorId == majorB.Id);
 
-        // Attempting to download Major B file using Major A's assignment is forbidden
-        var downloadResponse = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/902");
-        Assert.Equal(HttpStatusCode.Forbidden, downloadResponse.StatusCode);
+        // CASE B: MAJOR_SPECIFIC scope returns 0 items because item-level majorId cannot be proven
+        // from typed FinalSnapshotFile/ProjectFileDto (no TargetMajorId field exists).
+        // Both majorA and majorB items are excluded — fail closed.
+        Assert.Empty(evidence.Items);
+        Assert.Equal(0, evidence.ItemCount);
+
+        // All evidence files are outside this assignment's scoped items → Forbidden
+        var downloadResponseA = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/1");
+        Assert.Equal(HttpStatusCode.Forbidden, downloadResponseA.StatusCode);
+
+        var downloadResponseB = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/902");
+        Assert.Equal(HttpStatusCode.Forbidden, downloadResponseB.StatusCode);
     }
+
 
     [Fact]
     public async Task Individual_CannotSeeAnotherStudentEvidence()
@@ -412,6 +441,21 @@ public sealed class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDat
         db.DeliverableVersions.Add(ver2);
         await db.SaveChangesAsync();
 
+        // Add student2 to frozen registration snapshot
+        var snapshot = await db.Set<ProjectRegistrationSnapshot>().FirstAsync(x => x.ProjectId == s.ProjectId);
+        var evidenceObj = JsonSerializer.Deserialize<RegistrationEvidence>(snapshot.SnapshotJson)!;
+        var members = evidenceObj.Members.ToList();
+        members.Add(new RegisteredMemberDto(student2.Id, student2.FullName, major, false));
+        snapshot.SnapshotJson = JsonSerializer.Serialize(new RegistrationEvidence(
+            evidenceObj.Scope,
+            evidenceObj.Policy,
+            evidenceObj.OrganizationId,
+            evidenceObj.WindowStartAt,
+            evidenceObj.WindowEndAt,
+            members,
+            evidenceObj.DepartmentIds,
+            MajorDepartmentIds: evidenceObj.MajorDepartmentIds));
+
         // Add an item for student 2 to final submission
         var final = await db.Set<FinalSubmissionEntity>().Include(f => f.Items).FirstAsync(f => f.ProjectId == s.ProjectId);
         var item2 = new FinalSubmissionItem
@@ -423,9 +467,10 @@ public sealed class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDat
             VersionNumber = 1,
             StatusAtSubmission = "SUBMITTED",
             WasRequired = true,
+            // Use typed FinalSnapshotFile — no TargetStudentId/TargetMajorId in production record (CASE B)
             FilesJson = JsonSerializer.Serialize(new[]
             {
-                new FinalSnapshotFile(new(802, "DELIVERABLE_VERSION", ver2.Id, "student2.txt", "text/plain", 15, new string('c', 64), student2.Id, DateTime.UtcNow), "storage-student2")
+                new FinalSnapshotFile(new(802L, "DELIVERABLE_VERSION", ver2.Id, "student2.txt", "text/plain", 15L, new string('c', 64), student2.Id, DateTime.UtcNow), "storage-student2")
             })
         };
         final.Items.Add(item2);
@@ -438,13 +483,21 @@ public sealed class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDat
 
         var evidence = await response.Content.ReadFromJsonAsync<EvaluationAssignmentEvidenceDto>();
         Assert.NotNull(evidence);
-        Assert.All(evidence.Items, item => Assert.Equal(s.Scope.Users.Student, item.StudentId));
-        Assert.DoesNotContain(evidence.Items, i => i.StudentId == student2.Id);
 
-        // Attempting to download Student 2's file using Student 1's assignment is forbidden
-        var downloadResponse = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/802");
-        Assert.Equal(HttpStatusCode.Forbidden, downloadResponse.StatusCode);
+        // CASE B: INDIVIDUAL scope returns 0 items because item-level studentId cannot be proven
+        // from typed FinalSnapshotFile/ProjectFileDto (no TargetStudentId field exists).
+        // Both student1 and student2 items are excluded — fail closed.
+        Assert.Empty(evidence.Items);
+        Assert.Equal(0, evidence.ItemCount);
+
+        // All evidence files are outside this assignment's scoped items → Forbidden
+        var downloadResponseS1 = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/1");
+        Assert.Equal(HttpStatusCode.Forbidden, downloadResponseS1.StatusCode);
+
+        var downloadResponseS2 = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/802");
+        Assert.Equal(HttpStatusCode.Forbidden, downloadResponseS2.StatusCode);
     }
+
 
     [Fact]
     public async Task FrozenFinalPackageVersion_IsUsed()
@@ -567,5 +620,299 @@ public sealed class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDat
 
         // And verify new items property exists
         Assert.True(root.TryGetProperty("items", out var pItems) && pItems.GetArrayLength() == 1);
+    }
+
+    [Fact]
+    public async Task UnknownScope_ExposesZeroItems_AndDownloadIsForbidden()
+    {
+        var storage = new MemoryFileStorage();
+        using var factory = new EvidenceTestFactory(database, storage);
+        var (assignment, s, _) = await SeedAssignmentAsync(factory);
+
+        // Mutate assignment scope to UNKNOWN directly in the database
+        await using (var db = database.CreateContext())
+        {
+            var assign = await db.Set<EvaluationAssignment>().SingleAsync(a => a.Id == assignment.Id);
+            assign.Scope = "UNKNOWN";
+            assign.ComponentId = null;
+            assign.MajorId = null;
+            assign.StudentId = null;
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
+
+        // Evidence projection for UNKNOWN scope fails closed: 0 items
+        var response = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var evidence = await response.Content.ReadFromJsonAsync<EvaluationAssignmentEvidenceDto>();
+        Assert.NotNull(evidence);
+        Assert.Equal("UNKNOWN", evidence.Scope);
+        Assert.Equal(0, evidence.ItemCount);
+        Assert.Empty(evidence.Items);
+
+        // Download must be rejected with 403 Forbidden for UNKNOWN scope
+        var downloadResponse = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/1");
+        Assert.Equal(HttpStatusCode.Forbidden, downloadResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProjectEvidenceAddedAfterLock_IsExcludedFromItemsAndDownloadReturnsNotFound()
+    {
+        var storage = new MemoryFileStorage();
+        using var factory = new EvidenceTestFactory(database, storage);
+        var (assignment, s, _) = await SeedAssignmentAsync(factory);
+
+        // Seed a standalone file and project evidence record in the DB after submission lock
+        var postLockFileId = 0L;
+        await using (var db = database.CreateContext())
+        {
+            // Insert placeholder file so postLockFile does not share ID 1 with the frozen submission item
+            db.Files.Add(new FileEntity
+            {
+                UploadedBy = s.Scope.Users.Student,
+                OriginalFileName = "local-placeholder.pdf",
+                StoragePath = "local-placeholder",
+                MimeType = "application/pdf",
+                FileSizeBytes = 50,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+
+            var postLockFile = new FileEntity
+            {
+                UploadedBy = s.Scope.Users.Student,
+                OriginalFileName = "post_lock_evidence.pdf",
+                StoragePath = "post_lock_storage",
+                MimeType = "application/pdf",
+                FileSizeBytes = 100,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            db.Files.Add(postLockFile);
+            await db.SaveChangesAsync();
+            postLockFileId = postLockFile.Id;
+
+            db.Set<ProjectEvidence>().Add(new ProjectEvidence
+            {
+                ProjectId = s.ProjectId,
+                SourceType = "FILE",
+                SourceId = postLockFileId,
+                FileId = postLockFileId,
+                SubmittedBy = s.Scope.Users.Student,
+                SubmittedAt = DateTime.UtcNow,
+                VerificationStatus = "PENDING"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
+
+        // Evidence endpoint must only contain items from locked FinalSubmission package
+        var response = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var evidence = await response.Content.ReadFromJsonAsync<EvaluationAssignmentEvidenceDto>();
+        Assert.NotNull(evidence);
+        Assert.DoesNotContain(evidence.Items, i => i.FileId == postLockFileId);
+
+        // Attempting to download file outside locked final package must return 404 Not Found
+        var downloadResponse = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/{postLockFileId}");
+        Assert.Equal(HttpStatusCode.NotFound, downloadResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task FrozenProvenance_MajorAttributionImmuneToLiveUserMajorChange()
+    {
+        var storage = new MemoryFileStorage();
+        using var factory = new EvidenceTestFactory(database, storage);
+        var (assignment, s, majorA) = await SeedAssignmentAsync(factory, scope: "MAJOR_SPECIFIC");
+
+        // Mutate live student user MajorId in Users table to null
+        await using (var db = database.CreateContext())
+        {
+            var student = await db.Users.SingleAsync(u => u.Id == s.Scope.Users.Student);
+            student.MajorId = null;
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
+
+        // CASE B: Live Users.MajorId is irrelevant — MAJOR_SPECIFIC fails closed (0 items)
+        // because item-level majorId cannot be proven from typed FinalSnapshotFile/ProjectFileDto.
+        // This also confirms live user profile mutations cannot influence evidence scope.
+        var response = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var evidence = await response.Content.ReadFromJsonAsync<EvaluationAssignmentEvidenceDto>();
+        Assert.NotNull(evidence);
+        Assert.Empty(evidence.Items);
+        Assert.Equal(0, evidence.ItemCount);
+    }
+
+    [Fact]
+    public async Task FreeTextMetadata_DoesNotGrantIndividualEvidenceAccess()
+    {
+        var storage = new MemoryFileStorage();
+        using var factory = new EvidenceTestFactory(database, storage);
+        var (assignment, s, _) = await SeedAssignmentAsync(factory, scope: "INDIVIDUAL");
+
+        // Seed a deliverable with target-looking free text in Title, Description, and FinalSubmission.Notes
+        await using (var db = database.CreateContext())
+        {
+            var final = await db.Set<FinalSubmissionEntity>().Include(f => f.Items).FirstAsync(f => f.ProjectId == s.ProjectId);
+            final.Notes = $"{{\"targetStudentId\": {s.Scope.Users.Student}, \"targets\": {{ \"1\": {{ \"studentId\": {s.Scope.Users.Student} }} }} }}";
+
+            var del = new Deliverable
+            {
+                ProjectId = s.ProjectId,
+                Title = $"[student_id: {s.Scope.Users.Student}] Final FreeText Deliverable",
+                Description = $"{{\"targetStudentId\": {s.Scope.Users.Student}, \"student_id\": {s.Scope.Users.Student}}}",
+                Status = "OPEN",
+                CreatedBy = s.Scope.Users.Student
+            };
+            db.Deliverables.Add(del);
+            await db.SaveChangesAsync();
+
+            var ver = new DeliverableVersion
+            {
+                DeliverableId = del.Id,
+                VersionNumber = 1,
+                Status = "SUBMITTED",
+                SubmittedBy = s.Scope.Users.Student,
+                SubmittedAt = DateTime.UtcNow
+            };
+            db.DeliverableVersions.Add(ver);
+            await db.SaveChangesAsync();
+
+            var item = new FinalSubmissionItem
+            {
+                SubmissionId = final.Id,
+                DeliverableId = del.Id,
+                DeliverableVersionId = ver.Id,
+                Title = del.Title,
+                VersionNumber = 1,
+                StatusAtSubmission = "SUBMITTED",
+                WasRequired = true,
+                FilesJson = JsonSerializer.Serialize(new[]
+                {
+                    new FinalSnapshotFile(new(777L, "DELIVERABLE_VERSION", ver.Id, "freetext.txt", "text/plain", 20L, new string('f', 64), s.Scope.Users.Student, DateTime.UtcNow), "storage-freetext")
+                })
+            };
+            final.Items.Add(item);
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
+
+        // Free text in Title, Description, or Notes must NEVER grant evidence authorization -> fails closed (0 items)
+        var response = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var evidence = await response.Content.ReadFromJsonAsync<EvaluationAssignmentEvidenceDto>();
+        Assert.NotNull(evidence);
+        Assert.Equal(0, evidence.ItemCount);
+        Assert.Empty(evidence.Items);
+
+        // Download must be rejected with 403 Forbidden
+        var dlResponse = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/777");
+        Assert.Equal(HttpStatusCode.Forbidden, dlResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeliverableCreatedBy_DoesNotGrantIndividualEvidenceAccess()
+    {
+        var storage = new MemoryFileStorage();
+        using var factory = new EvidenceTestFactory(database, storage);
+        var (assignmentStudent1, s, _) = await SeedAssignmentAsync(factory, scope: "INDIVIDUAL");
+
+        // The deliverable has CreatedBy = student1 and file has UploadedBy = student1,
+        // but NO structured frozen target metadata exists in the typed payload.
+        await using (var db = database.CreateContext())
+        {
+            var final = await db.Set<FinalSubmissionEntity>().Include(f => f.Items).FirstAsync(f => f.ProjectId == s.ProjectId);
+            var item = final.Items.First();
+            item.FilesJson = JsonSerializer.Serialize(new[]
+            {
+                new FinalSnapshotFile(new(1, "DELIVERABLE_VERSION", item.DeliverableVersionId, "report.txt", "text/plain", 12, new string('a', 64), s.Scope.Users.Student, DateTime.UtcNow), "fixture-object")
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
+
+        // Deliverable.CreatedBy alone MUST NOT grant INDIVIDUAL evidence access -> fails closed (0 items)
+        var response = await client.GetAsync($"/api/v1/evaluation-assignments/{assignmentStudent1.Id}/evidence");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var evidence = await response.Content.ReadFromJsonAsync<EvaluationAssignmentEvidenceDto>();
+        Assert.NotNull(evidence);
+        Assert.Equal(0, evidence.ItemCount);
+        Assert.Empty(evidence.Items);
+
+        // Download must be rejected with 403 Forbidden because file is outside this assignment's proven scope
+        var dlResponse = await client.GetAsync($"/api/v1/evaluation-assignments/{assignmentStudent1.Id}/evidence/files/1");
+        Assert.Equal(HttpStatusCode.Forbidden, dlResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task MissingStructuredFrozenProvenance_FailsClosed()
+    {
+        var storage = new MemoryFileStorage();
+        using var factory = new EvidenceTestFactory(database, storage);
+        var (assignment, s, _) = await SeedAssignmentAsync(factory, scope: "INDIVIDUAL");
+
+        await using (var db = database.CreateContext())
+        {
+            var final = await db.Set<FinalSubmissionEntity>().Include(f => f.Items).FirstAsync(f => f.ProjectId == s.ProjectId);
+            var del = new Deliverable { ProjectId = s.ProjectId, Title = "Unproven Deliverable", Status = "OPEN", CreatedBy = s.Scope.Users.Student };
+            db.Deliverables.Add(del);
+            await db.SaveChangesAsync();
+
+            var ver = new DeliverableVersion
+            {
+                DeliverableId = del.Id,
+                VersionNumber = 1,
+                Status = "SUBMITTED",
+                SubmittedBy = s.Scope.Users.Student,
+                SubmittedAt = DateTime.UtcNow
+            };
+            db.DeliverableVersions.Add(ver);
+            await db.SaveChangesAsync();
+
+            var item = new FinalSubmissionItem
+            {
+                SubmissionId = final.Id,
+                DeliverableId = del.Id,
+                DeliverableVersionId = ver.Id,
+                Title = "Unproven Deliverable",
+                VersionNumber = 1,
+                StatusAtSubmission = "SUBMITTED",
+                WasRequired = true,
+                FilesJson = JsonSerializer.Serialize(new[]
+                {
+                    new FinalSnapshotFile(new(9991L, "DELIVERABLE_VERSION", ver.Id, "unproven.txt", "text/plain", 10L, new string('u', 64), s.Scope.Users.Student, DateTime.UtcNow), "storage-unproven")
+                })
+            };
+            final.Items.Add(item);
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
+
+        // Missing structured frozen provenance fails closed: 0 items returned
+        var response = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var evidence = await response.Content.ReadFromJsonAsync<EvaluationAssignmentEvidenceDto>();
+        Assert.NotNull(evidence);
+        Assert.Empty(evidence.Items);
+        Assert.Equal(0, evidence.ItemCount);
+
+        // Download is denied with 403 Forbidden
+        var dlResponse = await client.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/9991");
+        Assert.Equal(HttpStatusCode.Forbidden, dlResponse.StatusCode);
     }
 }

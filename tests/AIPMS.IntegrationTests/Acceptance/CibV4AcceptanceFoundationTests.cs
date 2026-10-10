@@ -92,12 +92,26 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
 
         var contractsDir = GetContractsRootDir();
         var openApiPath = Path.Combine(contractsDir, "openapi.json");
+        Assert.True(File.Exists(openApiPath), $"Expected openapi.json at {openApiPath}");
+
+        var committedBytes = await File.ReadAllBytesAsync(openApiPath);
+        var committedText = await File.ReadAllTextAsync(openApiPath);
 
         using var doc = JsonDocument.Parse(swaggerJson);
-        var formatted = JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(openApiPath, formatted);
+        var runtimeFormatted = JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
 
-        Assert.True(File.Exists(openApiPath), $"Expected openapi.json at {openApiPath}");
+        // Verify committed artifact has not drifted from runtime OpenAPI specification
+        using var committedDoc = JsonDocument.Parse(committedText);
+        var committedFormatted = JsonSerializer.Serialize(committedDoc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+
+        Assert.Equal(
+            committedFormatted.Replace("\r\n", "\n"),
+            runtimeFormatted.Replace("\r\n", "\n"));
+
+        // Regression assertion: acceptance tests must never mutate committed artifacts on disk (zero-write path)
+        var bytesAfterTest = await File.ReadAllBytesAsync(openApiPath);
+        Assert.Equal(committedBytes, bytesAfterTest);
+
         var paths = doc.RootElement.GetProperty("paths");
 
         // Verify CIB v4 routes in actual OpenAPI specification
@@ -111,6 +125,7 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
             "/api/v1/evaluation-assignments/{id}/revoke",
             "/api/v1/evaluation-assignments/{id}",
             "/api/v1/evaluation-assignments/{id}/evidence",
+            "/api/v1/evaluation-assignments/{id}/evidence/files/{fileId}",
             "/api/v1/evaluation-assignments/{id}/evaluation",
             "/api/v1/evaluations/{id}",
             "/api/v1/evaluations/{id}/draft",

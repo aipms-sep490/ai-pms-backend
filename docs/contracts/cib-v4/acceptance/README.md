@@ -64,21 +64,40 @@ AI-PMS provides a layered fixture architecture in `tests/AIPMS.IntegrationTests`
 
 ## 4. Execution Workflow
 
-### Step 1: Run Verification Script Against LocalDB (Dry-Run Schema Readiness)
+### Step 1: Provision Isolated Test Database
 ```powershell
-# Verify schema readiness in an isolated test database
-$env:AIPMS_TEST_SQL_CONNECTION = "Server=(localdb)\MSSQLLocalDB;Database=aipms_schema_check;Integrated Security=true;TrustServerCertificate=true;"
+# Create a dedicated, disposable AI_PMS_E2E_<guid> database with full schema and seed
+$dbName = 'AI_PMS_E2E_' + [Guid]::NewGuid().ToString('N')
+$serverConn = "Server=(localdb)\MSSQLLocalDB;Integrated Security=true;TrustServerCertificate=true;"
+& ".\scripts\new-e2e-database.ps1" -DatabaseName $dbName -ConnectionString $serverConn
+```
+
+### Step 2: Set Process Environment & Verify Schema Readiness
+```powershell
+# Point the test runner to the isolated database and verify all schema objects are ready
+$env:AIPMS_TEST_SQL_CONNECTION = "Server=(localdb)\MSSQLLocalDB;Database=$dbName;Integrated Security=true;TrustServerCertificate=true;"
 & ".\scripts\test-schema-readiness.ps1"
 ```
 
-### Step 2: Execute Targeted Acceptance Tests
+### Step 3: Build Solution Once
+```powershell
+# Build solution once before executing tests
+dotnet build AIPMS.sln -c Release
+```
+
+### Step 4: Execute Targeted Acceptance Tests
 ```powershell
 # Run acceptance foundation and contract validation without running full suite
-$env:AIPMS_TEST_SQL_CONNECTION = "Server=(localdb)\MSSQLLocalDB;Integrated Security=true;TrustServerCertificate=true;"
 dotnet test tests/AIPMS.IntegrationTests/AIPMS.IntegrationTests.csproj -c Release --no-build --filter "FullyQualifiedName~CibV4AcceptanceFoundationTests|FullyQualifiedName~Two_departments_multiple_evaluators"
 ```
 
-### Step 3: Verify Persistence & Readback
+### Step 5: Teardown Isolated Database
+```powershell
+# Drop the disposable test database on completion
+& ".\scripts\new-e2e-database.ps1" -DatabaseName $dbName -Drop -ConnectionString $serverConn
+```
+
+### Step 6: Verify Persistence & Readback
 The acceptance tests automatically assert:
 1. **Creation**: Entity is created via HTTP API.
 2. **Mutation**: Status or payload is updated with `concurrencyToken`.
@@ -93,3 +112,13 @@ The acceptance tests automatically assert:
 - ❌ NEVER commit production connection strings, passwords, or JWT secrets.
 - ❌ DO NOT use `Task.Delay` for synchronization; use deterministic database polling or interceptor events.
 - ✅ Always use synthetic emails (e.g. `user_[guid]@example.test`).
+
+---
+
+## 6. OpenAPI Specification & Contract Validation
+
+- The acceptance test `AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.OpenApi_specification_artifact_is_generated_and_covers_cib_v4_routes` is **strictly read-only** with a **zero-write path**. It validates in-memory runtime Swagger against the committed artifact (`docs/contracts/cib-v4/openapi.json`), asserts zero drift, and asserts that the committed file on disk was not modified.
+- OpenAPI specification regeneration is strictly decoupled from test execution and must be executed manually via:
+  ```powershell
+  & ".\scripts\update-cib-v4-openapi.ps1"
+  ```
