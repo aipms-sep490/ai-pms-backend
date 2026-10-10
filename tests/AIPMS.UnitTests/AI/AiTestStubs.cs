@@ -148,7 +148,7 @@ internal class StubTaskRepository : ITaskRepository
     public int DeleteCallCount { get; set; }
     public int CreateCallCount { get; set; }
 
-    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, CancellationToken cancellationToken)
+    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, long? majorId, CancellationToken cancellationToken)
     {
         LastQueriedProjectId = projectId;
         var query = Tasks.AsEnumerable();
@@ -195,6 +195,7 @@ internal class StubTaskRepository : ITaskRepository
     public Task<IEnumerable<long>> GetDependsOnTaskIdsAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult<IEnumerable<long>>(Array.Empty<long>());
     public Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult(((IReadOnlyList<TaskDto>)Array.Empty<TaskDto>(), (IReadOnlyList<TaskDto>)Array.Empty<TaskDto>()));
+    public Task<bool> MajorBelongsToProjectAsync(long majorId, long projectId, CancellationToken cancellationToken = default) => Task.FromResult(true);
 }
 
 internal sealed class StubMeetingRepository : IMeetingRepository

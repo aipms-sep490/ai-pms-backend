@@ -1,0 +1,40 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/evaluation-assignments/101/evidence",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_EVALUATOR]"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "assignmentId": 101,
+      "projectId": 42,
+      "scope": "COMMON",
+      "majorId": null,
+      "studentId": null,
+      "finalSubmissionId": 501,
+      "submittedAt": "2026-10-08T14:30:00Z",
+      "itemCount": 1,
+      "isReadOnly": true,
+      "items": [
+        {
+          "id": 1,
+          "title": "Final report",
+          "description": "Version 1 - SUBMITTED",
+          "sourceType": "DELIVERABLE",
+          "sourceId": 9,
+          "fileId": 1,
+          "fileName": "report.pdf",
+          "contentType": "application/pdf",
+          "fileSizeBytes": 1048576,
+          "majorId": null,
+          "studentId": 47,
+          "submittedAt": "2026-10-08T14:30:00Z",
+          "downloadUrl": "/api/v1/evaluation-assignments/101/evidence/files/1"
+        }
+      ]
+    }
+  }
+}

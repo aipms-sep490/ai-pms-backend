@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/projects/42/students/2001/result",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STUDENT_OWNER]"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": 951,
+      "projectId": 42,
+      "studentId": 2001,
+      "majorId": 1,
+      "schemeId": 3,
+      "totalScore": 8.4,
+      "passThreshold": 5.0,
+      "outcome": "PASSED",
+      "calculationRule": "MAJOR_WEIGHTED_MEAN",
+      "publishedBy": 3001,
+      "publishedAt": "2026-10-10T04:30:00Z",
+      "snapshotJson": "{}"
+    }
+  }
+}

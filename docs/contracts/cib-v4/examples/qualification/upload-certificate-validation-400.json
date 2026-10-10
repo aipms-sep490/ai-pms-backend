@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/student-qualifications/me/certificate",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STUDENT]"
+    },
+    "form": {
+      "qualificationType": "",
+      "trainingStatus": "TRAINING_COMPLETED"
+    }
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+      "title": "One or more validation errors occurred.",
+      "status": 400,
+      "detail": "The File field is required.",
+      "instance": "/api/v1/student-qualifications/me/certificate",
+      "traceId": "00-5c94e82b71a04d2e8b1c4e6a8d0f1a2b-0000000000000000-00",
+      "errors": {
+        "File": ["The File field is required."],
+        "QualificationType": ["The QualificationType field is required."]
+      }
+    }
+  }
+}

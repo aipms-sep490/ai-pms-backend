@@ -43,6 +43,7 @@ public sealed class TasksController(ISender sender) : ControllerBase
         [FromQuery] bool? isBlocked,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
+        [FromQuery] long? majorId = null,
         CancellationToken cancellationToken = default)
     {
         var query = new GetTasksQuery(
@@ -57,7 +58,8 @@ public sealed class TasksController(ISender sender) : ControllerBase
             isOverdue,
             isBlocked,
             page,
-            pageSize);
+            pageSize,
+            majorId);
 
         return Ok(await sender.Send(query, cancellationToken));
     }
