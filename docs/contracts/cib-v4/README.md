@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | **BE-FE-04** | **YES** | **DELIVERED** | **DELIVERED** | Versioned contract package, scenario manifest, acceptance fixtures, runbook, and reset/readback validation. |
 | **BE-FE-01** | **YES** | **IMPLEMENTED** | **IMPLEMENTED** | Task discipline filter via `majorId: long?`. Server-side filtering before count/pagination, project-major scope validation (403), multi-discipline deduplication. |
-| **BE-FE-02** | **YES** | **DECISION_REQUIRED** | **BLOCKED** | Assignment evidence read model. Lightweight metadata DTO exists; detailed file/item projection depth is unresolved. |
+| **BE-FE-02** | **YES** | **IMPLEMENTED** | **IMPLEMENTED** | Assignment evidence read model extended additively with assignment-scoped evidence items (`items: [...]`) and narrow protected download route `GET /api/v1/evaluation-assignments/{id}/evidence/files/{fileId}`. |
 | **BE-FE-03** | **NO** | **NOT_SELECTED** | **NOT_SELECTED** | Typed breakdown DTO for `StudentResult` deferred. Authoritative `SnapshotJson` preserved (redacted as `{}` for owner students). |
 | **DBX-01..13** | **NO** | **NOT_SELECTED** | **NOT_SELECTED** | Proposed DB schema extensions remain unapproved. Core schema reuses existing tables only. |
 
@@ -103,6 +103,7 @@
 
 ### D. Assignment Evidence Scope
 - **Route**: `GET /api/v1/evaluation-assignments/{id}/evidence`
+- **Protected File Download Route**: `GET /api/v1/evaluation-assignments/{id}/evidence/files/{fileId}`
 - **Current authoritatively implemented DTO**:
   ```json
   {
@@ -113,12 +114,37 @@
     "studentId": null,
     "finalSubmissionId": 501,
     "submittedAt": "2026-09-30T10:00:00Z",
-    "itemCount": 4,
-    "isReadOnly": true
+    "itemCount": 1,
+    "isReadOnly": true,
+    "items": [
+      {
+        "id": 1,
+        "title": "Final report",
+        "description": "Version 1 - SUBMITTED",
+        "sourceType": "DELIVERABLE",
+        "sourceId": 9,
+        "fileId": 1,
+        "fileName": "report.pdf",
+        "contentType": "application/pdf",
+        "fileSizeBytes": 1048576,
+        "majorId": 2,
+        "studentId": 47,
+        "submittedAt": "2026-09-30T10:00:00Z",
+        "downloadUrl": "/api/v1/evaluation-assignments/101/evidence/files/1"
+      }
+    ]
   }
   ```
-- **Projection Depth Decision**:
-  - ⚠️ **BE-FE-02 DECISION REQUIRED**: Whether this release provides detailed individual evidence item/file records with protected download URLs or retains lightweight metadata is pending approval. No file projection route has been added.
+- **Projection Depth Decision (BE-FE-02)**:
+  - **SELECTED / IMPLEMENTED**: Detailed assignment-scoped evidence projection.
+  - **Additive**: All 9 existing `EvaluationAssignmentEvidenceDto` fields are retained without alteration.
+  - **Items Projection**: Extended additively with `items: [...]` collection (`EvaluationAssignmentEvidenceItemDto`).
+  - **Scope Enforcement**:
+    - `COMMON`: All project deliverable items and project evidence.
+    - `MAJOR_SPECIFIC`: Filtered strictly to evidence matching the assignment's `majorId`.
+    - `INDIVIDUAL`: Filtered strictly to evidence matching the assignment's `studentId`.
+  - **Package Immutability**: Uses exact frozen final submission snapshot (`FinalSubmissionItem.FilesJson`). Subsequent deliverable versions uploaded after submission lock never replace frozen evidence.
+  - **Protected Download**: Dedicated narrow route `GET /api/v1/evaluation-assignments/{id}/evidence/files/{fileId}` enforces evaluator assignment authority, assignment scope boundary, nosniff headers, and returns the frozen stream directly from `IFileStorage`.
 
 ### E. Locked Final Submission
 - **Requirements**: `GET /api/v1/projects/{projectId}/final-submission/requirements`

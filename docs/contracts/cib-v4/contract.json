@@ -48,12 +48,18 @@
     },
     "BE-FE-02": {
       "selected": true,
-      "status": "BLOCKED_DECISION_REQUIRED",
-      "summary": "Evaluation assignment evidence read model.",
-      "projectionDepth": "DECISION_REQUIRED",
-      "currentEndpoint": "GET /api/v1/evaluation-assignments/{id}/evidence",
-      "currentDto": "EvaluationAssignmentEvidenceDto",
-      "blockerReason": "Lightweight metadata DTO exists in backend, but release specification requires confirming whether individual file items with protected download routes are required."
+      "status": "IMPLEMENTED — DETAILED ADDITIVE PROJECTION",
+      "summary": "Evaluation assignment evidence read model with assignment-scoped frozen items.",
+      "projectionDepth": "DETAILED_ADDITIVE",
+      "endpoint": "GET /api/v1/evaluation-assignments/{id}/evidence",
+      "downloadEndpoint": "GET /api/v1/evaluation-assignments/{id}/evidence/files/{fileId}",
+      "dto": "EvaluationAssignmentEvidenceDto",
+      "semantics": {
+        "additiveCollection": "Existing 9 metadata fields preserved unchanged; additive items collection added",
+        "assignmentScoped": "Items strictly filtered by assignment project and scope (COMMON, MAJOR_SPECIFIC, INDIVIDUAL)",
+        "frozenPackage": "Items resolved from exact frozen final submission snapshot, later uploads do not overwrite",
+        "protectedDownload": "Dedicated assignment-scoped download endpoint verifies evaluator assignment, project, and scope"
+      }
     },
     "BE-FE-03": {
       "selected": false,
@@ -198,9 +204,19 @@
       {
         "method": "GET",
         "path": "/api/v1/evaluation-assignments/{id}/evidence",
-        "note": "Returns lightweight metadata DTO. Detailed item/file projection pending BE-FE-02 decision.",
+        "note": "Returns assignment-scoped evidence metadata and frozen evidence item collection.",
         "responses": {
           "200": { "bodyClass": "EvaluationAssignmentEvidenceDto" },
+          "403": { "bodyClass": "ProblemDetails" },
+          "404": { "bodyClass": "ProblemDetails" }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/evaluation-assignments/{id}/evidence/files/{fileId}",
+        "note": "Protected assignment-scoped file download route.",
+        "responses": {
+          "200": { "bodyClass": "FileStreamResult" },
           "403": { "bodyClass": "ProblemDetails" },
           "404": { "bodyClass": "ProblemDetails" }
         }

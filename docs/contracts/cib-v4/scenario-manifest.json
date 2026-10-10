@@ -278,7 +278,8 @@
       "expectedBodyClass": "EvaluationAssignmentEvidenceDto",
       "expectedReadback": {
         "scope": "MAJOR_SPECIFIC",
-        "isReadOnly": true
+        "isReadOnly": true,
+        "hasItems": true
       },
       "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Evaluation_evidence_endpoint_returns_expected_metadata_contract",
       "tags": ["allowed", "read-only", "evaluation-assignments"]
@@ -302,7 +303,7 @@
       "expectedBodyClass": "ProblemDetails",
       "expectedReadback": null,
       "tags": ["BLOCKED_BY_CONTRACT"],
-      "blockerNote": "Pending BE-FE-02 decision whether detailed item/file projection is required."
+      "blockerNote": "Broad separate /files collection route is not exposed; evidence items are projected additively on /evidence and individual files are downloaded via /evidence/files/{fileId}."
     },
     {
       "scenarioId": "SCENARIO_FINAL_SUBMISSION_01_LOCK",
