@@ -13,7 +13,7 @@
 | Ticket | Release Selected? | Contract Status | Implementation Status | Notes |
 |---|---|---|---|---|
 | **BE-FE-04** | **YES** | **DELIVERED** | **DELIVERED** | Versioned contract package, scenario manifest, acceptance fixtures, runbook, and reset/readback validation. |
-| **BE-FE-01** | **YES** | **DECISION_REQUIRED** | **PARTIAL** | Task discipline filter. Query parameter naming (`majorId` vs `discipline`) is unresolved. Repository filtering not yet wired. |
+| **BE-FE-01** | **YES** | **IMPLEMENTED** | **IMPLEMENTED** | Task discipline filter via `majorId: long?`. Server-side filtering before count/pagination, project-major scope validation (403), multi-discipline deduplication. |
 | **BE-FE-02** | **YES** | **DECISION_REQUIRED** | **BLOCKED** | Assignment evidence read model. Lightweight metadata DTO exists; detailed file/item projection depth is unresolved. |
 | **BE-FE-03** | **NO** | **NOT_SELECTED** | **NOT_SELECTED** | Typed breakdown DTO for `StudentResult` deferred. Authoritative `SnapshotJson` preserved (redacted as `{}` for owner students). |
 | **DBX-01..13** | **NO** | **NOT_SELECTED** | **NOT_SELECTED** | Proposed DB schema extensions remain unapproved. Core schema reuses existing tables only. |
@@ -59,7 +59,8 @@
 
 ### B. Tasks Listing
 - **Route**: `GET /api/v1/tasks/project/{projectId}`
-- **Currently Supported Parameters**:
+- **Supported Parameters**:
+  - `projectId`: `long` (path, required)
   - `milestoneId`: `long?`
   - `status`: `string?` (`TODO`, `IN_PROGRESS`, `DONE`, `BLOCKED`, `CANCELLED`)
   - `priority`: `string?` (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`)
@@ -71,9 +72,17 @@
   - `isBlocked`: `bool?`
   - `page`: `int`, default `1`
   - `pageSize`: `int`, default `10`
-- **Discipline Filter Status**:
-  - ⚠️ **NOT YET AVAILABLE**.
-  - **BE-FE-01 CONTRACT DECISION REQUIRED**: The query parameter name (`majorId` vs `discipline`) has not been frozen between Frontend and Backend teams. Do not assume or rely on any parameter name until finalized.
+  - `majorId`: `long?` (optional discipline filter by major ID)
+- **Discipline Filter Status (BE-FE-01)**:
+  - **SELECTED / IMPLEMENTED**: Parameter name is `majorId` (nullable int64).
+  - **Contract**: `GET /api/v1/tasks/project/{projectId}?majorId={majorId}`
+  - **Semantics**:
+    - **Omitted `majorId`**: Preserves existing behavior without discipline filtering.
+    - **`majorId <= 0`**: Rejected with `400 Bad Request`.
+    - **Foreign major**: `majorId` outside the requested project's academic scope is rejected with `403 Forbidden`.
+    - **Server-side filtering**: Filtering occurs before count, ordering, and pagination.
+    - **Multi-discipline deduplication**: Tasks mapped to multiple disciplines are not duplicated in filtered results.
+    - **Composition**: All existing filters (`status`, `priority`, `milestoneId`, `assigneeUserId`, `search`, date ranges, flags) and stable ordering remain supported.
 
 ### C. Evaluation Assignments & Lifecycle
 - **Eligible Evaluators**: `GET /api/v1/projects/{projectId}/eligible-evaluators?periodId={periodId}&page=1&pageSize=20`

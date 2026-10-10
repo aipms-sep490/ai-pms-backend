@@ -32,11 +32,19 @@
     },
     "BE-FE-01": {
       "selected": true,
-      "status": "BLOCKED_DECISION_REQUIRED",
+      "status": "IMPLEMENTED",
       "summary": "Task discipline filter in GET /api/v1/tasks/project/{projectId}.",
-      "parameterNaming": "DECISION_REQUIRED",
-      "allowedCandidates": ["majorId", "discipline"],
-      "blockerReason": "Neither Frontend nor Backend baseline specifies a frozen query parameter name. Implementation cannot wire repository join before naming is approved."
+      "queryParameter": "majorId",
+      "type": "nullable int64",
+      "endpoint": "GET /api/v1/tasks/project/{projectId}?majorId={majorId}",
+      "semantics": {
+        "omitted": "Preserves existing behavior without discipline filtering",
+        "invalidValue": "majorId <= 0 returns 400 Bad Request",
+        "foreignMajor": "major outside requested project returns 403 Forbidden",
+        "orderingAndPaging": "Filter occurs server-side before count and pagination",
+        "multiDiscipline": "Multi-discipline tasks are not duplicated in filtered result",
+        "composition": "Existing filters (milestoneId, status, priority, assigneeUserId, search, dates, flags) and stable ordering remain supported"
+      }
     },
     "BE-FE-02": {
       "selected": true,
@@ -104,15 +112,10 @@
           "isOverdue": { "in": "query", "type": "boolean", "required": false },
           "isBlocked": { "in": "query", "type": "boolean", "required": false },
           "page": { "in": "query", "type": "integer", "default": 1 },
-          "pageSize": { "in": "query", "type": "integer", "default": 10 }
+          "pageSize": { "in": "query", "type": "integer", "default": 10 },
+          "majorId": { "in": "query", "type": "integer", "format": "int64", "required": false, "description": "Optional discipline filter by major ID. When omitted, all tasks are returned. Must be > 0 and belong to the project." }
         },
-        "pendingParameters": {
-          "disciplineFilter": {
-            "status": "NOT_YET_AVAILABLE",
-            "decisionPending": "BE-FE-01 CONTRACT DECISION REQUIRED",
-            "note": "Naming (majorId vs discipline) must be finalized by team before implementation."
-          }
-        },
+        "pendingParameters": {},
         "responses": {
           "200": { "bodyClass": "PagedResult<TaskDto>" },
           "401": { "bodyClass": "ProblemDetails" },

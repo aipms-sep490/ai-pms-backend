@@ -103,14 +103,61 @@
       "lockedPackageVersion": null,
       "request": {
         "method": "GET",
-        "path": "/api/v1/tasks/project/201",
-        "query": { "disciplinePending": true }
+        "path": "/api/v1/tasks/project/201?majorId=10",
+        "query": { "majorId": 10 }
       },
       "expectedStatus": 200,
       "expectedBodyClass": "PagedResult<TaskDto>",
+      "expectedReadback": {
+        "disciplineFiltered": true,
+        "majorId": 10
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.MilestonesAndTasksEndpointTests.GetTasks_Interdisciplinary_SeparatesMajors",
+      "tags": ["allowed", "tasks", "discipline_filter"]
+    },
+    {
+      "scenarioId": "SCENARIO_TASKS_04_INVALID_MAJOR",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_MEMBER",
+      "assignment": null,
+      "scope": "PROJECT_MEMBER",
+      "projectState": "ACTIVE",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/tasks/project/101?majorId=0",
+        "query": { "majorId": 0 }
+      },
+      "expectedStatus": 400,
+      "expectedBodyClass": "ProblemDetails",
       "expectedReadback": null,
-      "tags": ["tasks", "BLOCKED_BY_CONTRACT"],
-      "blockerNote": "Pending BE-FE-01 naming decision (majorId vs discipline) before implementation."
+      "acceptanceEvidence": "AIPMS.IntegrationTests.MilestonesAndTasksEndpointTests.GetTasks_WithInvalidMajorId_Returns400BadRequest",
+      "tags": ["validation", "tasks"]
+    },
+    {
+      "scenarioId": "SCENARIO_TASKS_05_FOREIGN_MAJOR",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_MEMBER",
+      "assignment": null,
+      "scope": "FOREIGN_MAJOR",
+      "projectState": "ACTIVE",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/tasks/project/106?majorId=71",
+        "query": { "majorId": 71 }
+      },
+      "expectedStatus": 403,
+      "expectedBodyClass": "ProblemDetails",
+      "expectedReadback": null,
+      "acceptanceEvidence": "AIPMS.IntegrationTests.MilestonesAndTasksEndpointTests.GetTasks_WrongProjectMajor_ReturnsForbidden",
+      "tags": ["denied", "privacy", "tasks"]
     },
     {
       "scenarioId": "SCENARIO_TASKS_03_FORBIDDEN",

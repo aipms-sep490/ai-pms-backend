@@ -9,6 +9,7 @@ using AIPMS.Application.Features.Tasks.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Mappers;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.EntityFrameworkCore;
 using Task = System.Threading.Tasks.Task;
 using TaskEntity = AIPMS.Infrastructure.Persistence.Generated.Models.Task;
@@ -43,7 +44,8 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
         bool? isBlocked,
         int page,
         int pageSize,
-        CancellationToken cancellationToken)
+        long? majorId = null,
+        CancellationToken cancellationToken = default)
     {
         var query = context.Tasks
             .AsNoTracking()
@@ -113,6 +115,11 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
             {
                 query = query.Where(t => t.Status != "BLOCKED");
             }
+        }
+
+        if (majorId.HasValue)
+        {
+            query = query.Where(t => context.TaskDisciplines.Any(td => td.TaskId == t.Id && td.MajorId == majorId.Value));
         }
 
         var totalCount = await query.CountAsync(cancellationToken);
@@ -470,5 +477,19 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
             .ToList();
 
         return (overdue, blocked);
+    }
+
+    public async Task<bool> MajorBelongsToProjectAsync(
+        long majorId,
+        long projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var existsInProjectMajors = await context.ProjectMajors
+            .AsNoTracking()
+            .AnyAsync(pm => pm.ProjectId == projectId && pm.MajorId == majorId, cancellationToken);
+        if (existsInProjectMajors) return true;
+
+        var scope = await ProjectAcademicScopeReader.ReadAsync(context, projectId, cancellationToken);
+        return scope.MajorIds.Contains(majorId);
     }
 }

@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "path": "/api/v1/tasks/project/42?page=1&pageSize=2",
+    "path": "/api/v1/tasks/project/42?majorId=5&page=1&pageSize=2",
     "headers": {
       "Authorization": "Bearer [SYNTHETIC_JWT_STUDENT]"
     }

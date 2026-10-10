@@ -220,4 +220,191 @@ public sealed class TaskRepositoryPersistenceTests
         Assert.Equal("Starting task execution", history[0].Reason);
         Assert.Equal(10, history[0].ChangedBy);
     }
+
+    [Fact]
+    public async System.Threading.Tasks.Task GetTasksAsync_SingleMajor_ReturnsOnlyMappedTasks()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 1, milestoneId: 1);
+
+        var creator = CreateUser(10, "creator@test.com");
+        db.Users.Add(creator);
+
+        db.Tasks.AddRange(
+            new TaskEntity { Id = 1, MilestoneId = 1, Title = "Task A", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 },
+            new TaskEntity { Id = 2, MilestoneId = 1, Title = "Task B", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 }
+        );
+        db.TaskDisciplines.Add(new TaskDiscipline { TaskId = 1, MajorId = 100, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+
+        var repo = new TaskRepository(db);
+        var result = await repo.GetTasksAsync(
+            projectId: 1, milestoneId: null, status: null, priority: null,
+            assigneeUserId: null, search: null, dueFrom: null, dueTo: null,
+            isOverdue: null, isBlocked: null, page: 1, pageSize: 10, majorId: 100,
+            cancellationToken: CancellationToken.None);
+
+        Assert.Equal(1, result.TotalCount);
+        Assert.Single(result.Items);
+        Assert.Equal(1, result.Items[0].Id);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task GetTasksAsync_Interdisciplinary_SeparatesMajors()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 1, milestoneId: 1);
+
+        var creator = CreateUser(10, "creator@test.com");
+        db.Users.Add(creator);
+
+        db.Tasks.AddRange(
+            new TaskEntity { Id = 1, MilestoneId = 1, Title = "Task A", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 },
+            new TaskEntity { Id = 2, MilestoneId = 1, Title = "Task B", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 }
+        );
+        db.TaskDisciplines.AddRange(
+            new TaskDiscipline { TaskId = 1, MajorId = 100, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow },
+            new TaskDiscipline { TaskId = 2, MajorId = 200, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow }
+        );
+        await db.SaveChangesAsync();
+
+        var repo = new TaskRepository(db);
+
+        var resA = await repo.GetTasksAsync(1, null, null, null, null, null, null, null, null, null, 1, 10, 100, CancellationToken.None);
+        Assert.Equal(1, resA.TotalCount);
+        Assert.Single(resA.Items);
+        Assert.Equal(1, resA.Items[0].Id);
+
+        var resB = await repo.GetTasksAsync(1, null, null, null, null, null, null, null, null, null, 1, 10, 200, CancellationToken.None);
+        Assert.Equal(1, resB.TotalCount);
+        Assert.Single(resB.Items);
+        Assert.Equal(2, resB.Items[0].Id);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task GetTasksAsync_MultiDiscipline_DoesNotDuplicateTask()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 1, milestoneId: 1);
+
+        var creator = CreateUser(10, "creator@test.com");
+        db.Users.Add(creator);
+
+        db.Tasks.Add(new TaskEntity { Id = 1, MilestoneId = 1, Title = "Task Shared", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 });
+        db.TaskDisciplines.AddRange(
+            new TaskDiscipline { TaskId = 1, MajorId = 100, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow },
+            new TaskDiscipline { TaskId = 1, MajorId = 200, Role = "SECONDARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow }
+        );
+        await db.SaveChangesAsync();
+
+        var repo = new TaskRepository(db);
+
+        var resA = await repo.GetTasksAsync(1, null, null, null, null, null, null, null, null, null, 1, 10, 100, CancellationToken.None);
+        Assert.Equal(1, resA.TotalCount);
+        Assert.Single(resA.Items);
+        Assert.Equal(1, resA.Items[0].Id);
+
+        var resB = await repo.GetTasksAsync(1, null, null, null, null, null, null, null, null, null, 1, 10, 200, CancellationToken.None);
+        Assert.Equal(1, resB.TotalCount);
+        Assert.Single(resB.Items);
+        Assert.Equal(1, resB.Items[0].Id);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task GetTasksAsync_PaginationAndTotalCount_ReflectsMajorFilter()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 1, milestoneId: 1);
+
+        var creator = CreateUser(10, "creator@test.com");
+        db.Users.Add(creator);
+
+        db.Tasks.AddRange(
+            new TaskEntity { Id = 1, MilestoneId = 1, Title = "Task 1", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 },
+            new TaskEntity { Id = 2, MilestoneId = 1, Title = "Task 2", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 },
+            new TaskEntity { Id = 3, MilestoneId = 1, Title = "Task 3", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 },
+            new TaskEntity { Id = 4, MilestoneId = 1, Title = "Task 4", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 },
+            new TaskEntity { Id = 5, MilestoneId = 1, Title = "Task 5", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 }
+        );
+        db.TaskDisciplines.AddRange(
+            new TaskDiscipline { TaskId = 1, MajorId = 100, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow },
+            new TaskDiscipline { TaskId = 2, MajorId = 100, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow },
+            new TaskDiscipline { TaskId = 3, MajorId = 100, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow },
+            new TaskDiscipline { TaskId = 4, MajorId = 200, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow },
+            new TaskDiscipline { TaskId = 5, MajorId = 200, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow }
+        );
+        await db.SaveChangesAsync();
+
+        var repo = new TaskRepository(db);
+
+        var p1 = await repo.GetTasksAsync(1, null, null, null, null, null, null, null, null, null, 1, 2, 100, CancellationToken.None);
+        Assert.Equal(3, p1.TotalCount);
+        Assert.Equal(2, p1.TotalPages);
+        Assert.Equal(2, p1.Items.Count);
+        Assert.Equal(1, p1.Items[0].Id);
+        Assert.Equal(2, p1.Items[1].Id);
+
+        var p2 = await repo.GetTasksAsync(1, null, null, null, null, null, null, null, null, null, 2, 2, 100, CancellationToken.None);
+        Assert.Equal(3, p2.TotalCount);
+        Assert.Equal(2, p2.TotalPages);
+        Assert.Single(p2.Items);
+        Assert.Equal(3, p2.Items[0].Id);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task GetTasksAsync_CombinedFilter_AppliesMajorAndStatusPredicates()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 1, milestoneId: 1);
+
+        var creator = CreateUser(10, "creator@test.com");
+        db.Users.Add(creator);
+
+        db.Tasks.AddRange(
+            new TaskEntity { Id = 1, MilestoneId = 1, Title = "Backend Auth", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 },
+            new TaskEntity { Id = 2, MilestoneId = 1, Title = "Database Indexes", Status = "DONE", Priority = "NORMAL", CreatedBy = 10 },
+            new TaskEntity { Id = 3, MilestoneId = 1, Title = "Frontend App", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 }
+        );
+        db.TaskDisciplines.AddRange(
+            new TaskDiscipline { TaskId = 1, MajorId = 100, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow },
+            new TaskDiscipline { TaskId = 2, MajorId = 100, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow },
+            new TaskDiscipline { TaskId = 3, MajorId = 200, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow }
+        );
+        await db.SaveChangesAsync();
+
+        var repo = new TaskRepository(db);
+
+        // Major + status
+        var statusRes = await repo.GetTasksAsync(1, null, "TODO", null, null, null, null, null, null, null, 1, 10, 100, CancellationToken.None);
+        Assert.Equal(1, statusRes.TotalCount);
+        Assert.Single(statusRes.Items);
+        Assert.Equal(1, statusRes.Items[0].Id);
+
+        // Major + search
+        var searchRes = await repo.GetTasksAsync(1, null, null, null, null, "Database", null, null, null, null, 1, 10, 100, CancellationToken.None);
+        Assert.Equal(1, searchRes.TotalCount);
+        Assert.Single(searchRes.Items);
+        Assert.Equal(2, searchRes.Items[0].Id);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task MajorBelongsToProjectAsync_ValidatesProjectMajorAssociation()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 1, milestoneId: 1);
+        await SeedBaseProjectAndMilestoneAsync(db, projectId: 2, milestoneId: 2);
+
+        db.ProjectMajors.AddRange(
+            new ProjectMajor { Id = 1, ProjectId = 1, MajorId = 10, CreatedAt = DateTime.UtcNow },
+            new ProjectMajor { Id = 2, ProjectId = 2, MajorId = 20, CreatedAt = DateTime.UtcNow }
+        );
+        await db.SaveChangesAsync();
+
+        var repo = new TaskRepository(db);
+
+        Assert.True(await repo.MajorBelongsToProjectAsync(10, 1, CancellationToken.None));
+        Assert.False(await repo.MajorBelongsToProjectAsync(20, 1, CancellationToken.None));
+        Assert.True(await repo.MajorBelongsToProjectAsync(20, 2, CancellationToken.None));
+        Assert.False(await repo.MajorBelongsToProjectAsync(10, 2, CancellationToken.None));
+    }
 }

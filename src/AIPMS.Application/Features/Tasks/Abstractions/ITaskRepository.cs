@@ -25,7 +25,8 @@ public interface ITaskRepository
         bool? isBlocked,
         int page,
         int pageSize,
-        CancellationToken cancellationToken);
+        long? majorId = null,
+        CancellationToken cancellationToken = default);
 
     Task<TaskDto> CreateAsync(
         long milestoneId,
@@ -114,4 +115,9 @@ public interface ITaskRepository
     Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(
         long projectId,
         CancellationToken cancellationToken);
+
+    Task<bool> MajorBelongsToProjectAsync(
+        long majorId,
+        long projectId,
+        CancellationToken cancellationToken = default);
 }

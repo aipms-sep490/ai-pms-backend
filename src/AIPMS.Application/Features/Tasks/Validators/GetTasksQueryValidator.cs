@@ -16,5 +16,9 @@ public sealed class GetTasksQueryValidator : AbstractValidator<GetTasksQuery>
         RuleFor(static x => x.PageSize)
             .GreaterThanOrEqualTo(1).WithMessage("PageSize must be greater than or equal to 1.")
             .LessThanOrEqualTo(100).WithMessage("PageSize must not exceed 100.");
+
+        RuleFor(static x => x.MajorId)
+            .GreaterThan(0).WithMessage("MajorId must be greater than 0.")
+            .When(static x => x.MajorId.HasValue);
     }
 }

@@ -31795,6 +31795,14 @@
               "format": "int32",
               "default": 10
             }
+          },
+          {
+            "name": "majorId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "responses": {
