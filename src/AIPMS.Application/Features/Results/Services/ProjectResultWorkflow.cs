@@ -2,6 +2,7 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.Models;
+using AIPMS.Application.Features.Evaluations.Services;
 using AIPMS.Application.Features.FinalSubmissions.Abstractions;
 using AIPMS.Application.Features.Results.Abstractions;
 using AIPMS.Application.Features.Results.DTOs;
@@ -48,6 +49,7 @@ public sealed class ProjectResultWorkflow(IProjectResultRepository repository, I
         var actor = await Actor(ct);
         if (!await submissions.CanReadAsync(projectId, actor.Id, ct)) throw new ForbiddenException();
         var result = await repository.GetAsync(projectId, ct) ?? throw new NotFoundException("ProjectResult", projectId);
-        return result with { FrozenInputs = null };
+        return result with { FrozenInputs = null,
+            Breakdown = ResultSnapshotReader.Read(result.FrozenInputs, result.CalculationRule) };
     }, ct);
 }

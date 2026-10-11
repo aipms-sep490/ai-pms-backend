@@ -55,4 +55,9 @@
 
 ### 3.5 Student Privacy Protection
 - A student querying `/api/v1/projects/{projectId}/students/{targetStudentId}/result` where `targetStudentId != actor.UserId` receives `403 Forbidden`.
-- When querying their own result, the server enforces privacy redaction: `snapshotJson` is returned as `"{}"` to prevent raw criterion breakdown leaks unless explicitly published via approved future channels.
+- When querying their own result, `snapshotJson` remains `"{}"`. The v5 typed historical `breakdown` exposes only Common, the student's frozen major and own Individual component; it excludes roster/evaluator comments and other students. Legacy missing provenance is explicitly `isLegacy=true` / `UNKNOWN`.
+
+### 3.6 Demo and official publication
+- Scheme `PUBLISHED` freezes configuration; it does not confer academic approval. Omitted policy on new schemes defaults to demo. Only the frozen lead department can publish an official result with explicit approval provenance; Admin alone remains denied.
+- Preview returns 200 with deterministic blockers and nullable score when inputs are incomplete. A complete demo score still has `canPublish=false` and `DEMO_SCHEME_NOT_OFFICIAL`; publication returns 409. No missing score/evaluator weight is silently redistributed.
+- Confirmation binds the scheme, calculation/approval policy, locked package and finalized snapshots. Historical results are not recomputed from live profile/rubric values. See `../../v5-scoring-results.md` for DTO, token, migration and test details.

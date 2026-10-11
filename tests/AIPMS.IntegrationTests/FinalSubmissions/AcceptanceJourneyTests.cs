@@ -76,7 +76,8 @@ public sealed partial class FinalSubmissionEndpointTests
         Assert.Contains(candidates.Items, c => c.UserId == s.Users.Lecturer && c.EvaluationTypes.Contains("LECTURER"));
         Assert.Equal(HttpStatusCode.Forbidden, (await outside.GetAsync(candidatePath)).StatusCode);
         var schemeDraft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
-            new SaveEvaluationSchemeRequest(s.ProjectId, periodId, "Acceptance scheme", 5, [new("Project quality", "COMMON", null, rubric.Id, 100, 100, 1)])));
+            new SaveEvaluationSchemeRequest(s.ProjectId, periodId, "Acceptance scheme", 5, [new("Project quality", "COMMON", null, rubric.Id, 100, 100, 1)],
+                Policy: new(false, "APPROVED", "SYNTHETIC-REGRESSION-ONLY", CalculationVersion: "LEGACY_V1"))));
         var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{schemeDraft.Id}/publish", new SchemeTokenRequest(schemeDraft.ConcurrencyToken)));
         var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/evaluation-assignments",
             new AssignEvaluatorRequest(s.Users.Lecturer, periodId, "LECTURER", "COMMON", null, null, scheme.Components.Single().Id)));

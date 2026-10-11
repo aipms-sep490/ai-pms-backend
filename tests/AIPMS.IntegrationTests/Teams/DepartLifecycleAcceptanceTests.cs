@@ -159,7 +159,8 @@ public sealed partial class InterdisciplinaryWorkflowTests
             s.Team.SemesterId, "DEPART-" + Guid.NewGuid().ToString("N"), "Assessment", null, [new("Quality", null, 100, 10, 0, true)])));
         rubric = await Body<RubricDto>(await staff.PostAsJsonAsync($"/api/v1/rubrics/{rubric.Id}/publish", new ChangeRubricStatusRequest(rubric.ConcurrencyToken)));
         var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
-            new SaveEvaluationSchemeRequest(project.Id, evaluationPeriod, "DEPART scheme", 5, [new("Common", "COMMON", null, rubric.Id, 100, 100, 1)])));
+            new SaveEvaluationSchemeRequest(project.Id, evaluationPeriod, "DEPART scheme", 5, [new("Common", "COMMON", null, rubric.Id, 100, 100, 1)],
+                Policy: new(false, "APPROVED", "SYNTHETIC-REGRESSION-ONLY", CalculationVersion: "LEGACY_V1"))));
         scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{scheme.Id}/publish", new SchemeTokenRequest(scheme.ConcurrencyToken)));
         var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync($"/api/v1/projects/{project.Id}/evaluation-assignments",
             new AssignEvaluatorRequest(evaluatorId, evaluationPeriod, "LECTURER", "COMMON", null, null, scheme.Components.Single().Id)));

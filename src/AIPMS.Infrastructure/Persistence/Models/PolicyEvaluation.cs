@@ -23,6 +23,8 @@ public sealed class PeriodPolicyUsage
 }
 public sealed class EvaluationScheme
 {
+    public string? GovernanceJson { get; set; }
+    public DateTime? LockedAt { get; set; }
     public string CalculationRule { get; set; } = AIPMS.Application.Features.Evaluations.Services.EvaluationSchemeRules.CalculationRule;
     public long Id { get; set; }
     public long? RootId { get; set; }
@@ -44,6 +46,7 @@ public sealed class EvaluationScheme
 }
 public sealed class EvaluationSchemeComponent
 {
+    public string? EvaluatorWeightsJson { get; set; }
     public long Id { get; set; }
     public long SchemeId { get; set; }
     public string Name { get; set; } = "";

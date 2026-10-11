@@ -29,6 +29,16 @@ SELECT 'column','deliverables.'+t.name,CONVERT(bit,CASE WHEN EXISTS (
  AND TYPE_NAME(c.system_type_id)=t.type_name AND c.is_nullable=1) THEN 1 ELSE 0 END)
 FROM (VALUES ('evidence_scope','varchar'),('target_major_id','bigint'),('target_student_id','bigint')) t(name,type_name)
 UNION ALL
+SELECT 'column',t.table_name+'.'+t.name,CONVERT(bit,CASE WHEN EXISTS (
+ SELECT 1 FROM sys.columns c WHERE c.object_id=OBJECT_ID('dbo.'+t.table_name) AND c.name=t.name
+ AND TYPE_NAME(c.system_type_id)=t.type_name AND c.is_nullable=1) THEN 1 ELSE 0 END)
+FROM (VALUES ('evaluation_schemes','governance_json','nvarchar'),('evaluation_schemes','locked_at','datetime2'),
+ ('evaluation_scheme_components','evaluator_weights_json','nvarchar')) t(table_name,name,type_name)
+UNION ALL
+SELECT 'constraint',t.name,CONVERT(bit,CASE WHEN EXISTS (
+ SELECT 1 FROM sys.check_constraints WHERE name=t.name AND is_disabled=0 AND is_not_trusted=0) THEN 1 ELSE 0 END)
+FROM (VALUES ('ck_scheme_governance_json'),('ck_component_evaluator_weights_json')) t(name)
+UNION ALL
 SELECT 'constraint','ck_deliverables_evidence_target',CONVERT(bit,CASE WHEN EXISTS (
  SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID('dbo.deliverables')
  AND name='ck_deliverables_evidence_target' AND is_disabled=0 AND is_not_trusted=0) THEN 1 ELSE 0 END)

@@ -24,7 +24,8 @@ public sealed partial class PolicyEvaluationEndpointTests(EvaluationDraftDatabas
         return (s, major);
     }
     private static SaveEvaluationSchemeRequest Input(EvaluationScenario s, long major) => new(s.ProjectId, s.PeriodId, "Scoped final evaluation", 5,
-        [new("Common", "COMMON", null, s.RubricId, 100, 70, 1), new("Individual", "INDIVIDUAL", major, s.RubricId, 0, 30, 1)]);
+        [new("Common", "COMMON", null, s.RubricId, 100, 70, 1), new("Individual", "INDIVIDUAL", major, s.RubricId, 0, 30, 1)],
+        Policy: new(false, "APPROVED", "SYNTHETIC-REGRESSION-ONLY", CalculationVersion: "LEGACY_V1"));
     private static async Task<EvaluationSchemeDto> Scheme(HttpClient staff, EvaluationScenario s, long major)
     {
         var draft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", Input(s, major)));

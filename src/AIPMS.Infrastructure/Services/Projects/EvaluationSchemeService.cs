@@ -52,6 +52,11 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.IsPrimary && a.AssignmentType == "PRIMARY"
                 && a.EndedAt == null && a.SupervisorProfile.UserId == u.Id)
             && !slots.Any(a => a.EvaluatorId == u.Id));
+        if (Weights(component) is { } configured)
+        {
+            var weightedIds = configured.Select(w => w.EvaluatorId).ToArray();
+            query = query.Where(u => weightedIds.Contains(u.Id));
+        }
         var count = await query.LongCountAsync(ct);
         var users = await query.OrderBy(u => u.FullName).ThenBy(u => u.Id).Skip((page-1)*pageSize).Take(pageSize)
             .Select(u => new { u.Id, u.FullName, DepartmentName = u.Department!.Name }).ToListAsync(ct);
@@ -105,8 +110,12 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
     private static EvaluationSchemeDto Map(EvaluationScheme r) => new(r.Id, r.RootId ?? r.Id, r.Version, r.ProjectId, r.ProjectPeriodId,
         r.Name, r.Status, r.PassThreshold, r.ConcurrencyToken.ToString("N"), r.PolicyVersionId,
         r.Components.OrderBy(c => c.Id).Select(c => new SchemeComponentDto(c.Id, c.Name, c.Scope, c.MajorId, c.RubricId,
-            c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators)).ToArray(),
-        JsonSerializer.Deserialize<SchemeStudent[]>(r.StudentsJson)!, r.CalculationRule);
+            c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, Weights(c))).ToArray(),
+        JsonSerializer.Deserialize<SchemeStudent[]>(r.StudentsJson)!, r.CalculationRule, Policy(r), r.LockedAt);
+    private static SchemePolicyInput? Policy(EvaluationScheme row) => row.GovernanceJson is null ? null
+        : JsonSerializer.Deserialize<SchemePolicyInput>(row.GovernanceJson);
+    private static IReadOnlyList<SchemeEvaluatorWeight>? Weights(EvaluationSchemeComponent row) => row.EvaluatorWeightsJson is null ? null
+        : JsonSerializer.Deserialize<SchemeEvaluatorWeight[]>(row.EvaluatorWeightsJson);
     private async Task<EvaluationSchemeDto> Visible(EvaluationScheme row, CancellationToken ct)
     {
         var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
@@ -140,6 +149,9 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var majors = registration.Scope.Requirements.Select(x => x.MajorId).Distinct().ToArray();
         EvaluationSchemeRules.Validate(row.Components.Select(c => new SchemeComponentInput(c.Name, c.Scope, c.MajorId, c.RubricId,
             c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators)).ToArray(), majors, row.PassThreshold);
+        var policy = Policy(row) ?? throw new ConflictException("Scheme approval/calculation provenance is unknown; create an explicit new version.");
+        VersionedResultCalculator.Validate(policy, row.Components.Select(c => new SchemeComponentInput(c.Name, c.Scope, c.MajorId,
+            c.RubricId, c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, Weights(c))).ToArray(), majors);
         foreach (var component in row.Components)
         {
             await ComponentAuthority(component.RubricId, row.ProjectId, ct, checkAuthority: false);
@@ -176,10 +188,17 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         foreach (var c in row.Components) await ComponentAuthority(c.RubricId, row.ProjectId, ct);
         db.RemoveRange(row.Components); row.Components.Clear();
         row.Name = input.Name.Trim(); row.ProjectPeriodId = input.ProjectPeriodId; row.PassThreshold = input.PassThreshold;
+        if (input.Policy is not null || !id.HasValue)
+        {
+            var policy = input.Policy ?? new SchemePolicyInput();
+            row.GovernanceJson = JsonSerializer.Serialize(policy);
+            row.CalculationRule = policy.CalculationVersion == "LEGACY_V1" ? EvaluationSchemeRules.CalculationRule : VersionedResultCalculator.Version;
+        }
         row.ConcurrencyToken = Guid.NewGuid();
         row.Components = input.Components.Select(c => new EvaluationSchemeComponent { Name = c.Name, Scope = c.Scope, MajorId = c.MajorId,
             RubricId = c.RubricId, ProjectWeightPercent = c.ProjectWeightPercent, StudentWeightPercent = c.StudentWeightPercent,
-            RequiredEvaluators = c.RequiredEvaluators }).ToList();
+            RequiredEvaluators = c.RequiredEvaluators,
+            EvaluatorWeightsJson = c.EvaluatorWeights is null ? null : JsonSerializer.Serialize(c.EvaluatorWeights.OrderBy(w => w?.EvaluatorId)) }).ToList();
         await Validate(row, ct);
         if (!id.HasValue) db.Add(row);
         await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_SAVED", "EVALUATION_SCHEME", row.Id, Map(row), ct); return Map(row);
@@ -206,6 +225,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             component.ProjectWeightPercent = change.ProjectWeightPercent;
             component.StudentWeightPercent = change.StudentWeightPercent;
             component.RequiredEvaluators = change.RequiredEvaluators;
+            component.EvaluatorWeightsJson = change.EvaluatorWeights is null ? null : JsonSerializer.Serialize(change.EvaluatorWeights.OrderBy(w => w?.EvaluatorId));
             await Validate(row, ct);
             row.ConcurrencyToken = Guid.NewGuid();
             await db.SaveChangesAsync(ct);
@@ -239,7 +259,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             old.Status = "RETIRED"; await db.SaveChangesAsync(ct);
         }
         row.PolicyVersionId = await PolicyVersions.CaptureAsync(db, row.ProjectPeriodId, "EVALUATION_SCHEME", row.Id, Now, ct);
-        row.Status = "PUBLISHED"; row.PublishedBy = Actor; row.PublishedAt = Now; row.ConcurrencyToken = Guid.NewGuid();
+        row.Status = "PUBLISHED"; row.PublishedBy = Actor; row.PublishedAt = Now; row.LockedAt = Now; row.ConcurrencyToken = Guid.NewGuid();
         await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_PUBLISHED", "EVALUATION_SCHEME", id, Map(row), ct); return Map(row);
     }, ct);
     public Task<EvaluationSchemeDto> VersionAsync(long id, string token, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
@@ -249,11 +269,15 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         foreach (var c in source.Components) await ComponentAuthority(c.RubricId, source.ProjectId, ct);
         var row = new EvaluationScheme { RootId = source.RootId ?? source.Id, ProjectId = source.ProjectId, ProjectPeriodId = source.ProjectPeriodId,
             Version = await db.Set<EvaluationScheme>().Where(x => x.ProjectId == source.ProjectId).MaxAsync(x => x.Version, ct) + 1,
-            Name = source.Name, PassThreshold = source.PassThreshold, CalculationRule = source.CalculationRule,
+            Name = source.Name, PassThreshold = source.PassThreshold,
+            CalculationRule = Policy(source)?.CalculationVersion == "LEGACY_V1" ? EvaluationSchemeRules.CalculationRule : VersionedResultCalculator.Version,
+            GovernanceJson = JsonSerializer.Serialize((Policy(source) ?? new SchemePolicyInput()) with {
+                IsDemo = true, ApprovalStatus = "DEMO", ApprovalReference = null }),
             CreatedBy = Actor, CreatedAt = Now, ConcurrencyToken = Guid.NewGuid(),
             StudentsJson = source.StudentsJson, RegistrationSnapshotJson = source.RegistrationSnapshotJson,
             Components = source.Components.Select(c => new EvaluationSchemeComponent { Name = c.Name, Scope = c.Scope, MajorId = c.MajorId,
-                RubricId = c.RubricId, ProjectWeightPercent = c.ProjectWeightPercent, StudentWeightPercent = c.StudentWeightPercent, RequiredEvaluators = c.RequiredEvaluators }).ToList() };
+                RubricId = c.RubricId, ProjectWeightPercent = c.ProjectWeightPercent, StudentWeightPercent = c.StudentWeightPercent,
+                RequiredEvaluators = c.RequiredEvaluators, EvaluatorWeightsJson = c.EvaluatorWeightsJson }).ToList() };
         db.Add(row); await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_VERSIONED", "EVALUATION_SCHEME", row.Id, Map(row), ct); return Map(row);
     }, ct);
     public async Task DeleteAsync(long id, string token, CancellationToken ct) => await evaluations.InTransactionAsync(async () =>
@@ -272,6 +296,8 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var scheme = await Row(component.SchemeId, ct);
         if (scheme.ProjectId != projectId || scheme.ProjectPeriodId != input.ProjectPeriodId) throw new NotFoundException("SchemeComponent", input.ComponentId);
         if (scheme.Status != "PUBLISHED" || scheme.PolicyVersionId is null) throw new ConflictException("Publish the scheme before assigning evaluators.");
+        if (Weights(component) is { } weighted && weighted.All(w => w.EvaluatorId != input.EvaluatorId))
+            throw new ConflictException("This evaluator is not a weighted slot in the locked scheme version.");
         if (input.Scope != component.Scope || input.MajorId != component.MajorId || (component.Scope == "INDIVIDUAL") != input.StudentId.HasValue)
             throw new ConflictException("Assignment scope and targets must match the published component.");
         if (input.StudentId is long studentId)

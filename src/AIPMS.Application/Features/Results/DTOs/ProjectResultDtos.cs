@@ -7,7 +7,9 @@ public sealed record PublishProjectResultRequest(string ConfirmationToken);
 public sealed record ResultContributionDto(long AssignmentId, long EvaluationId, long EvaluatorId, long RubricId,
     decimal WeightPercent, decimal Score, string EvaluationConcurrencyToken);
 public sealed record ProjectResultPreviewDto(long ProjectId, bool CanPublish, IReadOnlyList<string> Blockers,
-    decimal? TotalScore, decimal? PassThreshold, string? Outcome, string ConfirmationToken, IReadOnlyList<ResultContributionDto> Contributions);
+    decimal? TotalScore, decimal? PassThreshold, string? Outcome, string ConfirmationToken, IReadOnlyList<ResultContributionDto> Contributions,
+    AIPMS.Application.Features.Evaluations.DTOs.ResultBreakdownDto? Breakdown = null);
 public sealed record ProjectResultDto(long Id, long ProjectId, long FinalSubmissionId, decimal TotalScore, decimal PassThreshold,
     string Outcome, string CalculationRule, long PublishedBy, DateTime PublishedAt, string PolicyConcurrencyToken,
-    IReadOnlyList<ResultContributionDto> Contributions, long? SchemeId = null, long? PolicyVersionId = null, string? FrozenInputs = null);
+    IReadOnlyList<ResultContributionDto> Contributions, long? SchemeId = null, long? PolicyVersionId = null, string? FrozenInputs = null,
+    AIPMS.Application.Features.Evaluations.DTOs.ResultBreakdownDto? Breakdown = null);
