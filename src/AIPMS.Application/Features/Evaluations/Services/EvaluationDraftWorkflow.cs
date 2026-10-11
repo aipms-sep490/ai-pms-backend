@@ -27,9 +27,8 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         await repository.GetProjectAsync(id, ct) ?? throw new NotFoundException("Project", id);
 
     private static bool Manages(EvaluationActor actor, EvaluationProject project, long? department = null) =>
-        actor.IsAdmin || (actor.IsStaff && actor.DepartmentId.HasValue
-            && project.ActiveScope && project.DepartmentIds.Contains(actor.DepartmentId.Value)
-            && (!department.HasValue || actor.DepartmentId == department));
+        department.HasValue ? AcademicAuthority.ManagesComponent(actor, project, department.Value)
+            : AcademicAuthority.HasScope(actor, project);
 
     private static void Current(string expected, string supplied)
     {
@@ -112,8 +111,10 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
             || !project.DepartmentIds.Contains(evaluator.DepartmentId.Value)
             || !Manages(actor, project, evaluator.DepartmentId))
             throw new ConflictException("The evaluator must be an active lecturer in the managed project department.", WorkflowErrorCodes.EvaluatorIneligible);
-        if (input.EvaluationType == "SUPERVISOR" && !await repository.IsCurrentSupervisorAsync(projectId, evaluator.Id, ct))
-            throw new ConflictException("SUPERVISOR evaluation requires the active project supervisor.", WorkflowErrorCodes.SupervisorRequired);
+        if (input.EvaluationType == "SUPERVISOR")
+            throw new ConflictException("New SUPERVISOR evaluation assignments are retired; existing assignments may complete under legacy rules.", "SUPERVISOR_EVALUATION_TYPE_RETIRED");
+        if (await repository.IsCurrentSupervisorAsync(projectId, evaluator.Id, ct))
+            throw new ConflictException("The current primary supervisor cannot evaluate the same project.", "PRIMARY_EVALUATOR_CONFLICT");
         if (input.ComponentId is null && period.RubricId is null)
             throw new ConflictException("The evaluation period has no configured rubric.", WorkflowErrorCodes.PublishedRubricRequired);
         if (input.ComponentId is null && period.RubricId.HasValue)
@@ -140,6 +141,7 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         await repository.LockProjectAsync(project.Id, ct);
         before = await Assignment(id, ct);
         project = await Project(project.Id, ct);
+        if (!Manages(actor, project, before.DepartmentId)) throw new ForbiddenException();
         Current(before.ConcurrencyToken, input.ConcurrencyToken);
         if (project.Status is "COMPLETED" or "ARCHIVED") throw new ConflictException("Completed or archived projects are read-only.");
         if (before.Status == "REVOKED") return before.ToDto();

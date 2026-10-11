@@ -7,6 +7,7 @@ using AIPMS.Application.Features.Supervisors.Models;
 using AIPMS.Domain.Projects;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Mappers;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using SupervisorRequest = AIPMS.Infrastructure.Persistence.Generated.Models.SupervisorRequest;
@@ -51,9 +52,7 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
         var profiles = await context.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.supervisor_profiles WITH (UPDLOCK, HOLDLOCK) WHERE id = {profileId}")
             .ToListAsync(ct);
         if (profiles.Count == 0) throw new NotFoundException("SupervisorProfile", profileId);
-        var projects = await context.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.projects WITH (UPDLOCK, HOLDLOCK) WHERE id = {projectId}")
-            .ToListAsync(ct);
-        if (projects.Count == 0) throw new NotFoundException("Project", projectId);
+        await AcademicAssignmentGuard.LockProjectAsync(context, projectId, ct);
     }
 
     public Task<bool> IsTeamLeaderAsync(long projectId, long userId, CancellationToken ct) =>
@@ -128,6 +127,8 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
     public async Task<long> AssignAndActivateAsync(SupervisorRequestModel request, long actorId, DateTime now, CancellationToken ct)
     {
         RequireTransaction();
+        if (request.AssignmentType == "PRIMARY")
+            await AcademicAssignmentGuard.EnsurePrimaryAsync(context, request.ProjectId, request.SupervisorProfileId, ct);
         var project = await context.Projects.SingleAsync(p => p.Id == request.ProjectId, ct);
         void Transition(string next)
         {

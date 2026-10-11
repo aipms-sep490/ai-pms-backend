@@ -57,6 +57,8 @@ internal sealed class SupervisorReplacementService(AipmsDbContext context, ISupe
                 throw new ConflictException("Replacement requires an active assignment and a different supervisor on an ACTIVE project.");
             var profile = await profiles.GetAsync(supervisorProfileId, token)
                 ?? throw new NotFoundException("SupervisorProfile", supervisorProfileId);
+            if (old.IsPrimary && old.AssignmentType == "PRIMARY")
+                await AcademicAssignmentGuard.EnsurePrimaryAsync(context, old.ProjectId, supervisorProfileId, token);
             if (!profile.IsAvailable || !project.DepartmentIds.Contains(profile.DepartmentId))
                 throw new ConflictException("The replacement supervisor is unavailable or outside the project scope.");
             if (!old.IsPrimary)

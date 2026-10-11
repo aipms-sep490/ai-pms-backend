@@ -7,7 +7,7 @@ public sealed record EvaluationPreview(decimal? Total, IReadOnlyList<long> Missi
     IReadOnlyList<long> MissingRequiredCriterionIds);
 public sealed record EvaluationActor(long Id, long? DepartmentId, bool IsAdmin, bool IsStaff, bool IsLecturer);
 public sealed record EvaluationProject(long Id, long SemesterId, long OrganizationId, string Status,
-    bool ActiveScope, IReadOnlyList<long> DepartmentIds);
+    bool ActiveScope, IReadOnlyList<long> DepartmentIds, long? LeadDepartmentId = null, string ScopeProvenance = "UNKNOWN");
 public sealed record EvaluationPeriod(long Id, long SemesterId, long? RubricId, bool IsOpen);
 public sealed record EvaluationAssignmentRecord(long Id, long ProjectId, long EvaluatorId, long RubricId,
     long PeriodId, long DepartmentId, string EvaluationType, string Status, long AssignedBy,

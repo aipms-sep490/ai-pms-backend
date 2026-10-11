@@ -134,21 +134,7 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
 
     public async Task<bool> IsProjectLeaderOrSupervisorAsync(long projectId, long userId, CancellationToken cancellationToken)
     {
-        var isLeader = await context.Projects
-            .AsNoTracking()
-            .Where(p => p.Id == projectId)
-            .SelectMany(p => p.Team.TeamMembers)
-            .AnyAsync(m => m.UserId == userId && m.IsLeader == true && m.LeftAt == null, cancellationToken);
-
-        if (isLeader) return true;
-
-        var isSupervisor = await context.SupervisorAssignments
-            .AsNoTracking()
-            .AnyAsync(sa => sa.ProjectId == projectId
-                         && sa.SupervisorProfile.UserId == userId
-                         && sa.EndedAt == null, cancellationToken);
-
-        return isSupervisor;
+        return await AIPMS.Infrastructure.Services.Projects.ProjectExecutionAuthority.IsManagerAsync(context, projectId, userId, cancellationToken);
     }
 
     public async Task<IReadOnlyList<MilestoneProgressDto>> GetMilestoneProgressAsync(long projectId, CancellationToken cancellationToken)

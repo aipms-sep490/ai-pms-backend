@@ -10,6 +10,21 @@ namespace AIPMS.IntegrationTests.Evaluations;
 
 public sealed partial class EvaluationDraftEndpointTests
 {
+    // Historical fixture only: new SUPERVISOR assignments are rejected by the API.
+    private async Task<EvaluationAssignmentDto> SeedLegacySupervisorAssignment(HttpClient staff, EvaluationScenario s)
+    {
+        var input = await ScopedRequest(staff, s, type: "SUPERVISOR");
+        var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync(AssignUrl(s.ProjectId),
+            input with { EvaluationType = "LECTURER" }));
+        await using var db = database.CreateContext();
+        (await db.Set<EvaluationAssignment>().FindAsync(assignment.Id))!.EvaluationType = "SUPERVISOR";
+        var primary = await db.SupervisorAssignments.Include(a => a.SupervisorRequest).SingleAsync(a => a.ProjectId == s.ProjectId);
+        primary.SupervisorProfileId = s.Scope.Users.ProfileId;
+        primary.SupervisorRequest.SupervisorProfileId = s.Scope.Users.ProfileId;
+        await db.SaveChangesAsync();
+        return assignment with { EvaluationType = "SUPERVISOR" };
+    }
+
     private async Task<AssignEvaluatorRequest> ScopedRequest(HttpClient staff, EvaluationScenario s, long? user = null, string type = "LECTURER", bool single = false,
         decimal threshold = 5, decimal? firstWeight = null)
     {

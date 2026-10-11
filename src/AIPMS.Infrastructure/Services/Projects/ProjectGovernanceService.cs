@@ -59,8 +59,11 @@ internal sealed class ProjectGovernanceService(AipmsDbContext db, ICurrentUser c
         var isStaff = await db.Users.AnyAsync(u => u.Id == actor && u.Status == "ACTIVE"
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
             && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"), ct);
-        if (scopeValid && project.Status is not ("ARCHIVED" or "COMPLETED")
-            && isStaff && scopeDepartments.Any(x => x.DepartmentId == actorDept)) actions.Add("MANAGE_GOVERNANCE");
+        if (scopeValid && project.Status is not ("ARCHIVED" or "COMPLETED") && isStaff)
+        {
+            if (actorDept == frozenScope.LeadDepartmentId) actions.Add("MANAGE_GOVERNANCE");
+            else if (scopeDepartments.Any(x => x.DepartmentId == actorDept)) actions.Add("MANAGE_DEPARTMENT_COMPONENTS");
+        }
         if (canEvaluate) actions.Add("READ_ASSIGNED_EVALUATION");
         var finalStatus = final is null ? null : "LOCKED";
         var resultStatus = projectResultPublished ? "PUBLISHED" : final is null ? "NOT_PUBLISHED" : "PENDING";

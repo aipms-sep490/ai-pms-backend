@@ -9,6 +9,7 @@ using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.Evaluations.Services;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
@@ -20,7 +21,7 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
     public async Task<EvaluationAssignmentRecord> AssignScopedAsync(long projectId, long evaluatorId, long periodId, long departmentId,
         string type, long actorId, DateTime now, ScopedAssignmentContext scope, CancellationToken ct)
     {
-        if (db.Database.CurrentTransaction is null) throw new InvalidOperationException("Assignment requires a transaction.");
+        await AcademicAssignmentGuard.EnsureEvaluatorAsync(db, projectId, evaluatorId, type, ct);
         var row = new EvaluationAssignment { ProjectId = projectId, EvaluatorId = evaluatorId, ProjectPeriodId = periodId,
             DepartmentId = departmentId, EvaluationType = type, RubricId = scope.RubricId, AssignedBy = actorId,
             AssignedAt = now, ConcurrencyToken = Guid.NewGuid(), Scope = scope.Scope, MajorId = scope.MajorId,
@@ -54,12 +55,7 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         return false;
     }
 
-    public async Task LockProjectAsync(long id, CancellationToken ct)
-    {
-        if (db.Database.CurrentTransaction is null) throw new InvalidOperationException("Evaluation writes require a transaction.");
-        var found = await db.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.projects WITH (XLOCK, HOLDLOCK) WHERE id = {id}").ToListAsync(ct);
-        if (found.Count == 0) throw new NotFoundException("Project", id);
-    }
+    public Task LockProjectAsync(long id, CancellationToken ct) => AcademicAssignmentGuard.LockProjectAsync(db, id, ct);
 
     public async Task<EvaluationActor?> GetActorAsync(long id, CancellationToken ct) =>
         await db.Users.AsNoTracking().Where(u => u.Id == id && u.Status == "ACTIVE")
@@ -74,13 +70,16 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
     {
         var project = await db.Projects.AsNoTracking().Where(p => p.Id == id)
             .Select(p => new { p.Id, p.Status, Semester = p.Team.AcademicSemesterId,
-                Organization = p.Team.AcademicSemester.OrganizationId,
-                Active = p.Team.AcademicSemester.Organization.IsActive && p.ProjectMajors.Any()
-                    && p.ProjectMajors.All(m => m.Major.IsActive && m.Major.Department.IsActive
-                        && m.Major.Department.Organization.IsActive
-                        && m.Major.Department.OrganizationId == p.Team.AcademicSemester.OrganizationId),
-                Departments = p.ProjectMajors.Select(m => m.Major.DepartmentId).Distinct().ToList() }).SingleOrDefaultAsync(ct);
-        return project is null ? null : new(project.Id, project.Semester, project.Organization, project.Status, project.Active, project.Departments);
+                Organization = p.Team.AcademicSemester.OrganizationId }).SingleOrDefaultAsync(ct);
+        if (project is null) return null;
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, id, ct, requireFrozenScope: true);
+        var active = scope.Provenance == "FROZEN_REGISTRATION_SNAPSHOT" && scope.LeadDepartmentId.HasValue
+            && scope.DepartmentIds.Count > 0 && scope.MajorIds.Count > 0
+            && await db.Departments.CountAsync(d => scope.DepartmentIds.Contains(d.Id) && d.IsActive
+                && d.Organization.IsActive && d.OrganizationId == project.Organization, ct) == scope.DepartmentIds.Count
+            && await db.Majors.CountAsync(m => scope.MajorIds.Contains(m.Id) && m.IsActive, ct) == scope.MajorIds.Count;
+        return new(project.Id, project.Semester, project.Organization, project.Status, active,
+            scope.DepartmentIds, scope.LeadDepartmentId, scope.Provenance);
     }
 
     public async Task<EvaluationPeriod?> GetPeriodAsync(long id, DateTime now, CancellationToken ct)
@@ -108,19 +107,16 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
     {
         var candidates = db.Users.AsNoTracking().Where(u => u.Status == "ACTIVE" && u.DepartmentId == departmentId
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
-            && u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER"))
-            .Select(u => new { u.Id, u.FullName, DepartmentName = u.Department!.Name,
-                Lecturer = !db.Set<EvaluationAssignment>().Any(a => a.ProjectId == projectId && a.EvaluatorId == u.Id
-                    && a.EvaluationType == "LECTURER" && a.Status == "ACTIVE"),
-                Supervisor = db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.EndedAt == null
-                    && a.IsPrimary && a.SupervisorProfile.UserId == u.Id)
-                    && !db.Set<EvaluationAssignment>().Any(a => a.ProjectId == projectId && a.EvaluatorId == u.Id
-                        && a.EvaluationType == "SUPERVISOR" && a.Status == "ACTIVE") })
-            .Where(u => u.Lecturer || u.Supervisor);
+            && u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER")
+            && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.EndedAt == null
+                && a.IsPrimary && a.AssignmentType == "PRIMARY" && a.SupervisorProfile.UserId == u.Id)
+            && !db.Set<EvaluationAssignment>().Any(a => a.ProjectId == projectId && a.EvaluatorId == u.Id
+                && a.EvaluationType == "LECTURER" && a.Status == "ACTIVE"))
+            .Select(u => new { u.Id, u.FullName, DepartmentName = u.Department!.Name });
         var total = await candidates.LongCountAsync(ct);
         var rows = await candidates.OrderBy(u => u.FullName).ThenBy(u => u.Id).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(ct);
         return new(rows.Select(u => new EligibleEvaluatorDto(u.Id, u.FullName, departmentId, u.DepartmentName,
-            new[] { u.Lecturer ? "LECTURER" : null, u.Supervisor ? "SUPERVISOR" : null }.OfType<string>().ToArray())).ToArray(), page, pageSize, total);
+            ["LECTURER"])).ToArray(), page, pageSize, total);
     }
 
     private static EvaluationAssignmentRecord Map(EvaluationAssignment a) => new(a.Id, a.ProjectId, a.EvaluatorId,
@@ -137,6 +133,7 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
     public async Task<EvaluationAssignmentRecord> AssignAsync(long projectId, long evaluatorId, long periodId,
         long rubricId, long departmentId, string type, long actorId, DateTime now, CancellationToken ct)
     {
+        await AcademicAssignmentGuard.EnsureEvaluatorAsync(db, projectId, evaluatorId, type, ct);
         if (await db.Set<EvaluationAssignment>().AnyAsync(a => a.ProjectId == projectId && a.EvaluatorId == evaluatorId
             && a.EvaluationType == type && a.Status == "ACTIVE", ct))
             throw new ConflictException("This evaluator already has an active assignment of this type for the project.");
@@ -159,9 +156,16 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         return Map(row);
     }
 
-    private IQueryable<EvaluationAssignment> EligibleAssignments(EvaluationActor actor, bool manager) =>
+    private async Task<IReadOnlyList<long>> ManagedDepartmentsAsync(EvaluationActor actor, long projectId, CancellationToken ct)
+    {
+        var project = await GetProjectAsync(projectId, ct);
+        if (project is null || !AcademicAuthority.HasScope(actor, project)) return [];
+        return AcademicAuthority.IsLead(actor, project) ? project.DepartmentIds : [actor.DepartmentId!.Value];
+    }
+
+    private IQueryable<EvaluationAssignment> EligibleAssignments(EvaluationActor actor, bool manager, IReadOnlyList<long>? managedDepartments = null) =>
         db.Set<EvaluationAssignment>().AsNoTracking().Where(a =>
-            (manager && (actor.IsAdmin || (actor.IsStaff && a.DepartmentId == actor.DepartmentId)))
+            (manager && (actor.IsAdmin || (actor.IsStaff && managedDepartments != null && managedDepartments.Contains(a.DepartmentId))))
             || (actor.IsLecturer && a.EvaluatorId == actor.Id && a.DepartmentId == actor.DepartmentId && a.Status == "ACTIVE"
                 && db.Projects.Any(p => p.Id == a.ProjectId && p.Team.AcademicSemester.Organization.IsActive
                     && p.ProjectMajors.Any(m => m.Major.DepartmentId == a.DepartmentId && m.Major.IsActive
@@ -174,7 +178,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
     public async Task<PagedResult<EvaluationAssignmentRecord>> ListAssignmentsAsync(long? projectId, EvaluationActor actor,
         string? status, int page, int pageSize, CancellationToken ct)
     {
-        var query = EligibleAssignments(actor, projectId.HasValue);
+        var departments = projectId.HasValue ? await ManagedDepartmentsAsync(actor, projectId.Value, ct) : [];
+        var query = EligibleAssignments(actor, projectId.HasValue, departments);
         if (projectId.HasValue) query = query.Where(a => a.ProjectId == projectId);
         if (status is not null) query = query.Where(a => a.Status == status);
         var total = await query.LongCountAsync(ct);
@@ -295,7 +300,7 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
 
     public async Task<PagedResult<EvaluationDraftRecord>> ListDraftsAsync(long projectId, EvaluationActor actor, int page, int pageSize, CancellationToken ct)
     {
-        var assignments = EligibleAssignments(actor, true).Where(a => a.ProjectId == projectId);
+        var assignments = EligibleAssignments(actor, true, await ManagedDepartmentsAsync(actor, projectId, ct)).Where(a => a.ProjectId == projectId);
         var query = db.Set<EvaluationDraftState>().Where(s => assignments.Any(a => a.Id == s.AssignmentId));
         var total = await query.LongCountAsync(ct);
         var ids = await query.OrderByDescending(s => s.EvaluationId).Skip((page - 1) * pageSize).Take(pageSize).Select(s => s.EvaluationId).ToListAsync(ct);

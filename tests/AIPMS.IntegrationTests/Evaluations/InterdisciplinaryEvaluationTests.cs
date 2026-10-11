@@ -58,22 +58,34 @@ public sealed partial class PolicyEvaluationEndpointTests
              new("Business", "MAJOR_SPECIFIC", secondMajor, secondRubric, 30, 40, 1),
              new("Student software", "INDIVIDUAL", firstMajor, s.RubricId, 0, 20, 1),
              new("Student business", "INDIVIDUAL", secondMajor, secondRubric, 0, 20, 1)]);
-        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", input)).StatusCode);
-        var draft = await Body<EvaluationSchemeDto>(await admin.PostAsJsonAsync("/api/v1/evaluation-schemes", input));
-        var scheme = await Body<EvaluationSchemeDto>(await admin.PostAsJsonAsync($"/api/v1/evaluation-schemes/{draft.Id}/publish", new SchemeTokenRequest(draft.ConcurrencyToken)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync("/api/v1/evaluation-schemes", input)).StatusCode);
+        var draft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", input));
+        var businessDraft = draft.Components.Single(c => c.Name == "Business");
+        var edit = new UpdateSchemeComponentRequest(draft.ConcurrencyToken, input.Components.Single(c => c.Name == "Business") with { RequiredEvaluators = 2 });
+        var componentUrl = $"/api/v1/evaluation-schemes/{draft.Id}/components/{businessDraft.Id}";
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PutAsJsonAsync(componentUrl, edit)).StatusCode);
+        var commonDraft = draft.Components.Single(c => c.Scope == "COMMON");
+        Assert.Equal(HttpStatusCode.Forbidden, (await otherStaff.PutAsJsonAsync(
+            $"/api/v1/evaluation-schemes/{draft.Id}/components/{commonDraft.Id}", edit)).StatusCode);
+        draft = await Body<EvaluationSchemeDto>(await otherStaff.PutAsJsonAsync(componentUrl, edit));
+        Assert.Equal(HttpStatusCode.Conflict, (await otherStaff.PutAsJsonAsync(componentUrl, edit)).StatusCode);
+        draft = await Body<EvaluationSchemeDto>(await otherStaff.PutAsJsonAsync(componentUrl,
+            new UpdateSchemeComponentRequest(draft.ConcurrencyToken, edit.Component with { RequiredEvaluators = 1 })));
+        var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{draft.Id}/publish", new SchemeTokenRequest(draft.ConcurrencyToken)));
+        Assert.Equal(HttpStatusCode.Conflict, (await otherStaff.PutAsJsonAsync(componentUrl, edit with { ConcurrencyToken = scheme.ConcurrencyToken })).StatusCode);
         var common = scheme.Components.Single(c => c.Scope == "COMMON");
         var candidates = await Body<PagedResult<EligibleEvaluatorDto>>(await staff.GetAsync($"/api/v1/projects/{s.ProjectId}/eligible-evaluators?periodId={s.PeriodId}&componentId={common.Id}&scope=COMMON"));
         Assert.Contains(candidates.Items, x => x.UserId == s.Scope.Users.Lecturer);
         var projectUrl = $"/api/v1/projects/{s.ProjectId}/result";
         var studentUrlA = $"/api/v1/projects/{s.ProjectId}/students/{s.Scope.Users.Student}/result";
         var studentUrlB = $"/api/v1/projects/{s.ProjectId}/students/{secondStudent}/result";
-        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync(projectUrl + "/preview")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.GetAsync(projectUrl + "/preview")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await studentA.GetAsync(studentUrlA)).StatusCode);
         async Task Score(SchemeComponentDto component, long evaluator, long? target, decimal score)
         {
             using var lecturer = app.CreateAuthenticatedClient(evaluator);
             var request = new AssignEvaluatorRequest(evaluator, s.PeriodId, "LECTURER", component.Scope, component.MajorId, target, component.Id);
-            var assignment = await Body<EvaluationAssignmentDto>(await admin.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/evaluation-assignments", request));
+            var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/evaluation-assignments", request));
             var evaluation = await Body<EvaluationDraftDto>(await lecturer.PostAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evaluation", null));
             EvaluationScoreInput[] scores = component.RubricId == secondRubric ? [new(secondCriterion, score, null)]
                 : [new(s.Criteria[0], score, null), new(s.Criteria[1], score * 2, null)];
@@ -85,14 +97,14 @@ public sealed partial class PolicyEvaluationEndpointTests
         await Score(scheme.Components.Single(c => c.Name == "Software"), s.Scope.Users.Lecturer, null, 6);
         await Score(scheme.Components.Single(c => c.Name == "Business"), s.Scope.Users.OtherLecturer, null, 4);
         await Score(scheme.Components.Single(c => c.Name == "Student software"), s.Scope.Users.Lecturer, s.Scope.Users.Student, 10);
-        Assert.False((await Body<ProjectResultPreviewDto>(await admin.GetAsync(projectUrl + "/preview"))).CanPublish);
+        Assert.False((await Body<ProjectResultPreviewDto>(await staff.GetAsync(projectUrl + "/preview"))).CanPublish);
         await Score(scheme.Components.Single(c => c.Name == "Student business"), s.Scope.Users.OtherLecturer, secondStudent, 2);
-        var project = await Body<ProjectResultPreviewDto>(await admin.GetAsync(projectUrl + "/preview"));
+        var project = await Body<ProjectResultPreviewDto>(await staff.GetAsync(projectUrl + "/preview"));
         Assert.Equal(6.6m, project.TotalScore);
         var first = await Body<ProjectResultPreviewDto>(await staff.GetAsync(studentUrlA + "/preview"));
-        var second = await Body<ProjectResultPreviewDto>(await otherStaff.GetAsync(studentUrlB + "/preview"));
+        var second = await Body<ProjectResultPreviewDto>(await staff.GetAsync(studentUrlB + "/preview"));
         Assert.Equal(8m, first.TotalScore); Assert.Equal(5.6m, second.TotalScore);
-        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync(studentUrlB + "/preview")).StatusCode);
+        Assert.False((await Body<ProjectResultPreviewDto>(await otherStaff.GetAsync(studentUrlB + "/preview"))).CanPublish);
         await using (var db = database.CreateContext())
         {
             (await db.Users.FindAsync(s.Scope.Users.Student))!.MajorId = secondMajor;
@@ -101,11 +113,15 @@ public sealed partial class PolicyEvaluationEndpointTests
         }
         Assert.Equal(first.ConfirmationToken, (await Body<ProjectResultPreviewDto>(await staff.GetAsync(studentUrlA + "/preview"))).ConfirmationToken);
         await Body<StudentResultDto>(await staff.PostAsJsonAsync(studentUrlA, new PublishProjectResultRequest(first.ConfirmationToken)));
-        await Body<StudentResultDto>(await otherStaff.PostAsJsonAsync(studentUrlB, new PublishProjectResultRequest(second.ConfirmationToken)));
+        await Body<StudentResultDto>(await staff.PostAsJsonAsync(studentUrlB, new PublishProjectResultRequest(second.ConfirmationToken)));
+        var departmentResult = await Body<StudentResultDto>(await otherStaff.GetAsync(studentUrlB));
+        Assert.Equal(5.6m, departmentResult.TotalScore);
+        Assert.Equal("{}", departmentResult.SnapshotJson);
+        Assert.Equal(HttpStatusCode.Forbidden, (await otherStaff.GetAsync(studentUrlA)).StatusCode);
         Assert.Equal(8m, (await Body<StudentResultDto>(await studentA.GetAsync(studentUrlA))).TotalScore);
         Assert.Equal(HttpStatusCode.Forbidden, (await studentA.GetAsync(studentUrlB)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await studentB.GetAsync(studentUrlA)).StatusCode);
-        var saved = await Body<ProjectResultDto>(await admin.PostAsJsonAsync(projectUrl, new PublishProjectResultRequest(project.ConfirmationToken)));
+        var saved = await Body<ProjectResultDto>(await staff.PostAsJsonAsync(projectUrl, new PublishProjectResultRequest(project.ConfirmationToken)));
         Assert.Equal(4, saved.Contributions.Count);
         await RerunMigration(); await RerunMigration();
         Assert.Equal(5.6m, (await Body<StudentResultDto>(await studentB.GetAsync(studentUrlB))).TotalScore);

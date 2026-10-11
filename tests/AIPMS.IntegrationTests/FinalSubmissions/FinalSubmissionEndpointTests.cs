@@ -297,11 +297,11 @@ public sealed partial class FinalSubmissionEndpointTests(FinalSubmissionDraftDat
         }
         var assignUrl = $"/api/v1/projects/{s.ProjectId}/evaluation-assignments";
         var input = new AssignEvaluatorRequest(s.Users.NewLecturer, periodId, "LECTURER");
+        await SeedEvaluationRoster(s, periodId);
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(assignUrl, input)).StatusCode);
         await Body<FinalSubmissionDto>(await leader.PostAsJsonAsync(Route(s.ProjectId), ready.Input));
         Assert.Equal(HttpStatusCode.Forbidden, (await evaluator.GetAsync(Route(s.ProjectId))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(Route(s.ProjectId))).StatusCode);
-        await SeedEvaluationRoster(s, periodId);
         await using (var db = database.CreateContext())
         {
             var rubricId = (await db.ProjectPeriods.FindAsync(periodId))!.RubricId!.Value;

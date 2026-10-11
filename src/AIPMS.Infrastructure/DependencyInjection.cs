@@ -244,6 +244,8 @@ public static class DependencyInjection
         services.AddScoped<ITaskRepository, TaskRepository>();
         services.AddScoped<AIPMS.Application.Features.ExecutionCapabilities.Abstractions.IExecutionCapabilityService,
             Services.ExecutionCapabilities.ExecutionCapabilityService>();
+        services.AddScoped<AIPMS.Application.Features.ExecutionCapabilities.Abstractions.IProjectCapabilityService,
+            Services.ExecutionCapabilities.ProjectCapabilityService>();
         services.AddScoped<IProgressReportRepository, ProgressReportRepository>();
         services.AddScoped<IReportingCycleRepository, ReportingCycleRepository>();
         services.AddScoped<AIPMS.Application.Features.ActionItems.Abstractions.IProjectActionItemRepository, ProjectActionItemRepository>();

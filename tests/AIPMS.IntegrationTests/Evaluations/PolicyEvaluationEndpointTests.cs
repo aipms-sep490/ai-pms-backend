@@ -21,17 +21,7 @@ public sealed partial class PolicyEvaluationEndpointTests(EvaluationDraftDatabas
         var s = await database.Seed(); await using var db = database.CreateContext();
         var project = await db.Projects.Include(p => p.Team).Include(p => p.ProjectMajors).SingleAsync(p => p.Id == s.ProjectId);
         var major = project.ProjectMajors.Single().MajorId;
-        var student = await db.Users.SingleAsync(u => u.Id == s.Scope.Users.Student);
-        student.MajorId = major; student.AcademicProfileStatus = "VERIFIED";
-        db.TeamMembers.Add(new() { TeamId = project.TeamId, AcademicSemesterId = s.Scope.SemesterId, UserId = student.Id, IsLeader = true });
-        db.Set<ProjectRegistrationSnapshot>().Add(new() { ProjectId = project.Id, ProjectPeriodId = s.PeriodId,
-            LeadDepartmentId = s.Scope.Users.DepartmentId, SubmittedBy = student.Id, SubmittedAt = EvaluationDraftDatabaseFixture.Now.AddDays(-1),
-            SnapshotJson = JsonSerializer.Serialize(new RegistrationEvidence(
-                new TeamAcademicScopeDto("SINGLE_MAJOR", major, s.Scope.Users.DepartmentId, [new MajorRequirementDto(major, 1, 5, "Engineering")], Guid.NewGuid()),
-                new(1, 5, 1, "test"), 1, EvaluationDraftDatabaseFixture.Now.AddDays(-2), EvaluationDraftDatabaseFixture.Now.AddDays(2),
-                [new(student.Id, student.FullName, major, true)], [s.Scope.Users.DepartmentId],
-                MajorDepartmentIds: new Dictionary<long, long> { [major] = s.Scope.Users.DepartmentId })) });
-        await db.SaveChangesAsync(); return (s, major);
+        return (s, major);
     }
     private static SaveEvaluationSchemeRequest Input(EvaluationScenario s, long major) => new(s.ProjectId, s.PeriodId, "Scoped final evaluation", 5,
         [new("Common", "COMMON", null, s.RubricId, 100, 70, 1), new("Individual", "INDIVIDUAL", major, s.RubricId, 0, 30, 1)]);

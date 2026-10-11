@@ -11,6 +11,7 @@ public sealed record EvaluationSchemeDto(long Id, long RootId, int Version, long
     string Name, string Status, decimal PassThreshold, string ConcurrencyToken, long? PolicyVersionId,
     IReadOnlyList<SchemeComponentDto> Components, IReadOnlyList<SchemeStudent> Students, string CalculationRule);
 public sealed record SchemeTokenRequest(string ConcurrencyToken);
+public sealed record UpdateSchemeComponentRequest(string ConcurrencyToken, SchemeComponentInput Component);
 public sealed record ScopedAssignmentContext(long ComponentId, long SchemeId, string Scope, long? MajorId,
     long? StudentId, long RubricId, long PolicyVersionId, string SnapshotJson);
 public sealed record StudentResultDto(long Id, long ProjectId, long StudentId, long MajorId, long SchemeId,

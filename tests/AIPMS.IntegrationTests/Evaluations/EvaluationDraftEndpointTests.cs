@@ -234,7 +234,7 @@ public sealed partial class EvaluationDraftEndpointTests(EvaluationDraftDatabase
         using var app = new EvaluationFactory(database);
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
         using var lecturer = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer, roles: ["LECTURER"]);
-        var assignment = await Assign(staff, s, type: "SUPERVISOR");
+        var assignment = await SeedLegacySupervisorAssignment(staff, s);
         var draft = await Create(lecturer, assignment.Id);
         if (reason == "REVOKED") await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync(
             $"/api/v1/evaluation-assignments/{assignment.Id}/revoke", new RevokeEvaluatorRequest(assignment.ConcurrencyToken, "Changed evaluator")));

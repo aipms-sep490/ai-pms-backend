@@ -12,8 +12,13 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-public sealed class ExecutionCapabilitiesController(IExecutionCapabilityService service) : ControllerBase
+public sealed class ExecutionCapabilitiesController(IExecutionCapabilityService service, IProjectCapabilityService capabilities) : ControllerBase
 {
+    /// <summary>Returns current actor capabilities and frozen academic version references. Mutations revalidate authority and concurrency.</summary>
+    [HttpGet("projects/{projectId:long}/my-capabilities")]
+    [ProducesResponseType<ProjectCapabilitiesDto>(StatusCodes.Status200OK)]
+    public Task<ProjectCapabilitiesDto> Mine(long projectId, CancellationToken ct) => capabilities.GetAsync(projectId, ct);
+
     [HttpGet("projects/{projectId:long}/execution-actions")]
     [ProducesResponseType<ExecutionCapabilityDto>(StatusCodes.Status200OK)]
     public Task<ExecutionCapabilityDto> Project(long projectId, CancellationToken ct) => service.GetProjectAsync(projectId, ct);

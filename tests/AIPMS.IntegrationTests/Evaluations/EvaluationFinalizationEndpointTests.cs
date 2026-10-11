@@ -243,7 +243,7 @@ public sealed partial class EvaluationDraftEndpointTests
         var (s, _, draft) = await Prepared(app);
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
         using var lecturer = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
-        var supervisor = await Assign(staff, s, type: "SUPERVISOR");
+        var supervisor = await SeedLegacySupervisorAssignment(staff, s);
         var supervisorDraft = await Create(lecturer, supervisor.Id);
         supervisorDraft = await Body<EvaluationDraftDto>(await Save(lecturer, supervisorDraft, s));
         await using (var db = database.CreateContext())

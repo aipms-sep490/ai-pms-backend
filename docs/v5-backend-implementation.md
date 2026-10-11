@@ -11,9 +11,9 @@ Frontend is maintained separately by Tin. This change contains no frontend edits
 
 | Phase | Tickets | Status | Evidence / remaining work |
 |---|---|---|---|
-| 1 | BE-01, BE-02 | IMPLEMENTED_PENDING_REVIEW | Manifest-driven bootstrap, pre-v5 upgrade/parity/rerun tests and three-major input seed; 1,014 unit and 1,119 integration tests pass locally; shared rollout pending |
-| 2 | BE-03/04/05/10/11, BE-N12 | NOT_STARTED | Frozen academic authority, D17, shared capabilities, permission catalog |
-| 3 | BE-07/08 | DEPENDENCY_PENDING | PR #110 is draft at ce42e1362aef23f560b1c1a4f906ad58e4da4859; targeted locked evidence still requires review and positive acceptance |
+| 1 | BE-01, BE-02 | DELIVERED | PR #111 merged as f24db3853f5bca12e28ac30aae763e2caf31d7b6; CI passed; shared additive contribution migration/rerun and selected readiness passed |
+| 2 | BE-03/04/05/10/11, BE-N12 | IN_PROGRESS | Frozen academic authority, D17, scoped component edit, shared capabilities and policy catalog implemented; final validation/review pending |
+| 3 | BE-07/08 | IN_PROGRESS | User authorized takeover of PR #110 on 2026-10-11; baseline ce42e1362aef23f560b1c1a4f906ad58e4da4859; structured targets and exact-version download still require implementation and positive acceptance |
 | 4 | BE-09/17, BE-N11 | NOT_STARTED | Versioned scheme/calculation, typed results and publication readiness |
 | 5 | BE-N01 | NOT_STARTED | Major-specific COLD checklist and immutable submission versions |
 | 6 | BE-N02/03 | NOT_STARTED | Scoped COLD grading and readiness dashboard |
@@ -34,8 +34,7 @@ Frontend is maintained separately by Tin. This change contains no frontend edits
   lead department. Participating departments act only within assigned components.
   Admin is not an academic evaluator/publisher by platform role alone; semester,
   period, qualification policy and existing supervisor appointment administration
-  remain Admin-controlled. Existing pre-v5 Admin publication behavior is not yet
-  changed by phase 1.
+  remain Admin-controlled. Phase 2 replaces the pre-v5 Admin publication behavior.
 - Scoring stage ON_GOING/COLD/DEFENSE is independent of target scope.
 - Demo student weights: Common 50%, Own Major 30%, Individual 20%. Demo project:
   Common 50%, MajorAggregate 50%. Industry is advisory; major gate is off. No
@@ -84,7 +83,11 @@ be applied after the release review; no historical snapshot backfill is planned.
 
 ## Rollout gate
 
-No migration or lifecycle mutation has been applied to shared `AI_PMS` by this
-work. Run isolated tests first, obtain CI/review for each dependency PR, then
+After PR #111 passed CI and merged, the existing contribution migration and rerun
+were applied to shared `AI_PMS` with QUOTED_IDENTIFIER ON. Snapshot rows remain zero;
+checked users/projects/evaluations/student-results counts did not change. The
+selected after-report is `docs/validation/v5-shared-schema-after-foundation-2026-10-11.json`.
+No business backfill or lifecycle test was run there. Phase 2 has not been rolled out.
+Run isolated tests first, obtain CI/review for each dependency PR, then
 deploy compatible application/schema changes and enable features individually.
 Do not infer readiness from table count, mock responses or this tracker.
