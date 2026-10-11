@@ -9,6 +9,7 @@ public interface IEvaluationSchemeService
     Task<AIPMS.Application.Common.Models.PagedResult<EligibleEvaluatorDto>> CandidatesAsync(long projectId, long periodId,
         long componentId, string? scope, long? majorId, long? studentId, int page, int pageSize, CancellationToken ct);
     Task<EvaluationSchemeDto> SaveAsync(long? id, SaveEvaluationSchemeRequest input, CancellationToken ct);
+    Task<EvaluationSchemeDto> UpdateComponentAsync(long schemeId, long componentId, UpdateSchemeComponentRequest input, CancellationToken ct);
     Task<EvaluationSchemeDto> GetAsync(long id, CancellationToken ct);
     Task<IReadOnlyList<EvaluationSchemeDto>> ListAsync(long projectId, CancellationToken ct);
     Task<EvaluationSchemeDto> PublishAsync(long id, string token, CancellationToken ct);

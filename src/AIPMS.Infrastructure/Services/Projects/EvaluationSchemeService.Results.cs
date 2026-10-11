@@ -19,10 +19,13 @@ internal sealed partial class EvaluationSchemeService
     private async Task<ResultCheck> Check(long projectId, long? studentId, CancellationToken ct, bool publishing = false)
     {
         await Manage(projectId, ct);
+        var actor = (await evaluations.GetActorAsync(Actor, ct))!;
+        var project = (await evaluations.GetProjectAsync(projectId, ct))!;
+        if (!AcademicAuthority.HasScope(actor, project) || publishing && !AcademicAuthority.IsLead(actor, project))
+            throw new ForbiddenException("Only the frozen lead department may publish project or student results.");
         var scheme = await db.Set<EvaluationScheme>().Include(x => x.Components)
             .SingleOrDefaultAsync(x => x.ProjectId == projectId && x.Status == "PUBLISHED", ct)
             ?? throw new ConflictException("A published scoped evaluation scheme is required. Legacy results remain read-only.");
-        var actor = (await evaluations.GetActorAsync(Actor, ct))!;
         var students = JsonSerializer.Deserialize<SchemeStudent[]>(scheme.StudentsJson)!;
         if (scheme.CalculationRule != EvaluationSchemeRules.CalculationRule)
             throw new ConflictException("This calculation rule is not supported by the current scorer.");
@@ -32,20 +35,18 @@ internal sealed partial class EvaluationSchemeService
             : c.StudentWeightPercent > 0 && (c.Scope == "COMMON" || c.MajorId == target.MajorId)).OrderBy(c => c.Id).ToArray();
         var registration = ProjectAcademicScopeReader.ParseEvidence(scheme.RegistrationSnapshotJson)
             ?? throw new ConflictException("Frozen academic scope is unknown. Legacy results remain read-only.");
-        var publicationForbidden = false;
-        if (!actor.IsAdmin)
+        var publicationForbidden = !AcademicAuthority.IsLead(actor, project);
+        if (publicationForbidden)
         {
             var targetDepartment = target?.DepartmentId;
             var outsideReadScope = target is not null ? targetDepartment != actor.DepartmentId
                 : await db.Rubrics.AnyAsync(r => components.Select(c => c.RubricId).Contains(r.Id) && r.DepartmentId != actor.DepartmentId, ct);
-            publicationForbidden = outsideReadScope || target is null && registration.DepartmentIds.Any(id => id != actor.DepartmentId);
-            if (outsideReadScope || publicationForbidden && publishing)
-                throw new ForbiddenException("Staff may publish their students; cross-department project results require an administrator.");
+            if (outsideReadScope || publishing || !AcademicAuthority.HasScope(actor, project))
+                throw new ForbiddenException("Only the frozen lead department may publish project or student results.");
         }
-        var project = (await evaluations.GetProjectAsync(projectId, ct))!;
         var package = await submissions.GetAsync(projectId, ct) ?? throw new ConflictException("Locked final package required.");
         var blockers = new List<string>();
-        if (publicationForbidden) blockers.Add("ADMIN_REQUIRED_FOR_CROSS_DEPARTMENT_PUBLICATION");
+        if (publicationForbidden) blockers.Add("LEAD_DEPARTMENT_REQUIRED_FOR_PUBLICATION");
         if (!project.ActiveScope) blockers.Add("ACADEMIC_SCOPE_INACTIVE");
         if (package.Items.Count == 0 || package.Items.Any(i => i.Files.Count == 0)) blockers.Add("LOCKED_PACKAGE_REQUIRED");
         if (project.Status != "FINAL_SUBMISSION" && !(studentId.HasValue && project.Status == "COMPLETED")) blockers.Add("PROJECT_NOT_FINAL_SUBMISSION");
@@ -93,12 +94,12 @@ internal sealed partial class EvaluationSchemeService
                         if ((await evaluations.FindDraftAsync(slot.Id, ct))?.Status != "FINALIZED") blockers.Add($"STUDENT_EVALUATION_INCOMPLETE:{slot.Id}");
                 }
             }
-        decimal? final = blockers.Count == 0 ? EvaluationSchemeRules.Total(scores) : null;
+        decimal? final = blockers.All(b => b == "LEAD_DEPARTMENT_REQUIRED_FOR_PUBLICATION") ? EvaluationSchemeRules.Total(scores) : null;
         var inputs = JsonSerializer.Serialize(new { Scheme = Map(scheme), scheme.RegistrationSnapshotJson, target,
             Policy = await db.Set<PeriodPolicyVersion>().AsNoTracking().Where(p => p.Id == scheme.PolicyVersionId).Select(p => new { p.Id, p.Version, p.SnapshotJson }).SingleAsync(ct),
             PackageId = package.Id, project.Status, Contributions = contributions, Evaluations = frozen, Blockers = blockers });
         var token = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(inputs)));
-        var preview = new ProjectResultPreviewDto(projectId, final.HasValue, blockers, final, scheme.PassThreshold,
+        var preview = new ProjectResultPreviewDto(projectId, final.HasValue && !publicationForbidden, blockers, final, scheme.PassThreshold,
             final.HasValue ? final.Value >= scheme.PassThreshold ? "PASSED" : "FAILED" : null, token, contributions);
         return new(preview, scheme, package.Id, target?.MajorId, inputs);
     }
@@ -142,13 +143,16 @@ internal sealed partial class EvaluationSchemeService
         if (Actor != studentId) await Manage(projectId, ct);
         var row = await db.Set<StudentResult>().AsNoTracking().SingleOrDefaultAsync(r => r.ProjectId == projectId && r.StudentId == studentId, ct)
             ?? throw new NotFoundException("StudentResult", studentId);
+        var canReadAuditSnapshot = Actor != studentId && actor.IsAdmin;
         if (Actor != studentId && !actor.IsAdmin)
         {
             var scheme = await Row(row.SchemeId, ct);
-            if (!JsonSerializer.Deserialize<SchemeStudent[]>(scheme.StudentsJson)!.Any(s => s.StudentId == studentId && s.DepartmentId == actor.DepartmentId))
+            var project = (await evaluations.GetProjectAsync(projectId, ct))!;
+            canReadAuditSnapshot = AcademicAuthority.IsLead(actor, project);
+            if (!canReadAuditSnapshot && !JsonSerializer.Deserialize<SchemeStudent[]>(scheme.StudentsJson)!.Any(s => s.StudentId == studentId && s.DepartmentId == actor.DepartmentId))
                 throw new ForbiddenException();
         }
-        // Students receive their score/contributions, not other students' roster or evaluator audit snapshots.
-        return StudentDto(row) with { SnapshotJson = Actor == studentId ? "{}" : row.SnapshotJson };
+        // The publication audit snapshot contains the entire scheme roster, including other departments.
+        return StudentDto(row) with { SnapshotJson = canReadAuditSnapshot ? row.SnapshotJson : "{}" };
     }, ct);
 }

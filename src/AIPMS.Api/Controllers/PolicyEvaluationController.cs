@@ -32,6 +32,10 @@ public sealed class PolicyEvaluationController(IPeriodPolicyService policies, IE
     { var row = await schemes.SaveAsync(null, input, ct); return CreatedAtAction(nameof(Scheme), new { id = row.Id }, row); }
     [HttpPut("api/v1/evaluation-schemes/{id:long}")]
     public Task<EvaluationSchemeDto> Update(long id, SaveEvaluationSchemeRequest input, CancellationToken ct) => schemes.SaveAsync(id, input, ct);
+    /// <summary>Updates a draft component within the actor's frozen department scope; target changes require the lead department scheme workflow.</summary>
+    [HttpPut("api/v1/evaluation-schemes/{id:long}/components/{componentId:long}")]
+    public Task<EvaluationSchemeDto> UpdateComponent(long id, long componentId, UpdateSchemeComponentRequest input, CancellationToken ct) =>
+        schemes.UpdateComponentAsync(id, componentId, input, ct);
     [HttpDelete("api/v1/evaluation-schemes/{id:long}")]
     public async Task<IActionResult> Delete(long id, [FromQuery] string concurrencyToken, CancellationToken ct)
     { await schemes.DeleteAsync(id, concurrencyToken, ct); return NoContent(); }

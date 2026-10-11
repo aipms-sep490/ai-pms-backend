@@ -42,10 +42,13 @@ public sealed class EvaluationDraftDatabaseFixture : IAsyncLifetime
                 AcademicSemesterId = s.SemesterId, Status = "LOCKED" },
             ProjectMajors = [new() { Major = new() { DepartmentId = s.Users.DepartmentId,
                 Code = Guid.NewGuid().ToString("N"), Name = "Software Engineering", IsActive = true } }] };
-        var request = new M.SupervisorRequest { Project = project, SupervisorProfileId = s.Users.ProfileId,
+        var primary = new M.SupervisorProfile { User = new M.User { Email = $"primary-{Guid.NewGuid():N}@e2e.invalid",
+            FullName = "Independent primary", PasswordHash = "unused", Status = "ACTIVE", DepartmentId = s.Users.DepartmentId,
+            UserRoleUsers = [new() { RoleId = await db.Roles.Where(r => r.Code == "LECTURER").Select(r => r.Id).SingleAsync() }] } };
+        var request = new M.SupervisorRequest { Project = project, SupervisorProfile = primary,
             RequestedBy = s.Users.Student, Status = "ACCEPTED", RequestedAt = Now.AddDays(-25), RespondedAt = Now.AddDays(-24) };
         var supervisor = new M.SupervisorAssignment { Project = project, SupervisorRequest = request,
-            SupervisorProfileId = s.Users.ProfileId, IsPrimary = true, AssignedAt = Now.AddDays(-24) };
+            SupervisorProfile = primary, IsPrimary = true, AssignedAt = Now.AddDays(-24) };
         db.ProjectPeriods.Add(period);
         db.SupervisorAssignments.Add(supervisor);
         await db.SaveChangesAsync();
@@ -72,7 +75,13 @@ public sealed class EvaluationDraftDatabaseFixture : IAsyncLifetime
         }
         db.Set<RubricVersion>().Add(new() { RubricId = rubric.Id, RootRubricId = rubric.Id, VersionNumber = 1,
             Status = "PUBLISHED", ConcurrencyToken = Guid.NewGuid() });
+        var student = await db.Users.SingleAsync(u => u.Id == s.Users.Student);
+        student.MajorId = project.ProjectMajors.Single().MajorId;
+        student.AcademicProfileStatus = "VERIFIED";
+        db.TeamMembers.Add(new() { TeamId = project.TeamId, AcademicSemesterId = s.SemesterId,
+            UserId = student.Id, IsLeader = true });
         await db.SaveChangesAsync();
+        await AcademicSnapshotFixture.AddAsync(db, project.Id, period.Id, s.Users.DepartmentId, student.Id, Now.AddDays(-1));
         return new(s, project.Id, period.Id, rubric.Id, rubric.RubricCriteria.OrderBy(c => c.SortOrder).Select(c => c.Id).ToArray());
     }
 }

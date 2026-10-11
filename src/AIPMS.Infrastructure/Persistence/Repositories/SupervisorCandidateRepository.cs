@@ -56,6 +56,9 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
                 && !p.SupervisorRequests.Any(r => r.ProjectId == search.ProjectId && r.Status == "PENDING"
                     && r.AssignmentType == search.AssignmentType && r.MajorId == search.MajorId));
         if (search.ExcludedProfileId.HasValue) profiles = profiles.Where(p => p.Id != search.ExcludedProfileId);
+        if (search.AssignmentType == "PRIMARY")
+            profiles = profiles.Where(p => !context.Set<AIPMS.Infrastructure.Persistence.Models.EvaluationAssignment>()
+                .Any(a => a.ProjectId == search.ProjectId && a.EvaluatorId == p.UserId && a.Status == "ACTIVE"));
         if (!string.IsNullOrWhiteSpace(search.Search))
             profiles = profiles.Where(p => p.User.FullName.Contains(search.Search));
         if (!string.IsNullOrWhiteSpace(search.Expertise))

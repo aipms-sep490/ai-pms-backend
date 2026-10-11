@@ -158,9 +158,9 @@ public sealed partial class InterdisciplinaryWorkflowTests
         var rubric = await Body<RubricDto>(await staff.PostAsJsonAsync("/api/v1/rubrics", new CreateRubricRequest(s.LeadDepartment,
             s.Team.SemesterId, "DEPART-" + Guid.NewGuid().ToString("N"), "Assessment", null, [new("Quality", null, 100, 10, 0, true)])));
         rubric = await Body<RubricDto>(await staff.PostAsJsonAsync($"/api/v1/rubrics/{rubric.Id}/publish", new ChangeRubricStatusRequest(rubric.ConcurrencyToken)));
-        var scheme = await Body<EvaluationSchemeDto>(await adminClient.PostAsJsonAsync("/api/v1/evaluation-schemes",
+        var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
             new SaveEvaluationSchemeRequest(project.Id, evaluationPeriod, "DEPART scheme", 5, [new("Common", "COMMON", null, rubric.Id, 100, 100, 1)])));
-        scheme = await Body<EvaluationSchemeDto>(await adminClient.PostAsJsonAsync($"/api/v1/evaluation-schemes/{scheme.Id}/publish", new SchemeTokenRequest(scheme.ConcurrencyToken)));
+        scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{scheme.Id}/publish", new SchemeTokenRequest(scheme.ConcurrencyToken)));
         var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync($"/api/v1/projects/{project.Id}/evaluation-assignments",
             new AssignEvaluatorRequest(evaluatorId, evaluationPeriod, "LECTURER", "COMMON", null, null, scheme.Components.Single().Id)));
         var evaluationDraft = await Body<EvaluationDraftDto>(await evaluatorClient.PostAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evaluation", null));
@@ -173,16 +173,16 @@ public sealed partial class InterdisciplinaryWorkflowTests
         foreach (var studentId in new[] { s.Team.Students[0], memberId })
         {
             var resultUrl = $"/api/v1/projects/{project.Id}/students/{studentId}/result";
-            var preview = await Body<ProjectResultPreviewDto>(await adminClient.GetAsync(resultUrl + "/preview"));
-            var result = await Body<StudentResultDto>(await adminClient.PostAsJsonAsync(resultUrl, new PublishProjectResultRequest(preview.ConfirmationToken)));
+            var preview = await Body<ProjectResultPreviewDto>(await staff.GetAsync(resultUrl + "/preview"));
+            var result = await Body<StudentResultDto>(await staff.PostAsJsonAsync(resultUrl, new PublishProjectResultRequest(preview.ConfirmationToken)));
             Assert.Equal(8m, result.TotalScore);
         }
         var projectResultUrl = $"/api/v1/projects/{project.Id}/result";
-        var projectPreview = await Body<ProjectResultPreviewDto>(await adminClient.GetAsync(projectResultUrl + "/preview"));
+        var projectPreview = await Body<ProjectResultPreviewDto>(await staff.GetAsync(projectResultUrl + "/preview"));
         if (interdisciplinary)
-            Assert.Equal(HttpStatusCode.Forbidden, (await staff.PostAsJsonAsync(projectResultUrl,
+            Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.PostAsJsonAsync(projectResultUrl,
                 new PublishProjectResultRequest(projectPreview.ConfirmationToken))).StatusCode);
-        await Body<ProjectResultDto>(await adminClient.PostAsJsonAsync(projectResultUrl, new PublishProjectResultRequest(projectPreview.ConfirmationToken)));
+        await Body<ProjectResultDto>(await staff.PostAsJsonAsync(projectResultUrl, new PublishProjectResultRequest(projectPreview.ConfirmationToken)));
         project = await Body<ProjectDto>(await leader.GetAsync($"/api/v1/projects/{project.Id}"));
         Assert.Equal("COMPLETED", project.Status);
         Assert.NotNull(project.CompletedAt);
