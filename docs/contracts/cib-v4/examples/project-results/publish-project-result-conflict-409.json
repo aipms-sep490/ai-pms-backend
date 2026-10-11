@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/projects/42/result",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STAFF]",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "confirmationToken": "CONFIRM-EXPIRED-TOKEN"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "type": "https://tools.ietf.org/html/rfc7231#section-6.5.8",
+      "title": "Conflict",
+      "status": 409,
+      "detail": "Confirmation token is invalid or evaluation scores have changed since preview.",
+      "instance": "/api/v1/projects/42/result"
+    }
+  }
+}

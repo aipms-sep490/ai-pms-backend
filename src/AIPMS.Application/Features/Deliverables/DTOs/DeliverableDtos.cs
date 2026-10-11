@@ -1,7 +1,8 @@
 namespace AIPMS.Application.Features.Deliverables.DTOs;
 
 public sealed record DeliverableDto(long Id, long ProjectId, long? MilestoneId, string Title,
-    string? Description, string? DeliverableType, DateTime? DueAt, string Status, long CreatedBy, int LatestVersion);
+    string? Description, string? DeliverableType, DateTime? DueAt, string Status, long CreatedBy, int LatestVersion,
+    string? EvidenceScope = null, long? TargetMajorId = null, long? TargetStudentId = null);
 public sealed record ProjectFileDto(long Id, string ParentType, long ParentId, string FileName,
     string ContentType, long SizeBytes, string Sha256, long UploadedBy, DateTime CreatedAt);
 public sealed record DeliverableVersionDto(long Id, long DeliverableId, int VersionNumber, long SubmittedBy,
@@ -9,7 +10,8 @@ public sealed record DeliverableVersionDto(long Id, long DeliverableId, int Vers
 public sealed record DeliverableFeedbackDto(long Id, long ProjectId, long VersionId, long AssignmentId,
     long SupervisorUserId, string Feedback, DateTime CreatedAt);
 public sealed record SaveDeliverableRequest(long? MilestoneId, string Title, string? Description,
-    string? DeliverableType, DateTime? DueAt);
+    string? DeliverableType, DateTime? DueAt, string? EvidenceScope = null,
+    long? TargetMajorId = null, long? TargetStudentId = null);
 public sealed record ReviewDeliverableRequest(string Decision, string Feedback);
 
 public sealed record FileDownload(Stream Content, string ContentType, string FileName);

@@ -24,12 +24,21 @@ SELECT 'column',t.name+'.concurrency_token',CONVERT(bit,CASE WHEN EXISTS (
  AND TYPE_NAME(c.system_type_id)='uniqueidentifier' AND c.is_nullable=0 AND c.default_object_id<>0) THEN 1 ELSE 0 END)
 FROM (VALUES ('tasks'),('milestones'),('progress_reports'),('meetings'),('meeting_action_items'),('student_qualifications')) t(name)
 UNION ALL
+SELECT 'column','deliverables.'+t.name,CONVERT(bit,CASE WHEN EXISTS (
+ SELECT 1 FROM sys.columns c WHERE c.object_id=OBJECT_ID('dbo.deliverables') AND c.name=t.name
+ AND TYPE_NAME(c.system_type_id)=t.type_name AND c.is_nullable=1) THEN 1 ELSE 0 END)
+FROM (VALUES ('evidence_scope','varchar'),('target_major_id','bigint'),('target_student_id','bigint')) t(name,type_name)
+UNION ALL
+SELECT 'constraint','ck_deliverables_evidence_target',CONVERT(bit,CASE WHEN EXISTS (
+ SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID('dbo.deliverables')
+ AND name='ck_deliverables_evidence_target' AND is_disabled=0 AND is_not_trusted=0) THEN 1 ELSE 0 END)
+UNION ALL
 SELECT 'index',t.table_name+'.'+t.index_name,CONVERT(bit,CASE WHEN EXISTS (SELECT 1 FROM sys.indexes i
  WHERE i.object_id=OBJECT_ID('dbo.'+t.table_name) AND i.name=t.index_name AND i.is_disabled=0) THEN 1 ELSE 0 END)
 FROM (VALUES ('evaluation_assignments','uq_scoped_evaluation_assignment'),('evaluation_assignments','uq_legacy_evaluation_assignment'),('meeting_decisions','ix_meeting_decisions_meeting'),
  ('meeting_action_items','ix_meeting_action_items_meeting'),('project_result_policy_items','ix_result_policy_items_assignment'),
  ('supervisor_assignments','ux_supervisor_assignments_one_primary_active'),
- ('contribution_snapshots','ux_contribution_snapshots_hash')) t(table_name,index_name)
+ ('contribution_snapshots','ux_contribution_snapshots_hash'),('deliverables','ix_deliverables_evidence_target')) t(table_name,index_name)
 UNION ALL
 SELECT 'foreign_key',t.name,CONVERT(bit,CASE WHEN EXISTS (SELECT 1 FROM sys.foreign_keys f
  WHERE f.name=t.name AND f.is_disabled=0 AND f.is_not_trusted=0) THEN 1 ELSE 0 END)
@@ -38,7 +47,7 @@ FROM (VALUES ('fk_evaluation_assignments_project'),('fk_evaluation_assignments_e
  ('fk_final_submission_items_submission'),('fk_project_results_submission'),('fk_result_policy_items_assignment'),
  ('fk_meeting_decisions_meeting'),('fk_meeting_decisions_user'),('fk_meeting_action_items_meeting'),
  ('fk_meeting_action_items_assignee'),('fk_meeting_action_items_creator'),
- ('fk_contribution_snapshots_project'),('fk_contribution_snapshots_user')) t(name)
+ ('fk_contribution_snapshots_project'),('fk_contribution_snapshots_user'),('fk_deliverables_target_major'),('fk_deliverables_target_student')) t(name)
 UNION ALL
 SELECT 'constraint','all_foreign_keys_enabled_and_trusted',CONVERT(bit,CASE WHEN EXISTS (SELECT 1 FROM sys.foreign_keys WHERE is_disabled=1 OR is_not_trusted=1) THEN 0 ELSE 1 END)
 UNION ALL

@@ -54,7 +54,18 @@ public sealed class EvaluationDraftsController(ISender sender, IEvaluationAssign
     public Task<EvaluationAssignmentDetailDto> AssignmentDetail(long id, CancellationToken ct) => assignmentAccess.GetAsync(id, ct);
 
     [HttpGet("api/v1/evaluation-assignments/{id:long}/evidence")]
+    [ProducesResponseType<EvaluationAssignmentEvidenceDto>(200)]
     public Task<EvaluationAssignmentEvidenceDto> AssignmentEvidence(long id, CancellationToken ct) => assignmentAccess.EvidenceAsync(id, ct);
+
+    [HttpGet("api/v1/evaluation-assignments/{id:long}/evidence/files/{fileId:long}")]
+    [ProducesResponseType(typeof(FileStreamResult), 200)]
+    public async Task<IActionResult> DownloadEvidenceFile(long id, long fileId, CancellationToken ct)
+    {
+        var file = await assignmentAccess.DownloadEvidenceFileAsync(id, fileId, ct);
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers.CacheControl = "no-store";
+        return File(file.Content, file.ContentType, file.FileName);
+    }
 
     [HttpPost("api/v1/evaluation-assignments/{id:long}/evaluation")]
     [ProducesResponseType<EvaluationDraftDto>(201)]

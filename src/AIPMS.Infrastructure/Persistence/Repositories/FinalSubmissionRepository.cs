@@ -33,7 +33,7 @@ internal sealed class FinalSubmissionRepository(AipmsDbContext db) : IFinalSubmi
                         && (db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.IsPrimary && a.EndedAt == null
                                 && a.SupervisorProfile.UserId == actorId)
                             || db.Set<EvaluationAssignment>().Any(a => a.ProjectId == projectId && a.EvaluatorId == actorId
-                                && a.DepartmentId == u.DepartmentId && a.Status == "ACTIVE"
+                                && a.DepartmentId == u.DepartmentId && a.Status == "ACTIVE" && a.Scope == "COMMON"
                                 && (a.EvaluationType != "SUPERVISOR" || db.SupervisorAssignments.Any(s => s.ProjectId == projectId
                                     && s.IsPrimary && s.EndedAt == null && s.SupervisorProfile.UserId == actorId))))))), ct);
     }
@@ -91,9 +91,11 @@ internal sealed class FinalSubmissionRepository(AipmsDbContext db) : IFinalSubmi
 
     public async Task<IReadOnlyList<FinalSnapshotFile>> FilesAsync(IReadOnlyList<long> versionIds, CancellationToken ct)
     {
-        var files = await db.Files.AsNoTracking().Where(f => f.DeliverableVersionId.HasValue
+        var files = await db.Files.AsNoTracking().Include(f => f.DeliverableVersion!).ThenInclude(v => v.Deliverable).Where(f => f.DeliverableVersionId.HasValue
             && versionIds.Contains(f.DeliverableVersionId.Value)).OrderBy(f => f.Id).ToListAsync(ct);
-        return files.Select(f => new FinalSnapshotFile(f.ToDto() with { CreatedAt = Utc(f.CreatedAt) }, f.StoragePath)).ToArray();
+        return files.Select(f => new FinalSnapshotFile(f.ToDto() with { CreatedAt = Utc(f.CreatedAt) }, f.StoragePath,
+            f.DeliverableVersion!.Deliverable.EvidenceScope, f.DeliverableVersion.Deliverable.TargetMajorId,
+            f.DeliverableVersion.Deliverable.TargetStudentId)).ToArray();
     }
 
     public async Task<FinalSubmissionRecord> SubmitAsync(FinalSubmissionRecord input, CancellationToken ct)

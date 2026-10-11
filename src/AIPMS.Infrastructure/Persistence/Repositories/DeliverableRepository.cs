@@ -12,6 +12,8 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using AIPMS.Infrastructure.Services.Projects;
+using AIPMS.Infrastructure.Persistence.Models;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
@@ -100,6 +102,16 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         RequireTransaction();
         var item = id.HasValue ? await db.Deliverables.SingleAsync(d => d.Id == id, ct)
             : new M.Deliverable { ProjectId = projectId, CreatedBy = actorId, CreatedAt = now, Status = "OPEN" };
+        if (data.EvidenceScope is not null)
+        {
+            if (id.HasValue && (item.EvidenceScope != data.EvidenceScope || item.TargetMajorId != data.TargetMajorId
+                || item.TargetStudentId != data.TargetStudentId) && await db.DeliverableVersions.AnyAsync(v => v.DeliverableId == item.Id, ct))
+                throw new ConflictException("Evidence targets are immutable after the first submitted version.");
+            await ValidateTargetAsync(projectId, actorId, data.EvidenceScope, data.TargetMajorId, data.TargetStudentId, false, ct);
+            item.EvidenceScope = data.EvidenceScope;
+            item.TargetMajorId = data.TargetMajorId;
+            item.TargetStudentId = data.TargetStudentId;
+        }
         item.MilestoneId = data.MilestoneId;
         item.Title = data.Title.Trim();
         item.Description = data.Description?.Trim();
@@ -134,6 +146,8 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
     {
         RequireTransaction();
         var item = await db.Deliverables.SingleAsync(d => d.Id == id, ct);
+        if (item.EvidenceScope is not null)
+            await ValidateTargetAsync(item.ProjectId, actorId, item.EvidenceScope, item.TargetMajorId, item.TargetStudentId, true, ct);
         var version = new M.DeliverableVersion { DeliverableId = id, VersionNumber = number, SubmittedBy = actorId,
             SubmissionNote = note, SubmittedAt = now, CreatedAt = now, UpdatedAt = now, Status = "SUBMITTED" };
         var metadata = NewFile(storageKey, file, actorId, now);
@@ -250,6 +264,29 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         RequireTransaction();
         db.Files.Remove(await db.Files.SingleAsync(f => f.Id == id, ct));
         await db.SaveChangesAsync(ct);
+    }
+
+    private async Task ValidateTargetAsync(long projectId, long actorId, string scope, long? majorId, long? studentId,
+        bool submitting, CancellationToken ct)
+    {
+        if (!(scope == "COMMON" && majorId is null && studentId is null
+            || scope == "MAJOR_SPECIFIC" && majorId is > 0 && studentId is null
+            || scope == "INDIVIDUAL" && majorId is > 0 && studentId is > 0))
+            throw new ConflictException("Invalid evidence target.");
+        var json = await db.Set<ProjectRegistrationSnapshot>().Where(s => s.ProjectId == projectId)
+            .OrderByDescending(s => s.Id).Select(s => s.SnapshotJson).FirstOrDefaultAsync(ct);
+        var evidence = json is null ? null : ProjectAcademicScopeReader.ParseEvidence(json);
+        if (evidence is null || majorId.HasValue && !evidence.Scope.Requirements.Any(m => m.MajorId == majorId)
+            || studentId.HasValue && !evidence.Members.Any(m => m.UserId == studentId && m.MajorId == majorId))
+            throw new ConflictException("Evidence target requires a proven frozen project roster and major scope.");
+        if (submitting && (scope == "INDIVIDUAL" && studentId != actorId
+            || majorId.HasValue && !evidence.Members.Any(m => m.UserId == actorId && m.MajorId == majorId)))
+            throw new ForbiddenException("Students may submit only within their frozen evidence target.");
+        if (!submitting && !await ProjectExecutionAuthority.IsManagerAsync(db, projectId, actorId, ct)
+            && !(scope == "MAJOR_SPECIFIC" && await db.SupervisorAssignments.AnyAsync(a => a.ProjectId == projectId
+                && a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId == majorId && a.EndedAt == null
+                && a.SupervisorProfile.UserId == actorId, ct)))
+            throw new ForbiddenException("Only the project leader, Primary or responsible major Mentor may declare this evidence target.");
     }
 
     private static M.File NewFile(string key, ValidatedUpload file, long actor, DateTime now) => new()

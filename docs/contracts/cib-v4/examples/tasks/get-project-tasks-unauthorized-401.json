@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/tasks/project/42",
+    "headers": {}
+  },
+  "response": {
+    "status": 401,
+    "body": {
+      "type": "https://tools.ietf.org/html/rfc7235#section-3.1",
+      "title": "Unauthorized",
+      "status": 401,
+      "detail": "Authentication credentials were not provided or are invalid."
+    }
+  }
+}

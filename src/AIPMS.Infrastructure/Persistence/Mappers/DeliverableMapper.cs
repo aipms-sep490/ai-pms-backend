@@ -8,7 +8,8 @@ internal static class DeliverableMapper
 {
     public static readonly Expression<Func<M.Deliverable, DeliverableDto>> Projection = d =>
         new(d.Id, d.ProjectId, d.MilestoneId, d.Title, d.Description, d.DeliverableType, d.DueAt,
-            d.Status, d.CreatedBy, d.DeliverableVersions.Select(v => (int?)v.VersionNumber).Max() ?? 0);
+            d.Status, d.CreatedBy, d.DeliverableVersions.Select(v => (int?)v.VersionNumber).Max() ?? 0,
+            d.EvidenceScope, d.TargetMajorId, d.TargetStudentId);
 
     public static readonly Expression<Func<M.File, ProjectFileDto>> FileProjection = f =>
         new(f.Id, f.TaskId != null ? "TASK" : f.DeliverableVersionId != null ? "VERSION" : f.ProgressReportId != null ? "REPORT" : f.MeetingId != null ? "MEETING" : "FEEDBACK",

@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/projects/42/evaluation-assignments",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STAFF]",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "evaluatorId": 3001,
+      "periodId": 10,
+      "evaluationType": "LECTURER",
+      "scope": "COMMON"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "type": "https://tools.ietf.org/html/rfc7231#section-6.5.8",
+      "title": "Conflict",
+      "status": 409,
+      "detail": "Evaluator is already assigned to this project with active status in the selected scope.",
+      "instance": "/api/v1/projects/42/evaluation-assignments"
+    }
+  }
+}

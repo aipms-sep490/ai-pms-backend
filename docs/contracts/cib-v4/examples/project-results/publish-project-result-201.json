@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/projects/42/result",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STAFF]",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "confirmationToken": "CONFIRM-PRJ-42-88219-XYZ"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": 901,
+      "projectId": 42,
+      "totalScore": 8.2,
+      "passThreshold": 5.0,
+      "outcome": "PASSED",
+      "calculationRule": "WEIGHTED_MEAN",
+      "publishedByUserId": 2001,
+      "publishedAt": "2026-10-10T04:00:00Z"
+    }
+  }
+}

@@ -175,7 +175,47 @@ public sealed class TaskValidatorTests
         result.ShouldHaveValidationErrorFor(x => x.PageSize);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void GetTasks_InvalidMajorId_ShouldFail(long majorId)
+    {
+        var validator = new GetTasksQueryValidator();
+        var query = new GetTasksQuery(1, null, null, null, null, null, null, null, null, null, 1, 10, majorId);
+        var result = validator.TestValidate(query);
+        result.ShouldHaveValidationErrorFor(x => x.MajorId);
+    }
+
+    [Fact]
+    public void GetTasks_ValidMajorId_ShouldPass()
+    {
+        var validator = new GetTasksQueryValidator();
+        var query = new GetTasksQuery(1, null, null, null, null, null, null, null, null, null, 1, 10, 5L);
+        var result = validator.TestValidate(query);
+        result.ShouldNotHaveValidationErrorFor(x => x.MajorId);
+    }
+
+    [Fact]
+    public void GetTasks_NullMajorId_ShouldPass()
+    {
+        var validator = new GetTasksQueryValidator();
+        var query = new GetTasksQuery(1, null, null, null, null, null, null, null, null, null, 1, 10, null);
+        var result = validator.TestValidate(query);
+        result.ShouldNotHaveValidationErrorFor(x => x.MajorId);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("PRIMARY", true)]
+    [InlineData("SUPPORTING", true)]
+    [InlineData("SECONDARY", false)]
+    [InlineData("UNKNOWN", false)]
+    public void Task_discipline_filter_uses_canonical_role_codes(string role, bool valid)
+    {
+        var result = new GetTasksQueryValidator().Validate(new GetTasksQuery(1, DisciplineRole: role));
+        Assert.Equal(valid, result.IsValid);
+    }
 
     private static CreateTaskCommand MakeCreate(
         long milestoneId = 1,

@@ -5,7 +5,8 @@ namespace AIPMS.Application.Features.FinalSubmissions.Models;
 
 public sealed record FinalRequirementsRecord(string ConcurrencyToken, IReadOnlyList<long> DeliverableIds);
 public sealed record FinalRequiredDeliverable(long Id, string Title);
-public sealed record FinalSnapshotFile(ProjectFileDto Metadata, string StorageKey);
+public sealed record FinalSnapshotFile(ProjectFileDto Metadata, string StorageKey,
+    string? EvidenceScope = null, long? TargetMajorId = null, long? TargetStudentId = null);
 public sealed record FinalSnapshotItem(long DeliverableVersionId, long DeliverableId, string Title,
     int VersionNumber, string StatusAtSubmission, bool WasRequired, IReadOnlyList<FinalSnapshotFile> Files);
 public sealed record FinalSubmissionRecord(long Id, long ProjectId, long ProjectPeriodId, long SubmittedBy,

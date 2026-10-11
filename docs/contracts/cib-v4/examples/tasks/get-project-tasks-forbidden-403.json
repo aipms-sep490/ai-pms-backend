@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/tasks/project/99",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STUDENT_FOREIGN]"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "type": "https://tools.ietf.org/html/rfc7231#section-6.5.3",
+      "title": "Forbidden",
+      "status": 403,
+      "detail": "You do not have access to this project.",
+      "instance": "/api/v1/tasks/project/99"
+    }
+  }
+}

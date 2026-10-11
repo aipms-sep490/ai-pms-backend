@@ -12,7 +12,7 @@ Frontend is maintained separately by Tin. This change contains no frontend edits
 | Phase | Tickets | Status | Evidence / remaining work |
 |---|---|---|---|
 | 1 | BE-01, BE-02 | DELIVERED | PR #111 merged as f24db3853f5bca12e28ac30aae763e2caf31d7b6; CI passed; shared additive contribution migration/rerun and selected readiness passed |
-| 2 | BE-03/04/05/10/11, BE-N12 | IN_PROGRESS | Frozen academic authority, D17, scoped component edit, shared capabilities and policy catalog implemented; final validation/review pending |
+| 2 | BE-03/04/05/10/11, BE-N12 | DELIVERED | PR #112 merged as 942edb2c30deb55c8a544d994d3fa013576ef577; 1022 unit/1127 integration passed; CI passed; seed-only catalog applied/rerun on shared DB |
 | 3 | BE-07/08 | IN_PROGRESS | User authorized takeover of PR #110 on 2026-10-11; baseline ce42e1362aef23f560b1c1a4f906ad58e4da4859; structured targets and exact-version download still require implementation and positive acceptance |
 | 4 | BE-09/17, BE-N11 | NOT_STARTED | Versioned scheme/calculation, typed results and publication readiness |
 | 5 | BE-N01 | NOT_STARTED | Major-specific COLD checklist and immutable submission versions |
@@ -87,7 +87,10 @@ After PR #111 passed CI and merged, the existing contribution migration and reru
 were applied to shared `AI_PMS` with QUOTED_IDENTIFIER ON. Snapshot rows remain zero;
 checked users/projects/evaluations/student-results counts did not change. The
 selected after-report is `docs/validation/v5-shared-schema-after-foundation-2026-10-11.json`.
-No business backfill or lifecycle test was run there. Phase 2 has not been rolled out.
+No business backfill or lifecycle test was run there. After PR #112 passed CI and
+merged, phase 2 catalog seed ran twice on AI_PMS. All six policy codes exist;
+checked business and role-grant row counts are unchanged. Evidence:
+`docs/validation/v5-academic-catalog-rollout-2026-10-11.json`.
 Run isolated tests first, obtain CI/review for each dependency PR, then
 deploy compatible application/schema changes and enable features individually.
 Do not infer readiness from table count, mock responses or this tracker.

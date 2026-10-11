@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/student-qualifications/me/certificate",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STUDENT]"
+    },
+    "note": "File is 21 MiB (22,020,096 bytes). This passes the 22 MB HTTP transport ceiling, but fails business validation in UploadValidator.MaxBytes.",
+    "form": {
+      "qualificationType": "CAPSTONE_READINESS",
+      "trainingStatus": "TRAINING_COMPLETED",
+      "certificateNumber": "CERT-2026-9999",
+      "file": "[binary: cert_oversized.pdf, 21 MiB]"
+    }
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+      "title": "One or more validation errors occurred.",
+      "status": 400,
+      "detail": "File name or size is invalid (maximum 20 MiB).",
+      "instance": "/api/v1/student-qualifications/me/certificate",
+      "traceId": "00-7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d-0000000000000000-00",
+      "errors": {
+        "File": [
+          "File name or size is invalid (maximum 20 MiB)."
+        ]
+      }
+    }
+  }
+}

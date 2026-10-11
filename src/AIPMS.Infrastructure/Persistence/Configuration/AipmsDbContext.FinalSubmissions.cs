@@ -8,6 +8,16 @@ public partial class AipmsDbContext
 {
     private static void ConfigureFinalSubmissions(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Deliverable>(e =>
+        {
+            e.Property(x => x.EvidenceScope).HasColumnName("evidence_scope").HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.TargetMajorId).HasColumnName("target_major_id");
+            e.Property(x => x.TargetStudentId).HasColumnName("target_student_id");
+            e.HasOne<Major>().WithMany().HasForeignKey(x => x.TargetMajorId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.TargetStudentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => new { x.ProjectId, x.EvidenceScope, x.TargetMajorId, x.TargetStudentId })
+                .HasDatabaseName("ix_deliverables_evidence_target");
+        });
         modelBuilder.Entity<FinalSubmissionRequirements>(e =>
         {
             e.ToTable("final_submission_requirements");

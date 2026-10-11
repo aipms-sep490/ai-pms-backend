@@ -285,8 +285,10 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             && a.StudentId == input.StudentId && a.Status == "ACTIVE");
         if (await assignments.AnyAsync(a => a.EvaluatorId == input.EvaluatorId, ct) || await assignments.CountAsync(ct) >= component.RequiredEvaluators)
             throw new ConflictException("The evaluator already occupies this slot or the component is fully assigned.");
+        var packageId = await db.Set<FinalSubmission>().Where(s => s.ProjectId == projectId).Select(s => s.Id).SingleAsync(ct);
         return new(component.Id, scheme.Id, component.Scope, component.MajorId, input.StudentId, component.RubricId,
-            scheme.PolicyVersionId.Value, JsonSerializer.Serialize(new { Scheme = Map(scheme), component, input.StudentId, EvaluatorSource = input.EvaluationType }));
+            scheme.PolicyVersionId.Value, JsonSerializer.Serialize(new { Scheme = Map(scheme), component, input.StudentId,
+                FinalSubmissionId = packageId, EvaluatorSource = input.EvaluationType }));
     }
     public async Task EnsureWritableAsync(EvaluationAssignmentRecord assignment, CancellationToken ct)
     {

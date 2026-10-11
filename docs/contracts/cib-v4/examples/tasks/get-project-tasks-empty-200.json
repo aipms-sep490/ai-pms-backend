@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/tasks/project/42?status=BLOCKED&page=1&pageSize=10",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STUDENT]"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [],
+      "page": 1,
+      "pageSize": 10,
+      "totalCount": 0,
+      "totalPages": 0,
+      "hasNextPage": false,
+      "hasPreviousPage": false
+    }
+  }
+}

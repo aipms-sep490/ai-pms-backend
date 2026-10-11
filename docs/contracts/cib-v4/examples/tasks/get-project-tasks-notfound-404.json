@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/tasks/project/99999",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_ADMIN]"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
+      "title": "Not Found",
+      "status": 404,
+      "detail": "Project with id 99999 was not found.",
+      "instance": "/api/v1/tasks/project/99999"
+    }
+  }
+}
