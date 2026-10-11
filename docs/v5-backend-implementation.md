@@ -17,8 +17,8 @@ Frontend is maintained separately by Tin. This change contains no frontend edits
 | 4 | BE-09/17, BE-N11 | DELIVERED | PR #113 merged as 3619ea0505173f73370c700dabcf643218462f90; CI/1053 unit/1171 integration passed; nullable scheme metadata migration/rerun verified on shared DB |
 | 5 | BE-N01 | DELIVERED | PR #114 merged as 9b5a6dfe5454edccabe7467a5523838a7d39d7a0; CI/1053 unit/1185 integration and isolated parity/bootstrap passed; five-table migration/rerun verified on shared DB |
 | 6 | BE-N02/03 | DELIVERED | PR #115 merged as 868bd82725248290bef4169ecca984e76a9ba199; CI 1054 unit/1193 integration passed; nullable stage/package migration/rerun verified on shared DB |
-| 7 | BE-N04 | IN_PROGRESS | Primary-only weekly draft/submit/revision/history and frozen demo rubric implemented; Release warnings-as-errors, 1055 unit/1197 integration, isolated bootstrap/rerun passed; final guard focused rerun 4/4 passed; PR/CI/shared rollout pending |
-| 8 | BE-12/13/14 | NOT_STARTED | Evidence decisions, tracking-only checkpoint, defense scheduling |
+| 7 | BE-N04 | DELIVERED | PR #116 merged as af4cce03b8c75a400f33260d46656b81f2760594; CI, 1055 unit/1197 integration, isolated bootstrap/rerun passed; two-table shared migration/rerun verified |
+| 8 | BE-12/13/14 | IN_PROGRESS | Exact-source reviews/checkpoints/defense schedule implemented; 1055 unit/1205 integration passed with zero skips, isolated bootstrap/rerun passed; after queue/Swagger additions 9 focused tests passed; CI/rollout pending; contract in v5-academic-tracking.md |
 | 9 | BE-06, BE-N05/06/07 | NOT_STARTED | Calendar, leader change, RSVP, recurrence and notes locking |
 | 10 | BE-N08 | NOT_STARTED | Sprint, task board data and history-derived burndown |
 | 11 | BE-N09 | NOT_STARTED | Multiple chat attachments, reactions, mute |
@@ -107,6 +107,10 @@ After PR #115 passed CI and merged, COLD evaluation stage migration ran twice on
 AI_PMS. Three nullable columns, three trusted checks, one FK and one index verified;
 legacy stages remain null and checked business counts are unchanged. Evidence:
 `docs/validation/v5-cold-evaluation-rollout-2026-10-11.json`.
+After PR #116 passed CI and merged, weekly assessment migration ran twice on
+AI_PMS. Two tables, six trusted checks, eight trusted FKs and four unique indexes
+verified; new tables are empty and checked business counts are unchanged.
+Evidence: `docs/validation/v5-weekly-assessments-rollout-2026-10-12.json`.
 Run isolated tests first, obtain CI/review for each dependency PR, then
 deploy compatible application/schema changes and enable features individually.
 Do not infer readiness from table count, mock responses or this tracker.

@@ -17,17 +17,23 @@ namespace AIPMS.Api.Controllers;
 public sealed class WeeklyAssessmentsController(IWeeklyAssessmentService service) : ControllerBase
 {
     [HttpGet("api/v1/projects/{projectId:long}/weekly-assessments/weeks")]
+    [ProducesResponseType<WeeklyAssessmentCalendar>(200)]
     public Task<WeeklyAssessmentCalendar> Weeks(long projectId, CancellationToken ct) => service.Calendar(projectId, ct);
     [HttpGet("api/v1/projects/{projectId:long}/weekly-assessments/rubrics")]
+    [ProducesResponseType<PagedResult<RubricRecord>>(200)]
     public Task<PagedResult<RubricRecord>> Rubrics(long projectId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
         CancellationToken ct = default) => service.AvailableRubrics(projectId, page, pageSize, ct);
     [HttpGet("api/v1/projects/{projectId:long}/weekly-assessments")]
+    [ProducesResponseType<PagedResult<WeeklyAssessmentDto>>(200)]
     public Task<PagedResult<WeeklyAssessmentDto>> History(long projectId, [FromQuery] long? studentId, [FromQuery] int? weekNumber,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) => service.History(projectId, studentId, weekNumber, page, pageSize, ct);
     [HttpPost("api/v1/projects/{projectId:long}/weekly-assessments/draft")]
+    [ProducesResponseType<WeeklyAssessmentDto>(200)]
     public Task<WeeklyAssessmentDto> Save(long projectId, SaveWeeklyAssessmentRequest request, CancellationToken ct) => service.Save(projectId, request, ct);
     [HttpGet("api/v1/weekly-assessments/{id:long}")]
+    [ProducesResponseType<WeeklyAssessmentDto>(200)]
     public Task<WeeklyAssessmentDto> Get(long id, CancellationToken ct) => service.Get(id, ct);
     [HttpPost("api/v1/weekly-assessments/{id:long}/submit")]
+    [ProducesResponseType<WeeklyAssessmentDto>(200)]
     public Task<WeeklyAssessmentDto> Submit(long id, SubmitWeeklyAssessmentRequest request, CancellationToken ct) => service.Submit(id, request.ConcurrencyToken, ct);
 }
