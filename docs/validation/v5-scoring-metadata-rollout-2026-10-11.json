@@ -1,0 +1,12 @@
+{
+  "database": "AI_PMS",
+  "migration": "20261011_add_scheme_governance_metadata.sql",
+  "mergedCommit": "3619ea0505173f73370c700dabcf643218462f90",
+  "executions": 2,
+  "nullableColumns": 3,
+  "trustedChecks": 2,
+  "schemesWithDeclaredMetadata": 0,
+  "checkedBusinessCountsUnchanged": true,
+  "lifecycleTestsRun": false,
+  "verifiedAtUtc": "2026-10-11T13:33:12.1129143Z"
+}

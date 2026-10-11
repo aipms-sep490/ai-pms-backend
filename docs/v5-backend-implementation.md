@@ -14,8 +14,8 @@ Frontend is maintained separately by Tin. This change contains no frontend edits
 | 1 | BE-01, BE-02 | DELIVERED | PR #111 merged as f24db3853f5bca12e28ac30aae763e2caf31d7b6; CI passed; shared additive contribution migration/rerun and selected readiness passed |
 | 2 | BE-03/04/05/10/11, BE-N12 | DELIVERED | PR #112 merged as 942edb2c30deb55c8a544d994d3fa013576ef577; 1022 unit/1127 integration passed; CI passed; seed-only catalog applied/rerun on shared DB |
 | 3 | BE-07/08 | DELIVERED | PR #110 merged as f5d9ef1bdd4b058274b183de4ba7cc23f894ab23; CI 1041 unit/1167 integration passed; positive targeted upload-lock-download-revoke journeys; target migration/rerun on shared DB verified |
-| 4 | BE-09/17, BE-N11 | IN_PROGRESS | Versioned scheme/calculation and typed historical results implemented; focused tests passed; full regression, contract and rollout pending |
-| 5 | BE-N01 | NOT_STARTED | Major-specific COLD checklist and immutable submission versions |
+| 4 | BE-09/17, BE-N11 | DELIVERED | PR #113 merged as 3619ea0505173f73370c700dabcf643218462f90; CI/1053 unit/1171 integration passed; nullable scheme metadata migration/rerun verified on shared DB |
+| 5 | BE-N01 | IN_PROGRESS | Major-specific COLD checklist, target-scoped version/upload/submit/lock/history implemented; Release warnings-as-errors, 1053 unit/1185 integration and isolated bootstrap/rerun passed; PR/CI/shared rollout pending |
 | 6 | BE-N02/03 | NOT_STARTED | Scoped COLD grading and readiness dashboard |
 | 7 | BE-N04 | NOT_STARTED | Weekly demo rubric, primary-only scores and submitted history |
 | 8 | BE-12/13/14 | NOT_STARTED | Evidence decisions, tracking-only checkpoint, defense scheduling |
@@ -95,6 +95,10 @@ After PR #110 passed CI and merged, the nullable deliverable target migration ra
 twice on AI_PMS. Three columns, the trusted check/two FKs and index were verified;
 declared targets remain zero and checked business counts are unchanged. Evidence:
 `docs/validation/v5-evidence-target-rollout-2026-10-11.json`.
+After PR #113 passed CI and merged, scheme governance metadata migration ran
+twice on AI_PMS. Three nullable columns/two trusted JSON checks were verified,
+existing schemes retain unknown metadata, checked business counts are unchanged:
+`docs/validation/v5-scoring-metadata-rollout-2026-10-11.json`.
 Run isolated tests first, obtain CI/review for each dependency PR, then
 deploy compatible application/schema changes and enable features individually.
 Do not infer readiness from table count, mock responses or this tracker.
