@@ -228,6 +228,10 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.Evaluations.Abstractions.IEvaluationAssignmentAccessService,
             Services.Projects.EvaluationAssignmentAccessService>();
         services.AddScoped<IEvaluationSchemeService, EvaluationSchemeService>();
+        services.AddScoped<Application.Features.WeeklyAssessments.Abstractions.IWeeklyAssessmentService, WeeklyAssessmentService>();
+        services.AddOptions<Application.Features.WeeklyAssessments.WeeklyAssessmentSettings>().BindConfiguration("WeeklyAssessment")
+            .Validate(s => { if (string.IsNullOrWhiteSpace(s.TimeZoneId)) return false; try { _ = TimeZoneInfo.FindSystemTimeZoneById(s.TimeZoneId); return true; } catch (TimeZoneNotFoundException) { return false; } catch (InvalidTimeZoneException) { return false; } },
+                "WeeklyAssessment:TimeZoneId must name an installed time zone.").ValidateOnStart();
         services.AddScoped<AIPMS.Application.Features.Cold.Abstractions.IColdSubmissionService, ColdSubmissionService>();
         services.AddScoped<Application.Features.Semesters.Abstractions.IPeriodPolicyService, PeriodPolicyService>();
         services.AddScoped<IProjectResultRepository, ProjectResultRepository>();
