@@ -297,7 +297,7 @@ public sealed class TaskRepositoryPersistenceTests
         db.Tasks.Add(new TaskEntity { Id = 1, MilestoneId = 1, Title = "Task Shared", Status = "TODO", Priority = "NORMAL", CreatedBy = 10 });
         db.TaskDisciplines.AddRange(
             new TaskDiscipline { TaskId = 1, MajorId = 100, Role = "PRIMARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow },
-            new TaskDiscipline { TaskId = 1, MajorId = 200, Role = "SECONDARY", CreatedBy = 10, CreatedAt = DateTime.UtcNow }
+            new TaskDiscipline { TaskId = 1, MajorId = 200, Role = "SUPPORTING", CreatedBy = 10, CreatedAt = DateTime.UtcNow }
         );
         await db.SaveChangesAsync();
 

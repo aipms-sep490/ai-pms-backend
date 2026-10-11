@@ -148,7 +148,7 @@ internal class StubTaskRepository : ITaskRepository
     public int DeleteCallCount { get; set; }
     public int CreateCallCount { get; set; }
 
-    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, long? majorId, CancellationToken cancellationToken)
+    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, long? majorId, CancellationToken cancellationToken, string? disciplineRole = null)
     {
         LastQueriedProjectId = projectId;
         var query = Tasks.AsEnumerable();

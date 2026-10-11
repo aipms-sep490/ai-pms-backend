@@ -525,7 +525,7 @@ public class TestTaskRepo : ITaskRepository
     public Task<TaskDto?> GetByIdAsync(long id, CancellationToken cancellationToken) =>
         Task.FromResult(Tasks.FirstOrDefault(t => t.Id == id));
 
-    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, long? majorId, CancellationToken cancellationToken)
+    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, long? majorId, CancellationToken cancellationToken, string? disciplineRole = null)
     {
         var filtered = Tasks.Where(t => !TaskProjects.TryGetValue(t.Id, out var pId) || pId == projectId);
 

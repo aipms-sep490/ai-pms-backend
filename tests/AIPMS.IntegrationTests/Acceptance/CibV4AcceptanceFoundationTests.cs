@@ -45,28 +45,6 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
         student.MajorId = major;
         student.AcademicProfileStatus = "VERIFIED";
 
-        db.TeamMembers.Add(new()
-        {
-            TeamId = project.TeamId,
-            AcademicSemesterId = s.Scope.SemesterId,
-            UserId = student.Id,
-            IsLeader = true
-        });
-
-        db.Set<ProjectRegistrationSnapshot>().Add(new()
-        {
-            ProjectId = project.Id,
-            ProjectPeriodId = s.PeriodId,
-            LeadDepartmentId = s.Scope.Users.DepartmentId,
-            SubmittedBy = student.Id,
-            SubmittedAt = EvaluationDraftDatabaseFixture.Now.AddDays(-1),
-            SnapshotJson = JsonSerializer.Serialize(new RegistrationEvidence(
-                new TeamAcademicScopeDto("SINGLE_MAJOR", major, s.Scope.Users.DepartmentId, [new MajorRequirementDto(major, 1, 5, "Engineering")], Guid.NewGuid()),
-                new(1, 5, 1, "test"), 1, EvaluationDraftDatabaseFixture.Now.AddDays(-2), EvaluationDraftDatabaseFixture.Now.AddDays(2),
-                [new(student.Id, student.FullName, major, true)], [s.Scope.Users.DepartmentId],
-                MajorDepartmentIds: new Dictionary<long, long> { [major] = s.Scope.Users.DepartmentId }))
-        });
-
         await db.SaveChangesAsync();
         return (s, major);
     }
@@ -400,7 +378,7 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
         }
 
         using var factory = new EvaluationFactory(database);
-        var adminClient = factory.CreateAuthenticatedClient(s.Scope.Users.Admin, roles: ["ADMIN"]);
+        using var leadClient = factory.CreateAuthenticatedClient(s.Scope.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
 
         // Setup interdisciplinary scheme with MAJOR_SPECIFIC component for both majors
         var schemeRequest = new SaveEvaluationSchemeRequest(s.ProjectId, s.PeriodId, "Interdisciplinary Scheme", 5,
@@ -409,13 +387,13 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
                 new("Major Specific 1", "MAJOR_SPECIFIC", firstMajor, s.RubricId, 25, 50, 1),
                 new("Major Specific 2", "MAJOR_SPECIFIC", secondMajor, secondRubricId, 25, 50, 1)
             ]);
-        var draft = await ReadJsonAsync<EvaluationSchemeDto>(await adminClient.PostAsJsonAsync("/api/v1/evaluation-schemes", schemeRequest));
-        var scheme = await ReadJsonAsync<EvaluationSchemeDto>(await adminClient.PostAsJsonAsync($"/api/v1/evaluation-schemes/{draft.Id}/publish", new SchemeTokenRequest(draft.ConcurrencyToken)));
+        var draft = await ReadJsonAsync<EvaluationSchemeDto>(await leadClient.PostAsJsonAsync("/api/v1/evaluation-schemes", schemeRequest));
+        var scheme = await ReadJsonAsync<EvaluationSchemeDto>(await leadClient.PostAsJsonAsync($"/api/v1/evaluation-schemes/{draft.Id}/publish", new SchemeTokenRequest(draft.ConcurrencyToken)));
 
         var majorComponent = scheme.Components.First(c => c.Scope == "MAJOR_SPECIFIC" && c.MajorId == firstMajor);
 
-        // Admin assigns evaluator to MAJOR_SPECIFIC component
-        var assignResponse = await adminClient.PostAsJsonAsync(
+        // Frozen lead department assigns evaluator to MAJOR_SPECIFIC component
+        var assignResponse = await leadClient.PostAsJsonAsync(
             $"/api/v1/projects/{s.ProjectId}/evaluation-assignments",
             new AssignEvaluatorRequest(s.Scope.Users.Lecturer, s.PeriodId, "LECTURER", "MAJOR_SPECIFIC", firstMajor, null, majorComponent.Id));
         var assignment = await ReadJsonAsync<EvaluationAssignmentDto>(assignResponse);

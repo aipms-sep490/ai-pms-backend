@@ -206,6 +206,17 @@ public sealed class TaskValidatorTests
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
+    [Theory]
+    [InlineData("PRIMARY", true)]
+    [InlineData("SUPPORTING", true)]
+    [InlineData("SECONDARY", false)]
+    [InlineData("UNKNOWN", false)]
+    public void Task_discipline_filter_uses_canonical_role_codes(string role, bool valid)
+    {
+        var result = new GetTasksQueryValidator().Validate(new GetTasksQuery(1, DisciplineRole: role));
+        Assert.Equal(valid, result.IsValid);
+    }
+
     private static CreateTaskCommand MakeCreate(
         long milestoneId = 1,
         long? parentTaskId = null,

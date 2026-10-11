@@ -1,5 +1,12 @@
 # AI-PMS CIB v4 Contract Package & Acceptance Foundation
 
+V5 amendment (2026-10-11): this package now includes the runtime OpenAPI and
+additive target/version fields from [locked evidence](../../v5-locked-evidence.md).
+[Academic authority](../../v5-academic-authority.md) supersedes the historical
+Admin publication policy. Baseline SHAs below identify the original CIB work,
+not the current deployment. BE-FE-03 remains pending in v5 phase 4. The fixture
+foundation is distinct from complete lifecycle/FE acceptance.
+
 - **Contract Version**: `1.0.0-cib.v4`
 - **As of Date**: 2026-10-10
 - **Authoritative Backend Baseline**: `09abf9595193cbb721130f5db8dd84d67cd13116` (`origin/develop`)
@@ -142,13 +149,18 @@
   - **Scope Enforcement**:
     - `COMMON`: All locked deliverable items from the frozen package.
     - `MAJOR_SPECIFIC`: Filtered strictly to evidence matching the assignment's `majorId`.
-    - `INDIVIDUAL`: Filtered strictly to evidence matching the assignment's `studentId`.
+    - `INDIVIDUAL`: Filtered strictly to evidence matching both assignment `studentId` and `majorId`.
     - `UNKNOWN` or legacy scopes: Strictly fails closed with empty `items: []` and file download rejected with `403 Forbidden`.
   - **Package Immutability**: Uses exact frozen final submission package (`FinalSubmissionItem.FilesJson`). Live `ProjectEvidence` rows and subsequent deliverable versions uploaded after submission lock are strictly excluded.
   - **Frozen Provenance Attribution**: Student and major attribution is resolved strictly from frozen authoritative target metadata and frozen registration snapshot / published evaluation scheme provenance; free-text fields (Title, Description, Notes), physical uploader, Deliverable.CreatedBy, and live Users profiles are never used to infer ownership; missing provenance fails closed.
   - **Protected Download**: Dedicated narrow route `GET /api/v1/evaluation-assignments/{id}/evidence/files/{fileId}` enforces evaluator assignment authority, assignment scope boundary (returns `403 Forbidden` for out-of-scope files), locked package boundary (returns `404 Not Found` for files outside locked package), nosniff headers, and returns the frozen stream directly from `IFileStorage`.
 
 ### E. Locked Final Submission
+
+Major/individual evaluators use the assignment evidence routes. They cannot read
+the whole package through the generic project route. Evidence entries include
+`deliverableVersionId`, `versionNumber` and `sha256`; missing locked storage
+references return 409 without falling back to live files.
 - **Requirements**: `GET /api/v1/projects/{projectId}/final-submission/requirements`
 - **Checklist**: `GET /api/v1/projects/{projectId}/final-submission/checklist`
 - **Submit**: `POST /api/v1/projects/{projectId}/final-submission`

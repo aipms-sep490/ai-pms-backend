@@ -20,5 +20,7 @@ public sealed class GetTasksQueryValidator : AbstractValidator<GetTasksQuery>
         RuleFor(static x => x.MajorId)
             .GreaterThan(0).WithMessage("MajorId must be greater than 0.")
             .When(static x => x.MajorId.HasValue);
+        RuleFor(x => x.DisciplineRole).Must(r => r is null or "PRIMARY" or "SUPPORTING")
+            .WithMessage("DisciplineRole must be PRIMARY or SUPPORTING.");
     }
 }

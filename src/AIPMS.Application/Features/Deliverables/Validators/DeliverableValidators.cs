@@ -14,6 +14,12 @@ public sealed class SaveDeliverableRequestValidator : AbstractValidator<SaveDeli
         RuleFor(r => r.DeliverableType).MaximumLength(50);
         RuleFor(r => r.MilestoneId).GreaterThan(0).When(r => r.MilestoneId.HasValue);
         RuleFor(r => r.DueAt).Must(d => d is null || d.Value.Kind == DateTimeKind.Utc).WithMessage("DueAt must be UTC (Z).");
+        RuleFor(r => r).Must(r => r.EvidenceScope switch {
+            null or "COMMON" => r.TargetMajorId is null && r.TargetStudentId is null,
+            "MAJOR_SPECIFIC" => r.TargetMajorId is > 0 && r.TargetStudentId is null,
+            "INDIVIDUAL" => r.TargetMajorId is > 0 && r.TargetStudentId is > 0,
+            _ => false
+        }).WithMessage("Evidence scope must match its explicit major/student targets.");
     }
 }
 public sealed class CreateDeliverableCommandValidator : AbstractValidator<CreateDeliverableCommand>

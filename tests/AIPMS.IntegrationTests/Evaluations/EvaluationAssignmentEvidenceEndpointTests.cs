@@ -28,7 +28,7 @@ using Task = System.Threading.Tasks.Task;
 namespace AIPMS.IntegrationTests.Evaluations;
 
 [Collection("ProjectDbTests")]
-public sealed class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDatabaseFixture database) : IClassFixture<EvaluationDraftDatabaseFixture>
+public sealed partial class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDatabaseFixture database) : IClassFixture<EvaluationDraftDatabaseFixture>
 {
     private sealed class MemoryFileStorage : IFileStorage
     {
@@ -337,7 +337,8 @@ public sealed class EvaluationAssignmentEvidenceEndpointTests(EvaluationDraftDat
         var updatedMembers = evidenceObj.Members.ToList();
         updatedMembers.Add(new RegisteredMemberDto(studentB.Id, studentB.FullName, majorB.Id, false));
         snapshot.SnapshotJson = JsonSerializer.Serialize(new RegistrationEvidence(
-            evidenceObj.Scope,
+            evidenceObj.Scope with { ProjectMode = "INTERDISCIPLINARY", PrimaryMajorId = null,
+                Requirements = [.. evidenceObj.Scope.Requirements, new MajorRequirementDto(majorB.Id, 1, 5, "Major B")] },
             evidenceObj.Policy,
             evidenceObj.OrganizationId,
             evidenceObj.WindowStartAt,

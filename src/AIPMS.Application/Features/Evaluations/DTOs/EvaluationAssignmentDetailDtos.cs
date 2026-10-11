@@ -21,7 +21,10 @@ public sealed record EvaluationAssignmentEvidenceItemDto(
     long? MajorId,
     long? StudentId,
     DateTime? SubmittedAt,
-    string? DownloadUrl);
+    string? DownloadUrl,
+    long? DeliverableVersionId = null,
+    int? VersionNumber = null,
+    string? Sha256 = null);
 
 [method: JsonConstructor]
 public sealed record EvaluationAssignmentEvidenceDto(

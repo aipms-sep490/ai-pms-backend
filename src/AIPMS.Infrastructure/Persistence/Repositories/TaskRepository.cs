@@ -45,7 +45,8 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
         int page,
         int pageSize,
         long? majorId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? disciplineRole = null)
     {
         var query = context.Tasks
             .AsNoTracking()
@@ -117,9 +118,11 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
             }
         }
 
-        if (majorId.HasValue)
+        if (majorId.HasValue || disciplineRole is not null)
         {
-            query = query.Where(t => context.TaskDisciplines.Any(td => td.TaskId == t.Id && td.MajorId == majorId.Value));
+            query = query.Where(t => context.TaskDisciplines.Any(td => td.TaskId == t.Id
+                && (!majorId.HasValue || td.MajorId == majorId.Value)
+                && (disciplineRole == null || td.Role == disciplineRole)));
         }
 
         var totalCount = await query.CountAsync(cancellationToken);

@@ -1,0 +1,10 @@
+{
+  "database": "AI_PMS",
+  "migration": "20261011_seed_enforced_authorization_catalog.sql",
+  "mergedCommit": "942edb2c30deb55c8a544d994d3fa013576ef577",
+  "executions": 2,
+  "policyCodesPresent": 6,
+  "checkedBusinessAndGrantCountsUnchanged": true,
+  "lifecycleTestsRun": false,
+  "verifiedAtUtc": "2026-10-11T11:30:48.7574552Z"
+}

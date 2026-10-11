@@ -72,9 +72,9 @@ All 4xx and 5xx responses produce a standard RFC 7807 ProblemDetails body.
 - **Lifecycle**:
   1. **Phase 1 (Preview)**:
      - Client calls `GET /api/v1/projects/{id}/result/preview`.
-     - Server computes scores, stores an ephemeral hashed confirmation token, and returns `ProjectResultPreviewDto` with `confirmationToken`.
+     - Server computes scores and a deterministic hash of the current frozen inputs, and returns `ProjectResultPreviewDto` with `confirmationToken`.
   2. **Phase 2 (Publish)**:
      - Client calls `POST /api/v1/projects/{id}/result` with `{ "confirmationToken": "..." }`.
-     - Server validates that the token matches the calculated preview, has not expired, and has not been used previously.
+     - Server recomputes readiness and the input hash inside the publication transaction; an already published result is rejected. The current token has no separate expiry store.
      - On match, result is permanently published (`201 Created`).
      - On mismatch or stale token, server returns `409 Conflict`.

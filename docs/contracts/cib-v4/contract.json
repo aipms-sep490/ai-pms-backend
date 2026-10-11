@@ -3,6 +3,7 @@
   "contractVersion": "1.0.0-cib.v4",
   "metadata": {
     "title": "AI-PMS CIB v4 Integration Contract",
+    "v5Amendment": "2026-10-11: PR #112 authority; PR #110 targeted exact-version evidence. See docs/v5-locked-evidence.md.",
     "backendSha": "09abf9595193cbb721130f5db8dd84d67cd13116",
     "frontendSha": "eef31c2e3f733e4bc3c25f2fd5b790dcbf40a741",
     "generatedAt": "2026-10-10T00:00:00Z",
@@ -39,6 +40,7 @@
       "endpoint": "GET /api/v1/tasks/project/{projectId}?majorId={majorId}",
       "semantics": {
         "omitted": "Preserves existing behavior without discipline filtering",
+        "disciplineRole": "Optional PRIMARY or SUPPORTING; matches the same discipline row as majorId before count and paging.",
         "invalidValue": "majorId <= 0 returns 400 Bad Request",
         "foreignMajor": "major outside requested project returns 403 Forbidden; project scope validation checks frozen registration snapshot first for non-draft projects",
         "orderingAndPaging": "Filter occurs server-side before count and pagination",
@@ -56,6 +58,8 @@
       "dto": "EvaluationAssignmentEvidenceDto",
       "semantics": {
         "additiveCollection": "Existing 9 metadata fields preserved unchanged; additive items collection added",
+        "provenanceDeclaration": "Deliverable evidenceScope/targetMajorId/targetStudentId validated against frozen roster; immutable after first submission and copied to locked FilesJson.",
+        "exactVersion": "Item exposes deliverableVersionId, versionNumber and sha256. Missing locked storage reference returns 409; never resolve current file path.",
         "assignmentScoped": "Items strictly filtered by assignment project and scope (COMMON, MAJOR_SPECIFIC, INDIVIDUAL); UNKNOWN or legacy scope fails closed with 0 items and download returns 403 Forbidden",
         "frozenPackage": "Items resolved only from exact frozen final submission package (FinalSubmission + FilesJson); live ProjectEvidence rows are excluded",
         "frozenProvenance": "Attribution strictly uses frozen authoritative target metadata and frozen registration snapshot / published evaluation scheme provenance; free-text fields (Title, Description, Notes), physical uploader, Deliverable.CreatedBy, and live Users profiles are never used to infer ownership; missing provenance fails closed",

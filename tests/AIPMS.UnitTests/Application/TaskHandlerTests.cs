@@ -165,13 +165,14 @@ public sealed class TaskHandlerTests
         var accessService = new StubProjectAccessService();
         var currentUser = new TestCurrentUser(100, AppRoles.Student);
         var handler = new GetTasksQueryHandler(repository, accessService, currentUser);
-        var query = new GetTasksQuery(ProjectId: 42, MajorId: 7);
+        var query = new GetTasksQuery(ProjectId: 42, MajorId: 7, DisciplineRole: "SUPPORTING");
 
         var result = await handler.Handle(query, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal(42, repository.CapturedProjectId);
         Assert.Equal(7, repository.CapturedMajorId);
+        Assert.Equal("SUPPORTING", repository.CapturedDisciplineRole);
     }
 
     [Fact]
@@ -197,14 +198,16 @@ internal sealed class StubTaskRepository : ITaskRepository
     public TaskDto? ExistingTask { get; set; }
     public long? CapturedProjectId { get; private set; }
     public long? CapturedMajorId { get; private set; }
+    public string? CapturedDisciplineRole { get; private set; }
 
     public Task<TaskDto?> GetByIdAsync(long id, CancellationToken cancellationToken) =>
         Task.FromResult(ExistingTask?.Id == id ? ExistingTask : null);
 
-    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, long? majorId, CancellationToken cancellationToken)
+    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, long? majorId, CancellationToken cancellationToken, string? disciplineRole = null)
     {
         CapturedProjectId = projectId;
         CapturedMajorId = majorId;
+        CapturedDisciplineRole = disciplineRole;
         return Task.FromResult(new PagedResult<TaskDto>(Array.Empty<TaskDto>(), page, pageSize, 0));
     }
 

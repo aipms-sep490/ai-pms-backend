@@ -44,6 +44,7 @@ public sealed class TasksController(ISender sender) : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
         [FromQuery] long? majorId = null,
+        [FromQuery] string? disciplineRole = null,
         CancellationToken cancellationToken = default)
     {
         var query = new GetTasksQuery(
@@ -59,7 +60,7 @@ public sealed class TasksController(ISender sender) : ControllerBase
             isBlocked,
             page,
             pageSize,
-            majorId);
+            majorId, disciplineRole);
 
         return Ok(await sender.Send(query, cancellationToken));
     }

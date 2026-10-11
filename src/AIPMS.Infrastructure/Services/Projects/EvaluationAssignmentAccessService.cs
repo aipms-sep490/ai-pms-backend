@@ -11,6 +11,7 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Deliverables.DTOs;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.DTOs;
+using AIPMS.Application.Features.Evaluations.Services;
 using AIPMS.Application.Features.FinalSubmissions.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
@@ -21,7 +22,8 @@ namespace AIPMS.Infrastructure.Services.Projects;
 internal sealed class EvaluationAssignmentAccessService(
     AipmsDbContext db,
     ICurrentUser currentUser,
-    IFileStorage storage) : IEvaluationAssignmentAccessService
+    IFileStorage storage,
+    IEvaluationDraftRepository evaluations) : IEvaluationAssignmentAccessService
 {
     private sealed record InternalEvidenceItem(EvaluationAssignmentEvidenceItemDto Dto, string? StorageKey);
 
@@ -33,11 +35,34 @@ internal sealed class EvaluationAssignmentAccessService(
         var account = await db.Users.AsNoTracking().Where(u => u.Id == actor && u.Status == "ACTIVE")
             .Select(u => new { u.DepartmentId, Admin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"), Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"), Lecturer = u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER") }).SingleOrDefaultAsync(ct)
             ?? throw new ForbiddenException("An active account is required.");
-        var manager = account.Admin || account.Staff && account.DepartmentId == row.DepartmentId;
+        var academicActor = await evaluations.GetActorAsync(actor, ct) ?? throw new ForbiddenException();
+        var project = await evaluations.GetProjectAsync(row.ProjectId, ct) ?? throw new NotFoundException("Project", row.ProjectId);
+        var manager = account.Admin || AcademicAuthority.ManagesComponent(academicActor, project, row.DepartmentId);
         var evaluator = account.Lecturer && row.EvaluatorId == actor && row.Status == "ACTIVE" && account.DepartmentId == row.DepartmentId
+            && academicActor.IsLecturer && project.ActiveScope
             && (row.EvaluationType != "SUPERVISOR" || await db.SupervisorAssignments.AnyAsync(a => a.ProjectId == row.ProjectId && a.SupervisorProfile.UserId == actor && a.IsPrimary && a.EndedAt == null, ct));
         if (!manager && !evaluator) throw new ForbiddenException("The assignment is outside your scope.");
-        return (row, evaluator && row.Scope is "COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL");
+        return (row, evaluator && project.Status == "FINAL_SUBMISSION" && row.Scope is "COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL");
+    }
+
+    private async Task ValidateEvidenceAssignment(EvaluationAssignment row, CancellationToken ct)
+    {
+        if (row.Status != "ACTIVE") throw new ForbiddenException("Revoked assignments cannot access evidence.");
+        if (row.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL")) return;
+        var component = await db.Set<EvaluationSchemeComponent>().AsNoTracking()
+            .SingleOrDefaultAsync(c => c.Id == row.ComponentId, ct);
+        var scheme = component is null ? null : await db.Set<EvaluationScheme>().AsNoTracking()
+            .SingleOrDefaultAsync(s => s.Id == component.SchemeId, ct);
+        if (component is null || scheme is null || scheme.Status != "PUBLISHED" || scheme.ProjectId != row.ProjectId
+            || scheme.ProjectPeriodId != row.ProjectPeriodId || scheme.PolicyVersionId != row.PolicyVersionId
+            || component.Scope != row.Scope || component.MajorId != row.MajorId || component.RubricId != row.RubricId
+            || !await db.Rubrics.AnyAsync(r => r.Id == component.RubricId && r.DepartmentId == row.DepartmentId, ct)
+            || row.Scope == "COMMON" && (row.MajorId is not null || row.StudentId is not null)
+            || row.Scope == "MAJOR_SPECIFIC" && (row.MajorId is null || row.StudentId is not null)
+            || row.Scope == "INDIVIDUAL" && (row.StudentId is null || row.MajorId is null
+                || !(JsonSerializer.Deserialize<SchemeStudent[]>(scheme.StudentsJson) ?? [])
+                    .Any(s => s.StudentId == row.StudentId && s.MajorId == row.MajorId && s.DepartmentId == row.DepartmentId)))
+            throw new ForbiddenException("Assignment does not match its published component and frozen target.");
     }
 
     public async Task<EvaluationAssignmentDetailDto> GetAsync(long assignmentId, CancellationToken ct = default)
@@ -51,35 +76,30 @@ internal sealed class EvaluationAssignmentAccessService(
 
     private async Task<(FinalSubmission? Final, IReadOnlyList<InternalEvidenceItem> AllItems, IReadOnlyList<InternalEvidenceItem> ScopedItems)> ResolveEvidenceItemsAsync(EvaluationAssignment row, CancellationToken ct)
     {
+        await ValidateEvidenceAssignment(row, ct);
         var final = await db.Set<FinalSubmission>().AsNoTracking()
             .Include(x => x.Items)
             .Where(x => x.ProjectId == row.ProjectId)
-            .OrderByDescending(x => x.SubmittedAt)
-            .FirstOrDefaultAsync(ct);
+            .SingleOrDefaultAsync(ct);
 
         if (final == null)
         {
             return (null, [], []);
         }
 
-        // NOTE — CASE B: The typed frozen payload (FinalSnapshotFile / ProjectFileDto) contains NO structured
-        // TargetStudentId or TargetMajorId fields. Therefore item-level student and major attribution cannot be
-        // proven from the frozen package alone.
-        //
-        // Per security policy:
-        //   COMMON     — all items from the locked final submission package are visible.
-        //   INDIVIDUAL — zero items visible (no provenance to prove item-level student ownership).
-        //   MAJOR_SPECIFIC — zero items visible (no provenance to prove item-level major ownership).
-        //
-        // Free-text fields (Deliverable.Title, Deliverable.Description, FinalSubmission.Notes),
-        // Deliverable.CreatedBy, and file UploadedBy are NEVER used for attribution.
-        // Only structured typed data from the frozen snapshot is authoritative.
+        if (!string.IsNullOrWhiteSpace(row.ScopeSnapshotJson))
+        {
+            using var binding = JsonDocument.Parse(row.ScopeSnapshotJson);
+            if (binding.RootElement.TryGetProperty("FinalSubmissionId", out var pinned)
+                && (!pinned.TryGetInt64(out var pinnedId) || pinnedId != final.Id))
+                throw new ForbiddenException("The locked package differs from this assignment's package.");
+        }
 
+        // Targets and object keys come only from the locked snapshot.
         var rawItems = new List<InternalEvidenceItem>();
 
         foreach (var item in final.Items)
         {
-            // CASE B: no structured target provenance in typed payload — always null
             long? studentId = null;
             long? majorId = null;
 
@@ -100,6 +120,9 @@ internal sealed class EvaluationAssignmentAccessService(
             {
                 foreach (var f in snapshotFiles)
                 {
+                    if (f?.Metadata is null || f.Metadata.ParentType is not ("VERSION" or "DELIVERABLE_VERSION")
+                        || f.Metadata.ParentId != item.DeliverableVersionId)
+                        continue;
                     var dto = new EvaluationAssignmentEvidenceItemDto(
                         f.Metadata.Id,
                         item.Title,
@@ -110,10 +133,11 @@ internal sealed class EvaluationAssignmentAccessService(
                         f.Metadata.FileName,
                         f.Metadata.ContentType,
                         f.Metadata.SizeBytes,
-                        majorId,
-                        studentId,
+                        f.EvidenceScope is "MAJOR_SPECIFIC" or "INDIVIDUAL" ? f.TargetMajorId : null,
+                        f.EvidenceScope == "INDIVIDUAL" ? f.TargetStudentId : null,
                         f.Metadata.CreatedAt != default ? f.Metadata.CreatedAt : final.SubmittedAt,
-                        $"/api/v1/evaluation-assignments/{row.Id}/evidence/files/{f.Metadata.Id}");
+                        $"/api/v1/evaluation-assignments/{row.Id}/evidence/files/{f.Metadata.Id}",
+                        item.DeliverableVersionId, item.VersionNumber, f.Metadata.Sha256);
 
                     rawItems.Add(new(dto, f.StorageKey));
                 }
@@ -133,7 +157,7 @@ internal sealed class EvaluationAssignmentAccessService(
                     majorId,
                     studentId,
                     final.SubmittedAt,
-                    null);
+                    null, item.DeliverableVersionId, item.VersionNumber);
 
                 rawItems.Add(new(dto, null));
             }
@@ -141,7 +165,6 @@ internal sealed class EvaluationAssignmentAccessService(
 
         // Apply assignment scope filtering:
         // COMMON      — all items from locked frozen package.
-        // MAJOR_SPECIFIC / INDIVIDUAL — fail closed (0 items) because typed payload carries no item-level provenance.
         // UNKNOWN / legacy — fail closed (0 items).
         List<InternalEvidenceItem> scopedItems;
         switch (row.Scope)
@@ -150,12 +173,10 @@ internal sealed class EvaluationAssignmentAccessService(
                 scopedItems = rawItems;
                 break;
             case "MAJOR_SPECIFIC" when row.MajorId.HasValue && row.MajorId.Value > 0:
-                // Item-level majorId is always null (CASE B) → filter produces 0 items. Fail closed.
                 scopedItems = rawItems.Where(i => i.Dto.MajorId == row.MajorId.Value).ToList();
                 break;
             case "INDIVIDUAL" when row.StudentId.HasValue && row.StudentId.Value > 0:
-                // Item-level studentId is always null (CASE B) → filter produces 0 items. Fail closed.
-                scopedItems = rawItems.Where(i => i.Dto.StudentId == row.StudentId.Value).ToList();
+                scopedItems = rawItems.Where(i => i.Dto.StudentId == row.StudentId.Value && i.Dto.MajorId == row.MajorId).ToList();
                 break;
             default:
                 scopedItems = [];
@@ -202,9 +223,7 @@ internal sealed class EvaluationAssignmentAccessService(
         var storageKey = scopedMatch.StorageKey;
         if (string.IsNullOrWhiteSpace(storageKey))
         {
-            var file = await db.Files.AsNoTracking().FirstOrDefaultAsync(f => f.Id == fileId, ct);
-            if (file == null) throw new NotFoundException("File", fileId);
-            storageKey = file.StoragePath;
+            throw new ConflictException("The locked file has no verifiable storage reference.");
         }
 
         try

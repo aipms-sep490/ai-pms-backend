@@ -26,7 +26,8 @@ public interface ITaskRepository
         int page,
         int pageSize,
         long? majorId = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? disciplineRole = null);
 
     Task<TaskDto> CreateAsync(
         long milestoneId,

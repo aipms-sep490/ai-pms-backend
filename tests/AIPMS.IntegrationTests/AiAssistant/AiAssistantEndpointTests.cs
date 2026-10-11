@@ -670,7 +670,7 @@ public sealed class StubMilestoneRepository : IMilestoneRepository
 public sealed class StubTaskRepository : ITaskRepository
 {
     public Dictionary<long, List<TaskDto>> TasksByProject { get; } = new();
-    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, long? majorId, CancellationToken cancellationToken)
+    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, long? majorId, CancellationToken cancellationToken, string? disciplineRole = null)
     {
         var list = TasksByProject.TryGetValue(projectId, out var l) ? l : new List<TaskDto>();
         return Task.FromResult(new PagedResult<TaskDto>(list, list.Count, page, pageSize));

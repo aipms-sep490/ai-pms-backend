@@ -23,7 +23,8 @@ public sealed record GetTasksQuery(
     bool? IsBlocked = null,
     int Page = 1,
     int PageSize = 10,
-    long? MajorId = null) : IRequest<PagedResult<TaskDto>>;
+    long? MajorId = null,
+    string? DisciplineRole = null) : IRequest<PagedResult<TaskDto>>;
 
 public sealed class GetTasksQueryHandler(
     ITaskRepository repository,
@@ -71,6 +72,6 @@ public sealed class GetTasksQueryHandler(
             request.Page,
             request.PageSize,
             request.MajorId,
-            cancellationToken);
+            cancellationToken, request.DisciplineRole);
     }
 }

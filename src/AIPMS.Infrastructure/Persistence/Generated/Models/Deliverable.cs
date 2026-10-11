@@ -9,6 +9,10 @@ public partial class Deliverable
 
     public long ProjectId { get; set; }
 
+    public string? EvidenceScope { get; set; }
+    public long? TargetMajorId { get; set; }
+    public long? TargetStudentId { get; set; }
+
     public long? MilestoneId { get; set; }
 
     public string Title { get; set; } = null!;

@@ -1,79 +1,59 @@
 [CmdletBinding()]
 param()
-
 $ErrorActionPreference = 'Stop'
-
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$repoRoot = Split-Path -Parent $scriptDir
-$openApiPath = Join-Path $repoRoot "docs\contracts\cib-v4\openapi.json"
-
-Write-Host "Updating CIB v4 OpenAPI specification..."
-Write-Host "Target path: $openApiPath"
-
-# Choose an unused port for local API instance
-$port = 59129
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$openApiPath = Join-Path $repoRoot 'docs/contracts/cib-v4/openapi.json'
+$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+$listener.Start()
+$port = $listener.LocalEndpoint.Port
+$listener.Stop()
 $apiUrl = "http://127.0.0.1:$port"
-$swaggerUrl = "$apiUrl/swagger/v1/swagger.json"
-
-Write-Host "Starting runtime AIPMS.Api instance on $apiUrl..."
-$process = Start-Process -FilePath "dotnet" `
-    -ArgumentList "run --project src/AIPMS.Api/AIPMS.Api.csproj -c Release --no-build --urls $apiUrl" `
-    -WorkingDirectory $repoRoot `
-    -PassThru
-
-$rawSwagger = $null
+$logBase = Join-Path ([System.IO.Path]::GetTempPath()) ('aipms-openapi-' + [Guid]::NewGuid().ToString('N'))
+# Contract generation must never contact a shared database or dispatch queued work.
+$processEnvironment = @{
+    ASPNETCORE_ENVIRONMENT = 'Development'
+    ConnectionStrings__DefaultConnection = 'Server=127.0.0.1,1;Database=AI_PMS_OPENAPI_OFFLINE;Integrated Security=true;Connect Timeout=1;'
+    NotificationEmail__Enabled = 'false'
+    ScheduledNotifications__Enabled = 'false'
+    MeetingReminders__Enabled = 'false'
+    VideoMeeting__Enabled = 'false'
+    GoogleAuth__Enabled = 'false'
+    PasswordRecovery__Enabled = 'false'
+    Chat__Enabled = 'false'
+    Jwt__Issuer = 'AI-PMS.OpenApi'
+    Jwt__Audience = 'AI-PMS.OpenApi'
+    Jwt__SigningKey = 'offline-openapi-generation-only-not-a-deployment-signing-key-123456789'
+    Observability__LogFilePath = $logBase + '-app.log'
+}
+$start = @{
+    FilePath = 'dotnet'
+    ArgumentList = @('run','--project','src/AIPMS.Api/AIPMS.Api.csproj','-c','Release','--no-build','--no-launch-profile','--urls',$apiUrl)
+    WorkingDirectory = $repoRoot
+    Environment = $processEnvironment
+    PassThru = $true
+    RedirectStandardOutput = $logBase + '-out.log'
+    RedirectStandardError = $logBase + '-err.log'
+}
+if ($IsWindows) { $start.WindowStyle = 'Hidden' }
+$process = Start-Process @start
 try {
-    # Poll until Swagger endpoint responds (up to 30 seconds)
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $timeoutSeconds = 30
-    while ($sw.Elapsed.TotalSeconds -lt $timeoutSeconds) {
-        try {
-            $resp = Invoke-WebRequest -Uri $swaggerUrl -UseBasicParsing -TimeoutSec 2
-            if ($resp.StatusCode -eq 200 -and $resp.Content.Length -gt 0) {
-                $rawSwagger = $resp.Content
-                break
-            }
-        }
-        catch {
-            Start-Sleep -Milliseconds 500
-        }
+    $rawSwagger = $null
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($timer.Elapsed.TotalSeconds -lt 30) {
+        if ($process.HasExited) { throw "OpenAPI host exited. Diagnostics: $logBase-out.log and $logBase-err.log" }
+        try { $rawSwagger = (Invoke-WebRequest "$apiUrl/swagger/v1/swagger.json" -TimeoutSec 2).Content; break }
+        catch { Start-Sleep -Milliseconds 500 }
     }
-
-    if ([string]::IsNullOrWhiteSpace($rawSwagger)) {
-        throw "Failed to retrieve OpenAPI specification from $swaggerUrl within $timeoutSeconds seconds."
-    }
-
-    Write-Host "OpenAPI specification retrieved ($($rawSwagger.Length) bytes)."
-}
-finally {
-    if ($process -and -not $process.HasExited) {
-        Write-Host "Stopping AIPMS.Api instance..."
-        Stop-Process -Id $process.Id -Force
-        $process.WaitForExit(5000)
-    }
-}
-
-# Normalize JSON using native System.Text.Json via dotnet fsi to ensure exact serialization semantics
-$tempRaw = Join-Path $repoRoot "temp_raw_swagger.json"
-$tempScript = Join-Path $repoRoot "temp_format_swagger.fsx"
-
-try {
-    [System.IO.File]::WriteAllText($tempRaw, $rawSwagger)
-    $fsiScriptContent = @"
-open System.IO
-open System.Text.Json
-
-let raw = File.ReadAllText("""$tempRaw""")
-use doc = JsonDocument.Parse(raw)
-let opt = JsonSerializerOptions(WriteIndented = true)
-let formatted = JsonSerializer.Serialize(doc.RootElement, opt)
-File.WriteAllText("""$openApiPath""", formatted)
-"@
-    [System.IO.File]::WriteAllText($tempScript, $fsiScriptContent)
-    & dotnet fsi $tempScript
-    Write-Host "Successfully normalized and wrote OpenAPI specification to $openApiPath"
-}
-finally {
-    if (Test-Path $tempRaw) { Remove-Item $tempRaw -Force }
-    if (Test-Path $tempScript) { Remove-Item $tempScript -Force }
+    if ([string]::IsNullOrWhiteSpace($rawSwagger)) { throw 'OpenAPI host did not respond within 30 seconds.' }
+    $doc = [System.Text.Json.JsonDocument]::Parse([string]$rawSwagger)
+    try {
+        $options = [System.Text.Json.JsonSerializerOptions]::new()
+        $options.WriteIndented = $true
+        $formatted = [System.Text.Json.JsonSerializer]::Serialize[System.Text.Json.JsonElement]($doc.RootElement, $options)
+        [System.IO.File]::WriteAllText($openApiPath, $formatted)
+    } finally { $doc.Dispose() }
+    Write-Output 'Updated OpenAPI from an offline host with delivery workers disabled.'
+} finally {
+    if (-not $process.HasExited) { Stop-Process -Id $process.Id; [void]$process.WaitForExit(5000) }
+    $process.Dispose()
 }
