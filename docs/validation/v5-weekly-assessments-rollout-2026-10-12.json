@@ -1,0 +1,24 @@
+{
+  "asOfUtc": "2026-10-11T17:03:58.9414581Z",
+  "database": "AI_PMS",
+  "pr": 116,
+  "mergeCommit": "af4cce03b8c75a400f33260d46656b81f2760594",
+  "migration": "20261011_add_weekly_assessments.sql",
+  "applications": 2,
+  "verified": {
+    "trusted_checks": 6,
+    "unique_indexes": 4,
+    "scores": 0,
+    "trusted_foreign_keys": 8,
+    "tables": 2,
+    "assessments": 0
+  },
+  "businessCountsUnchanged": {
+    "student_results": 0,
+    "users": 21,
+    "projects": 4,
+    "evaluations": 3
+  },
+  "backfill": false,
+  "lifecycleTestOnSharedDatabase": false
+}

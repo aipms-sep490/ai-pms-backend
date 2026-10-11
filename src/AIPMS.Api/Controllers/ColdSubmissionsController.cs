@@ -17,41 +17,54 @@ namespace AIPMS.Api.Controllers;
 public sealed class ColdSubmissionsController(IColdSubmissionService service) : ControllerBase
 {
     [HttpGet("api/v1/cold-report-templates/examples/it")]
+    [ProducesResponseType<IReadOnlyList<ColdReportInput>>(200)]
     public IReadOnlyList<ColdReportInput> ItExample() => ColdTemplateExamples.ItReports;
     [HttpGet("api/v1/cold-report-templates")]
+    [ProducesResponseType<PagedResult<ColdTemplateDto>>(200)]
     public Task<PagedResult<ColdTemplateDto>> Templates([FromQuery] long majorId, [FromQuery] long projectPeriodId,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) => service.Templates(majorId, projectPeriodId, page, pageSize, ct);
     [HttpPost("api/v1/cold-report-templates")]
+    [ProducesResponseType<ColdTemplateDto>(201)]
     public async Task<ActionResult<ColdTemplateDto>> CreateTemplate(CreateColdTemplateRequest request, CancellationToken ct) =>
         StatusCode(201, await service.CreateTemplate(request, ct));
     [HttpPost("api/v1/projects/{projectId:long}/cold/checklist")]
+    [ProducesResponseType<ColdChecklistDto>(201)]
     public async Task<ActionResult<ColdChecklistDto>> Apply(long projectId, ApplyColdChecklistRequest request, CancellationToken ct) =>
         StatusCode(201, await service.Apply(projectId, request, ct));
     [HttpGet("api/v1/projects/{projectId:long}/cold/checklist")]
+    [ProducesResponseType<ColdChecklistDto>(200)]
     public Task<ColdChecklistDto> Checklist(long projectId, CancellationToken ct) => service.Checklist(projectId, ct);
     [HttpGet("api/v1/projects/{projectId:long}/cold/progress")]
+    [ProducesResponseType<ColdProgressDto>(200)]
     public Task<ColdProgressDto> Progress(long projectId, CancellationToken ct) => service.Progress(projectId, ct);
     [HttpPost("api/v1/projects/{projectId:long}/cold/lock")]
+    [ProducesResponseType<ColdChecklistDto>(200)]
     public Task<ColdChecklistDto> Lock(long projectId, ColdTokenRequest request, CancellationToken ct) => service.Lock(projectId, request.ConcurrencyToken, ct);
     [HttpPost("api/v1/cold-checklist-items/{itemId:long}/draft")]
+    [ProducesResponseType<ColdSubmissionDto>(200)]
     public Task<ColdSubmissionDto> Draft(long itemId, SaveColdDraftRequest request, CancellationToken ct) => service.SaveDraft(itemId, request, ct);
     [HttpGet("api/v1/cold-checklist-items/{itemId:long}/history")]
+    [ProducesResponseType<PagedResult<ColdSubmissionDto>>(200)]
     public Task<PagedResult<ColdSubmissionDto>> History(long itemId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
         CancellationToken ct = default) => service.History(itemId, page, pageSize, ct);
     [HttpPost("api/v1/cold-submissions/{id:long}/files")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(11 * 1024 * 1024)]
     [RequestFormLimits(MultipartBodyLengthLimit = 11 * 1024 * 1024)]
+    [ProducesResponseType<ColdSubmissionDto>(200)]
     public async Task<ColdSubmissionDto> Upload(long id, [FromForm] ColdUploadForm request, CancellationToken ct)
     {
         await using var stream = request.File.OpenReadStream();
         return await service.Upload(id, request.ConcurrencyToken, new(request.File.FileName, request.File.ContentType, request.File.Length, stream), ct);
     }
     [HttpDelete("api/v1/cold-submissions/{id:long}/files/{fileId:long}")]
+    [ProducesResponseType<ColdSubmissionDto>(200)]
     public Task<ColdSubmissionDto> Remove(long id, long fileId, [FromQuery] string concurrencyToken, CancellationToken ct) => service.RemoveFile(id, fileId, concurrencyToken, ct);
     [HttpPost("api/v1/cold-submissions/{id:long}/submit")]
+    [ProducesResponseType<ColdSubmissionDto>(200)]
     public Task<ColdSubmissionDto> Submit(long id, ColdTokenRequest request, CancellationToken ct) => service.Submit(id, request.ConcurrencyToken, ct);
     [HttpGet("api/v1/cold-submissions/{id:long}/files/{fileId:long}/download")]
+    [ProducesResponseType<Stream>(200)]
     public async Task<IActionResult> Download(long id, long fileId, CancellationToken ct)
     {
         var file = await service.Download(id, fileId, ct);
