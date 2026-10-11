@@ -66,7 +66,7 @@ CREATE TABLE dbo.e2e_script_ledger (
 );
 '@
     $manifest = Get-Content (Join-Path $root 'db/e2e/migrations.json') -Raw | ConvertFrom-Json
-    $scripts = @('db/schema.sql') + @($manifest | ForEach-Object { "db/changes/$_" }) + @('db/seed.sql', 'db/e2e/seed.sql')
+    $scripts = @('db/schema.sql') + @($manifest | ForEach-Object { "db/changes/$_" }) + @('db/seed.sql', 'db/e2e/seed.sql', 'db/e2e/v5-seed.sql')
     # Identity V3, generated per run. Never persist or print plaintext credentials.
     $password = $env:AIPMS_E2E_PASSWORD
     if ([string]::IsNullOrWhiteSpace($password)) { $password = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N') }
@@ -80,7 +80,7 @@ CREATE TABLE dbo.e2e_script_ledger (
     [void]$cmd.Parameters.AddWithValue('@hash', $hash)
     [void]$cmd.ExecuteNonQuery(); $cmd.Dispose()
     foreach ($name in $scripts) {
-        if ($name -notmatch '^db/(schema\.sql|seed\.sql|e2e/seed\.sql|changes/[a-zA-Z0-9_]+\.sql)$') { throw 'Invalid script path.' }
+        if ($name -notmatch '^db/(schema\.sql|seed\.sql|e2e/(seed|v5-seed)\.sql|changes/[a-zA-Z0-9_]+\.sql)$') { throw 'Invalid script path.' }
         $path = Join-Path $root $name
         $sql = [IO.File]::ReadAllText($path).Replace("`r`n", "`n")
         $hasher = [Security.Cryptography.SHA256]::Create()
