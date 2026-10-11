@@ -32,6 +32,7 @@ public sealed partial class EvaluationDraftWorkflow
         var total = EvaluationScoring.FinalTotal(before.Scores);
         var evidence = new EvaluationEvidenceRecord(package.Id, package.ProjectPeriodId, package.SubmittedAt,
             package.Items.Count, package.Items.Sum(i => i.Files.Count), package.Items.Select(i => i.DeliverableVersionId).Order().ToArray());
+        evidence = await schemes.BindEvidenceAsync(assignment, evidence, ct);
         var now = clock.GetUtcNow().UtcDateTime;
         var finalized = await repository.FinalizeAsync(before with { TotalScore = total }, evidence, actor.Id, now, ct);
         await Audit(actor.Id, "EVALUATION_FINALIZED", "EVALUATION", id,

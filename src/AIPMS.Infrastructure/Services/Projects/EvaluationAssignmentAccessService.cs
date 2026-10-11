@@ -23,7 +23,7 @@ internal sealed class EvaluationAssignmentAccessService(
     AipmsDbContext db,
     ICurrentUser currentUser,
     IFileStorage storage,
-    IEvaluationDraftRepository evaluations) : IEvaluationAssignmentAccessService
+    IEvaluationDraftRepository evaluations, TimeProvider clock, IEvaluationSchemeService schemes) : IEvaluationAssignmentAccessService
 {
     private sealed record InternalEvidenceItem(EvaluationAssignmentEvidenceItemDto Dto, string? StorageKey);
 
@@ -55,7 +55,7 @@ internal sealed class EvaluationAssignmentAccessService(
             .SingleOrDefaultAsync(s => s.Id == component.SchemeId, ct);
         if (component is null || scheme is null || scheme.Status != "PUBLISHED" || scheme.ProjectId != row.ProjectId
             || scheme.ProjectPeriodId != row.ProjectPeriodId || scheme.PolicyVersionId != row.PolicyVersionId
-            || component.Scope != row.Scope || component.MajorId != row.MajorId || component.RubricId != row.RubricId
+            || component.Stage != row.Stage || component.Scope != row.Scope || component.MajorId != row.MajorId || component.RubricId != row.RubricId
             || !await db.Rubrics.AnyAsync(r => r.Id == component.RubricId && r.DepartmentId == row.DepartmentId, ct)
             || row.Scope == "COMMON" && (row.MajorId is not null || row.StudentId is not null)
             || row.Scope == "MAJOR_SPECIFIC" && (row.MajorId is null || row.StudentId is not null)
@@ -69,14 +69,38 @@ internal sealed class EvaluationAssignmentAccessService(
     {
         var (row, canScore) = await Load(assignmentId, ct);
         var dto = new EvaluationAssignmentDto(row.Id, row.ProjectId, row.EvaluatorId, row.RubricId, row.ProjectPeriodId, row.DepartmentId,
-            row.EvaluationType, row.Status, row.AssignedBy, row.AssignedAt, row.RevokedAt, row.ConcurrencyToken.ToString("N"), row.Scope, row.MajorId, row.StudentId, row.ComponentId, row.PolicyVersionId);
+            row.EvaluationType, row.Status, row.AssignedBy, row.AssignedAt, row.RevokedAt, row.ConcurrencyToken.ToString("N"), row.Scope, row.MajorId, row.StudentId, row.ComponentId, row.PolicyVersionId, row.Stage, row.ColdPackageId);
         var legacy = row.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL");
-        return new(dto, canScore && !legacy, legacy, legacy ? "LEGACY_SCOPE_UNKNOWN" : null);
+        string? reason = legacy ? "LEGACY_SCOPE_UNKNOWN" : null;
+        if (canScore && !legacy)
+        {
+            var period = await evaluations.GetPeriodAsync(row.ProjectPeriodId, clock.GetUtcNow().UtcDateTime, ct);
+            if (period?.IsOpen != true) { canScore = false; reason = "EVALUATION_WINDOW_CLOSED"; }
+            else
+            {
+                try { await schemes.EnsureWritableAsync((await evaluations.GetAssignmentAsync(row.Id, ct))!, ct); }
+                catch (ConflictException) { canScore = false; reason = "EVALUATION_EVIDENCE_OR_SCHEME_CHANGED"; }
+            }
+        }
+        return new(dto, canScore && !legacy, legacy, reason);
     }
 
     private async Task<(FinalSubmission? Final, IReadOnlyList<InternalEvidenceItem> AllItems, IReadOnlyList<InternalEvidenceItem> ScopedItems)> ResolveEvidenceItemsAsync(EvaluationAssignment row, CancellationToken ct)
     {
         await ValidateEvidenceAssignment(row, ct);
+        if (row.Stage == "COLD")
+        {
+            var bound = await ColdEvaluationBinding.Validate(db, row, ct);
+            var submissions = await db.Set<ColdSubmission>().AsNoTracking().Include(s => s.Files)
+                .Where(s => bound.SubmissionIds.Contains(s.Id)).OrderBy(s => s.Id).ToArrayAsync(ct);
+            var items = await db.Set<ColdChecklistItem>().AsNoTracking().Where(i => i.PackageId == bound.PackageId).ToDictionaryAsync(i => i.Id, ct);
+            var evidence = submissions.SelectMany(s => s.Files.OrderBy(f => f.FileId).Select(f => new InternalEvidenceItem(
+                new(f.FileId, items[s.ChecklistItemId].Name, $"COLD version {s.Version} - LOCKED", "COLD_SUBMISSION", s.Id,
+                    f.FileId, f.FileName, f.ContentType, f.SizeBytes, items[s.ChecklistItemId].MajorId, items[s.ChecklistItemId].StudentId,
+                    s.SubmittedAt.HasValue ? DateTime.SpecifyKind(s.SubmittedAt.Value, DateTimeKind.Utc) : null,
+                    $"/api/v1/evaluation-assignments/{row.Id}/evidence/files/{f.FileId}", null, s.Version, f.Sha256, s.Id), f.StorageKey))).ToArray();
+            return (null, evidence, evidence);
+        }
         var final = await db.Set<FinalSubmission>().AsNoTracking()
             .Include(x => x.Items)
             .Where(x => x.ProjectId == row.ProjectId)
@@ -186,15 +210,15 @@ internal sealed class EvaluationAssignmentAccessService(
         return (final, rawItems, scopedItems);
     }
 
-    public async Task<EvaluationAssignmentEvidenceDto> EvidenceAsync(long assignmentId, CancellationToken ct = default)
+    public Task<EvaluationAssignmentEvidenceDto> EvidenceAsync(long assignmentId, CancellationToken ct = default) => evaluations.InTransactionAsync(async () =>
     {
         var (row, _) = await Load(assignmentId, ct);
         var (final, _, scopedItems) = await ResolveEvidenceItemsAsync(row, ct);
         var dtos = scopedItems.Select(x => x.Dto).ToList();
-        return new(row.Id, row.ProjectId, row.Scope, row.MajorId, row.StudentId, final?.Id, final?.SubmittedAt, dtos.Count, true, dtos);
-    }
+        return new EvaluationAssignmentEvidenceDto(row.Id, row.ProjectId, row.Scope, row.MajorId, row.StudentId, final?.Id, final?.SubmittedAt, dtos.Count, true, dtos, row.Stage, row.ColdPackageId);
+    }, ct);
 
-    public async Task<FileDownload> DownloadEvidenceFileAsync(long assignmentId, long fileId, CancellationToken ct = default)
+    public Task<FileDownload> DownloadEvidenceFileAsync(long assignmentId, long fileId, CancellationToken ct = default) => evaluations.InTransactionAsync(async () =>
     {
         var (row, _) = await Load(assignmentId, ct);
         if (row.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL")
@@ -235,5 +259,5 @@ internal sealed class EvaluationAssignmentAccessService(
         {
             throw new NotFoundException("File content", fileId);
         }
-    }
+    }, ct);
 }

@@ -17,7 +17,8 @@ public static class EvaluationSchemeRules
                 || c.RequiredEvaluators is < 1 or > 20 || c.ProjectWeightPercent is < 0 or > 100
                 || c.StudentWeightPercent is < 0 or > 100 || decimal.Round(c.ProjectWeightPercent, 4) != c.ProjectWeightPercent
                 || decimal.Round(c.StudentWeightPercent, 4) != c.StudentWeightPercent
-                || c.ProjectWeightPercent + c.StudentWeightPercent == 0)
+                || c.Stage is not ("ON_GOING" or "COLD" or "DEFENSE")
+                || c.ProjectWeightPercent + c.StudentWeightPercent == 0 && c.Stage != "COLD")
                 throw Invalid("Invalid component name, rubric, evaluator count or weight (maximum four decimal places).");
             if (c.Scope == "COMMON" ? c.MajorId.HasValue : c.Scope is not ("MAJOR_SPECIFIC" or "INDIVIDUAL")
                 || !c.MajorId.HasValue || !majors.Contains(c.MajorId.Value))

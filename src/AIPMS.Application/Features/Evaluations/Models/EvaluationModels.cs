@@ -12,12 +12,14 @@ public sealed record EvaluationPeriod(long Id, long SemesterId, long? RubricId, 
 public sealed record EvaluationAssignmentRecord(long Id, long ProjectId, long EvaluatorId, long RubricId,
     long PeriodId, long DepartmentId, string EvaluationType, string Status, long AssignedBy,
     DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken, string Scope = "UNKNOWN",
-    long? MajorId = null, long? StudentId = null, long? ComponentId = null, long? PolicyVersionId = null);
+    long? MajorId = null, long? StudentId = null, long? ComponentId = null, long? PolicyVersionId = null,
+    string? Stage = null, long? ColdPackageId = null);
 public sealed record EvaluationDraftRecord(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
     long RubricId, string RubricName, long RootRubricId, int RubricVersion, string EvaluationType, string Status, string? Comments, decimal? TotalScore,
     string ConcurrencyToken, DateTime CreatedAt, DateTime UpdatedAt, IReadOnlyList<EvaluationScoreRecord> Scores,
     EvaluationFinalizationRecord? Finalization = null);
 
 public sealed record EvaluationEvidenceRecord(long FinalSubmissionId, long ProjectPeriodId, DateTime SubmittedAt,
-    int ArtifactCount, int FileCount, IReadOnlyList<long> DeliverableVersionIds);
+    int ArtifactCount, int FileCount, IReadOnlyList<long> DeliverableVersionIds,
+    string? Stage = null, long? ColdPackageId = null, IReadOnlyList<long>? ColdSubmissionIds = null, string? ColdEvidenceHash = null);
 public sealed record EvaluationFinalizationRecord(long FinalizedBy, DateTime FinalizedAt, EvaluationEvidenceRecord Evidence);

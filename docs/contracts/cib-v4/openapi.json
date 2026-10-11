@@ -4471,6 +4471,126 @@
         }
       }
     },
+    "/api/v1/projects/{projectId}/cold/progress": {
+      "get": {
+        "tags": [
+          "ColdSubmissions"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{projectId}/cold/lock": {
       "post": {
         "tags": [
@@ -39339,6 +39459,15 @@
             "type": "integer",
             "format": "int64",
             "nullable": true
+          },
+          "stage": {
+            "type": "string",
+            "nullable": true
+          },
+          "coldPackageId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -39421,6 +39550,15 @@
               "$ref": "#/components/schemas/EvaluationAssignmentEvidenceItemDto"
             },
             "nullable": true
+          },
+          "stage": {
+            "type": "string",
+            "nullable": true
+          },
+          "coldPackageId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -39498,6 +39636,11 @@
           },
           "sha256": {
             "type": "string",
+            "nullable": true
+          },
+          "coldSubmissionId": {
+            "type": "integer",
+            "format": "int64",
             "nullable": true
           }
         },
@@ -39658,6 +39801,23 @@
             "format": "int32"
           },
           "deliverableVersionIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "nullable": true
+          },
+          "stage": {
+            "type": "string",
+            "nullable": true
+          },
+          "coldPackageId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "coldSubmissionIds": {
             "type": "array",
             "items": {
               "type": "integer",
@@ -44037,6 +44197,10 @@
           "finalizedEvaluators": {
             "type": "integer",
             "format": "int32"
+          },
+          "stage": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -44590,6 +44754,10 @@
             "items": {
               "$ref": "#/components/schemas/SchemeEvaluatorWeight"
             },
+            "nullable": true
+          },
+          "stage": {
+            "type": "string",
             "nullable": true
           }
         },

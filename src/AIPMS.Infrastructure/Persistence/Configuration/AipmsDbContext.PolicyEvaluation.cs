@@ -37,6 +37,7 @@ public partial class AipmsDbContext
         b.Entity<EvaluationSchemeComponent>(e =>
         {
             e.ToTable("evaluation_scheme_components"); e.HasKey(x => x.Id);
+            e.Property(x => x.Stage).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.Name).HasMaxLength(200); e.Property(x => x.Scope).HasMaxLength(20);
             e.Property(x => x.ProjectWeightPercent).HasPrecision(9, 4); e.Property(x => x.StudentWeightPercent).HasPrecision(9, 4);
         });
@@ -64,6 +65,9 @@ public partial class AipmsDbContext
             e.Property(x => x.MajorId).HasColumnName("major_id"); e.Property(x => x.StudentId).HasColumnName("student_id");
             e.Property(x => x.ComponentId).HasColumnName("component_id"); e.Property(x => x.PolicyVersionId).HasColumnName("policy_version_id");
             e.Property(x => x.ScopeSnapshotJson).HasColumnName("scope_snapshot_json");
+            e.Property(x => x.Stage).HasColumnName("stage").HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.ColdPackageId).HasColumnName("cold_package_id");
+            e.HasOne<ColdPackage>().WithMany().HasForeignKey(x => x.ColdPackageId).OnDelete(DeleteBehavior.NoAction);
         });
     }
 }

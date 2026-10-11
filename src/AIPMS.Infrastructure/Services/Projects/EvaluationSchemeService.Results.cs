@@ -80,6 +80,22 @@ internal sealed partial class EvaluationSchemeService
             select new { state.AssignmentId, finalization.SnapshotJson }).ToListAsync(ct);
         var finalized = finalizations.ToDictionary(f => f.AssignmentId,
             f => JsonSerializer.Deserialize<EvaluationDraftRecord>(f.SnapshotJson));
+        var coldBindings = new Dictionary<long, ColdEvidenceBinding>();
+        var coldAssignments = allAssignments.Where(a => a.Stage == "COLD" && scheme.Components.Any(c => c.Id == a.ComponentId
+            && (target is null ? c.ProjectWeightPercent > 0 || c.StudentWeightPercent > 0
+                : c.StudentWeightPercent > 0 && (c.Scope == "COMMON" || c.MajorId == target.MajorId)
+                    && (c.Scope != "INDIVIDUAL" || a.StudentId == studentId)))).ToArray();
+        ColdEvidenceSet? coldEvidence = null;
+        if (coldAssignments.Length > 0)
+        {
+            try { coldEvidence = await ColdEvaluationBinding.Load(db, projectId, ct); }
+            catch (ConflictException) { blockers.Add("COLD_PACKAGE_REQUIRED"); }
+        }
+        foreach (var assignment in coldAssignments)
+        {
+            try { if (coldEvidence is not null) coldBindings[assignment.Id] = ColdEvaluationBinding.Validate(coldEvidence, assignment); }
+            catch (ConflictException) { blockers.Add($"COLD_EVIDENCE_CHANGED:{assignment.Id}"); }
+        }
         var contributions = new List<ResultContributionDto>();
         var componentResults = new List<ResultComponentScoreDto>();
         var frozen = new List<object>();
@@ -97,10 +113,16 @@ internal sealed partial class EvaluationSchemeService
                 if (evaluation?.Finalization is null || evaluation.Status != "FINALIZED")
                 { blockers.Add($"EVALUATION_NOT_FINALIZED:{assignment.Id}"); continue; }
                 if (assignment.Scope != component.Scope || assignment.MajorId != component.MajorId || assignment.RubricId != component.RubricId
+                    || assignment.Stage != component.Stage || evaluation.Finalization.Evidence.Stage != assignment.Stage
                     || assignment.PolicyVersionId != scheme.PolicyVersionId || assignment.ProjectPeriodId != scheme.ProjectPeriodId
                     || evaluation.AssignmentId != assignment.Id || evaluation.ProjectId != projectId || evaluation.EvaluatorId != assignment.EvaluatorId
                     || evaluation.RubricId != component.RubricId || evaluation.Finalization.Evidence.FinalSubmissionId != package.Id)
                 { blockers.Add($"SNAPSHOT_MISMATCH:{assignment.Id}"); continue; }
+                if (assignment.Stage == "COLD" && (!coldBindings.TryGetValue(assignment.Id, out var binding)
+                    || evaluation.Finalization.Evidence.ColdPackageId != binding.PackageId
+                    || evaluation.Finalization.Evidence.ColdEvidenceHash != binding.Hash
+                    || !(evaluation.Finalization.Evidence.ColdSubmissionIds ?? []).SequenceEqual(binding.SubmissionIds)))
+                { blockers.Add($"COLD_SNAPSHOT_MISMATCH:{assignment.Id}"); continue; }
                 if (EvaluationScoring.FinalTotal(evaluation.Scores) != evaluation.TotalScore)
                 { blockers.Add($"TOTAL_MISMATCH:{assignment.Id}"); continue; }
                 var evaluatorWeight = explicitWeights?.SingleOrDefault(w => w.EvaluatorId == assignment.EvaluatorId)?.WeightPercent
@@ -116,7 +138,7 @@ internal sealed partial class EvaluationSchemeService
                 ? explicitWeights is null ? componentScores.Average(s => s.Score)
                     : componentScores.Sum(s => s.Score * s.Weight / 100m) : null;
             return new(component.Id, component.Name, component.Scope, component.MajorId, weight, mean,
-                component.RequiredEvaluators, componentScores.Count);
+                component.RequiredEvaluators, componentScores.Count, component.Stage);
         }
         foreach (var component in components) componentResults.Add(Calculate(component, studentId, true));
         // Completing the project closes scoring, so all mandatory student slots must already be finalized too.

@@ -29,6 +29,8 @@ public sealed class ColdSubmissionsController(IColdSubmissionService service) : 
         StatusCode(201, await service.Apply(projectId, request, ct));
     [HttpGet("api/v1/projects/{projectId:long}/cold/checklist")]
     public Task<ColdChecklistDto> Checklist(long projectId, CancellationToken ct) => service.Checklist(projectId, ct);
+    [HttpGet("api/v1/projects/{projectId:long}/cold/progress")]
+    public Task<ColdProgressDto> Progress(long projectId, CancellationToken ct) => service.Progress(projectId, ct);
     [HttpPost("api/v1/projects/{projectId:long}/cold/lock")]
     public Task<ColdChecklistDto> Lock(long projectId, ColdTokenRequest request, CancellationToken ct) => service.Lock(projectId, request.ConcurrencyToken, ct);
     [HttpPost("api/v1/cold-checklist-items/{itemId:long}/draft")]

@@ -34,12 +34,14 @@ SELECT 'column',t.table_name+'.'+t.name,CONVERT(bit,CASE WHEN EXISTS (
  SELECT 1 FROM sys.columns c WHERE c.object_id=OBJECT_ID('dbo.'+t.table_name) AND c.name=t.name
  AND TYPE_NAME(c.system_type_id)=t.type_name AND c.is_nullable=1) THEN 1 ELSE 0 END)
 FROM (VALUES ('evaluation_schemes','governance_json','nvarchar'),('evaluation_schemes','locked_at','datetime2'),
- ('evaluation_scheme_components','evaluator_weights_json','nvarchar')) t(table_name,name,type_name)
+ ('evaluation_scheme_components','evaluator_weights_json','nvarchar'),('evaluation_scheme_components','stage','varchar'),
+ ('evaluation_assignments','stage','varchar'),('evaluation_assignments','cold_package_id','bigint')) t(table_name,name,type_name)
 UNION ALL
 SELECT 'constraint',t.name,CONVERT(bit,CASE WHEN EXISTS (
  SELECT 1 FROM sys.check_constraints WHERE name=t.name AND is_disabled=0 AND is_not_trusted=0) THEN 1 ELSE 0 END)
 FROM (VALUES ('ck_scheme_governance_json'),('ck_component_evaluator_weights_json'),('ck_cold_template_json'),
- ('ck_cold_package_json'),('ck_cold_package_status'),('ck_cold_item_target'),('ck_cold_submission_status'),('ck_cold_file_size')) t(name)
+ ('ck_cold_package_json'),('ck_cold_package_status'),('ck_cold_item_target'),('ck_cold_submission_status'),('ck_cold_file_size'),
+ ('ck_assignment_stage'),('ck_scheme_component_stage')) t(name)
 UNION ALL
 SELECT 'constraint','ck_deliverables_evidence_target',CONVERT(bit,CASE WHEN EXISTS (
  SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID('dbo.deliverables')
@@ -51,7 +53,8 @@ FROM (VALUES ('evaluation_assignments','uq_scoped_evaluation_assignment'),('eval
  ('meeting_action_items','ix_meeting_action_items_meeting'),('project_result_policy_items','ix_result_policy_items_assignment'),
  ('supervisor_assignments','ux_supervisor_assignments_one_primary_active'),
  ('contribution_snapshots','ux_contribution_snapshots_hash'),('deliverables','ix_deliverables_evidence_target'),
- ('cold_submissions','ux_cold_submission_draft'),('cold_submissions','uq_cold_submission_version'),('cold_packages','uq_cold_package_project')) t(table_name,index_name)
+ ('cold_submissions','ux_cold_submission_draft'),('cold_submissions','uq_cold_submission_version'),('cold_packages','uq_cold_package_project'),
+ ('evaluation_assignments','ix_assignment_cold_package')) t(table_name,index_name)
 UNION ALL
 SELECT 'foreign_key',t.name,CONVERT(bit,CASE WHEN EXISTS (SELECT 1 FROM sys.foreign_keys f
  WHERE f.name=t.name AND f.is_disabled=0 AND f.is_not_trusted=0) THEN 1 ELSE 0 END)
@@ -61,7 +64,8 @@ FROM (VALUES ('fk_evaluation_assignments_project'),('fk_evaluation_assignments_e
  ('fk_meeting_decisions_meeting'),('fk_meeting_decisions_user'),('fk_meeting_action_items_meeting'),
  ('fk_meeting_action_items_assignee'),('fk_meeting_action_items_creator'),
  ('fk_contribution_snapshots_project'),('fk_contribution_snapshots_user'),('fk_deliverables_target_major'),('fk_deliverables_target_student'),
- ('fk_cold_package_project'),('fk_cold_item_package'),('fk_cold_item_template'),('fk_cold_submission_item'),('fk_cold_file_submission'),('fk_cold_file_file')) t(name)
+ ('fk_cold_package_project'),('fk_cold_item_package'),('fk_cold_item_template'),('fk_cold_submission_item'),('fk_cold_file_submission'),('fk_cold_file_file'),
+ ('fk_assignment_cold_package')) t(name)
 UNION ALL
 SELECT 'constraint','all_foreign_keys_enabled_and_trusted',CONVERT(bit,CASE WHEN EXISTS (SELECT 1 FROM sys.foreign_keys WHERE is_disabled=1 OR is_not_trusted=1) THEN 0 ELSE 1 END)
 UNION ALL

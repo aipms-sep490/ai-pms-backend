@@ -25,7 +25,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         var row = new EvaluationAssignment { ProjectId = projectId, EvaluatorId = evaluatorId, ProjectPeriodId = periodId,
             DepartmentId = departmentId, EvaluationType = type, RubricId = scope.RubricId, AssignedBy = actorId,
             AssignedAt = now, ConcurrencyToken = Guid.NewGuid(), Scope = scope.Scope, MajorId = scope.MajorId,
-            StudentId = scope.StudentId, ComponentId = scope.ComponentId, PolicyVersionId = scope.PolicyVersionId, ScopeSnapshotJson = scope.SnapshotJson };
+            StudentId = scope.StudentId, ComponentId = scope.ComponentId, PolicyVersionId = scope.PolicyVersionId, ScopeSnapshotJson = scope.SnapshotJson,
+            Stage = scope.Stage, ColdPackageId = scope.ColdPackageId };
         db.Add(row); await db.SaveChangesAsync(ct);
         db.Add(new PeriodPolicyUsage { PolicyVersionId = scope.PolicyVersionId, EntityType = "EVALUATION_ASSIGNMENT", EntityId = row.Id, CreatedAt = now });
         await db.SaveChangesAsync(ct); return Map(row);
@@ -122,7 +123,7 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
     private static EvaluationAssignmentRecord Map(EvaluationAssignment a) => new(a.Id, a.ProjectId, a.EvaluatorId,
         a.RubricId, a.ProjectPeriodId, a.DepartmentId, a.EvaluationType, a.Status, a.AssignedBy,
         a.AssignedAt, a.RevokedAt, a.ConcurrencyToken.ToString("N"), a.Scope, a.MajorId, a.StudentId,
-        a.ComponentId, a.PolicyVersionId);
+        a.ComponentId, a.PolicyVersionId, a.Stage, a.ColdPackageId);
 
     public async Task<EvaluationAssignmentRecord?> GetAssignmentAsync(long id, CancellationToken ct)
     {

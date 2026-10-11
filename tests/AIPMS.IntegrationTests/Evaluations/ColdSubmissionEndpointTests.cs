@@ -28,9 +28,9 @@ public sealed partial class ColdSubmissionEndpointTests(EvaluationDraftDatabaseF
     private static string DraftUrl(long itemId) => $"/api/v1/cold-checklist-items/{itemId}/draft";
     private static string SubmitUrl(long id) => $"/api/v1/cold-submissions/{id}/submit";
     private static string LockUrl(long projectId) => $"/api/v1/projects/{projectId}/cold/lock";
-    private async Task<(EvaluationScenario Scenario, ColdChecklistDto Checklist, ColdTemplateDto Template)> Prepare(ColdFactory app, string scope = "MAJOR_SPECIFIC")
+    private async Task<(EvaluationScenario Scenario, ColdChecklistDto Checklist, ColdTemplateDto Template)> Prepare(ColdFactory app, string scope = "MAJOR_SPECIFIC", bool finalPackage = false)
     {
-        var s = await database.Seed(false);
+        var s = await database.Seed(finalPackage);
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
         await using var db = database.CreateContext();
         var major = await db.ProjectMajors.Where(m => m.ProjectId == s.ProjectId).Select(m => m.MajorId).SingleAsync();

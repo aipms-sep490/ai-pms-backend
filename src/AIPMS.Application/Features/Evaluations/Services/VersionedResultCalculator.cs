@@ -27,6 +27,7 @@ public static class VersionedResultCalculator
                 || weights.Select(w => w.EvaluatorId).Distinct().Count() != weights.Count || weights.Sum(w => w.WeightPercent) != 100))
                 throw Invalid("Explicit evaluator weights require unique evaluator IDs, exactly the required slots and 100 percent total.");
         }
+        components = components.Where(c => c.ProjectWeightPercent > 0 || c.StudentWeightPercent > 0).ToArray();
         if (policy.Formula == "DEMO_50_30_20" && (!policy.IsDemo || components.Count != 1 + majors.Count * 2
             || components.Count(c => c.Scope == "COMMON") != 1
             || components.Any(c => c.Scope == "COMMON" && (c.ProjectWeightPercent != 50 || c.StudentWeightPercent != 50)

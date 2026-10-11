@@ -46,6 +46,7 @@ public sealed class EvaluationScheme
 }
 public sealed class EvaluationSchemeComponent
 {
+    public string? Stage { get; set; }
     public string? EvaluatorWeightsJson { get; set; }
     public long Id { get; set; }
     public long SchemeId { get; set; }
