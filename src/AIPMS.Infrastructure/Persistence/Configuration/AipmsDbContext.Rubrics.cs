@@ -10,6 +10,7 @@ public partial class AipmsDbContext
     {
         ConfigureChat(modelBuilder);
         ConfigurePolicyEvaluation(modelBuilder);
+        ConfigureCold(modelBuilder);
         ConfigureProjectRequirements(modelBuilder);
         ConfigureDisciplineEvidence(modelBuilder);
         ConfigureExecutionConcurrency(modelBuilder);
