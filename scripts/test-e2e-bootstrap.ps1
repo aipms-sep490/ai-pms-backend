@@ -23,11 +23,34 @@ SELECT CONCAT((SELECT COUNT(*) FROM dbo.users),':',(SELECT COUNT(*) FROM dbo.pro
         try { return $command.ExecuteScalar() } finally { $command.Dispose() }
     } finally { $connection.Dispose() }
 }
+function VerifyV5Inputs {
+    $connection = [System.Data.SqlClient.SqlConnection]::new($builder.ConnectionString)
+    try {
+        $connection.Open()
+        $command = $connection.CreateCommand()
+        $command.CommandText = @'
+IF (SELECT COUNT(*) FROM dbo.users WHERE email LIKE N'v5.%@e2e.invalid') <> 18
+    THROW 51000, 'V5 actors are incomplete.', 1;
+IF (SELECT COUNT(*) FROM dbo.majors WHERE code IN ('V5-IT','V5-MKT','V5-DES')) <> 3
+    THROW 51000, 'V5 major inputs are incomplete.', 1;
+IF EXISTS(SELECT 1 FROM dbo.users WHERE email LIKE N'v5.%@e2e.invalid' AND (status<>'ACTIVE' OR academic_profile_status<>'VERIFIED'))
+    THROW 51000, 'V5 input actor state is invalid.', 1;
+IF EXISTS(SELECT 1 FROM dbo.team_members m JOIN dbo.users u ON u.id=m.user_id WHERE u.email LIKE N'v5.%@e2e.invalid')
+    THROW 51000, 'V5 team lifecycle must be exercised through the API.', 1;
+IF EXISTS(SELECT 1 FROM dbo.supervisor_assignments) OR EXISTS(SELECT 1 FROM dbo.evaluation_assignments)
+    OR EXISTS(SELECT 1 FROM dbo.student_results) OR EXISTS(SELECT 1 FROM dbo.project_registration_snapshots)
+    THROW 51000, 'Input fixtures must not fabricate academic lifecycle completion.', 1;
+'@
+        try { [void]$command.ExecuteNonQuery() } finally { $command.Dispose() }
+    } finally { $connection.Dispose() }
+}
 try {
     & $script -ConnectionString $ConnectionString -DatabaseName $name | Out-Null
+    VerifyV5Inputs
     $before = Snapshot
     & (Join-Path $PSScriptRoot 'test-schema-readiness.ps1') -ConnectionString $builder.ConnectionString | Out-Null
     & $script -ConnectionString $ConnectionString -DatabaseName $name -VerifyRerun | Out-Null
+    VerifyV5Inputs
     if ($before -cne (Snapshot)) { throw 'Rerun changed seeded identities, counts or password hashes.' }
     foreach ($invalid in @('AI_PMS','master','AI_PMS_E2E_not-a-guid')) {
         $refused = $false

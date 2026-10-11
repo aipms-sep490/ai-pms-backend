@@ -1,0 +1,272 @@
+{
+  "asOfUtc": "2026-10-11T05:54:44.4326334Z",
+  "scope": "Remediation schema capabilities; not full application or provider readiness",
+  "ready": false,
+  "checks": [
+    {
+      "kind": "table",
+      "capability": "project_registration_snapshots",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_department_decisions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "team_academic_configurations",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "final_submission_drafts",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "final_submissions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "final_submission_items",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "evaluation_assignments",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "evaluation_draft_states",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "evaluation_finalizations",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_result_policies",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_results",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "meeting_decisions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "meeting_action_items",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_major_requirements",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "team_major_responsibilities",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "task_disciplines",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_evidence",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "contribution_snapshots",
+      "ready": false
+    },
+    {
+      "kind": "table",
+      "capability": "student_qualifications",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_topics",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "notification_email_deliveries",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "scheduled_notification_occurrences",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "tasks.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "milestones.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "progress_reports.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meetings.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meeting_action_items.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "student_qualifications.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "evaluation_assignments.uq_scoped_evaluation_assignment",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "evaluation_assignments.uq_legacy_evaluation_assignment",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "meeting_decisions.ix_meeting_decisions_meeting",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "meeting_action_items.ix_meeting_action_items_meeting",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "project_result_policy_items.ix_result_policy_items_assignment",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "supervisor_assignments.ux_supervisor_assignments_one_primary_active",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "contribution_snapshots.ux_contribution_snapshots_hash",
+      "ready": false
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evaluation_assignments_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evaluation_assignments_evaluator",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evaluation_assignments_rubric",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evaluation_assignments_period",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evaluation_draft_states_assignment",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_final_submissions_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_final_submission_items_submission",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_project_results_submission",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_result_policy_items_assignment",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_decisions_meeting",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_decisions_user",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_action_items_meeting",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_action_items_assignee",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_action_items_creator",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_contribution_snapshots_project",
+      "ready": false
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_contribution_snapshots_user",
+      "ready": false
+    },
+    {
+      "kind": "constraint",
+      "capability": "all_foreign_keys_enabled_and_trusted",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "all_checks_enabled_and_trusted",
+      "ready": true
+    }
+  ]
+}
