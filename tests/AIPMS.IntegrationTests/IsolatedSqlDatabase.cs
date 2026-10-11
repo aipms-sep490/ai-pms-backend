@@ -46,72 +46,12 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                 created = true;
             }
             builder.InitialCatalog = name;
+            // Each database has a separate pool; reuse sockets during the large API suite.
+            builder.Pooling = true;
+            builder.MaxPoolSize = 30;
             ConnectionString = builder.ConnectionString;
             if (!bootstrap) return;
-            var directory = new DirectoryInfo(AppContext.BaseDirectory);
-            while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "db", "schema.sql")))
-                directory = directory.Parent;
-            if (directory is null) throw new InvalidOperationException("Cannot find schema.sql.");
-            var schema = await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "schema.sql"), ct);
-            var start = schema.IndexOf("SET ANSI_NULLS ON;", StringComparison.Ordinal);
-            if (start < 0) throw new InvalidOperationException("Unexpected schema bootstrap.");
-            schema = schema[start..];
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260912_add_interdisciplinary_projects.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260913_add_topic_catalog.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260914_add_project_topic_selection.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260916_add_contribution_snapshots.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260918_add_scheduled_notification_occurrences.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260918_add_notification_email_deliveries.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260920_add_team_leader_change_requests.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260921_add_student_qualifications.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260921_add_academic_profile_verification.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260921_add_milestone_templates.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260921_add_task_evidence_comments.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260922_add_rubric_hierarchy.sql"), ct);
-            foreach (var migration in new[] { "20260925_add_project_period_governance_policy.sql", "20260925_add_supervisor_assignment_types.sql" })
-                schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "changes", migration), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260926_add_google_external_logins.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260927_add_governance_baseline_v3.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-"db", "changes", "20260928_add_team_eligibility_snapshots.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260929_add_project_major_requirements.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260929_add_discipline_evidence.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260929_add_reporting_cycles_and_action_items.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName,
-                "db", "changes", "20260930_add_policy_evaluation_schemes.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "changes", "20261001_add_password_recovery_queue.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "changes", "20261002_add_video_meetings.sql"), ct);
-            schema += "\nGO\n" + await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "changes", "20261007_add_realtime_chat.sql"), ct);
-            if (Regex.IsMatch(schema, @"\bUSE\s|\b(?:CREATE|DROP|ALTER)\s+DATABASE\b", RegexOptions.IgnoreCase))
-                throw new InvalidOperationException("Schema must not switch or manage databases.");
-
-            // Some migrations span GO batches inside a transaction, which MARS does not permit.
-            var bootstrapConnection = new SqlConnectionStringBuilder(ConnectionString) { MultipleActiveResultSets = false };
-            await using var target = new SqlConnection(bootstrapConnection.ConnectionString);
-            await target.OpenAsync(ct);
-            foreach (var batch in Regex.Split(schema, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
-            {
-                if (string.IsNullOrWhiteSpace(batch)) continue;
-                await using var command = new SqlCommand(batch, target);
-                await command.ExecuteNonQueryAsync(ct);
-            }
+            await SqlSchemaBootstrap.ApplyAsync(ConnectionString, ct: ct);
         }
         catch
         {
@@ -132,6 +72,11 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
         {
             if (!created) return;
             ValidateOwnedName();
+            if (!string.IsNullOrEmpty(ConnectionString))
+            {
+                using var ownedPool = new SqlConnection(ConnectionString);
+                SqlConnection.ClearPool(ownedPool);
+            }
             await using var connection = new SqlConnection(masterConnection);
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
