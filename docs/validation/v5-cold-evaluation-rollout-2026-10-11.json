@@ -1,0 +1,14 @@
+{
+  "database": "AI_PMS",
+  "migration": "20261011_add_cold_evaluation_stage.sql",
+  "mergedCommit": "868bd82725248290bef4169ecca984e76a9ba199",
+  "executions": 2,
+  "nullableColumns": 3,
+  "trustedChecks": 3,
+  "trustedForeignKeys": 1,
+  "indexes": 1,
+  "declaredStageRows": 0,
+  "checkedBusinessCountsUnchanged": true,
+  "lifecycleTestsRun": false,
+  "verifiedAtUtc": "2026-10-11T16:50:03.7713742Z"
+}
