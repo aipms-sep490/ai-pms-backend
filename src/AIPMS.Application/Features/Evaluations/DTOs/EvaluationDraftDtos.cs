@@ -10,7 +10,8 @@ public sealed record SaveEvaluationDraftRequest(string ConcurrencyToken, string?
 public sealed record EvaluationAssignmentDto(long Id, long ProjectId, long EvaluatorId, long RubricId,
     long ProjectPeriodId, long DepartmentId, string EvaluationType, string Status, long AssignedBy,
     DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken, string Scope = "UNKNOWN",
-    long? MajorId = null, long? StudentId = null, long? ComponentId = null, long? PolicyVersionId = null);
+    long? MajorId = null, long? StudentId = null, long? ComponentId = null, long? PolicyVersionId = null,
+    string? Stage = null, long? ColdPackageId = null);
 public sealed record EvaluationScoreDto(long RubricCriterionId, string Name, string? Description, decimal WeightPercent,
     decimal MaxScore, int SortOrder, bool IsRequired, decimal? Score, string? Comments);
 public sealed record EvaluationDraftDto(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
@@ -20,7 +21,8 @@ public sealed record EvaluationDraftDto(long Id, long AssignmentId, long Project
     DateTime UpdatedAt, IReadOnlyList<EvaluationScoreDto> Scores, EvaluationFinalizationDto? Finalization = null);
 
 public sealed record EvaluationEvidenceDto(long FinalSubmissionId, long ProjectPeriodId, DateTime SubmittedAt,
-    int ArtifactCount, int FileCount, IReadOnlyList<long> DeliverableVersionIds);
+    int ArtifactCount, int FileCount, IReadOnlyList<long> DeliverableVersionIds,
+    string? Stage = null, long? ColdPackageId = null, IReadOnlyList<long>? ColdSubmissionIds = null);
 public sealed record EvaluationFinalizationDto(long FinalizedBy, DateTime FinalizedAt, EvaluationEvidenceDto Evidence);
 
 public static class EvaluationDraftDtoMapper
@@ -28,7 +30,7 @@ public static class EvaluationDraftDtoMapper
     public static EvaluationAssignmentDto ToDto(this EvaluationAssignmentRecord a) => new(a.Id,
         a.ProjectId, a.EvaluatorId, a.RubricId, a.PeriodId, a.DepartmentId, a.EvaluationType,
         a.Status, a.AssignedBy, Utc(a.AssignedAt), a.RevokedAt.HasValue ? Utc(a.RevokedAt.Value) : null,
-        a.ConcurrencyToken, a.Scope, a.MajorId, a.StudentId, a.ComponentId, a.PolicyVersionId);
+        a.ConcurrencyToken, a.Scope, a.MajorId, a.StudentId, a.ComponentId, a.PolicyVersionId, a.Stage, a.ColdPackageId);
 
     public static EvaluationDraftDto ToDto(this EvaluationDraftRecord e) => new(e.Id, e.AssignmentId,
         e.ProjectId, e.EvaluatorId, e.RubricId, e.RubricName, e.RootRubricId, e.RubricVersion, e.EvaluationType, e.Status, e.Comments, e.TotalScore,
@@ -41,7 +43,8 @@ public static class EvaluationDraftDtoMapper
         e.Finalization is null ? null : new(e.Finalization.FinalizedBy, Utc(e.Finalization.FinalizedAt),
             new(e.Finalization.Evidence.FinalSubmissionId, e.Finalization.Evidence.ProjectPeriodId,
                 Utc(e.Finalization.Evidence.SubmittedAt), e.Finalization.Evidence.ArtifactCount,
-                e.Finalization.Evidence.FileCount, e.Finalization.Evidence.DeliverableVersionIds)));
+                e.Finalization.Evidence.FileCount, e.Finalization.Evidence.DeliverableVersionIds,
+                e.Finalization.Evidence.Stage, e.Finalization.Evidence.ColdPackageId, e.Finalization.Evidence.ColdSubmissionIds)));
 
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
 }

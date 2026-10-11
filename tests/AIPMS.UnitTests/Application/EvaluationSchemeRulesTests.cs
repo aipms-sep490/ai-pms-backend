@@ -6,6 +6,16 @@ namespace AIPMS.UnitTests.Application;
 
 public sealed class EvaluationSchemeRulesTests
 {
+    [Fact]
+    public void Cold_tracking_components_have_no_implicit_result_weight()
+    {
+        var tracking = new SchemeComponentInput("COLD", "MAJOR_SPECIFIC", 2, 1, 0, 0, 2, Stage: "COLD");
+        EvaluationSchemeRules.Validate([Common(100, 100), tracking], [2], 5);
+        Assert.Throws<ValidationException>(() => EvaluationSchemeRules.Validate([Common(100, 100), tracking with { Stage = "UNKNOWN" }], [2], 5));
+        Assert.Throws<ValidationException>(() => EvaluationSchemeRules.Validate([Common(100, 100), tracking with { Stage = "DEFENSE" }], [2], 5));
+        Assert.Throws<ValidationException>(() => EvaluationSchemeRules.Validate([Common(100, 100), tracking with { ProjectWeightPercent = 30 }], [2], 5));
+    }
+
     private static SchemeComponentInput Common(decimal project = 50, decimal student = 50) =>
         new("Common", "COMMON", null, 1, project, student, 1);
 

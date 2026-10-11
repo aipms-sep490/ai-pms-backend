@@ -17,6 +17,7 @@ public interface IEvaluationSchemeService
     Task DeleteAsync(long id, string token, CancellationToken ct);
     Task<ScopedAssignmentContext> ResolveAssignmentAsync(long projectId, AssignEvaluatorRequest input, CancellationToken ct);
     Task EnsureWritableAsync(EvaluationAssignmentRecord assignment, CancellationToken ct);
+    Task<EvaluationEvidenceRecord> BindEvidenceAsync(EvaluationAssignmentRecord assignment, EvaluationEvidenceRecord finalEvidence, CancellationToken ct);
     Task<ProjectResultPreviewDto> PreviewAsync(long projectId, long? studentId, CancellationToken ct);
     Task<ProjectResultDto> PublishProjectAsync(long projectId, string token, CancellationToken ct);
     Task<StudentResultDto> PublishStudentAsync(long projectId, long studentId, string token, CancellationToken ct);

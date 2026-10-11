@@ -1,0 +1,14 @@
+{
+  "database": "AI_PMS",
+  "migration": "20261011_add_cold_submissions.sql",
+  "mergedCommit": "9b5a6dfe5454edccabe7467a5523838a7d39d7a0",
+  "executions": 2,
+  "tables": 5,
+  "trustedChecks": 8,
+  "trustedForeignKeys": 15,
+  "uniqueIndexes": 11,
+  "coldRows": 0,
+  "checkedBusinessCountsUnchanged": true,
+  "lifecycleTestsRun": false,
+  "verifiedAtUtc": "2026-10-11T16:26:22.6804635Z"
+}

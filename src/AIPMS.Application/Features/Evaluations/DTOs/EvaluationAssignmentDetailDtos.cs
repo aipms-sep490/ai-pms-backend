@@ -24,7 +24,7 @@ public sealed record EvaluationAssignmentEvidenceItemDto(
     string? DownloadUrl,
     long? DeliverableVersionId = null,
     int? VersionNumber = null,
-    string? Sha256 = null);
+    string? Sha256 = null, long? ColdSubmissionId = null);
 
 [method: JsonConstructor]
 public sealed record EvaluationAssignmentEvidenceDto(
@@ -37,7 +37,7 @@ public sealed record EvaluationAssignmentEvidenceDto(
     DateTime? SubmittedAt,
     int ItemCount,
     bool IsReadOnly,
-    IReadOnlyList<EvaluationAssignmentEvidenceItemDto> Items)
+    IReadOnlyList<EvaluationAssignmentEvidenceItemDto> Items, string? Stage = null, long? ColdPackageId = null)
 {
     public EvaluationAssignmentEvidenceDto(
         long assignmentId,

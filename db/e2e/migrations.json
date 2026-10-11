@@ -38,5 +38,6 @@
   "20261011_seed_enforced_authorization_catalog.sql",
   "20261011_add_deliverable_evidence_targets.sql",
   "20261011_add_scheme_governance_metadata.sql",
-  "20261011_add_cold_submissions.sql"
+  "20261011_add_cold_submissions.sql",
+  "20261011_add_cold_evaluation_stage.sql"
 ]

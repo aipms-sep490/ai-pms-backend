@@ -20,6 +20,11 @@ public sealed record ColdChecklistItemDto(long Id, long TemplateId, int Template
 public sealed record ColdChecklistDto(long Id, long ProjectId, long ProjectPeriodId, DateTime Deadline, string Status,
     string ConcurrencyToken, DateTime? LockedAt, bool CanLock, IReadOnlyList<string> Blockers, IReadOnlyList<ColdChecklistItemDto> Items);
 
+public sealed record ColdGradingProgressDto(long ComponentId, string Name, string Scope, long? MajorId, long? StudentId,
+    int RequiredEvaluators, int AssignedEvaluators, int FinalizedEvaluators, decimal? Score, bool ContributesToResult);
+public sealed record ColdProgressDto(long ProjectId, string PackageStatus, int VisibleReports, int SubmittedReports, int LockedReports,
+    bool Ready, IReadOnlyList<string> Blockers, IReadOnlyList<ColdGradingProgressDto> Grading);
+
 public static class ColdTemplateExamples
 {
     // Explicit examples only: no global IT checklist is imposed on other majors.
