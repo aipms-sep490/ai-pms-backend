@@ -27,6 +27,7 @@ public sealed class PolicyEvaluationController(IPeriodPolicyService policies, IE
     public Task<IReadOnlyList<EvaluationSchemeDto>> Schemes([FromQuery] long projectId, CancellationToken ct) => schemes.ListAsync(projectId, ct);
     [HttpGet("api/v1/evaluation-schemes/{id:long}")]
     public Task<EvaluationSchemeDto> Scheme(long id, CancellationToken ct) => schemes.GetAsync(id, ct);
+    /// <remarks>Omitted policy defaults to DEMO/DECIMAL_V2. Official publication requires explicit approval provenance. PUBLISHED freezes the scheme; it does not grant academic approval.</remarks>
     [HttpPost("api/v1/evaluation-schemes")]
     public async Task<ActionResult<EvaluationSchemeDto>> Create(SaveEvaluationSchemeRequest input, CancellationToken ct)
     { var row = await schemes.SaveAsync(null, input, ct); return CreatedAtAction(nameof(Scheme), new { id = row.Id }, row); }
@@ -39,6 +40,7 @@ public sealed class PolicyEvaluationController(IPeriodPolicyService policies, IE
     [HttpDelete("api/v1/evaluation-schemes/{id:long}")]
     public async Task<IActionResult> Delete(long id, [FromQuery] string concurrencyToken, CancellationToken ct)
     { await schemes.DeleteAsync(id, concurrencyToken, ct); return NoContent(); }
+    /// <summary>Locks the scheme and its calculation/approval metadata. Demo schemes remain ineligible for official result publication.</summary>
     [HttpPost("api/v1/evaluation-schemes/{id:long}/publish")]
     public Task<EvaluationSchemeDto> Publish(long id, SchemeTokenRequest input, CancellationToken ct) => schemes.PublishAsync(id, input.ConcurrencyToken, ct);
     [HttpPost("api/v1/evaluation-schemes/{id:long}/versions")]
@@ -48,6 +50,7 @@ public sealed class PolicyEvaluationController(IPeriodPolicyService policies, IE
     [HttpPost("api/v1/projects/{projectId:long}/students/{studentId:long}/result")]
     public Task<StudentResultDto> PublishStudent(long projectId, long studentId, PublishProjectResultRequest input, CancellationToken ct) =>
         schemes.PublishStudentAsync(projectId, studentId, input.ConfirmationToken, ct);
+    /// <summary>Returns an authorized published result with historical typed breakdown. Students only read their own result; private audit snapshots are redacted.</summary>
     [HttpGet("api/v1/projects/{projectId:long}/students/{studentId:long}/result")]
     public Task<StudentResultDto> Student(long projectId, long studentId, CancellationToken ct) => schemes.GetStudentAsync(projectId, studentId, ct);
 }

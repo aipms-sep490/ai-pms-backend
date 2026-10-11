@@ -27,6 +27,7 @@ public partial class AipmsDbContext
             e.ToTable("evaluation_schemes"); e.HasKey(x => x.Id);
             e.Property(x => x.Name).HasMaxLength(200); e.Property(x => x.Status).HasMaxLength(20);
             e.Property(x => x.CalculationRule).HasMaxLength(100);
+            e.Property(x => x.LockedAt).HasPrecision(0);
             e.Property(x => x.PassThreshold).HasPrecision(5, 2);
             e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasIndex(x => new { x.ProjectId, x.Version }).IsUnique();

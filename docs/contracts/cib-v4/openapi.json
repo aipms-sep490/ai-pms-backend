@@ -41330,6 +41330,9 @@
           "frozenInputs": {
             "type": "string",
             "nullable": true
+          },
+          "breakdown": {
+            "$ref": "#/components/schemas/ResultBreakdownDto"
           }
         },
         "additionalProperties": false
@@ -41375,6 +41378,9 @@
               "$ref": "#/components/schemas/ResultContributionDto"
             },
             "nullable": true
+          },
+          "breakdown": {
+            "$ref": "#/components/schemas/ResultBreakdownDto"
           }
         },
         "additionalProperties": false
@@ -42233,6 +42239,109 @@
         },
         "additionalProperties": false
       },
+      "ResultBreakdownDto": {
+        "type": "object",
+        "properties": {
+          "schemeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "schemeVersion": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "calculationVersion": {
+            "type": "string",
+            "nullable": true
+          },
+          "isLegacy": {
+            "type": "boolean"
+          },
+          "isDemo": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "approvalStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "readiness": {
+            "type": "string",
+            "nullable": true
+          },
+          "unroundedTotal": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "commonScore": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "majorAggregate": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "majorBreakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResultMajorScoreDto"
+            },
+            "nullable": true
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResultComponentScoreDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResultComponentScoreDto": {
+        "type": "object",
+        "properties": {
+          "componentId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "scope": {
+            "type": "string",
+            "nullable": true
+          },
+          "majorId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "weightPercent": {
+            "type": "number",
+            "format": "double"
+          },
+          "score": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "requiredEvaluators": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "finalizedEvaluators": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
       "ResultContributionDto": {
         "type": "object",
         "properties": {
@@ -42262,6 +42371,21 @@
           },
           "evaluationConcurrencyToken": {
             "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResultMajorScoreDto": {
+        "type": "object",
+        "properties": {
+          "majorId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "score": {
+            "type": "number",
+            "format": "double",
             "nullable": true
           }
         },
@@ -42631,6 +42755,9 @@
           "concurrencyToken": {
             "type": "string",
             "nullable": true
+          },
+          "policy": {
+            "$ref": "#/components/schemas/SchemePolicyInput"
           }
         },
         "additionalProperties": false
@@ -42738,6 +42865,60 @@
             "format": "double"
           },
           "requiredEvaluators": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "evaluatorWeights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SchemeEvaluatorWeight"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SchemeEvaluatorWeight": {
+        "type": "object",
+        "properties": {
+          "evaluatorId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "weightPercent": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SchemePolicyInput": {
+        "type": "object",
+        "properties": {
+          "isDemo": {
+            "type": "boolean"
+          },
+          "approvalStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "approvalReference": {
+            "type": "string",
+            "nullable": true
+          },
+          "formula": {
+            "type": "string",
+            "nullable": true
+          },
+          "calculationVersion": {
+            "type": "string",
+            "nullable": true
+          },
+          "roundingMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "decimalPlaces": {
             "type": "integer",
             "format": "int32"
           }

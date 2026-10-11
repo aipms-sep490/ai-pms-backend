@@ -57,7 +57,8 @@ public sealed partial class PolicyEvaluationEndpointTests
              new("Software", "MAJOR_SPECIFIC", firstMajor, s.RubricId, 30, 40, 1),
              new("Business", "MAJOR_SPECIFIC", secondMajor, secondRubric, 30, 40, 1),
              new("Student software", "INDIVIDUAL", firstMajor, s.RubricId, 0, 20, 1),
-             new("Student business", "INDIVIDUAL", secondMajor, secondRubric, 0, 20, 1)]);
+             new("Student business", "INDIVIDUAL", secondMajor, secondRubric, 0, 20, 1)],
+             Policy: new(false, "APPROVED", "SYNTHETIC-REGRESSION-ONLY", CalculationVersion: "LEGACY_V1"));
         Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync("/api/v1/evaluation-schemes", input)).StatusCode);
         var draft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", input));
         var businessDraft = draft.Components.Single(c => c.Name == "Business");

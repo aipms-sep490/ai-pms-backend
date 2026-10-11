@@ -1,0 +1,14 @@
+{
+  "database": "AI_PMS",
+  "migration": "20261011_add_deliverable_evidence_targets.sql",
+  "mergedCommit": "f5d9ef1bdd4b058274b183de4ba7cc23f894ab23",
+  "executions": 2,
+  "nullableColumns": 3,
+  "trustedChecks": 1,
+  "trustedForeignKeys": 2,
+  "indexes": 1,
+  "rowsWithDeclaredTarget": 0,
+  "checkedBusinessCountsUnchanged": true,
+  "lifecycleTestsRun": false,
+  "verifiedAtUtc": "2026-10-11T12:25:41.8739156Z"
+}

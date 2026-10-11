@@ -52,7 +52,8 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
     private static async Task<EvaluationSchemeDto> SetupPublishedSchemeAsync(HttpClient staff, EvaluationScenario s, long major)
     {
         var request = new SaveEvaluationSchemeRequest(s.ProjectId, s.PeriodId, "CIB Acceptance Scheme", 5,
-            [new("Common", "COMMON", null, s.RubricId, 100, 70, 1), new("Individual", "INDIVIDUAL", major, s.RubricId, 0, 30, 1)]);
+            [new("Common", "COMMON", null, s.RubricId, 100, 70, 1), new("Individual", "INDIVIDUAL", major, s.RubricId, 0, 30, 1)],
+            Policy: new(false, "APPROVED", "SYNTHETIC-REGRESSION-ONLY", CalculationVersion: "LEGACY_V1"));
 
         var draft = await ReadJsonAsync<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", request));
         return await ReadJsonAsync<EvaluationSchemeDto>(await staff.PostAsJsonAsync(

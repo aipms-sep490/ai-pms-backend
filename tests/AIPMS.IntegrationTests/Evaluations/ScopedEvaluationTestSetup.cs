@@ -53,7 +53,8 @@ public sealed partial class EvaluationDraftEndpointTests
                 single ? [new("First", "COMMON", null, rubricId, 100, 100, 1)] :
                 [new("First", "COMMON", null, rubricId, 60, 60, 1), new("Second", "COMMON", null, rubricId, 30, 30, 1), new("Supervisor", "COMMON", null, rubricId, 10, 10, 1)];
             var draft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
-                new SaveEvaluationSchemeRequest(s.ProjectId, s.PeriodId, "Regression scoped scheme", threshold, components)));
+                new SaveEvaluationSchemeRequest(s.ProjectId, s.PeriodId, "Regression scoped scheme", threshold, components,
+                    Policy: new(false, "APPROVED", "SYNTHETIC-REGRESSION-ONLY", CalculationVersion: "LEGACY_V1"))));
             await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{draft.Id}/publish", new SchemeTokenRequest(draft.ConcurrencyToken)));
             published = await db.Set<EvaluationScheme>().Include(x => x.Components).SingleAsync(x => x.Id == draft.Id);
         }
