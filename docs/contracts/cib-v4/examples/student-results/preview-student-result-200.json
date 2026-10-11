@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/projects/42/students/2001/result/preview",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STAFF]"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "projectId": 42,
+      "totalScore": 8.4,
+      "passThreshold": 5.0,
+      "outcome": "PASSED",
+      "calculationRule": "MAJOR_WEIGHTED_MEAN",
+      "confirmationToken": "CONFIRM-STU-2001-XYZ-7712",
+      "evaluatorCount": 2,
+      "missingEvaluatorCount": 0
+    }
+  }
+}

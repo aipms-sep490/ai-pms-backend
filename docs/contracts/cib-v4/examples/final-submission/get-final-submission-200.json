@@ -1,0 +1,43 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/projects/42/final-submission",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_EVALUATOR]"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": 501,
+      "projectId": 42,
+      "projectPeriodId": 8,
+      "submittedByUserId": 2001,
+      "submittedByName": "Student Leader",
+      "submittedAt": "2026-10-08T14:30:00Z",
+      "deadline": "2026-10-08T17:00:00Z",
+      "status": "SUBMITTED",
+      "isLate": false,
+      "items": [
+        {
+          "id": 701,
+          "deliverableVersionId": 301,
+          "deliverableId": 12,
+          "title": "Final Capstone Report",
+          "versionNumber": 1,
+          "statusAtSubmission": "SUBMITTED",
+          "wasRequired": true,
+          "files": [
+            {
+              "id": 901,
+              "fileName": "capstone_report.pdf",
+              "contentType": "application/pdf",
+              "sizeBytes": 2048576,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/projects/42/final-submission",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STUDENT_LEADER]",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "requirementsConcurrencyToken": "00000000-0000-0000-0000-000000000000",
+      "draftConcurrencyToken": "00000000-0000-0000-0000-000000000000"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "type": "https://tools.ietf.org/html/rfc7231#section-6.5.8",
+      "title": "Conflict",
+      "status": 409,
+      "detail": "Final submission requirements or draft state has been updated. Please refresh checklist and retry.",
+      "instance": "/api/v1/projects/42/final-submission"
+    }
+  }
+}

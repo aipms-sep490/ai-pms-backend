@@ -12,6 +12,7 @@ using AIPMS.Application.Features.Milestones.DTOs;
 using AIPMS.Application.Features.Tasks.Abstractions;
 using AIPMS.Application.Features.Tasks.Commands;
 using AIPMS.Application.Features.Tasks.DTOs;
+using AIPMS.Application.Features.Tasks.Queries;
 using Xunit;
 
 namespace AIPMS.UnitTests.Application;
@@ -140,6 +141,50 @@ public sealed class TaskHandlerTests
         var result = await handler.Handle(cmd, CancellationToken.None);
         Assert.NotNull(result);
     }
+
+    [Fact]
+    public async Task GetTasks_WithoutMajorId_PassesNullMajorIdToRepository()
+    {
+        var repository = new StubTaskRepository();
+        var accessService = new StubProjectAccessService();
+        var currentUser = new TestCurrentUser(100, AppRoles.Student);
+        var handler = new GetTasksQueryHandler(repository, accessService, currentUser);
+        var query = new GetTasksQuery(ProjectId: 42);
+
+        var result = await handler.Handle(query, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(42, repository.CapturedProjectId);
+        Assert.Null(repository.CapturedMajorId);
+    }
+
+    [Fact]
+    public async Task GetTasks_WithMajorId_PropagatesMajorIdToRepository()
+    {
+        var repository = new StubTaskRepository();
+        var accessService = new StubProjectAccessService();
+        var currentUser = new TestCurrentUser(100, AppRoles.Student);
+        var handler = new GetTasksQueryHandler(repository, accessService, currentUser);
+        var query = new GetTasksQuery(ProjectId: 42, MajorId: 7);
+
+        var result = await handler.Handle(query, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(42, repository.CapturedProjectId);
+        Assert.Equal(7, repository.CapturedMajorId);
+    }
+
+    [Fact]
+    public async Task GetTasks_WithWrongProjectMajor_ThrowsForbiddenException()
+    {
+        var repository = new StubTaskRepository { MajorBelongsToProject = false };
+        var accessService = new StubProjectAccessService();
+        var currentUser = new TestCurrentUser(100, AppRoles.Student);
+        var handler = new GetTasksQueryHandler(repository, accessService, currentUser);
+        var query = new GetTasksQuery(ProjectId: 42, MajorId: 999);
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(query, CancellationToken.None));
+    }
 }
 
 internal sealed class StubTaskRepository : ITaskRepository
@@ -148,13 +193,20 @@ internal sealed class StubTaskRepository : ITaskRepository
     public bool IsAssignee { get; set; } = true;
     public bool ActiveTeamMember { get; set; } = true;
     public bool HasHistoricalData { get; set; } = false;
+    public bool MajorBelongsToProject { get; set; } = true;
     public TaskDto? ExistingTask { get; set; }
+    public long? CapturedProjectId { get; private set; }
+    public long? CapturedMajorId { get; private set; }
 
     public Task<TaskDto?> GetByIdAsync(long id, CancellationToken cancellationToken) =>
         Task.FromResult(ExistingTask?.Id == id ? ExistingTask : null);
 
-    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, CancellationToken cancellationToken) =>
-        Task.FromResult(new PagedResult<TaskDto>(Array.Empty<TaskDto>(), page, pageSize, 0));
+    public Task<PagedResult<TaskDto>> GetTasksAsync(long projectId, long? milestoneId, string? status, string? priority, long? assigneeUserId, string? search, DateTime? dueFrom, DateTime? dueTo, bool? isOverdue, bool? isBlocked, int page, int pageSize, long? majorId, CancellationToken cancellationToken)
+    {
+        CapturedProjectId = projectId;
+        CapturedMajorId = majorId;
+        return Task.FromResult(new PagedResult<TaskDto>(Array.Empty<TaskDto>(), page, pageSize, 0));
+    }
 
     public Task<TaskDto> CreateAsync(long milestoneId, long? parentTaskId, string title, string? description, string? priority, DateTime? startAt, DateTime? dueAt, IReadOnlyList<long> assigneeUserIds, long createdByUserId, CancellationToken cancellationToken) =>
         Task.FromResult(new TaskDto(1, milestoneId, parentTaskId, title, description, "TODO", priority ?? "NORMAL", startAt, dueAt, null, createdByUserId, "User", DateTime.UtcNow, DateTime.UtcNow, Array.Empty<TaskAssigneeDto>(), Array.Empty<TaskDependencyDto>()));
@@ -193,4 +245,7 @@ internal sealed class StubTaskRepository : ITaskRepository
 
     public Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult(( (IReadOnlyList<TaskDto>)Array.Empty<TaskDto>(), (IReadOnlyList<TaskDto>)Array.Empty<TaskDto>() ));
+
+    public Task<bool> MajorBelongsToProjectAsync(long majorId, long projectId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(MajorBelongsToProject);
 }

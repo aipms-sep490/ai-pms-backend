@@ -1,0 +1,509 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contractVersion": "1.0.0-cib.v4",
+  "description": "Integration and acceptance scenario manifest for AI-PMS CIB v4",
+  "generatedAt": "2026-10-10T00:00:00Z",
+  "scenarios": [
+    {
+      "scenarioId": "SCENARIO_QUAL_01",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_LEADER",
+      "assignment": null,
+      "scope": "STUDENT_OWNER",
+      "projectState": "FORMATION",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "fileLimits": {
+        "transportCeilingBytes": 23068672,
+        "businessFileMaxBytes": 20971520
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/student-qualifications/me/certificate",
+        "contentType": "multipart/form-data",
+        "form": {
+          "qualificationType": "CAPSTONE_READINESS",
+          "trainingStatus": "TRAINING_COMPLETED",
+          "certificateNumber": "CERT-2026-001"
+        }
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "StudentQualificationDto",
+      "expectedReadback": {
+        "verificationStatus": "PENDING",
+        "qualificationType": "CAPSTONE_READINESS"
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Certificate_file_size_contract_distinguishes_transport_and_business_limits",
+      "tags": ["allowed", "qualification"]
+    },
+    {
+      "scenarioId": "SCENARIO_QUAL_02_VALIDATION",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_MEMBER",
+      "assignment": null,
+      "scope": "STUDENT_OWNER",
+      "projectState": "FORMATION",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "fileLimits": {
+        "transportCeilingBytes": 23068672,
+        "businessFileMaxBytes": 20971520
+      },
+      "note": "Rejects empty file or file > 20 MiB with 400 Bad Request.",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/student-qualifications/me/certificate",
+        "contentType": "multipart/form-data",
+        "form": {}
+      },
+      "expectedStatus": 400,
+      "expectedBodyClass": "ProblemDetails",
+      "expectedReadback": null,
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Certificate_file_size_contract_distinguishes_transport_and_business_limits",
+      "tags": ["validation", "qualification"]
+    },
+    {
+      "scenarioId": "SCENARIO_TASKS_01_BASE",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_MEMBER",
+      "assignment": null,
+      "scope": "PROJECT_MEMBER",
+      "projectState": "ACTIVE",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/tasks/project/101?page=1&pageSize=10",
+        "query": { "page": 1, "pageSize": 10 }
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "PagedResult<TaskDto>",
+      "expectedReadback": {
+        "page": 1,
+        "pageSize": 10
+      },
+      "tags": ["allowed", "tasks"]
+    },
+    {
+      "scenarioId": "SCENARIO_TASKS_02_DISCIPLINE_FILTER",
+      "mode": "INTERDISCIPLINARY",
+      "actor": "STUDENT_LEADER",
+      "assignment": null,
+      "scope": "MAJOR_SPECIFIC",
+      "projectState": "ACTIVE",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/tasks/project/201?majorId=10",
+        "query": { "majorId": 10 }
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "PagedResult<TaskDto>",
+      "expectedReadback": {
+        "disciplineFiltered": true,
+        "majorId": 10
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.MilestonesAndTasksEndpointTests.GetTasks_Interdisciplinary_SeparatesMajors",
+      "tags": ["allowed", "tasks", "discipline_filter"]
+    },
+    {
+      "scenarioId": "SCENARIO_TASKS_04_INVALID_MAJOR",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_MEMBER",
+      "assignment": null,
+      "scope": "PROJECT_MEMBER",
+      "projectState": "ACTIVE",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/tasks/project/101?majorId=0",
+        "query": { "majorId": 0 }
+      },
+      "expectedStatus": 400,
+      "expectedBodyClass": "ProblemDetails",
+      "expectedReadback": null,
+      "acceptanceEvidence": "AIPMS.IntegrationTests.MilestonesAndTasksEndpointTests.GetTasks_WithInvalidMajorId_Returns400BadRequest",
+      "tags": ["validation", "tasks"]
+    },
+    {
+      "scenarioId": "SCENARIO_TASKS_05_FOREIGN_MAJOR",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_MEMBER",
+      "assignment": null,
+      "scope": "FOREIGN_MAJOR",
+      "projectState": "ACTIVE",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/tasks/project/106?majorId=71",
+        "query": { "majorId": 71 }
+      },
+      "expectedStatus": 403,
+      "expectedBodyClass": "ProblemDetails",
+      "expectedReadback": null,
+      "acceptanceEvidence": "AIPMS.IntegrationTests.MilestonesAndTasksEndpointTests.GetTasks_WrongProjectMajor_ReturnsForbidden",
+      "tags": ["denied", "privacy", "tasks"]
+    },
+    {
+      "scenarioId": "SCENARIO_TASKS_03_FORBIDDEN",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_MEMBER",
+      "assignment": null,
+      "scope": "FOREIGN_PROJECT",
+      "projectState": "ACTIVE",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/tasks/project/999"
+      },
+      "expectedStatus": 403,
+      "expectedBodyClass": "ProblemDetails",
+      "expectedReadback": null,
+      "tags": ["denied", "privacy", "tasks"]
+    },
+    {
+      "scenarioId": "SCENARIO_EVAL_ASSIGN_01_CREATE",
+      "mode": "SINGLE_MAJOR",
+      "actor": "LEAD_STAFF",
+      "assignment": null,
+      "scope": "LEAD_DEPARTMENT",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/projects/101/evaluation-assignments",
+        "body": {
+          "evaluatorId": 501,
+          "periodId": 10,
+          "evaluationType": "LECTURER",
+          "scope": "COMMON"
+        }
+      },
+      "expectedStatus": 201,
+      "expectedBodyClass": "EvaluationAssignmentDto",
+      "expectedReadback": {
+        "status": "ACTIVE",
+        "scope": "COMMON"
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Single_major_fixture_creates_mutates_and_reads_back_isolated_state",
+      "tags": ["allowed", "evaluation-assignments"]
+    },
+    {
+      "scenarioId": "SCENARIO_EVAL_ASSIGN_02_CONFLICT",
+      "mode": "SINGLE_MAJOR",
+      "actor": "LEAD_STAFF",
+      "assignment": null,
+      "scope": "LEAD_DEPARTMENT",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/projects/101/evaluation-assignments",
+        "body": {
+          "evaluatorId": 501,
+          "periodId": 10,
+          "evaluationType": "LECTURER",
+          "scope": "COMMON"
+        }
+      },
+      "expectedStatus": 409,
+      "expectedBodyClass": "ProblemDetails",
+      "expectedReadback": null,
+      "tags": ["stale/conflict", "duplicate/concurrent", "evaluation-assignments"]
+    },
+    {
+      "scenarioId": "SCENARIO_EVAL_DETAIL_01",
+      "mode": "SINGLE_MAJOR",
+      "actor": "EVALUATOR",
+      "assignment": 1001,
+      "scope": "ASSIGNED_EVALUATOR",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/evaluation-assignments/1001"
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "EvaluationAssignmentDetailDto",
+      "expectedReadback": {
+        "canScore": true,
+        "legacyReadOnly": false
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Single_major_fixture_creates_mutates_and_reads_back_isolated_state",
+      "tags": ["allowed", "read-only", "evaluation-assignments"]
+    },
+    {
+      "scenarioId": "SCENARIO_EVAL_EVIDENCE_01_METADATA",
+      "mode": "INTERDISCIPLINARY",
+      "actor": "EVALUATOR",
+      "assignment": 2001,
+      "scope": "MAJOR_SPECIFIC",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/evaluation-assignments/2001/evidence"
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "EvaluationAssignmentEvidenceDto",
+      "expectedReadback": {
+        "scope": "MAJOR_SPECIFIC",
+        "isReadOnly": true,
+        "hasItems": true
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Evaluation_evidence_endpoint_returns_expected_metadata_contract",
+      "tags": ["allowed", "read-only", "evaluation-assignments"]
+    },
+    {
+      "scenarioId": "SCENARIO_EVAL_EVIDENCE_02_DETAILED_PROJECTION",
+      "mode": "INTERDISCIPLINARY",
+      "actor": "EVALUATOR",
+      "assignment": 2001,
+      "scope": "MAJOR_SPECIFIC",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/evaluation-assignments/2001/evidence/files"
+      },
+      "expectedStatus": 404,
+      "expectedBodyClass": "ProblemDetails",
+      "expectedReadback": null,
+      "tags": ["BLOCKED_BY_CONTRACT"],
+      "blockerNote": "Broad separate /files collection route is not exposed; evidence items are projected additively on /evidence and individual files are downloaded via /evidence/files/{fileId}."
+    },
+    {
+      "scenarioId": "SCENARIO_FINAL_SUBMISSION_01_LOCK",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_LEADER",
+      "assignment": null,
+      "scope": "TEAM_LEADER",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/projects/101/final-submission",
+        "body": {
+          "requirementsConcurrencyToken": "8f1a2b3c-4d5e-6f7a-8b9c-0d1e2f3a4b5c",
+          "draftConcurrencyToken": "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+        }
+      },
+      "expectedStatus": 201,
+      "expectedBodyClass": "FinalSubmissionDto",
+      "expectedReadback": {
+        "status": "SUBMITTED"
+      },
+      "tags": ["allowed", "locked-version", "final-submission"]
+    },
+    {
+      "scenarioId": "SCENARIO_FINAL_SUBMISSION_02_STALE_TOKEN",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_LEADER",
+      "assignment": null,
+      "scope": "TEAM_LEADER",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/projects/101/final-submission",
+        "body": {
+          "requirementsConcurrencyToken": "00000000-0000-0000-0000-000000000000",
+          "draftConcurrencyToken": "00000000-0000-0000-0000-000000000000"
+        }
+      },
+      "expectedStatus": 409,
+      "expectedBodyClass": "ProblemDetails",
+      "expectedReadback": null,
+      "tags": ["stale/conflict", "final-submission"]
+    },
+    {
+      "scenarioId": "SCENARIO_RESULT_01_PUBLISH",
+      "mode": "SINGLE_MAJOR",
+      "actor": "LEAD_STAFF",
+      "assignment": null,
+      "scope": "LEAD_DEPARTMENT",
+      "projectState": "COMPLETED",
+      "policyVersion": "v1.0",
+      "schemeVersion": "v1.0",
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/projects/101/result",
+        "body": {
+          "confirmationToken": "CONFIRM-TOKEN-XYZ-123"
+        }
+      },
+      "expectedStatus": 201,
+      "expectedBodyClass": "ProjectResultDto",
+      "expectedReadback": {
+        "outcome": "PASSED"
+      },
+      "tags": ["allowed", "project-results"]
+    },
+    {
+      "scenarioId": "SCENARIO_STUDENT_RESULT_01_OWNER_PRIVACY",
+      "mode": "SINGLE_MAJOR",
+      "actor": "STUDENT_MEMBER",
+      "assignment": null,
+      "scope": "STUDENT_OWNER",
+      "projectState": "COMPLETED",
+      "policyVersion": "v1.0",
+      "schemeVersion": "v1.0",
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/projects/101/students/201/result"
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "StudentResultDto",
+      "expectedReadback": {
+        "studentId": 201,
+        "snapshotJson": "{}"
+      },
+      "tags": ["allowed", "privacy", "student-results"]
+    },
+    {
+      "scenarioId": "SCENARIO_STUDENT_RESULT_02_STAFF_UNREDACTED",
+      "mode": "SINGLE_MAJOR",
+      "actor": "LEAD_STAFF",
+      "assignment": null,
+      "scope": "LEAD_DEPARTMENT",
+      "projectState": "COMPLETED",
+      "policyVersion": "v1.0",
+      "schemeVersion": "v1.0",
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/projects/101/students/201/result"
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "StudentResultDto",
+      "expectedReadback": {
+        "studentId": 201
+      },
+      "tags": ["allowed", "student-results"]
+    },
+    {
+      "scenarioId": "SCENARIO_INTERDISCIPLINARY_01_ASSIGNMENT_BOUNDARIES",
+      "mode": "INTERDISCIPLINARY",
+      "actor": "LEAD_STAFF",
+      "assignment": null,
+      "scope": "MAJOR_SPECIFIC",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": "v1.0",
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/projects/{projectId}/evaluation-assignments",
+        "body": {
+          "evaluationType": "LECTURER",
+          "scope": "MAJOR_SPECIFIC"
+        }
+      },
+      "expectedStatus": 201,
+      "expectedBodyClass": "EvaluationAssignmentDto",
+      "expectedReadback": {
+        "scope": "MAJOR_SPECIFIC",
+        "status": "ACTIVE"
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Acceptance.CibV4AcceptanceFoundationTests.Interdisciplinary_fixture_enforces_multi_major_boundaries_and_persisted_readback",
+      "tags": ["allowed", "denied", "privacy", "interdisciplinary", "evaluation-assignments"]
+    },
+    {
+      "scenarioId": "SCENARIO_INTERDISCIPLINARY_02_POLICY_EVALUATION",
+      "mode": "INTERDISCIPLINARY",
+      "actor": "ADMIN",
+      "assignment": null,
+      "scope": "INTERDISCIPLINARY",
+      "projectState": "FINAL_SUBMISSION",
+      "policyVersion": "v1.0",
+      "schemeVersion": "v1.0",
+      "rubricVersion": "v1.0",
+      "lockedPackageVersion": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/evaluation-schemes",
+        "body": {
+          "name": "Two departments"
+        }
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "EvaluationSchemeDto",
+      "expectedReadback": {
+        "status": "PUBLISHED"
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Evaluations.PolicyEvaluationEndpointTests.Two_departments_multiple_evaluators_and_individual_targets_use_frozen_weights_and_visibility",
+      "tags": ["allowed", "interdisciplinary", "policy-evaluation"]
+    },
+    {
+      "scenarioId": "SCENARIO_INTERDISCIPLINARY_03_WORKFLOW_JOURNEY",
+      "mode": "INTERDISCIPLINARY",
+      "actor": "LEAD_STAFF",
+      "assignment": null,
+      "scope": "INTERDISCIPLINARY",
+      "projectState": "ACTIVE",
+      "policyVersion": "v1.0",
+      "schemeVersion": null,
+      "rubricVersion": null,
+      "lockedPackageVersion": null,
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/projects/{id}/department-decisions",
+        "body": {
+          "decision": "APPROVED"
+        }
+      },
+      "expectedStatus": 200,
+      "expectedBodyClass": "ProjectAcademicReviewDto",
+      "expectedReadback": {
+        "canRegister": true
+      },
+      "acceptanceEvidence": "AIPMS.IntegrationTests.Teams.InterdisciplinaryWorkflowTests.Cross_department_journey_requires_all_decisions_and_locks_roster",
+      "tags": ["allowed", "denied", "interdisciplinary", "workflow"]
+    }
+  ]
+}

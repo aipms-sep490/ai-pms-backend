@@ -22,7 +22,8 @@ public sealed record GetTasksQuery(
     bool? IsOverdue = null,
     bool? IsBlocked = null,
     int Page = 1,
-    int PageSize = 10) : IRequest<PagedResult<TaskDto>>;
+    int PageSize = 10,
+    long? MajorId = null) : IRequest<PagedResult<TaskDto>>;
 
 public sealed class GetTasksQueryHandler(
     ITaskRepository repository,
@@ -47,6 +48,15 @@ public sealed class GetTasksQueryHandler(
             throw new ForbiddenException("You do not have access to this project.");
         }
 
+        // Verify major belongs to project if specified
+        if (request.MajorId.HasValue)
+        {
+            if (!await repository.MajorBelongsToProjectAsync(request.MajorId.Value, request.ProjectId, cancellationToken))
+            {
+                throw new ForbiddenException("The requested major does not belong to this project.");
+            }
+        }
+
         return await repository.GetTasksAsync(
             request.ProjectId,
             request.MilestoneId,
@@ -60,6 +70,7 @@ public sealed class GetTasksQueryHandler(
             request.IsBlocked,
             request.Page,
             request.PageSize,
+            request.MajorId,
             cancellationToken);
     }
 }
