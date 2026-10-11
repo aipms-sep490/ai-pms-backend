@@ -22,8 +22,8 @@ public sealed partial class FinalSubmissionEndpointTests
             var other = new M.Major { DepartmentId = s.Users.DepartmentId, Code = Guid.NewGuid().ToString("N"), Name = "Other", IsActive = true };
             var milestone = new M.Milestone { ProjectId = s.ProjectId, Title = "Filter", Status = "PLANNED", CreatedBy = s.Users.Student };
             db.Add(other); db.Add(milestone); await db.SaveChangesAsync();
-            var first = new M.Task { MilestoneId = milestone.Id, Title = "First", Status = "TODO", Priority = "NORMAL", CreatedBy = s.Users.Student };
-            var second = new M.Task { MilestoneId = milestone.Id, Title = "Second", Status = "TODO", Priority = "NORMAL", CreatedBy = s.Users.Student };
+            var first = new M.Task { MilestoneId = milestone.Id, Title = "First", Status = "TODO", Priority = "MEDIUM", CreatedBy = s.Users.Student };
+            var second = new M.Task { MilestoneId = milestone.Id, Title = "Second", Status = "TODO", Priority = "MEDIUM", CreatedBy = s.Users.Student };
             db.AddRange(first, second); await db.SaveChangesAsync();
             db.TaskDisciplines.AddRange(
                 new() { TaskId = first.Id, MajorId = major, Role = "PRIMARY", CreatedBy = s.Users.Student },
