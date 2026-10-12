@@ -6,6 +6,10 @@ using Microsoft.AspNetCore.Mvc;
 namespace AIPMS.Api.Controllers;
 
 [ApiController, Authorize]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+[ProducesResponseType<ProblemDetails>(400)]
+[ProducesResponseType<ProblemDetails>(401)]
+[ProducesResponseType<ProblemDetails>(403)]
 public sealed class CalendarController(ICalendarService service) : ControllerBase
 {
     [HttpGet("api/v1/calendar")]

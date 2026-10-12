@@ -79,7 +79,8 @@ internal static class MeetingMapper
             participant.User?.Email ?? string.Empty,
             participant.AttendanceStatus,
             participant.CreatedAt,
-            participant.UpdatedAt);
+            participant.UpdatedAt,
+            participant.RsvpStatus);
 
     public static MeetingFeedbackDto ToMeetingFeedbackDto(this FeedbackEntity feedback) =>
         new(

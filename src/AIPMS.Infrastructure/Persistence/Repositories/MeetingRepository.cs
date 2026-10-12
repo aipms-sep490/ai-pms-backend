@@ -13,10 +13,12 @@ using AIPMS.Infrastructure.Persistence.Mappers;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Task = System.Threading.Tasks.Task;
+using AIPMS.Application.Abstractions.Security;
+using AIPMS.Infrastructure.Services.Projects;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-public sealed class MeetingRepository(AipmsDbContext context) : IMeetingRepository
+public sealed class MeetingRepository(AipmsDbContext context, ICurrentUser? currentUser = null) : IMeetingRepository
 {
     public async Task<MeetingDto?> GetByIdAsync(long id, CancellationToken cancellationToken)
     {
@@ -187,6 +189,7 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
             {
                 UserId = uid,
                 AttendanceStatus = uid == createdBy ? "ACCEPTED" : "INVITED",
+                RsvpStatus = uid == createdBy ? "ACCEPTED" : "INVITED",
                 CreatedAt = now,
                 UpdatedAt = now
             });
@@ -199,6 +202,9 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         {
             await onCreated(result);
         }
+
+        if (minutes != null || decisions != null || blockers != null)
+            await MeetingNotesHistory.Capture(context, meeting, createdBy, now, cancellationToken);
 
         if (tx is not null)
         {
@@ -238,6 +244,10 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         if (meeting.Status is "CANCELLED" or "COMPLETED")
             throw new ConflictException($"Meeting cannot be updated because its status is {meeting.Status}.");
 
+        var contentChanged = (minutes != null && minutes != meeting.Minutes) || (decisions != null && decisions != meeting.Decisions)
+            || (blockers != null && blockers != meeting.Blockers);
+        if (contentChanged && meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.");
+
         meeting.Title = title;
         meeting.Agenda = agenda;
         meeting.StartAt = startAt;
@@ -258,6 +268,9 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         {
             await onUpdated(result);
         }
+
+        if (contentChanged) await MeetingNotesHistory.Capture(context, meeting,
+            currentUser?.UserId ?? throw new UnauthorizedException(), now, cancellationToken);
 
         if (tx is not null)
         {
@@ -384,6 +397,10 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         if (meeting.Status == "CANCELLED")
             throw new ConflictException("Cancelled meetings cannot be modified.");
 
+        var contentChanged = (meetingNotes != null && meetingNotes != meeting.MeetingNotes) || (minutes != null && minutes != meeting.Minutes)
+            || (decisions != null && decisions != meeting.Decisions) || (blockers != null && blockers != meeting.Blockers);
+        if (contentChanged && meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.");
+
         if (meetingNotes != null)
         {
             meeting.MeetingNotes = meetingNotes;
@@ -418,6 +435,9 @@ public sealed class MeetingRepository(AipmsDbContext context) : IMeetingReposito
         {
             await onNotesUpdated(result);
         }
+
+        if (contentChanged) await MeetingNotesHistory.Capture(context, meeting,
+            currentUser?.UserId ?? throw new UnauthorizedException(), now, cancellationToken);
 
         if (tx is not null)
         {

@@ -45,6 +45,15 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
             role = AppRoles.Student;
         }
+        else if (meetingEvent)
+        {
+            var source = await context.Meetings.FromSqlInterpolated(
+                $"SELECT * FROM dbo.meetings WITH (UPDLOCK,HOLDLOCK) WHERE id={notification.SourceId}").AsNoTracking().SingleOrDefaultAsync(ct);
+            if (source is null || source.Status != status || source.CreatedBy != notification.ActorId) return;
+            projectId = source.ProjectId;
+            teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
+            role = AppRoles.Student;
+        }
         else if (replacementEvent)
         {
             var source = await context.SupervisorAssignments.AsNoTracking()
