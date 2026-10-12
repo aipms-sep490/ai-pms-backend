@@ -24,11 +24,18 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - run: dotnet restore AIPMS.sln
-      - run: dotnet build AIPMS.sln --configuration Release --no-restore
+      - run: dotnet build AIPMS.sln --configuration Release --no-restore -warnaserror
       - run: dotnet test AIPMS.sln --configuration Release --no-build
         env:
           ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=AI_PMS;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"
           AIPMS_TEST_SQL_CONNECTION: "Server=localhost,1433;Database=master;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"
+          AIPMS_ACCEPTANCE_OUTPUT: "${{ runner.temp }}/v5-acceptance"
+      - name: Preserve redacted v5 acceptance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: v5-backend-acceptance
+          path: "${{ runner.temp }}/v5-acceptance"
+          if-no-files-found: error
       - name: Verify isolated fixture bootstrap and rerun guards
         shell: pwsh
         run: ./scripts/test-e2e-bootstrap.ps1

@@ -21,8 +21,8 @@ Frontend is maintained separately by Tin. This change contains no frontend edits
 | 8 | BE-12/13/14 | DELIVERED | PR #117 merged as e625ee259e165258379d93484652ada77e19a9a2; CI 1055 unit/1206 integration and isolated bootstrap/rerun passed; six-table shared migration/rerun verified; contract in v5-academic-tracking.md |
 | 9 | BE-06, BE-N05/06/07 | DELIVERED | PR #118 merged as ecb1fe75782ef82d54b03c739b12cd0ddef48914; CI 1055 unit/1220 integration and isolated bootstrap/rerun passed; shared meeting migration/rerun verified; v5-calendar-meeting-collaboration.md |
 | 10 | BE-N08 | DELIVERED | PR #119 merged as 8d4982adba9fd36a6b7655d364465d676371d982; CI 1055 unit/1228 integration and isolated bootstrap/rerun passed; shared sprint migration/rerun verified; v5-sprints-task-board.md |
-| 11 | BE-N09 | IN_PROGRESS | Multiple chat attachments, reactions, mute implemented; isolated validation underway |
-| 12 | BE-15, BE-N10 | NOT_STARTED | AI history, dashboards, A-F acceptance and final FE handoff |
+| 11 | BE-N09 | DELIVERED | PR #120 merged as b9da6751e9f24bc47be1f946f9b5cbef77f4ee14; CI 1055 unit/1239 integration and isolated bootstrap/rerun passed; shared chat migration/rerun verified; v5-chat-collaboration.md |
+| 12 | BE-15, BE-N10 | IN_PROGRESS | Scoped AI retrieval/history and actor dashboard implemented; A-F API/SQL evidence and Tin handoff added; final CI/merge/shared rollout pending |
 
 ## Decisions governing implementation
 
@@ -123,6 +123,10 @@ After PR #119 passed CI and merged, sprint migration ran twice on AI_PMS. Three
 tables, three task columns, six trusted checks, seven trusted FKs and seven indexes
 verified; new tables are empty and checked business counts are unchanged.
 Evidence: `docs/validation/v5-sprints-rollout-2026-10-12.json`.
+After PR #120 passed CI and merged, chat collaboration migration ran twice on
+AI_PMS. Three tables, two nullable columns, three trusted checks, seven trusted FKs
+and six indexes verified; new tables empty, checked business counts unchanged.
+Evidence: `docs/validation/v5-chat-collaboration-rollout-2026-10-12.json`.
 Run isolated tests first, obtain CI/review for each dependency PR, then
 deploy compatible application/schema changes and enable features individually.
 Do not infer readiness from table count, mock responses or this tracker.

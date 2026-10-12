@@ -18,8 +18,14 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
-public sealed class AiAssistantController(ISender sender) : ControllerBase
+public sealed class AiAssistantController(ISender sender, AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore runs) : ControllerBase
 {
+    [HttpGet("/api/v1/projects/{projectId:long}/ai/runs")]
+    [ProducesResponseType<AIPMS.Application.Common.Models.PagedResult<AiRunDto>>(200)]
+    public Task<AIPMS.Application.Common.Models.PagedResult<AiRunDto>> History(long projectId, CancellationToken ct, int page = 1, int pageSize = 20) => runs.ListAsync(projectId, page, pageSize, ct);
+    [HttpGet("/api/v1/projects/{projectId:long}/ai/runs/{id:long}")]
+    [ProducesResponseType<AiRunDto>(200)]
+    public Task<AiRunDto> Run(long projectId, long id, CancellationToken ct) => runs.GetAsync(projectId, id, ct);
     [HttpGet("/api/v1/projects/{projectId:long}/reports/{reportId:long}/summary")]
     [HttpGet("/api/v1/projects/{projectId:long}/ai/reports/{reportId:long}/summary")]
     [ProducesResponseType<ReportSummaryDto>(StatusCodes.Status200OK)]

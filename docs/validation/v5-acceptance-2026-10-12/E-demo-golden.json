@@ -1,0 +1,693 @@
+{
+  "scenario": "E-demo-golden",
+  "synthetic": true,
+  "isolatedDatabase": true,
+  "authentication": "test JWT; persisted resource authorization exercised",
+  "storage": "in-memory storage adapter where files are used",
+  "passed": true,
+  "capturedAtUtc": "2026-10-12T07:20:28.7919865Z",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-schemes",
+      "correlationId": "966f7e3b-781e-4947-84c5-762dc8d0fb94",
+      "statusCode": 201,
+      "request": {},
+      "response": {
+        "id": 11,
+        "status": "DRAFT"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-schemes/11/publish",
+      "correlationId": "96f25433-a815-4e36-be61-15fc70324d17",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 11,
+        "status": "PUBLISHED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/12/evaluation-assignments",
+      "correlationId": "2f9ab8e1-557d-4394-b216-b0d93ab9a688",
+      "statusCode": 201,
+      "request": {
+        "scope": "COMMON"
+      },
+      "response": {
+        "id": 11,
+        "status": "ACTIVE",
+        "scope": "COMMON",
+        "stage": "DEFENSE"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "fc9e0bb6-575d-4af8-b3d3-172a4f9c7812",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-assignments/11/evaluation",
+      "correlationId": "c42ba360-af9d-4a3b-bc16-95ea2bd2b949",
+      "statusCode": 201,
+      "request": null,
+      "response": {
+        "id": 11,
+        "status": "DRAFT",
+        "totalScore": null
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/evaluations/11/draft",
+      "correlationId": "d533735e-0c1a-4b72-aeca-525e70cfa370",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 11,
+        "status": "DRAFT",
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluations/11/finalize",
+      "correlationId": "4f937a86-4088-45da-ab4b-6192333dee06",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 11,
+        "status": "FINALIZED",
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "8feb40a7-02bc-4e05-837e-fc671bf50936",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/12/evaluation-assignments",
+      "correlationId": "f6d4a745-c380-4e96-98d1-0fe2f509b5b5",
+      "statusCode": 201,
+      "request": {
+        "scope": "MAJOR_SPECIFIC"
+      },
+      "response": {
+        "id": 12,
+        "status": "ACTIVE",
+        "scope": "MAJOR_SPECIFIC",
+        "stage": "DEFENSE"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "6839a966-fbd2-4c19-94b1-d41af9d07a4d",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-assignments/12/evaluation",
+      "correlationId": "33760754-f973-49f2-b1aa-8fb2da641ff0",
+      "statusCode": 201,
+      "request": null,
+      "response": {
+        "id": 12,
+        "status": "DRAFT",
+        "totalScore": null
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/evaluations/12/draft",
+      "correlationId": "67fcd4b4-7706-4149-9a38-264cc11bf5b1",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 12,
+        "status": "DRAFT",
+        "totalScore": 9.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluations/12/finalize",
+      "correlationId": "a4af4ff5-f74e-4bf5-a6cc-97663837ada9",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 12,
+        "status": "FINALIZED",
+        "totalScore": 9.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "2432b62f-ed88-447e-a99b-ed57a593b3a0",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/12/evaluation-assignments",
+      "correlationId": "2cd3af95-eb87-4f14-b0e3-901487731505",
+      "statusCode": 201,
+      "request": {
+        "scope": "INDIVIDUAL"
+      },
+      "response": {
+        "id": 13,
+        "status": "ACTIVE",
+        "scope": "INDIVIDUAL",
+        "stage": "DEFENSE"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "a9dedafe-1cd1-4879-afac-4a157ddc321a",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-assignments/13/evaluation",
+      "correlationId": "4f24dde3-fc86-4aba-a897-e34f956c068e",
+      "statusCode": 201,
+      "request": null,
+      "response": {
+        "id": 13,
+        "status": "DRAFT",
+        "totalScore": null
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/evaluations/13/draft",
+      "correlationId": "428801b3-a38e-4f7a-af97-0d0860592d8c",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 13,
+        "status": "DRAFT",
+        "totalScore": 7.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluations/13/finalize",
+      "correlationId": "7e497d2f-e49e-47be-bfdd-8cc5b576e6d2",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 13,
+        "status": "FINALIZED",
+        "totalScore": 7.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "77664640-c9c9-4b71-8eea-983ea462adcf",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/12/evaluation-assignments",
+      "correlationId": "9614400e-0774-4cc5-b58c-c4d913776683",
+      "statusCode": 201,
+      "request": {
+        "scope": "MAJOR_SPECIFIC"
+      },
+      "response": {
+        "id": 14,
+        "status": "ACTIVE",
+        "scope": "MAJOR_SPECIFIC",
+        "stage": "DEFENSE"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "578af5d3-f102-4548-8b81-b577cb1b1b11",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-assignments/14/evaluation",
+      "correlationId": "f061debf-44f0-48b8-a34f-1ba670865a5a",
+      "statusCode": 201,
+      "request": null,
+      "response": {
+        "id": 14,
+        "status": "DRAFT",
+        "totalScore": null
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/evaluations/14/draft",
+      "correlationId": "f7b4c885-f020-4f2e-b614-74cea0afe5d6",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 14,
+        "status": "DRAFT",
+        "totalScore": 7.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluations/14/finalize",
+      "correlationId": "7a2afd09-d655-43ba-9225-fc4f8e206943",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 14,
+        "status": "FINALIZED",
+        "totalScore": 7.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "394bad9c-47a5-448a-b5b8-23014bd3b627",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/12/evaluation-assignments",
+      "correlationId": "62c5852c-cc21-4688-bb4c-44dd60d44bfc",
+      "statusCode": 201,
+      "request": {
+        "scope": "INDIVIDUAL"
+      },
+      "response": {
+        "id": 15,
+        "status": "ACTIVE",
+        "scope": "INDIVIDUAL",
+        "stage": "DEFENSE"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "787141c7-4a81-4d17-9f2e-085656949874",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-assignments/15/evaluation",
+      "correlationId": "e3b69cf4-fa74-4cfc-90df-5efe9c735d32",
+      "statusCode": 201,
+      "request": null,
+      "response": {
+        "id": 15,
+        "status": "DRAFT",
+        "totalScore": null
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/evaluations/15/draft",
+      "correlationId": "a7f2497a-3581-4e94-bef4-74fe4f016dee",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 15,
+        "status": "DRAFT",
+        "totalScore": 9.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluations/15/finalize",
+      "correlationId": "4ceb0b4b-58ba-466b-8bfc-792c96a01744",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 15,
+        "status": "FINALIZED",
+        "totalScore": 9.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "1034260c-1e88-4a45-be53-704abaa8cef4",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/12/evaluation-assignments",
+      "correlationId": "9901e201-19c0-40d3-b902-b5c1644a1efc",
+      "statusCode": 201,
+      "request": {
+        "scope": "MAJOR_SPECIFIC"
+      },
+      "response": {
+        "id": 16,
+        "status": "ACTIVE",
+        "scope": "MAJOR_SPECIFIC",
+        "stage": "DEFENSE"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "ebdb71aa-3807-4787-b822-8e0987942e7f",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-assignments/16/evaluation",
+      "correlationId": "35afaa07-83cb-4fb3-ab62-da2ebe2bca0a",
+      "statusCode": 201,
+      "request": null,
+      "response": {
+        "id": 16,
+        "status": "DRAFT",
+        "totalScore": null
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/evaluations/16/draft",
+      "correlationId": "51c7bf16-04a0-4cfb-81c4-9eee4c779325",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 16,
+        "status": "DRAFT",
+        "totalScore": 6.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluations/16/finalize",
+      "correlationId": "0cd145e9-1911-46bb-9ca9-676ff5f47779",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 16,
+        "status": "FINALIZED",
+        "totalScore": 6.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "18f0f2c3-601c-4af0-8380-1b077d149f9b",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/12/evaluation-assignments",
+      "correlationId": "d95b19cb-9da4-4d38-9cab-e9643919c6fe",
+      "statusCode": 201,
+      "request": {
+        "scope": "INDIVIDUAL"
+      },
+      "response": {
+        "id": 17,
+        "status": "ACTIVE",
+        "scope": "INDIVIDUAL",
+        "stage": "DEFENSE"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "909f39f3-cee6-4959-8398-cbd51903455a",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-assignments/17/evaluation",
+      "correlationId": "6a498421-6e90-4aa4-8e5a-a79ff67b3bf2",
+      "statusCode": 201,
+      "request": null,
+      "response": {
+        "id": 17,
+        "status": "DRAFT",
+        "totalScore": null
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/evaluations/17/draft",
+      "correlationId": "b0843d95-811a-4fd2-b205-4b2d5620e134",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 17,
+        "status": "DRAFT",
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluations/17/finalize",
+      "correlationId": "feb4e66f-0f4f-4d1b-9f5c-52fca60cab58",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 17,
+        "status": "FINALIZED",
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "6c5beb78-54d4-442b-9327-3d75aafc08a2",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/12/students/92/result/preview",
+      "correlationId": "8585ad2e-4404-425e-ba8c-d2f13d0aa299",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "canPublish": false,
+        "blockers": [
+          "DEMO_SCHEME_NOT_OFFICIAL"
+        ],
+        "totalScore": 8.10
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/12/students/92/result",
+      "correlationId": "42ccb4c8-cd1a-4b1d-b127-549cbbb96ed9",
+      "statusCode": 409,
+      "request": {},
+      "response": {
+        "status": 409
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/12/students/97/result/preview",
+      "correlationId": "703704c4-08c5-4c78-8f1e-bbea1e8a23d3",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "canPublish": false,
+        "blockers": [
+          "DEMO_SCHEME_NOT_OFFICIAL"
+        ],
+        "totalScore": 7.90
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/12/students/97/result",
+      "correlationId": "318f1569-9bb1-41cb-a10a-4e44def70b71",
+      "statusCode": 409,
+      "request": {},
+      "response": {
+        "status": 409
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/12/students/98/result/preview",
+      "correlationId": "7b03673f-7095-4089-b024-aec47fa0631d",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "canPublish": false,
+        "blockers": [
+          "DEMO_SCHEME_NOT_OFFICIAL"
+        ],
+        "totalScore": 7.40
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/12/students/98/result",
+      "correlationId": "604b5f81-f456-4eb1-a43a-bac0b35a833c",
+      "statusCode": 409,
+      "request": {},
+      "response": {
+        "status": 409
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/12/result/preview",
+      "correlationId": "39170d5d-c355-4008-8108-14003e4778ba",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "canPublish": false,
+        "blockers": [
+          "DEMO_SCHEME_NOT_OFFICIAL"
+        ],
+        "totalScore": 7.67
+      }
+    }
+  ],
+  "readback": {
+    "studentScores": [
+      8.10,
+      7.90,
+      7.40
+    ],
+    "projectScore": 7.67,
+    "finalizations": 7,
+    "auditIds": [
+      80,
+      84,
+      88,
+      92,
+      96,
+      100,
+      104
+    ],
+    "finalizationAudits": 7,
+    "studentResults": 0,
+    "inputs": "Synthetic locked package; API scheme/assignment/save/finalize/preview"
+  }
+}

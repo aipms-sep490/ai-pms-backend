@@ -63,6 +63,12 @@ public static class DependencyInjection
         services.AddScoped<IMeetingGovernanceService, MeetingGovernanceService>();
         services.AddScoped<IMeetingCollaborationService, MeetingCollaborationService>();
         services.AddScoped<AIPMS.Application.Features.Sprints.Abstractions.ISprintService, SprintService>();
+        services.AddScoped<AiActorScope>();
+        services.AddScoped<AIPMS.Application.Features.Dashboards.Abstractions.IActorDashboardService, ActorDashboardService>();
+        services.AddScoped<AiEvidenceCapture>();
+        services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiContextRetriever, ScopedAiContextRetriever>();
+        services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore, AiRunStore>();
+        services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiAssistantService, RecordedAiAssistantService>();
         services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
             {
                 settings.Enabled = bool.TryParse(config["GoogleAuth:Enabled"], out var enabled) && enabled;

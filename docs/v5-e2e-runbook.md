@@ -53,8 +53,11 @@ base-seed draft projects are labelled legacy sample fixtures, not v5 acceptance.
 Use the admin API to configure scenario windows/policies relative to the test
 clock, then create teams, applications, frozen scope, decisions and assignments
 through actual authenticated APIs. Rubrics must stay explicitly demo unless a
-separate academic approval is recorded. The full A-F API driver is still pending
-the feature phases; these input fixtures do not certify it.
+separate academic approval is recorded. The phase 12 integration suite now includes
+A-F HTTP/SQL journeys and allowlisted trace capture; see
+[the acceptance matrix](v5-acceptance-matrix.md). These input fixtures alone do not
+certify a journey. API tests use their own equivalent synthetic actors and fixed
+clock, not the interactive fixture aliases or real Google accounts.
 
 ## Required evidence per scenario
 

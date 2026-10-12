@@ -1,0 +1,608 @@
+{
+  "scenario": "A-it-single-major",
+  "synthetic": true,
+  "isolatedDatabase": true,
+  "authentication": "test JWT; persisted resource authorization exercised",
+  "storage": "in-memory storage adapter where files are used",
+  "passed": true,
+  "capturedAtUtc": "2026-10-12T07:19:59.8185698Z",
+  "exchanges": [
+    {
+      "method": "PUT",
+      "path": "/api/v1/academic/project-periods/11/qualification-policy",
+      "correlationId": "dd5a2032-1641-4810-892b-8a18c2bd47de",
+      "statusCode": 403,
+      "request": {},
+      "response": {
+        "status": 403
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/academic/project-periods/11/qualification-policy",
+      "correlationId": "848733e3-e41d-4f47-bcd8-f42511062625",
+      "statusCode": 200,
+      "request": {},
+      "response": {}
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/me/evidence",
+      "correlationId": "e20f2126-05e8-44f6-9901-76227c445155",
+      "statusCode": 422,
+      "request": {},
+      "response": {
+        "status": 422
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/me/evidence",
+      "correlationId": "a38b1db1-62cf-4ff6-9266-70bb6b8cb3be",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 3
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/3/reject",
+      "correlationId": "e5b52cee-9e42-4f90-889c-a2f624532c3b",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 3
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/me/evidence",
+      "correlationId": "9d29501e-ce61-4b56-823e-3a5a11690b14",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 3
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/3/verify",
+      "correlationId": "f7dcfe19-c9c9-4259-aa60-86e66623549d",
+      "statusCode": 409,
+      "request": {},
+      "response": {
+        "status": 409
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/3/verify",
+      "correlationId": "d95efaa6-276e-4ef5-b9c3-77bb8eb937ee",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 3
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/me/evidence",
+      "correlationId": "e027ba8b-41d9-40b8-bc28-f2505718472d",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 4
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/4/reject",
+      "correlationId": "d353f3e5-ce51-4b6c-a774-fbb2d6d6b3ff",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 4
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/me/evidence",
+      "correlationId": "249bf71c-4150-494b-856c-76bf32fa2861",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 4
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/4/verify",
+      "correlationId": "b39c7343-52a0-4147-ba91-b9f5e3a80820",
+      "statusCode": 409,
+      "request": {},
+      "response": {
+        "status": 409
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/student-qualifications/4/verify",
+      "correlationId": "c935fd07-ae82-40be-b6a6-10982e1fb3b8",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 4
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/teams",
+      "correlationId": "974dc57e-0ba9-4c1b-9b0d-218365d128f7",
+      "statusCode": 201,
+      "request": {},
+      "response": {
+        "id": 6,
+        "status": "FORMING"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/teams/6/invitations",
+      "correlationId": "57edd259-7bf7-450a-8a08-9215f7a02201",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 5,
+        "status": "PENDING"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/teams/invitations/5/accept",
+      "correlationId": "d904984e-0a1c-43ad-9d23-d580baeadf9d",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "id": 6,
+        "status": "ELIGIBLE"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "correlationId": "40257570-9599-4cce-8009-f7c56a4b3f26",
+      "statusCode": 201,
+      "request": {},
+      "response": {
+        "id": 5,
+        "status": "DRAFT"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/teams/6/eligibility/check",
+      "correlationId": "3f6a601b-44f0-4192-b83a-1d28650dbda3",
+      "statusCode": 200,
+      "request": null,
+      "response": {}
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/submit",
+      "correlationId": "c58fc46d-5b72-439e-b66f-ce9a96e5fc2e",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 5,
+        "status": "SUBMITTED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/start-review",
+      "correlationId": "5c28bafc-a558-4c11-bab8-8ef31280c76c",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 5,
+        "status": "UNDER_REVIEW"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/5/academic-review",
+      "correlationId": "e2623854-59f3-4103-a68f-acfd94f78b58",
+      "statusCode": 200,
+      "request": null,
+      "response": {}
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/approve",
+      "correlationId": "d7c5a68c-d1a3-49b5-8433-e6572d5bf8f0",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 5,
+        "status": "APPROVED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/supervisor-requests",
+      "correlationId": "0e3ea612-2f91-4ee9-9a62-116ba383c4e8",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 4,
+        "status": "PENDING"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/supervisor-requests/4/accept",
+      "correlationId": "17a7b9e5-dac8-4480-8504-8a6ca6678b87",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 4,
+        "status": "ACCEPTED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/supervisor-assignments/4/replace",
+      "correlationId": "85b618cf-3425-485f-9c17-0797237fc013",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 5,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/5/governance",
+      "correlationId": "73eab0b9-8916-448d-8b27-99042839bb6e",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "blockers": []
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/deliverables",
+      "correlationId": "8fc19088-18c7-4146-bf04-383f0cb5387a",
+      "statusCode": 201,
+      "request": {},
+      "response": {
+        "id": 2,
+        "status": "OPEN"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/deliverables/2/versions",
+      "correlationId": "d4a34ff3-b438-480c-bf97-0fd54a0fe4d1",
+      "statusCode": 201,
+      "request": null,
+      "response": {
+        "id": 2,
+        "status": "SUBMITTED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/final-submission-draft",
+      "correlationId": "ae29c00b-9e78-4807-9190-92111cf1b6c4",
+      "statusCode": 201,
+      "request": {},
+      "response": {
+        "id": 2,
+        "status": "DRAFT"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/5/final-submission/requirements",
+      "correlationId": "5589451f-33b0-4fde-9880-13625d72ba88",
+      "statusCode": 200,
+      "request": {},
+      "response": {}
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/final-submission",
+      "correlationId": "c10946ad-5461-488e-97e5-9c9385fcde56",
+      "statusCode": 403,
+      "request": {},
+      "response": {
+        "status": 403
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/final-submission",
+      "correlationId": "711812d9-4c88-454c-9a47-55ea232b4563",
+      "statusCode": 201,
+      "request": {},
+      "response": {
+        "id": 2,
+        "status": "LOCKED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/final-submission",
+      "correlationId": "7988dc84-28c2-4406-be04-d37320ba30c7",
+      "statusCode": 409,
+      "request": {},
+      "response": {
+        "status": 409
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/rubrics",
+      "correlationId": "51075166-3acd-45d7-b73a-a23f4828deb0",
+      "statusCode": 201,
+      "request": {},
+      "response": {
+        "id": 2,
+        "status": "DRAFT"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/rubrics/2/publish",
+      "correlationId": "7f8c847a-e222-4173-a671-2ba27cc68018",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 2,
+        "status": "PUBLISHED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-schemes",
+      "correlationId": "7219d5f3-d233-4d56-98ab-2d9afed82c19",
+      "statusCode": 201,
+      "request": {},
+      "response": {
+        "id": 2,
+        "status": "DRAFT"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-schemes/2/publish",
+      "correlationId": "ffdc5eb3-e562-4596-87e1-4dcd79c18616",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 2,
+        "status": "PUBLISHED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/evaluation-assignments",
+      "correlationId": "8f5b02ee-d024-4d7a-99a8-5441389762cf",
+      "statusCode": 201,
+      "request": {
+        "scope": "COMMON"
+      },
+      "response": {
+        "id": 2,
+        "status": "ACTIVE",
+        "scope": "COMMON",
+        "stage": "DEFENSE"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation-assignments/2/evaluation",
+      "correlationId": "0e096334-946f-4b5b-b1fb-1947c37287bb",
+      "statusCode": 201,
+      "request": null,
+      "response": {
+        "id": 2,
+        "status": "DRAFT",
+        "totalScore": null
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/evaluations/2/draft",
+      "correlationId": "2950f561-a90a-415e-b535-96d1077737f0",
+      "statusCode": 409,
+      "request": {},
+      "response": {
+        "status": 409
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/evaluations/2/draft",
+      "correlationId": "cd4d163b-b456-4b12-9de1-0d6be5cb3864",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 2,
+        "status": "DRAFT",
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluations/2/finalize",
+      "correlationId": "920b357f-13ff-4337-9456-65d07c57357c",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 2,
+        "status": "FINALIZED",
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/5/students/52/result/preview",
+      "correlationId": "7ca0b336-523e-47c0-bb33-4cef143aae91",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "canPublish": true,
+        "blockers": [],
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/students/52/result",
+      "correlationId": "45e15e8e-a6e3-430c-8553-706760f421a0",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 3,
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/5/students/53/result/preview",
+      "correlationId": "0d8c2d59-045b-4097-8dc0-31d25e49f624",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "canPublish": true,
+        "blockers": [],
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/students/53/result",
+      "correlationId": "07e70c13-0ae2-4150-b533-26e213199207",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 4,
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/5/result/preview",
+      "correlationId": "59b438eb-67a8-4186-af85-505aaa04cc67",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "canPublish": true,
+        "blockers": [],
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/result",
+      "correlationId": "13e55630-89f7-4fd2-9a82-19f21252d9f7",
+      "statusCode": 201,
+      "request": {},
+      "response": {
+        "id": 2,
+        "totalScore": 8.00
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/5",
+      "correlationId": "2a0202a6-8ce5-4361-885b-e7c040b61de9",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "id": 5,
+        "status": "COMPLETED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/archive",
+      "correlationId": "a08fdaba-a90a-4799-8047-6a05babf7f5d",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "id": 5,
+        "status": "ARCHIVED"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/5/deliverables",
+      "correlationId": "f3b9fc83-5ba0-41ba-b324-2d3b5825dde5",
+      "statusCode": 409,
+      "request": {},
+      "response": {
+        "status": 409
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/5/final-submission/files/9223372036854775807/download",
+      "correlationId": "129d0192-7ce0-47ac-ac69-156f25413c6d",
+      "statusCode": 404,
+      "request": null,
+      "response": {
+        "status": 404
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/portfolio/export",
+      "correlationId": "9384e0a0-0a4a-4319-8d77-c02302359a1f",
+      "statusCode": 200,
+      "request": null,
+      "response": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/portfolio/export",
+      "correlationId": "09d15207-759a-4a6e-9445-b5ac8659b507",
+      "statusCode": 200,
+      "request": null,
+      "response": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/portfolio/export",
+      "correlationId": "12632229-0393-437c-9039-7e7ca0426b44",
+      "statusCode": 200,
+      "request": null,
+      "response": null
+    }
+  ],
+  "readback": {
+    "projectStatus": "ARCHIVED",
+    "history": [
+      "SUBMITTED",
+      "UNDER_REVIEW",
+      "APPROVED",
+      "SUPERVISOR_PENDING",
+      "ACTIVE",
+      "FINAL_SUBMISSION",
+      "COMPLETED",
+      "ARCHIVED"
+    ],
+    "archiveAudit": true,
+    "majors": 1,
+    "auditIds": [
+      107
+    ],
+    "departmentCount": 1,
+    "publicationPolicy": "SYNTHETIC-REGRESSION-ONLY; not institutional approval",
+    "students": 2
+  }
+}

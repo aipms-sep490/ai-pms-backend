@@ -1,6 +1,11 @@
 # v5 phase 11: chat files, reactions and mute
 
-Status: local validation passed; CI/merge/shared rollout pending. BE-N09; backend only. Tin integrates the
+Status: DELIVERED. PR #120 merged as b9da6751e9f24bc47be1f946f9b5cbef77f4ee14.
+CI passed 1055 unit/1239 integration tests and isolated bootstrap/rerun. Shared
+migration ran twice: three tables, two nullable columns, three trusted checks,
+seven trusted FKs and six indexes verified; business counts unchanged. Report:
+`docs/validation/v5-chat-collaboration-rollout-2026-10-12.json`.
+BE-N09; backend only. Tin integrates the
 additive DTOs and events separately. Existing Chat.Enabled/RealtimeEnabled flags
 still apply; no global role gains chat membership.
 

@@ -44,5 +44,6 @@
   "20261012_add_academic_tracking.sql",
   "20261012_add_meeting_collaboration.sql",
   "20261012_add_sprints.sql",
-  "20261012_add_chat_collaboration.sql"
+  "20261012_add_chat_collaboration.sql",
+  "20261012_add_ai_runs.sql"
 ]

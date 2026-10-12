@@ -13,8 +13,10 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(403)]
 [ProducesResponseType<ProblemDetails>(404)]
 [ProducesResponseType<ProblemDetails>(422)]
-public sealed class DashboardsController(ISender sender) : ControllerBase
+public sealed class DashboardsController(ISender sender, AIPMS.Application.Features.Dashboards.Abstractions.IActorDashboardService actorDashboard) : ControllerBase
 {
+    [HttpGet("me"), ProducesResponseType<ActorDashboardDto>(200)]
+    public Task<ActorDashboardDto> Me(CancellationToken ct, long? semesterId = null) => actorDashboard.ReadAsync(semesterId, ct);
     [HttpGet("student")]
     public Task<StudentDashboardDto> Student(CancellationToken ct, [FromQuery] long? semesterId = null) =>
         sender.Send(new GetStudentDashboardQuery(semesterId), ct);

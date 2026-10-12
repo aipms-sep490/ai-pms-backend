@@ -1,0 +1,62 @@
+{
+  "scenario": "F-ai-fallback",
+  "synthetic": true,
+  "isolatedDatabase": true,
+  "authentication": "test JWT; persisted resource authorization exercised",
+  "storage": "in-memory storage adapter where files are used",
+  "passed": true,
+  "capturedAtUtc": "2026-10-12T07:19:22.1770964Z",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/7/ai/ask",
+      "correlationId": "c1a7ee32-0fec-4d6d-8ce2-b3d42abd8bf7",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "insufficientEvidence": false,
+        "generationStatus": "FALLBACK",
+        "runId": 5
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/7/ai/runs/5",
+      "correlationId": "6612cf52-3abd-4e97-8170-dda2cf70bcde",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "id": 5,
+        "status": "FALLBACK",
+        "errorCode": "AI_PROVIDER_FALLBACK"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/7/ai/ask",
+      "correlationId": "11721ac0-040a-4c48-aa0e-407bae741a2f",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "insufficientEvidence": true,
+        "generationStatus": "INSUFFICIENT_EVIDENCE",
+        "runId": 6
+      }
+    }
+  ],
+  "readback": {
+    "provider": "failure injection test double",
+    "runs": 2,
+    "completionAudits": 2,
+    "auditIds": [
+      10,
+      11
+    ],
+    "statuses": [
+      "FALLBACK",
+      "INSUFFICIENT_EVIDENCE"
+    ],
+    "academicStatus": "ACTIVE",
+    "secretsReturned": false
+  }
+}

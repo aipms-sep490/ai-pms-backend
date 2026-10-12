@@ -46,6 +46,11 @@ public sealed class AiAssistantEndpointTests : IClassFixture<AiAssistantEndpoint
             base.ConfigureWebHost(builder);
             builder.ConfigureServices(services =>
             {
+                // These legacy HTTP contract tests deliberately use repository stubs, not SQL scope/history.
+                services.RemoveAll<IAiContextRetriever>();
+                services.AddScoped<IAiContextRetriever, AIPMS.Application.Features.AiAssistant.Services.AiContextRetriever>();
+                services.RemoveAll<IAiAssistantService>();
+                services.AddScoped<IAiAssistantService, AIPMS.Application.Features.AiAssistant.Services.AiAssistantService>();
                 services.RemoveAll<IProjectAccessService>();
                 services.AddSingleton<IProjectAccessService>(ProjectAccessService);
 

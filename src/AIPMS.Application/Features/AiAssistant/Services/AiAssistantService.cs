@@ -28,6 +28,11 @@ public sealed class AiAssistantService(
     {
         var reportContext = await contextRetriever.RetrieveReportContextAsync(projectId, reportId, cancellationToken);
         var now = timeProvider.GetUtcNow().UtcDateTime;
+        if (!reportContext.HasSufficientEvidence)
+            return new(projectId, reportId, reportContext.ReportType, reportContext.PeriodStart, reportContext.PeriodEnd,
+                new("Insufficient evidence.", "Insufficient evidence.", "Insufficient evidence.", "Insufficient evidence.", "Insufficient evidence."),
+                $"Project #{projectId} - {reportContext.ReportType} Report #{reportId}", reportContext.EvidenceList,
+                "No substantive report fields were available; provider was not called.", now, "INSUFFICIENT_EVIDENCE");
 
         const string systemPrompt =
             "You are a strict, factual assistant summarizing an academic project progress report. " +
@@ -73,7 +78,7 @@ public sealed class AiAssistantService(
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "AI provider failed or timed out for report {ReportId}. Using deterministic fallback.", reportId);
+            logger?.LogWarning("AI provider failed for report {ReportId}: {ErrorType}. Using deterministic fallback.", reportId, ex.GetType().Name);
         }
 
         // Deterministic Fallback (BR-132)
@@ -114,7 +119,7 @@ public sealed class AiAssistantService(
             ContextScope: $"Project #{projectId} - {reportContext.ReportType} Report #{reportId}",
             Evidence: reportContext.EvidenceList,
             LimitationNote: "Generated via deterministic fallback due to AI service unavailability or malformed output. All statements reflect authoritative persisted report fields.",
-            GeneratedAt: now);
+            GeneratedAt: now, GenerationStatus: "FALLBACK");
     }
 
     public async Task<ProjectAssistantResponseDto> AskAsync(
@@ -135,7 +140,7 @@ public sealed class AiAssistantService(
                 Evidence: context.EvidenceList,
                 LimitationNote: "Insufficient project evidence to answer reliably. Please ensure milestones, tasks, and reports are populated.",
                 InsufficientEvidence: true,
-                GeneratedAt: now);
+                GeneratedAt: now, GenerationStatus: "INSUFFICIENT_EVIDENCE");
         }
 
         var truncationInstruction = context.TasksTruncated
@@ -183,7 +188,7 @@ public sealed class AiAssistantService(
                     }
 
                     hadInvalidCitations = true;
-                    logger?.LogWarning("Discarded unauthorized or fabricated citation: {CitedId}", citedId);
+                    logger?.LogWarning("Discarded an unauthorized or fabricated AI citation.");
                     return string.Empty;
                 });
 
@@ -217,7 +222,7 @@ public sealed class AiAssistantService(
                     Evidence: responseEvidence,
                     LimitationNote: limitationNote,
                     InsufficientEvidence: isInsufficient,
-                    GeneratedAt: now);
+                    GeneratedAt: now, GenerationStatus: isInsufficient ? "INSUFFICIENT_EVIDENCE" : "COMPLETED");
             }
 
             logger?.LogWarning("Provider returned empty output for project {ProjectId} query. Using deterministic fallback.", projectId);
@@ -228,7 +233,7 @@ public sealed class AiAssistantService(
         }
         catch (Exception ex)
         {
-            logger?.LogWarning(ex, "AI provider failed or timed out for project {ProjectId} query. Using deterministic fallback.", projectId);
+            logger?.LogWarning("AI provider failed for project {ProjectId}: {ErrorType}. Using deterministic fallback.", projectId, ex.GetType().Name);
         }
 
         // Deterministic Fallback (BR-132)
@@ -248,7 +253,7 @@ public sealed class AiAssistantService(
             Evidence: context.EvidenceList,
             LimitationNote: string.Join(" ", fallbackLimitations),
             InsufficientEvidence: false,
-            GeneratedAt: now);
+            GeneratedAt: now, GenerationStatus: "FALLBACK");
     }
 
     private static ReportStructuredSummaryDto? TryParseReportSummaryJson(string rawJson)
@@ -283,7 +288,8 @@ public sealed class AiAssistantService(
         {
             if (string.Equals(prop.Name, propName, StringComparison.OrdinalIgnoreCase))
             {
-                return prop.Value.GetString();
+                var value = prop.Value.GetString();
+                return value?.Length > 800 ? value[..800] : value;
             }
         }
         return null;

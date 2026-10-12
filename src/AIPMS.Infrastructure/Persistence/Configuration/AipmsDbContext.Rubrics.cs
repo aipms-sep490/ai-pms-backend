@@ -15,6 +15,7 @@ public partial class AipmsDbContext
         ConfigureAcademicTracking(modelBuilder);
         ConfigureMeetingCollaboration(modelBuilder);
         ConfigureSprints(modelBuilder);
+        ConfigureAiRuns(modelBuilder);
         ConfigureProjectRequirements(modelBuilder);
         ConfigureDisciplineEvidence(modelBuilder);
         ConfigureExecutionConcurrency(modelBuilder);

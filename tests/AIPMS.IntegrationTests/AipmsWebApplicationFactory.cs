@@ -15,6 +15,7 @@ namespace AIPMS.IntegrationTests;
 
 public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
 {
+    public ApiAcceptanceEvidence? AcceptanceEvidence { get; set; }
     private const string TestIssuer = "AI-PMS.IntegrationTests";
     private const string TestAudience = "AI-PMS.IntegrationTests.Client";
     private const string TestSigningKey =
@@ -82,7 +83,7 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
                 SecurityAlgorithms.HmacSha256)
         };
 
-        var client = CreateClient();
+        var client = AcceptanceEvidence is null ? CreateClient() : CreateDefaultClient(AcceptanceEvidence.Handler());
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             new JsonWebTokenHandler().CreateToken(descriptor));

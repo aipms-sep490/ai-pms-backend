@@ -1,0 +1,112 @@
+{
+  "scenario": "D-ai-scope-security",
+  "synthetic": true,
+  "isolatedDatabase": true,
+  "authentication": "test JWT; persisted resource authorization exercised",
+  "storage": "in-memory storage adapter where files are used",
+  "passed": true,
+  "capturedAtUtc": "2026-10-12T07:18:33.0273943Z",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/api/v1/tasks",
+      "correlationId": "7ce4f29f-cb5b-497f-a44b-f7c468668f30",
+      "statusCode": 201,
+      "request": {},
+      "response": {
+        "id": 1,
+        "status": "TODO"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/1/ai/ask",
+      "correlationId": "342875b5-c98c-45ff-bc39-02a75690b865",
+      "statusCode": 200,
+      "request": {},
+      "response": {
+        "insufficientEvidence": false,
+        "generationStatus": "COMPLETED",
+        "runId": 1
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "d3e52e0d-acab-4ce3-89f0-6df3b702fef8",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 1,
+        "openTasks": 1,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/supervisor",
+      "correlationId": "1d8ec0c3-a889-40b6-975f-821b0ac384e4",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "overdueTasks": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/1/ai/runs/1",
+      "correlationId": "4ff5517a-67e2-4f77-85e6-0738ab970b84",
+      "statusCode": 404,
+      "request": null,
+      "response": {
+        "status": 404
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/1/ai/runs/1",
+      "correlationId": "8e7fb352-7532-449a-8566-dd8a0dc3fc90",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "id": 1,
+        "status": "COMPLETED",
+        "errorCode": "AI_HISTORY_SCOPE_CHANGED"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/1/ai/runs/1",
+      "correlationId": "c85d0b9b-325a-4deb-97ca-381d47b2f68f",
+      "statusCode": 403,
+      "request": null,
+      "response": {
+        "status": 403
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboards/me",
+      "correlationId": "6ca8c076-3990-46ee-9919-38f542da3c35",
+      "statusCode": 200,
+      "request": null,
+      "response": {
+        "projectCount": 0,
+        "openTasks": 0,
+        "overdueTasks": 0,
+        "scope": "ACTOR_ASSIGNMENTS",
+        "complete": true
+      }
+    }
+  ],
+  "readback": {
+    "provider": "capture test double",
+    "majorOnlyInput": true,
+    "crossActor": 404,
+    "revoked": 403,
+    "reclassifiedHistoryRedacted": true,
+    "legacyWholeProjectCards": 0
+  }
+}

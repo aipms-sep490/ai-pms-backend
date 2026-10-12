@@ -21,7 +21,7 @@ FROM (VALUES ('project_registration_snapshots'),('project_department_decisions')
  ('cold_report_templates'),('cold_packages'),('cold_checklist_items'),('cold_submissions'),('cold_submission_files'),
  ('weekly_assessments'),('weekly_assessment_scores'),('project_evidence_reviews'),('project_checkpoints'),
  ('project_checkpoint_decisions'),('defense_committees'),('defense_committee_members'),('defense_sessions'),('meeting_notes_versions'),
- ('sprints'),('task_board_labels'),('sprint_task_events'),('chat_uploads'),('chat_message_attachments'),('chat_reactions')) t(name)
+ ('sprints'),('task_board_labels'),('sprint_task_events'),('chat_uploads'),('chat_message_attachments'),('chat_reactions'),('ai_runs')) t(name)
 UNION ALL
 SELECT 'column',t.name+'.concurrency_token',CONVERT(bit,CASE WHEN EXISTS (
  SELECT 1 FROM sys.columns c WHERE c.object_id=OBJECT_ID('dbo.'+t.name) AND c.name='concurrency_token'
@@ -60,7 +60,7 @@ FROM (VALUES ('ck_scheme_governance_json'),('ck_component_evaluator_weights_json
  ('ck_evidence_review_json'),('ck_evidence_review_decision'),('ck_checkpoint_decision'),('ck_checkpoint_evidence'),('ck_defense_dates'),('ck_defense_status'),
  ('ck_meeting_recurrence'),('ck_meeting_notes_lock'),('ck_meeting_rsvp'),('ck_notes_version'),
  ('ck_sprint_status'),('ck_sprint_dates'),('ck_sprint_lifecycle'),('ck_task_story_points'),('ck_sprint_event_kind'),('ck_sprint_event_points'),
- ('ck_chat_upload_status'),('ck_chat_upload_size'),('ck_chat_message_body')) t(name)
+ ('ck_chat_upload_status'),('ck_chat_upload_size'),('ck_chat_message_body'),('ck_ai_run_kind'),('ck_ai_run_status'),('ck_ai_run_result'),('ck_ai_run_evidence')) t(name)
 UNION ALL
 SELECT 'constraint','ck_deliverables_evidence_target',CONVERT(bit,CASE WHEN EXISTS (
  SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID('dbo.deliverables')
@@ -79,7 +79,7 @@ FROM (VALUES ('evaluation_assignments','uq_scoped_evaluation_assignment'),('eval
  ('meetings','ux_meeting_occurrence'),('meeting_notes_versions','uq_notes_version'),('sprints','ux_sprint_active'),
  ('sprints','ix_sprint_project'),('tasks','ux_task_code'),('tasks','ix_task_sprint'),('task_board_labels','ix_board_label'),('sprint_task_events','ix_sprint_events'),
  ('chat_uploads','ux_chat_upload_key'),('chat_uploads','ix_chat_upload_cleanup'),('chat_uploads','ix_chat_upload_owner'),
- ('chat_message_attachments','ux_chat_attachment_upload'),('chat_reactions','pk_chat_reaction')) t(table_name,index_name)
+ ('chat_message_attachments','ux_chat_attachment_upload'),('chat_reactions','pk_chat_reaction'),('ai_runs','ix_ai_run_history')) t(table_name,index_name)
 UNION ALL
 SELECT 'foreign_key',t.name,CONVERT(bit,CASE WHEN EXISTS (SELECT 1 FROM sys.foreign_keys f
  WHERE f.name=t.name AND f.is_disabled=0 AND f.is_not_trusted=0) THEN 1 ELSE 0 END)
@@ -95,7 +95,8 @@ FROM (VALUES ('fk_evaluation_assignments_project'),('fk_evaluation_assignments_e
  ('fk_defense_committee_project'),('fk_defense_member_committee'),('fk_defense_member_user'),('fk_defense_session_project'),('fk_defense_session_committee'),
  ('fk_meeting_notes_locker'),('fk_notes_version_meeting'),('fk_notes_version_actor'),('fk_sprint_project'),('fk_sprint_creator'),('fk_task_sprint'),
  ('fk_board_label_task'),('fk_sprint_event_sprint'),('fk_sprint_event_task'),('fk_sprint_event_actor'),('fk_chat_upload_conversation'),
- ('fk_chat_upload_actor'),('fk_chat_attachment_message'),('fk_chat_attachment_upload'),('fk_chat_reaction_message'),('fk_chat_reaction_actor'),('fk_chat_outbox_message')) t(name)
+ ('fk_chat_upload_actor'),('fk_chat_attachment_message'),('fk_chat_attachment_upload'),('fk_chat_reaction_message'),('fk_chat_reaction_actor'),('fk_chat_outbox_message'),
+ ('fk_ai_run_project'),('fk_ai_run_actor'),('fk_ai_run_report')) t(name)
 UNION ALL
 SELECT 'constraint','all_foreign_keys_enabled_and_trusted',CONVERT(bit,CASE WHEN EXISTS (SELECT 1 FROM sys.foreign_keys WHERE is_disabled=1 OR is_not_trusted=1) THEN 0 ELSE 1 END)
 UNION ALL

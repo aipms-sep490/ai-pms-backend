@@ -16,6 +16,8 @@ namespace AIPMS.AI.Providers;
 public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options = null) : IAiTextGenerationProvider
 {
     private readonly AiAssistantOptions _options = options ?? new AiAssistantOptions();
+    public string ModelVersion => "GROUNDED_LOCAL_V1";
+    public string ConfigurationVersion => $"GROUNDED_V1_T{_options.TimeoutSeconds}_F{_options.SimulateFailure}_T{_options.SimulateTimeout}";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
