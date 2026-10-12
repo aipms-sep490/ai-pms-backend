@@ -50,5 +50,6 @@
   "20261012_reconcile_v5_schema_defaults.sql",
   "20261012_add_working_agreements.sql",
   "20261012_add_supervisor_recommendations.sql",
-  "20261012_add_peer_evaluations.sql"
+  "20261012_add_peer_evaluations.sql",
+  "20261012_add_result_revisions.sql"
 ]

@@ -13,7 +13,8 @@ public sealed record ProjectGovernanceDto(
     IReadOnlyList<string> Blockers,
     GovernanceActorScopeDto ActorScope,
     IReadOnlyList<string> AllowedActions,
-    string AcademicScopeProvenance = "UNKNOWN");
+    string AcademicScopeProvenance = "UNKNOWN",
+    int? ResultVersion = null, long? ResultRevisionId = null);
 
 public sealed record GovernanceDepartmentDto(long DepartmentId, string Code, string Name, bool IsLead, IReadOnlyList<long> MajorIds);
 public sealed record GovernanceSupervisorDto(long AssignmentId, long UserId, string FullName, string AssignmentType, long? MajorId, bool IsActive);

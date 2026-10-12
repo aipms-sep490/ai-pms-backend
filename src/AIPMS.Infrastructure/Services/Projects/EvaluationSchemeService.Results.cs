@@ -216,7 +216,7 @@ internal sealed partial class EvaluationSchemeService
     {
         var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
         if (Actor != studentId) await Manage(projectId, ct);
-        var row = await db.Set<StudentResult>().AsNoTracking().SingleOrDefaultAsync(r => r.ProjectId == projectId && r.StudentId == studentId, ct)
+        var row = await PublishedResultResolver.Student(db, projectId, studentId, ct)
             ?? throw new NotFoundException("StudentResult", studentId);
         var canReadAuditSnapshot = Actor != studentId && actor.IsAdmin;
         if (Actor != studentId && !actor.IsAdmin)
@@ -227,6 +227,6 @@ internal sealed partial class EvaluationSchemeService
                 throw new ForbiddenException();
         }
         // The publication audit snapshot contains the entire scheme roster, including other departments.
-        return StudentDto(row) with { SnapshotJson = canReadAuditSnapshot ? row.SnapshotJson : "{}" };
+        return row with { SnapshotJson = canReadAuditSnapshot ? row.SnapshotJson : "{}" };
     }, ct);
 }
