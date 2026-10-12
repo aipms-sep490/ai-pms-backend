@@ -289,6 +289,8 @@ public static class DependencyInjection
         services.AddScoped<Application.Features.Supervisors.Services.SupervisorCandidatePolicy>();
         services.AddScoped<Application.Features.Supervisors.Abstractions.ISupervisorRecommendationService, SupervisorRecommendationService>();
         services.AddOptions<Application.Features.Supervisors.DTOs.SupervisorRecommendationSettings>().BindConfiguration("SupervisorRecommendations");
+        services.AddScoped<Application.Features.PeerEvaluations.Abstractions.IPeerEvaluationService, PeerEvaluationService>();
+        services.AddOptions<Application.Features.PeerEvaluations.PeerEvaluationSettings>().BindConfiguration("PeerEvaluation");
         return services;
     }
 }
