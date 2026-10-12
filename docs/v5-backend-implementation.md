@@ -1,7 +1,10 @@
 # AI-PMS v5 P0 + P1 implementation
 
-Status: **IN_PROGRESS**. Neither `P0_P1_BACKEND_READY` nor
-`P0_P1_INTEGRATED_READY` has been achieved.
+Status: **P0_P1_BACKEND_READY** for the implemented backend/database contract and
+isolated acceptance. Phase 12 merged in PR #121 at
+`4eb34d6f29b62ec1f74db758068314120ef8470f`; its shared additive rollout is verified.
+`P0_P1_INTEGRATED_READY` is **not achieved**: Tin's frontend/browser acceptance and
+the matching deployed application smoke test remain separate rollout gates.
 
 Baseline: backend `develop@09abf9595193cbb721130f5db8dd84d67cd13116`.
 Frontend baseline: `develop@dc3951d58268840b09564901003e13948a736755`.
@@ -22,7 +25,13 @@ Frontend is maintained separately by Tin. This change contains no frontend edits
 | 9 | BE-06, BE-N05/06/07 | DELIVERED | PR #118 merged as ecb1fe75782ef82d54b03c739b12cd0ddef48914; CI 1055 unit/1220 integration and isolated bootstrap/rerun passed; shared meeting migration/rerun verified; v5-calendar-meeting-collaboration.md |
 | 10 | BE-N08 | DELIVERED | PR #119 merged as 8d4982adba9fd36a6b7655d364465d676371d982; CI 1055 unit/1228 integration and isolated bootstrap/rerun passed; shared sprint migration/rerun verified; v5-sprints-task-board.md |
 | 11 | BE-N09 | DELIVERED | PR #120 merged as b9da6751e9f24bc47be1f946f9b5cbef77f4ee14; CI 1055 unit/1239 integration and isolated bootstrap/rerun passed; shared chat migration/rerun verified; v5-chat-collaboration.md |
-| 12 | BE-15, BE-N10 | IN_PROGRESS | Scoped AI retrieval/history and actor dashboard implemented; A-F API/SQL evidence and Tin handoff added; final CI/merge/shared rollout pending |
+| 12 | BE-15, BE-N10 | DELIVERED | PR #121 merged as 4eb34d6f29b62ec1f74db758068314120ef8470f; CI 38217501773 passed; 1055 unit/1249 integration and isolated bootstrap/rerun; shared AI migration/rerun and 211 selected schema checks verified |
+
+Phase 12 implementation commit: `ab6c3a6f848a33a2b9c7678c865668f7b79a4128`.
+[Final Tin handoff](v5-final-fe-handoff.md), [A-F evidence matrix](v5-acceptance-matrix.md)
+and redacted API/SQL/audit artifacts document both test coverage and its limits.
+The notification follow-up implementation is `10e87ec` (no schema change); see
+[its contract and validation](v5-report-notification-fix.md).
 
 ## Decisions governing implementation
 
@@ -127,6 +136,14 @@ After PR #120 passed CI and merged, chat collaboration migration ran twice on
 AI_PMS. Three tables, two nullable columns, three trusted checks, seven trusted FKs
 and six indexes verified; new tables empty, checked business counts unchanged.
 Evidence: `docs/validation/v5-chat-collaboration-rollout-2026-10-12.json`.
+After PR #121 passed CI and merged, AI history migration ran twice on AI_PMS.
+One table, fourteen columns, four trusted checks, three trusted FKs and one history
+index verified; AI runs remain empty and checked business counts are unchanged.
+Evidence: `docs/validation/v5-ai-history-rollout-2026-10-12.json`.
+The final selected readiness report passes all 211 capabilities, including checks,
+indexes and FKs: `docs/validation/v5-final-shared-schema-2026-10-12.json`. This is
+not a certification of every legacy column or a provider/browser smoke test.
+No synthetic lifecycle ran on shared AI_PMS and no immutable history was backfilled.
 Run isolated tests first, obtain CI/review for each dependency PR, then
 deploy compatible application/schema changes and enable features individually.
 Do not infer readiness from table count, mock responses or this tracker.

@@ -1,6 +1,7 @@
 # v5 phase 12: scoped AI history and actor dashboard
 
-Status: implemented, final validation/merge pending. BE-15 and BE-N10 are covered
+Status: DELIVERED in PR #121, merge `4eb34d6f29b62ec1f74db758068314120ef8470f`.
+CI 38217501773 passed, shared additive migration/rerun verified. BE-15 and BE-N10 are covered
 by HTTP/SQL tests and the [A-F acceptance matrix](v5-acceptance-matrix.md).
 Do not infer P0_P1_INTEGRATED_READY from backend endpoints. No frontend changes.
 
@@ -100,7 +101,8 @@ correlation IDs and asserted SQL/audit readback. See the [Tin handoff](v5-final-
 AI tests additionally cover report IDOR, inactive scope and audit rollback. A failed
 audit leaves the committed reservation RUNNING without result/evidence; it does not
 pretend success. This is intentionally different from a safely recorded FAILED run.
-Final CI/merge/shared schema verification remain required before backend readiness.
+Shared rollout evidence is in `validation/v5-ai-history-rollout-2026-10-12.json`;
+all 211 selected shared schema capabilities pass in the final readiness report.
 
 Local validation 2026-10-12: Release warnings-as-errors, 1,055 unit and 1,249
 integration tests passed, zero skips. Isolated bootstrap/reconnect/rerun and

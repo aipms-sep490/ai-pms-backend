@@ -1,0 +1,1062 @@
+{
+  "asOfUtc": "2026-10-12T07:31:16.9683484Z",
+  "scope": "Remediation schema capabilities; not full application or provider readiness",
+  "ready": true,
+  "checks": [
+    {
+      "kind": "table",
+      "capability": "project_registration_snapshots",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_department_decisions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "team_academic_configurations",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "final_submission_drafts",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "final_submissions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "final_submission_items",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "evaluation_assignments",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "evaluation_draft_states",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "evaluation_finalizations",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_result_policies",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_results",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "meeting_decisions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "meeting_action_items",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_major_requirements",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "team_major_responsibilities",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "task_disciplines",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_evidence",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "contribution_snapshots",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "student_qualifications",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_topics",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "notification_email_deliveries",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "scheduled_notification_occurrences",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "cold_report_templates",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "cold_packages",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "cold_checklist_items",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "cold_submissions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "cold_submission_files",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "weekly_assessments",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "weekly_assessment_scores",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_evidence_reviews",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_checkpoints",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "project_checkpoint_decisions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "defense_committees",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "defense_committee_members",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "defense_sessions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "meeting_notes_versions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "sprints",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "task_board_labels",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "sprint_task_events",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "chat_uploads",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "chat_message_attachments",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "chat_reactions",
+      "ready": true
+    },
+    {
+      "kind": "table",
+      "capability": "ai_runs",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "tasks.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "milestones.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "progress_reports.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meetings.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meeting_action_items.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "student_qualifications.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "cold_packages.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "cold_submissions.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "weekly_assessments.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "project_checkpoints.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "defense_sessions.concurrency_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meetings.series_id",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meetings.occurrence_number",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meetings.recurrence",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meetings.notes_version",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meetings.notes_locked_at",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meetings.notes_locked_by",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meeting_participants.rsvp_status",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "meeting_participants.rsvp_token",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "chat_member_state.muted_until",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "chat_outbox.message_id",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "tasks.sprint_id",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "tasks.story_points",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "tasks.task_code",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "deliverables.evidence_scope",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "deliverables.target_major_id",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "deliverables.target_student_id",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "evaluation_schemes.governance_json",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "evaluation_schemes.locked_at",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "evaluation_scheme_components.evaluator_weights_json",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "evaluation_scheme_components.stage",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "evaluation_assignments.stage",
+      "ready": true
+    },
+    {
+      "kind": "column",
+      "capability": "evaluation_assignments.cold_package_id",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_scheme_governance_json",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_component_evaluator_weights_json",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_cold_template_json",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_cold_package_json",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_cold_package_status",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_cold_item_target",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_cold_submission_status",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_cold_file_size",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_assignment_stage",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_scheme_component_stage",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_weekly_status",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_weekly_dates",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_weekly_rubric_json",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_weekly_total",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_weekly_score",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_evidence_review_json",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_evidence_review_decision",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_checkpoint_decision",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_checkpoint_evidence",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_defense_dates",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_defense_status",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_meeting_recurrence",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_meeting_notes_lock",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_meeting_rsvp",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_notes_version",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_sprint_status",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_sprint_dates",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_sprint_lifecycle",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_task_story_points",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_sprint_event_kind",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_sprint_event_points",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_chat_upload_status",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_chat_upload_size",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_chat_message_body",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_ai_run_kind",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_ai_run_status",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_ai_run_result",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_ai_run_evidence",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "ck_deliverables_evidence_target",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "evaluation_assignments.uq_scoped_evaluation_assignment",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "evaluation_assignments.uq_legacy_evaluation_assignment",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "meeting_decisions.ix_meeting_decisions_meeting",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "meeting_action_items.ix_meeting_action_items_meeting",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "project_result_policy_items.ix_result_policy_items_assignment",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "supervisor_assignments.ux_supervisor_assignments_one_primary_active",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "contribution_snapshots.ux_contribution_snapshots_hash",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "deliverables.ix_deliverables_evidence_target",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "cold_submissions.ux_cold_submission_draft",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "cold_submissions.uq_cold_submission_version",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "cold_packages.uq_cold_package_project",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "evaluation_assignments.ix_assignment_cold_package",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "weekly_assessments.ux_weekly_draft",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "weekly_assessments.uq_weekly_version",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "project_evidence_reviews.ix_evidence_review_history",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "project_checkpoints.ix_checkpoint_project",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "project_checkpoint_decisions.ix_checkpoint_decisions",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "defense_committees.ix_defense_committee_project",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "defense_sessions.ux_defense_scheduled_project",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "defense_sessions.ix_defense_schedule",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "meetings.ux_meeting_occurrence",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "meeting_notes_versions.uq_notes_version",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "sprints.ux_sprint_active",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "sprints.ix_sprint_project",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "tasks.ux_task_code",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "tasks.ix_task_sprint",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "task_board_labels.ix_board_label",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "sprint_task_events.ix_sprint_events",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "chat_uploads.ux_chat_upload_key",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "chat_uploads.ix_chat_upload_cleanup",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "chat_uploads.ix_chat_upload_owner",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "chat_message_attachments.ux_chat_attachment_upload",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "chat_reactions.pk_chat_reaction",
+      "ready": true
+    },
+    {
+      "kind": "index",
+      "capability": "ai_runs.ix_ai_run_history",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evaluation_assignments_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evaluation_assignments_evaluator",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evaluation_assignments_rubric",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evaluation_assignments_period",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evaluation_draft_states_assignment",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_final_submissions_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_final_submission_items_submission",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_project_results_submission",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_result_policy_items_assignment",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_decisions_meeting",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_decisions_user",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_action_items_meeting",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_action_items_assignee",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_action_items_creator",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_contribution_snapshots_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_contribution_snapshots_user",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_deliverables_target_major",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_deliverables_target_student",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_cold_package_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_cold_item_package",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_cold_item_template",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_cold_submission_item",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_cold_file_submission",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_cold_file_file",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_assignment_cold_package",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_weekly_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_weekly_student",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_weekly_primary",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_weekly_rubric",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_weekly_score_assessment",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evidence_review_evidence",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evidence_review_version",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_evidence_review_assignment",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_checkpoint_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_checkpoint_decision_checkpoint",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_defense_committee_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_defense_member_committee",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_defense_member_user",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_defense_session_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_defense_session_committee",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_meeting_notes_locker",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_notes_version_meeting",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_notes_version_actor",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_sprint_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_sprint_creator",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_task_sprint",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_board_label_task",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_sprint_event_sprint",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_sprint_event_task",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_sprint_event_actor",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_chat_upload_conversation",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_chat_upload_actor",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_chat_attachment_message",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_chat_attachment_upload",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_chat_reaction_message",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_chat_reaction_actor",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_chat_outbox_message",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_ai_run_project",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_ai_run_actor",
+      "ready": true
+    },
+    {
+      "kind": "foreign_key",
+      "capability": "fk_ai_run_report",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "all_foreign_keys_enabled_and_trusted",
+      "ready": true
+    },
+    {
+      "kind": "constraint",
+      "capability": "all_checks_enabled_and_trusted",
+      "ready": true
+    }
+  ]
+}
