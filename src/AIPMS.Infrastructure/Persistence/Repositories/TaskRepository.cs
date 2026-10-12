@@ -16,12 +16,13 @@ using TaskEntity = AIPMS.Infrastructure.Persistence.Generated.Models.Task;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
+public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock = null) : ITaskRepository
 {
     public async Task<TaskDto?> GetByIdAsync(long id, CancellationToken cancellationToken)
     {
         var entity = await context.Tasks
             .AsNoTracking()
+            .Include(t => t.BoardLabels)
             .Include(static t => t.CreatedByNavigation)
             .Include(static t => t.TaskAssignees)
                 .ThenInclude(static ta => ta.User)
@@ -50,6 +51,7 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
     {
         var query = context.Tasks
             .AsNoTracking()
+            .Include(t => t.BoardLabels)
             .Include(static t => t.CreatedByNavigation)
             .Include(static t => t.TaskAssignees)
                 .ThenInclude(static ta => ta.User)
@@ -234,6 +236,8 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
 
     public async Task<bool> HasHistoricalDataAsync(long id, CancellationToken cancellationToken)
     {
+        if (await context.Tasks.AnyAsync(t => t.Id == id && t.SprintId != null, cancellationToken)
+            || await context.Set<AIPMS.Infrastructure.Persistence.Models.SprintTaskEvent>().AnyAsync(e => e.TaskId == id, cancellationToken)) return true;
         if (await context.TaskComments.AnyAsync(c => c.TaskId == id, cancellationToken)
             || await context.Files.AnyAsync(f => f.TaskId == id, cancellationToken)) return true;
         var hasHistory = await context.TaskStatusHistories.AnyAsync(h => h.TaskId == id, cancellationToken);
@@ -331,16 +335,17 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
             ?? throw new KeyNotFoundException($"Task with ID {taskId} not found.");
 
         var oldStatus = task.Status;
+        var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         task.Status = newStatus;
         if (newStatus == "DONE")
         {
-            task.CompletedAt = DateTime.UtcNow;
+            task.CompletedAt = now;
         }
         else if (oldStatus == "DONE")
         {
             task.CompletedAt = null;
         }
-        task.UpdatedAt = DateTime.UtcNow;
+        task.UpdatedAt = now;
         task.ConcurrencyToken = Guid.NewGuid();
 
         context.TaskStatusHistories.Add(new TaskStatusHistory
@@ -350,8 +355,11 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
             NewStatus = newStatus,
             ChangedBy = actorUserId,
             Reason = reason,
-            ChangedAt = DateTime.UtcNow
+            ChangedAt = now
         });
+
+        if (task.SprintId is long sprint && await context.Set<AIPMS.Infrastructure.Persistence.Models.Sprint>().AnyAsync(s => s.Id == sprint && s.Status == "ACTIVE", cancellationToken))
+            SprintHistory.Record(context, task, sprint, "STATUS", true, actorUserId, now);
 
         await context.SaveChangesAsync(cancellationToken);
     }
@@ -446,6 +454,7 @@ public sealed class TaskRepository(AipmsDbContext context) : ITaskRepository
     {
         var tasks = await context.Tasks
             .AsNoTracking()
+            .Include(t => t.BoardLabels)
             .Where(t => t.Milestone.ProjectId == projectId)
             .Include(static t => t.CreatedByNavigation)
             .Include(static t => t.TaskAssignees)

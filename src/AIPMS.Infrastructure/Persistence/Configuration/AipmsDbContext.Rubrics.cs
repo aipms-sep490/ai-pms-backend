@@ -14,6 +14,7 @@ public partial class AipmsDbContext
         ConfigureWeeklyAssessments(modelBuilder);
         ConfigureAcademicTracking(modelBuilder);
         ConfigureMeetingCollaboration(modelBuilder);
+        ConfigureSprints(modelBuilder);
         ConfigureProjectRequirements(modelBuilder);
         ConfigureDisciplineEvidence(modelBuilder);
         ConfigureExecutionConcurrency(modelBuilder);

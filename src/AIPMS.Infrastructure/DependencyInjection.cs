@@ -60,6 +60,7 @@ public static class DependencyInjection
         services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ExecutionConcurrencyBehavior<,>));
         services.AddScoped<IMeetingGovernanceService, MeetingGovernanceService>();
         services.AddScoped<IMeetingCollaborationService, MeetingCollaborationService>();
+        services.AddScoped<AIPMS.Application.Features.Sprints.Abstractions.ISprintService, SprintService>();
         services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
             {
                 settings.Enabled = bool.TryParse(config["GoogleAuth:Enabled"], out var enabled) && enabled;
