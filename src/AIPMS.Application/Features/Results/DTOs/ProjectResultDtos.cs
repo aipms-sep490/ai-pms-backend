@@ -12,4 +12,5 @@ public sealed record ProjectResultPreviewDto(long ProjectId, bool CanPublish, IR
 public sealed record ProjectResultDto(long Id, long ProjectId, long FinalSubmissionId, decimal TotalScore, decimal PassThreshold,
     string Outcome, string CalculationRule, long PublishedBy, DateTime PublishedAt, string PolicyConcurrencyToken,
     IReadOnlyList<ResultContributionDto> Contributions, long? SchemeId = null, long? PolicyVersionId = null, string? FrozenInputs = null,
-    AIPMS.Application.Features.Evaluations.DTOs.ResultBreakdownDto? Breakdown = null);
+    AIPMS.Application.Features.Evaluations.DTOs.ResultBreakdownDto? Breakdown = null,
+    int Version = 1, long? RevisionId = null, int? SupersedesVersion = null);

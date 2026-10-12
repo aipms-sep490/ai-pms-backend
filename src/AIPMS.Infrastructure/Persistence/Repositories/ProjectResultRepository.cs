@@ -43,11 +43,8 @@ internal sealed class ProjectResultRepository(AipmsDbContext db) : IProjectResul
         await db.SaveChangesAsync(ct);
         return (await PolicyAsync(projectId, ct))!;
     }
-    public async Task<ProjectResultDto?> GetAsync(long projectId, CancellationToken ct)
-    {
-        var row = await db.Set<ProjectResult>().AsNoTracking().SingleOrDefaultAsync(r => r.ProjectId == projectId, ct);
-        return row is null ? null : JsonSerializer.Deserialize<ProjectResultDto>(row.SnapshotJson)! with { Id = row.Id };
-    }
+    public Task<ProjectResultDto?> GetAsync(long projectId, CancellationToken ct) =>
+        AIPMS.Infrastructure.Services.Projects.PublishedResultResolver.Project(db, projectId, ct);
     public async Task<ProjectResultDto> PublishAsync(ProjectResultDto input, CancellationToken ct)
     {
         RequireTransaction();

@@ -25,7 +25,7 @@ public sealed record ScopedAssignmentContext(long ComponentId, long SchemeId, st
 public sealed record StudentResultDto(long Id, long ProjectId, long StudentId, long MajorId, long SchemeId,
     decimal TotalScore, decimal PassThreshold, string Outcome, string CalculationRule,
     long PublishedBy, DateTime PublishedAt, string SnapshotJson,
-    ResultBreakdownDto? Breakdown = null);
+    ResultBreakdownDto? Breakdown = null, int Version = 1, long? RevisionId = null, int? SupersedesVersion = null);
 
 public sealed record ResultComponentScoreDto(long ComponentId, string Name, string Scope, long? MajorId,
     decimal WeightPercent, decimal? Score, int RequiredEvaluators, int FinalizedEvaluators, string? Stage = null);

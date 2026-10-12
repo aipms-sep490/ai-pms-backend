@@ -25,7 +25,8 @@ internal sealed class ProjectGovernanceService(AipmsDbContext db, ICurrentUser c
             .Select(a => new GovernanceEvaluatorDto(a.Id, a.EvaluatorId, a.EvaluationType, a.Scope, a.MajorId, a.StudentId, a.Status)).ToListAsync(ct);
         var final = await db.Set<FinalSubmission>().AsNoTracking().Where(x => x.ProjectId == projectId)
             .Select(x => new { x.Id }).SingleOrDefaultAsync(ct);
-        var projectResultPublished = await db.Set<ProjectResult>().AsNoTracking().AnyAsync(x => x.ProjectId == projectId, ct);
+        var publishedResult = await PublishedResultResolver.Project(db, projectId, ct);
+        var projectResultPublished = publishedResult is not null;
         var publishedScheme = await db.Set<EvaluationScheme>().AsNoTracking().AnyAsync(x => x.ProjectId == projectId && x.Status == "PUBLISHED", ct);
         var frozenScope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: true);
         var isAdmin = await db.Users.AnyAsync(u => u.Id == actor && u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"), ct);
@@ -86,6 +87,6 @@ internal sealed class ProjectGovernanceService(AipmsDbContext db, ICurrentUser c
             new(project.Status == "ACTIVE" && hasPrimary && scopeValid,
                 canEvaluate && publishedScheme && scopeValid && project.Status == "FINAL_SUBMISSION", canPublish, project.Status == "ACTIVE", hasPrimary),
             blockers, new(scopeKind, actorDept, actorMajors.Where(x => x.HasValue).Select(x => x!.Value).ToArray(), isAdmin), actions,
-            scopeValid ? frozenScope.Provenance : "UNKNOWN");
+            scopeValid ? frozenScope.Provenance : "UNKNOWN", publishedResult?.Version, publishedResult?.RevisionId);
     }
 }
