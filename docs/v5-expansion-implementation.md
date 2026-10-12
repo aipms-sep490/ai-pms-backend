@@ -5,8 +5,8 @@ Baseline: develop f479878 (PR #123). Backend/database only; Tin owns frontend PR
 | Slice | Status | Evidence |
 | --- | --- | --- |
 | Working Agreement / frozen policy | BACKEND_READY | PR #124 / f796f95; CI 1050 unit + 1265 integration; shared migration rerun and deployment verified; flag off |
-| Supervisor recommendations | IN_PROGRESS | v5-supervisor-recommendations.md; shared eligible candidates, deterministic advisory ranking |
-| Peer evaluation rounds | NOT_STARTED | Evidence only, private submissions |
+| Supervisor recommendations | BACKEND_READY | PR #125 / 7915781; CI 1056 unit + 1270 integration; shared migration rerun/deploy verified, flag off |
+| Peer evaluation rounds | IN_PROGRESS | v5-peer-evaluations.md; private submissions, isolated SQL/API validation |
 | Immutable result revisions | NOT_STARTED | Required before corrections |
 | Appeals and two-person correction | NOT_STARTED | Lead opens windows; independent review/publication |
 | Industry advisory | NOT_STARTED | Scoped invitations, Google enrollment, exact shared files |
