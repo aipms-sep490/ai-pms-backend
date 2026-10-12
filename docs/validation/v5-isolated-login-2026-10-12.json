@@ -1,0 +1,33 @@
+{
+  "sourceDirty": true,
+  "authentication": "Real password login and JWT middleware; synthetic identities, no Google mailbox",
+  "sourceCommit": "061de56d228ea7b2feb33ea693e5a0f00c0423ce",
+  "externalDeliveryDisabled": true,
+  "completedAtUtc": "2026-10-12T11:32:30.5042787Z",
+  "anonymousDashboard": 401,
+  "actors": [
+    {
+      "dashboard": 200,
+      "login": 200,
+      "alias": "admin@e2e.invalid"
+    },
+    {
+      "dashboard": 200,
+      "login": 200,
+      "alias": "v5.a.leader@e2e.invalid"
+    },
+    {
+      "dashboard": 200,
+      "login": 200,
+      "alias": "v5.staff.it@e2e.invalid"
+    },
+    {
+      "dashboard": 200,
+      "login": 200,
+      "alias": "v5.primary@e2e.invalid"
+    }
+  ],
+  "sharedDatabaseMutated": false,
+  "database": "Owned per-run E2E catalog",
+  "cleanup": "Owned database and API stopped in finally"
+}

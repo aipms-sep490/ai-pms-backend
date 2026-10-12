@@ -102,6 +102,13 @@ passed with zero warnings/errors. The final focused run passed 25 tests includin
 migration rerun/gap repair. OpenAPI route and nullability checks passed. Evidence:
 `validation/v5-analysis-closure-tests-2026-10-12.json`.
 
+Interactive foundation also passed: isolated fixture create/reconnect/rerun,
+stable credentials/aliases and unsafe-name/ownership/checksum refusal. The new
+test-v5-api-login.ps1 starts the real API and verifies password/JWT login for four
+synthetic actors, dashboard authorization and cleanup. CI now runs this smoke.
+Evidence: `validation/v5-isolated-login-2026-10-12.json`. External delivery is off;
+no Google mailbox, SMTP or LiveKit acceptance is claimed.
+
 This does not declare P0_P1_INTEGRATED_READY. Pending: Tin's AI/sprint/chat and
 academic adapters, unified three-department full-component/COLD browser journey,
 real-provider acceptance, reviewed deployment/shared migration rollout. Technical
