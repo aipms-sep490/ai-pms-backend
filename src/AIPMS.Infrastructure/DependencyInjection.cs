@@ -286,6 +286,9 @@ public static class DependencyInjection
         services.AddScoped<VideoCleanupProcessor>();
         services.AddVideoMeetings();
 
+        services.AddScoped<Application.Features.Supervisors.Services.SupervisorCandidatePolicy>();
+        services.AddScoped<Application.Features.Supervisors.Abstractions.ISupervisorRecommendationService, SupervisorRecommendationService>();
+        services.AddOptions<Application.Features.Supervisors.DTOs.SupervisorRecommendationSettings>().BindConfiguration("SupervisorRecommendations");
         return services;
     }
 }

@@ -159,8 +159,7 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
         {
             var major = project.MajorScopes?.SingleOrDefault(m => m.Id == majorId);
             if (major is null || major.DepartmentId != profile.DepartmentId
-                || !profile.Expertise.Any(e => string.Equals(e.Name, major.Code, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(e.Name, major.Name, StringComparison.OrdinalIgnoreCase)))
+                || !profile.Expertise.Any(e => SupervisorExpertiseMatch.Matches(e.Name, major.Code, major.Name)))
                 throw new ConflictException("A discipline mentor must belong to the major's department and have matching expertise.");
         }
         var workload = await repository.GetWorkloadAsync(profileId, project.AcademicSemesterId, ct, projectId);

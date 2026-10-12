@@ -12,7 +12,8 @@ public sealed record SupervisorSelectionPolicy(long PeriodId, int? MaxProjectsPe
 public sealed record SupervisorCandidateSearch(long ProjectId, long AcademicSemesterId,
     IReadOnlyList<long> DepartmentIds, int SemesterLimit, string? Search,
     string? Expertise, int Page, int PageSize, string AssignmentType = "PRIMARY", long? MajorId = null,
-    long? ExcludedProfileId = null);
+    long? ExcludedProfileId = null, IReadOnlyList<long>? RankingMajorIds = null,
+    IReadOnlyList<long>? ProfileIds = null);
 
 public sealed record SupervisorCandidateModel(SupervisorProfileModel Profile,
     int? ProfileLimit, int ActiveProjects, int SemesterActiveProjects, bool AlreadyAssignedToProject = false);

@@ -56,6 +56,7 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
                 && !p.SupervisorRequests.Any(r => r.ProjectId == search.ProjectId && r.Status == "PENDING"
                     && r.AssignmentType == search.AssignmentType && r.MajorId == search.MajorId));
         if (search.ExcludedProfileId.HasValue) profiles = profiles.Where(p => p.Id != search.ExcludedProfileId);
+        if (search.ProfileIds is not null) profiles = profiles.Where(p => search.ProfileIds.Contains(p.Id));
         if (search.AssignmentType == "PRIMARY")
             profiles = profiles.Where(p => !context.Set<AIPMS.Infrastructure.Persistence.Models.EvaluationAssignment>()
                 .Any(a => a.ProjectId == search.ProjectId && a.EvaluatorId == p.UserId && a.Status == "ACTIVE"));
@@ -65,7 +66,8 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
             profiles = profiles.Where(p => p.SupervisorExpertises.Any(e => e.ExpertiseName.Contains(search.Expertise)));
         if (search.AssignmentType == "DISCIPLINE_MENTOR" && search.MajorId is long majorId)
             profiles = profiles.Where(p => p.User.Department!.Majors.Any(m => m.Id == majorId && m.IsActive
-                && p.SupervisorExpertises.Any(e => e.ExpertiseName == m.Code || e.ExpertiseName == m.Name)));
+                && p.SupervisorExpertises.Any(e => EF.Functions.Collate(e.ExpertiseName.Trim().ToUpper(), "Latin1_General_100_BIN2") == m.Code.Trim().ToUpper()
+                    || EF.Functions.Collate(e.ExpertiseName.Trim().ToUpper(), "Latin1_General_100_BIN2") == m.Name.Trim().ToUpper())));
 
         // Count unended assignments across all semesters for the profile cap, and within
         // this semester for BE-12. Pending requests do not reserve a capacity slot.
@@ -85,7 +87,17 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
                 && (c.Profile.MaxActiveProjects == null || c.Active - (c.AlreadyAssigned ? 1 : 0) < c.Profile.MaxActiveProjects));
 
         var count = await candidates.LongCountAsync(ct);
-        var items = await candidates.OrderBy(c => c.Profile.User.FullName).ThenBy(c => c.Profile.Id)
+        var ordered = search.RankingMajorIds is null
+            ? candidates.OrderBy(c => c.Profile.User.FullName).ThenBy(c => c.Profile.Id)
+            : candidates.OrderByDescending(c => context.Majors.Count(m => search.RankingMajorIds.Contains(m.Id)
+                && c.Profile.SupervisorExpertises.Any(e => EF.Functions.Collate(e.ExpertiseName.Trim().ToUpper(), "Latin1_General_100_BIN2") == m.Code.Trim().ToUpper()
+                    || EF.Functions.Collate(e.ExpertiseName.Trim().ToUpper(), "Latin1_General_100_BIN2") == m.Name.Trim().ToUpper())))
+                .ThenByDescending(c => c.Profile.MaxActiveProjects.HasValue
+                    && c.Profile.MaxActiveProjects.Value - c.Active < search.SemesterLimit - c.SemesterActive
+                    ? c.Profile.MaxActiveProjects.Value - c.Active + (c.AlreadyAssigned ? 1 : 0)
+                    : search.SemesterLimit - c.SemesterActive + (c.AlreadyAssigned ? 1 : 0))
+                .ThenBy(c => c.Profile.Id);
+        var items = await ordered
             .Skip((search.Page - 1) * search.PageSize).Take(search.PageSize).ToListAsync(ct);
         return new(items.Select(c => new SupervisorCandidateModel(c.Profile.ToApplication(),
             c.Profile.MaxActiveProjects, c.Active, c.SemesterActive, c.AlreadyAssigned)).ToArray(), search.Page, search.PageSize, count);
