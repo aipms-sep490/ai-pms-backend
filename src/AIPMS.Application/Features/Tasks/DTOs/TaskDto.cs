@@ -20,7 +20,11 @@ public sealed record TaskDto(
     DateTime UpdatedAt,
     IReadOnlyList<TaskAssigneeDto> Assignees,
     IReadOnlyList<TaskDependencyDto> Dependencies,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null,
+    long? SprintId = null,
+    int? StoryPoints = null,
+    string? TaskCode = null,
+    IReadOnlyList<string>? Labels = null);
 
 public sealed record TaskAssigneeDto(
     long Id,

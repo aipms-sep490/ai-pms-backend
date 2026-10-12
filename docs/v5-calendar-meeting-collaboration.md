@@ -1,6 +1,9 @@
 # v5 phase 9: calendar and meeting collaboration
 
-Status: implemented; CI/merge/shared rollout pending. FE is unchanged. This phase implements
+Status: DELIVERED in PR #118, merge ecb1fe75782ef82d54b03c739b12cd0ddef48914.
+CI passed 1055 unit/1220 integration tests and isolated bootstrap/rerun. Shared
+additive migration applied twice and verified; see validation/v5-meeting-collaboration-rollout-2026-10-12.json.
+FE is unchanged. This phase implements
 BE-06 and BE-N05/06/07; it does not certify the remaining sprint/chat/AI phases.
 
 ## Calendar contract

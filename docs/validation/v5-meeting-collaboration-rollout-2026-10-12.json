@@ -1,0 +1,25 @@
+{
+  "asOfUtc": "2026-10-12T06:03:48.6524230Z",
+  "database": "AI_PMS",
+  "pr": 118,
+  "mergeCommit": "ecb1fe75782ef82d54b03c739b12cd0ddef48914",
+  "migration": "20261012_add_meeting_collaboration.sql",
+  "applications": 2,
+  "verified": {
+    "trustedChecks": 4,
+    "notesHistoryRows": 0,
+    "trustedForeignKeys": 3,
+    "columns": 8,
+    "uniqueIndexes": 2
+  },
+  "businessCountsUnchanged": {
+    "evaluations": 3,
+    "projects": 4,
+    "meeting_participants": 56,
+    "student_results": 0,
+    "meetings": 16,
+    "users": 21
+  },
+  "backfill": "Explicit legacy RSVP only; no inferred attendance or historical notes",
+  "lifecycleTestOnSharedDatabase": false
+}
