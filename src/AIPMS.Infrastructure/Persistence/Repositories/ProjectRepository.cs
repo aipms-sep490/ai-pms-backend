@@ -513,6 +513,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             }
 
             if (project.Status != oldStatus) throw new ConflictException("Project status changed. Refresh and retry.");
+            if (newStatus == "ACTIVE") await AIPMS.Infrastructure.Services.Projects.WorkingAgreementGuard.EnsureActivation(context, projectId, cancellationToken);
             await ValidateAcademicReviewTransitionAsync(project, newStatus, actorUserId, cancellationToken);
             var utcNow = Now;
             if (newStatus == "SUBMITTED") await CaptureRegistrationAsync(project, actorUserId, utcNow, cancellationToken);

@@ -13,7 +13,8 @@ namespace AIPMS.Infrastructure.Services.ExecutionCapabilities;
 
 internal sealed class ProjectCapabilityService(AipmsDbContext db, ICurrentUser current,
     IExecutionCapabilityService execution, IEvaluationDraftRepository evaluations,
-    IEvaluationSchemeService schemes, TimeProvider clock) : IProjectCapabilityService
+    IEvaluationSchemeService schemes, TimeProvider clock,
+    AIPMS.Application.Features.WorkingAgreements.Abstractions.IWorkingAgreementService agreements) : IProjectCapabilityService
 {
     public async Task<ProjectCapabilitiesDto> GetAsync(long projectId, CancellationToken ct)
     {
@@ -38,6 +39,7 @@ internal sealed class ProjectCapabilityService(AipmsDbContext db, ICurrentUser c
             ? "PROJECT_NOT_FINAL_SUBMISSION" : !package ? "FINAL_PACKAGE_REQUIRED" : !open ? "EVALUATION_WINDOW_CLOSED"
             : "LEAD_DEPARTMENT_REQUIRED";
         var actions = basics.Actions.ToList();
+        actions.AddRange(await agreements.Capabilities(projectId, ct));
         actions.Add(Action("manage_evaluation_scheme", lead && writable, reason));
         actions.Add(Action("manage_evaluators", scoped && writable && scheme?.Status == "PUBLISHED"
             && periods.Contains(scheme.ProjectPeriodId), !scoped ? "ACADEMIC_COMPONENT_SCOPE_REQUIRED"
@@ -60,7 +62,8 @@ internal sealed class ProjectCapabilityService(AipmsDbContext db, ICurrentUser c
             .OrderByDescending(s => s.Id).Select(s => (long?)s.Id).FirstOrDefaultAsync(ct);
         return new(projectId, basics.ProjectStatus, basics.ConcurrencyToken, project.ScopeProvenance,
             project.LeadDepartmentId, lead ? project.DepartmentIds : scoped ? [actor.DepartmentId!.Value] : [],
-            snapshot, scheme?.Id, scheme?.ConcurrencyToken.ToString("N"), scheme?.PolicyVersionId, actions);
+            snapshot, scheme?.Id, scheme?.ConcurrencyToken.ToString("N"), scheme?.PolicyVersionId, actions,
+            await agreements.Readiness(projectId, ct));
     }
 
     private static ExecutionActionDto Action(string code, bool allowed, string reason) => new(code, allowed, allowed ? [] : [reason]);

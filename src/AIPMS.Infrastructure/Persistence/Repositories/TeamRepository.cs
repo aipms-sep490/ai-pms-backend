@@ -262,6 +262,7 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
             throw new ConflictException("The student is already an active member.");
         member.IsLeader = isLeader;
         member.JoinedAt = now;
+        member.MembershipGeneration = Guid.NewGuid();
         member.LeftAt = null;
         member.UpdatedAt = now;
         await SaveAsync(ct);

@@ -47,5 +47,6 @@
   "20261012_add_chat_collaboration.sql",
   "20261012_add_ai_runs.sql",
   "20261012_extend_ai_run_progress_analysis.sql",
-  "20261012_reconcile_v5_schema_defaults.sql"
+  "20261012_reconcile_v5_schema_defaults.sql",
+  "20261012_add_working_agreements.sql"
 ]

@@ -5,7 +5,8 @@ public sealed record ExecutionActionDto(string Code, bool Allowed, IReadOnlyList
 public sealed record ProjectCapabilitiesDto(long ProjectId, string ProjectStatus, string ConcurrencyToken,
     string AcademicScopeProvenance, long? LeadDepartmentId, IReadOnlyList<long> ManagedDepartmentIds,
     long? RegistrationSnapshotId, long? SchemeId, string? SchemeConcurrencyToken, long? PolicyVersionId,
-    IReadOnlyList<ExecutionActionDto> Actions);
+    IReadOnlyList<ExecutionActionDto> Actions,
+    AIPMS.Application.Features.WorkingAgreements.WorkingAgreementReadiness? WorkingAgreement = null);
 
 public sealed record ExecutionCapabilityDto(
     string ResourceType,
