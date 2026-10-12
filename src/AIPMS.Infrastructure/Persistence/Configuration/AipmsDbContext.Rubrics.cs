@@ -13,6 +13,7 @@ public partial class AipmsDbContext
         ConfigureCold(modelBuilder);
         ConfigureWeeklyAssessments(modelBuilder);
         ConfigureWorkingAgreements(modelBuilder);
+        ConfigureSupervisorRecommendations(modelBuilder);
         ConfigureAcademicTracking(modelBuilder);
         ConfigureMeetingCollaboration(modelBuilder);
         ConfigureSprints(modelBuilder);

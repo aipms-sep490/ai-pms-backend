@@ -65,8 +65,7 @@ internal sealed class SupervisorReplacementService(AipmsDbContext context, ISupe
             {
                 var major = project.MajorScopes?.SingleOrDefault(m => m.Id == old.MajorId);
                 if (major is null || profile.DepartmentId != major.DepartmentId
-                    || !profile.Expertise.Any(e => string.Equals(e.Name, major.Name, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(e.Name, major.Code, StringComparison.OrdinalIgnoreCase)))
+                    || !profile.Expertise.Any(e => SupervisorExpertiseMatch.Matches(e.Name, major.Code, major.Name)))
                     throw new ConflictException("The replacement mentor must have the required major expertise and department.");
             }
             var policies = await candidates.GetSelectionPoliciesAsync(project.AcademicSemesterId, now, token, execution: true);
