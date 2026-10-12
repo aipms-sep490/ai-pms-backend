@@ -40,6 +40,42 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
         }
     }
 
+    [Theory]
+    [InlineData("ENDED")]
+    [InlineData("MENTOR")]
+    [InlineData("INACTIVE")]
+    public async Task Submitted_report_does_not_notify_out_of_scope_or_inactive_supervisor(string change)
+    {
+        var s = await SeedAsync(); long reportId;
+        await using (var db = database.CreateContext())
+        {
+            var assignment = (await db.SupervisorAssignments.FindAsync(s.AssignmentId))!;
+            if (change == "ENDED") assignment.EndedAt = Now;
+            if (change == "INACTIVE") (await db.Users.FindAsync(s.Accounts.Lecturer))!.Status = "INACTIVE";
+            if (change == "MENTOR")
+            {
+                assignment.IsPrimary = false; assignment.AssignmentType = "DISCIPLINE_MENTOR";
+                assignment.MajorId = await db.ProjectMajors.Where(m => m.ProjectId == s.ProjectId).Select(m => m.MajorId).SingleAsync();
+            }
+            var report = new M.ProgressReport { ProjectId = s.ProjectId, SubmittedBy = s.Accounts.Student, ReportType = "WEEKLY",
+                PeriodStart = DateOnly.FromDateTime(Now.AddDays(-7)), PeriodEnd = DateOnly.FromDateTime(Now),
+                Summary = "Private project report", CompletedWork = "Complete", InProgressWork = "Ongoing", Blockers = "None", Risks = "None", NextActions = "Next", Status = "DRAFT" };
+            var semesterId = await db.Projects.Where(p => p.Id == s.ProjectId).Select(p => p.Team.AcademicSemesterId).SingleAsync();
+            var periodId = await db.ProjectPeriods.Where(p => p.AcademicSemesterId == semesterId && p.PeriodType == "EXECUTION").Select(p => p.Id).SingleAsync();
+            var cycle = new ProgressReportPeriod { ProjectId = s.ProjectId, ProjectPeriodId = periodId, ReportType = "WEEKLY",
+                PeriodStart = report.PeriodStart.ToDateTime(TimeOnly.MinValue), PeriodEnd = report.PeriodEnd.ToDateTime(TimeOnly.MinValue),
+                Deadline = DateTime.UtcNow.AddDays(30), LatePolicy = "BLOCK", ConcurrencyToken = Guid.NewGuid(), CreatedBy = s.Accounts.Student };
+            db.Add(cycle); await db.SaveChangesAsync(); report.ProgressReportPeriodId = cycle.Id;
+            db.Add(report); await db.SaveChangesAsync(); reportId = report.Id;
+        }
+        using var app = new Factory(database); using var leader = app.CreateAuthenticatedClient(s.Accounts.Student);
+        var response = await leader.PostAsync($"/api/v1/progress-reports/{reportId}/submit", null);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        await using var verify = database.CreateContext();
+        Assert.Equal("SUBMITTED", (await verify.ProgressReports.FindAsync(reportId))!.Status);
+        Assert.False(await verify.Notifications.AnyAsync(n => n.NotificationType == "PROGRESS_REPORT_SUBMITTED" && n.RelatedEntityId == reportId));
+    }
+
     private async Task<Scenario> SeedAsync()
     {
         var s = await database.SeedAsync();
@@ -213,6 +249,14 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
         Assert.NotNull(submitted);
         Assert.Equal("SUBMITTED", submitted.Status);
         Assert.NotNull(submitted.SubmittedAt);
+        await using (var verify = database.CreateContext())
+        {
+            var notification = await verify.Notifications.Include(n => n.NotificationRecipients).SingleAsync(n =>
+                n.NotificationType == "PROGRESS_REPORT_SUBMITTED" && n.RelatedEntityType == "PROGRESS_REPORT" && n.RelatedEntityId == created.Id);
+            Assert.Equal(s.Accounts.Lecturer, Assert.Single(notification.NotificationRecipients).UserId);
+            Assert.True(await verify.Set<NotificationEmailDelivery>().AnyAsync(d => d.NotificationRecipientId == notification.NotificationRecipients.Single().Id));
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await leaderClient.PostAsync($"/api/v1/progress-reports/{created.Id}/submit", null)).StatusCode);
 
         // 5. Subsequent update attempt on submitted report -> 409 Conflict (Immutability enforced!)
         var postSubmitUpdate = await leaderClient.PutAsJsonAsync($"/api/v1/progress-reports/{created.Id}", updateRequest);

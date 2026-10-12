@@ -54,6 +54,15 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
             role = AppRoles.Student;
         }
+        else if (reportEvent)
+        {
+            var source = await context.ProgressReports.FromSqlInterpolated(
+                $"SELECT * FROM dbo.progress_reports WITH (UPDLOCK,HOLDLOCK) WHERE id={notification.SourceId}").AsNoTracking().SingleOrDefaultAsync(ct);
+            if (source is null || source.Status != status) return;
+            projectId = source.ProjectId;
+            teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
+            role = AppRoles.Lecturer;
+        }
         else if (replacementEvent)
         {
             var source = await context.SupervisorAssignments.AsNoTracking()
@@ -213,12 +222,15 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         else if (reportEvent)
         {
             var supervisorUserIds = await context.SupervisorAssignments
-                .Where(a => a.ProjectId == projectId && a.EndedAt == null)
+                .Where(a => a.ProjectId == projectId && a.EndedAt == null && a.IsPrimary && a.AssignmentType == "PRIMARY")
                 .Select(a => a.SupervisorProfile.UserId)
                 .ToListAsync(ct);
 
             ids = await context.Users
-                .Where(u => u.Id != notification.ActorId && u.Status == "ACTIVE" && supervisorUserIds.Contains(u.Id))
+                .Where(u => u.Id != notification.ActorId && u.Status == "ACTIVE" && supervisorUserIds.Contains(u.Id)
+                    && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Lecturer)
+                    && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
+                    && u.Department.OrganizationId == organizationId)
                 .Select(u => u.Id)
                 .Distinct()
                 .ToListAsync(ct);
