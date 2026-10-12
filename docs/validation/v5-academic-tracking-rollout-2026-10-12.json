@@ -1,0 +1,24 @@
+{
+  "asOfUtc": "2026-10-11T17:52:24.5275521Z",
+  "database": "AI_PMS",
+  "pr": 117,
+  "mergeCommit": "e625ee259e165258379d93484652ada77e19a9a2",
+  "migration": "20261012_add_academic_tracking.sql",
+  "applications": 2,
+  "verified": {
+    "trusted_checks": 8,
+    "tables": 6,
+    "trusted_foreign_keys": 18,
+    "unique_indexes": 7,
+    "new_table_rows": 0
+  },
+  "businessCountsUnchanged": {
+    "users": 21,
+    "weekly_assessments": 0,
+    "projects": 4,
+    "student_results": 0,
+    "evaluations": 3
+  },
+  "backfill": false,
+  "lifecycleTestOnSharedDatabase": false
+}

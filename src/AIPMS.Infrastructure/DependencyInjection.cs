@@ -59,6 +59,7 @@ public static class DependencyInjection
         services.AddSingleton<AIPMS.Application.Features.Chat.Abstractions.IChatWakeSignal, Chat.ChatWakeSignal>();
         services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ExecutionConcurrencyBehavior<,>));
         services.AddScoped<IMeetingGovernanceService, MeetingGovernanceService>();
+        services.AddScoped<IMeetingCollaborationService, MeetingCollaborationService>();
         services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
             {
                 settings.Enabled = bool.TryParse(config["GoogleAuth:Enabled"], out var enabled) && enabled;

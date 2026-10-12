@@ -60,11 +60,7 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         await db.Teams.FromSqlInterpolated($"SELECT * FROM dbo.teams WITH (UPDLOCK,HOLDLOCK) WHERE id={teamId}").SingleAsync(ct);
         var project = await db.Projects.FromSqlInterpolated($"SELECT * FROM dbo.projects WITH (UPDLOCK,HOLDLOCK) WHERE id={initial.ProjectId}").SingleAsync(ct);
         var meeting = await db.Meetings.FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK,HOLDLOCK) WHERE id={id}").SingleAsync(ct);
-        var active = await db.Users.AnyAsync(u => u.Id == Actor && u.Status == "ACTIVE", ct);
-        var member = await db.TeamMembers.AnyAsync(x => x.TeamId == teamId && x.UserId == Actor && x.LeftAt == null, ct);
-        var supervisor = await db.SupervisorAssignments.AnyAsync(x => x.ProjectId == project.Id && x.EndedAt == null && x.SupervisorProfile.UserId == Actor, ct);
-        var leader = await db.TeamMembers.AnyAsync(x => x.TeamId == teamId && x.UserId == Actor && x.LeftAt == null && x.IsLeader, ct);
-        if (!active || !(supervisor || leader || (member && meeting.CreatedBy == Actor))) throw new ForbiddenException();
+        if (!await MeetingGovernanceAuthority.CanManage(db, meeting, Actor, ct)) throw new ForbiddenException();
         if (project.Status != "ACTIVE" || !MeetingGovernanceRules.CanManageActions(meeting.Status))
             throw new ConflictException("The project or meeting is read-only.");
         return meeting;
@@ -83,6 +79,7 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var meeting = await Lock(meetingId, ct);
         if (!MeetingGovernanceRules.CanRecordDecision(meeting.Status)) throw new ConflictException("Complete the meeting before recording decisions.");
+        if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.");
         Current(meeting.ConcurrencyToken, input.ConcurrencyToken);
         var now = clock.GetUtcNow().UtcDateTime;
         var row = new MeetingDecision { MeetingId = meetingId, Content = input.Content.Trim(), DecidedBy = Actor, DecidedAt = now, CreatedAt = now };
@@ -91,6 +88,7 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync(new(Actor, "MEETING_DECISION_CREATED", "MEETING_DECISION", row.Id,
             new Dictionary<string, object?> { ["meetingId"] = meetingId, ["projectId"] = meeting.ProjectId }), ct);
+        await MeetingNotesHistory.Capture(db, meeting, Actor, now, ct);
         await tx.CommitAsync(ct);
         return DecisionDto(row);
     }
@@ -112,12 +110,16 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         }
         else
         {
+            if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.");
             Current(meeting.ConcurrencyToken, input.ConcurrencyToken);
             if (input.Status != "OPEN") throw new ConflictException("New actions must be OPEN.");
             row = new() { MeetingId = meetingId, CreatedBy = Actor, CreatedAt = now };
             db.MeetingActionItems.Add(row);
         }
-        if (input.AssigneeUserId.HasValue)
+        var definitionChanged = !actionId.HasValue || row.Title != input.Title.Trim() || row.Description != input.Description?.Trim()
+            || row.AssigneeUserId != input.AssigneeUserId || row.DueAt != input.DueAt;
+        if (meeting.NotesLockedAt.HasValue && definitionChanged) throw new ConflictException("Locked action definitions cannot be changed; progress updates remain available.");
+        if (definitionChanged && input.AssigneeUserId.HasValue)
         {
             var assignee = input.AssigneeUserId.Value;
             var team = await db.Projects.Where(p => p.Id == meeting.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
@@ -132,6 +134,7 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync(new(Actor, actionId.HasValue ? "MEETING_ACTION_UPDATED" : "MEETING_ACTION_CREATED", "MEETING_ACTION_ITEM", row.Id,
             new Dictionary<string, object?> { ["meetingId"] = meetingId, ["projectId"] = meeting.ProjectId, ["status"] = row.Status, ["assigneeUserId"] = row.AssigneeUserId }), ct);
+        if (definitionChanged) await MeetingNotesHistory.Capture(db, meeting, Actor, now, ct);
         if (row.AssigneeUserId is { } recipientId && recipientId != Actor)
         {
             var notification = new M.Notification { CreatedBy = Actor, NotificationType = "MEETING_ACTION_ASSIGNED",

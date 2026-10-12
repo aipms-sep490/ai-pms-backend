@@ -68,6 +68,7 @@ internal sealed class MeetingReminderService(AipmsDbContext db, IProjectAccessSe
 
     internal static IQueryable<M.MeetingParticipant> EligibleParticipants(AipmsDbContext db, long meetingId) =>
         db.MeetingParticipants.AsNoTracking().Where(p => p.MeetingId == meetingId && p.User.Status == "ACTIVE"
+            && p.RsvpStatus != "DECLINED"
             && (p.AttendanceStatus == null || p.AttendanceStatus == "INVITED" || p.AttendanceStatus == "ACCEPTED"));
 
     internal static async Task<(string Subject, string Body)?> CurrentEmailAsync(AipmsDbContext db, IProjectAccessService access,

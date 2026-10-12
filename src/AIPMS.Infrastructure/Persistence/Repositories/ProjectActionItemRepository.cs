@@ -10,10 +10,12 @@ using AIPMS.Application.Features.ActionItems.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
+using AIPMS.Application.Abstractions.Security;
+using AIPMS.Infrastructure.Services.Projects;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProjectActionItemRepository
+public sealed class ProjectActionItemRepository(AipmsDbContext context, ICurrentUser? currentUser = null) : IProjectActionItemRepository
 {
     public async Task<ProjectActionItemDto?> GetByIdAsync(long id, CancellationToken cancellationToken = default)
     {
@@ -128,6 +130,7 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
 
                 if (meeting.Status == "CANCELLED")
                     throw new ConflictException("Cannot create action items for a cancelled meeting.");
+                if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.");
             }
 
             var entity = new ProjectActionItem
@@ -156,6 +159,12 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
             if (onCreated != null)
             {
                 await onCreated(dto);
+            }
+            if (meetingId.HasValue)
+            {
+                var meeting = await context.Meetings.SingleAsync(m => m.Id == meetingId, cancellationToken);
+                meeting.ConcurrencyToken = Guid.NewGuid();
+                await MeetingNotesHistory.Capture(context, meeting, createdBy, now, cancellationToken);
             }
             if (tx != null) await tx.CommitAsync(cancellationToken);
 
@@ -211,6 +220,7 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
 
                 if (meeting.Status == "CANCELLED")
                     throw new ConflictException("Cannot modify action items associated with a cancelled meeting.");
+                if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.");
             }
 
             var entity = await context.ProjectActionItems
@@ -241,6 +251,12 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context) : IProje
             if (onUpdated != null)
             {
                 await onUpdated(dto);
+            }
+            if (meta.MeetingId.HasValue)
+            {
+                var meeting = await context.Meetings.SingleAsync(m => m.Id == meta.MeetingId, cancellationToken);
+                meeting.ConcurrencyToken = Guid.NewGuid();
+                await MeetingNotesHistory.Capture(context, meeting, currentUser?.UserId ?? throw new UnauthorizedException(), now, cancellationToken);
             }
             if (tx != null) await tx.CommitAsync(cancellationToken);
 

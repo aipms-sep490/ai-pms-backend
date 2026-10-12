@@ -58,7 +58,8 @@ public sealed record MeetingParticipantDto(
     string Email,
     string? AttendanceStatus,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    string RsvpStatus = "INVITED");
 
 public sealed record MeetingFeedbackDto(
     long Id,
