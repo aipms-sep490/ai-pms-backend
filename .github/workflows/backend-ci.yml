@@ -41,3 +41,14 @@ jobs:
         run: ./scripts/test-e2e-bootstrap.ps1
         env:
           AIPMS_TEST_SQL_CONNECTION: "Server=localhost,1433;Database=master;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"
+      - name: Verify isolated API with real password and JWT middleware
+        shell: pwsh
+        run: ./scripts/test-v5-api-login.ps1 -OutputPath "${{ runner.temp }}/v5-isolated-login.json"
+        env:
+          AIPMS_TEST_SQL_CONNECTION: "Server=localhost,1433;Database=master;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"
+      - name: Preserve isolated login evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: v5-isolated-login
+          path: "${{ runner.temp }}/v5-isolated-login.json"
+          if-no-files-found: error

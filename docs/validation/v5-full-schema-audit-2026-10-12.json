@@ -1,0 +1,322 @@
+{
+  "startedAtUtc": "2026-10-12T11:20:04.3315632Z",
+  "completedAtUtc": "2026-10-12T11:20:07.1488689Z",
+  "readOnly": true,
+  "consistency": "Read committed observations; concurrent application writes are possible.",
+  "sourceCommit": "d344bc3f93e3d3faf04cd96390be9a26794d4887",
+  "sourceDirty": true,
+  "expectedSignatures": 2178,
+  "actualSignatures": 2185,
+  "schemaMatch": false,
+  "integrityPass": true,
+  "businessSignals": [
+    {
+      "code": "DUPLICATE_ACTIVE_PRIMARY",
+      "affected": 0
+    },
+    {
+      "code": "DUPLICATE_ACTIVE_MENTOR",
+      "affected": 0
+    },
+    {
+      "code": "PRIMARY_EVALUATOR_CONFLICT",
+      "affected": 0
+    },
+    {
+      "code": "MISSING_FROZEN_REGISTRATION",
+      "affected": 3
+    },
+    {
+      "code": "UNKNOWN_SNAPSHOT_LEAD_OR_MAJOR_MAP",
+      "affected": 1
+    },
+    {
+      "code": "FINAL_FILE_MISSING_EXACT_REFERENCE",
+      "affected": 0
+    },
+    {
+      "code": "FINAL_FILE_UNKNOWN_TARGET",
+      "affected": 0
+    }
+  ],
+  "integrityChecks": 524,
+  "constraintViolations": [],
+  "missing": [
+    {
+      "signature": "CHECK|dbo.ai_runs|([kind]='PROGRESS_ANALYSIS' OR [kind]='REPORT_SUMMARY' OR [kind]='PROJECT_ASK')|0|0|0",
+      "count": 1,
+      "definitionHash": "d8416ed191514c05bdae7ec101159481dc6536dcf3ab6230bd827ad80e111a6c"
+    },
+    {
+      "signature": "CHECK|dbo.supervisor_assignments|([assignment_type]='DISCIPLINE_MENTOR' OR [assignment_type]='PRIMARY')|0|0|0",
+      "count": 1,
+      "definitionHash": "0ea6491a01283c5004b2cb1ea00744541f3ec8e7f4d611a042ca320a1de8f6dd"
+    },
+    {
+      "signature": "CHECK|dbo.supervisor_requests|([assignment_type]='DISCIPLINE_MENTOR' OR [assignment_type]='PRIMARY')|0|0|0",
+      "count": 1,
+      "definitionHash": "5a67426446d0ae55bc115e88e1c246127d693e4b8651535327b6b3b62950760f"
+    },
+    {
+      "signature": "COLUMN|dbo.meetings|meeting_delivery_mode|varchar|20|0|0|1|0|0|SQL_Latin1_General_CP1_CI_AS|('ONSITE')||||0",
+      "count": 1,
+      "definitionHash": "eef62af0ec474890dd9568434c106d3d29d5f62fed557c384a822cd1c2a0d04b"
+    },
+    {
+      "signature": "COLUMN|dbo.meetings|video_channel|varchar|30|0|0|1|0|0|SQL_Latin1_General_CP1_CI_AS|('NONE')||||0",
+      "count": 1,
+      "definitionHash": "a7b252b377a40d0a386a6672546aef64ac4d8cdd0bfdd0d087fe5e210377161f"
+    },
+    {
+      "signature": "FK|dbo.team_eligibility_checks|dbo.project_periods|project_period_id=id|0|0|0|0|0",
+      "count": 1,
+      "definitionHash": "206763bcc4dea63457e68bf9b6b8440b2c651614d7723263bfff8e3d86237566"
+    },
+    {
+      "signature": "FK|dbo.team_eligibility_checks|dbo.project_status_history|revision_history_id=id|0|0|0|0|0",
+      "count": 1,
+      "definitionHash": "b94d06da880d331a35eac3bf9d454b82a0e2e1f89c063244226a3c4b5d4de231"
+    },
+    {
+      "signature": "FK|dbo.team_eligibility_checks|dbo.projects|project_id=id|0|0|0|0|0",
+      "count": 1,
+      "definitionHash": "bbf29cb350c7872e903181a3de5a28dbbc4d370b9b37d1d054d5d8e75a526eff"
+    },
+    {
+      "signature": "FK|dbo.team_eligibility_checks|dbo.teams|team_id=id|0|0|0|0|0",
+      "count": 1,
+      "definitionHash": "db9baa3dedf70266f7ae182c82de645a1254767033d1b36cc42fe39d9dd8320c"
+    },
+    {
+      "signature": "FK|dbo.team_eligibility_checks|dbo.users|checked_by=id|0|0|0|0|0",
+      "count": 1,
+      "definitionHash": "0cc8832c1e4441fd98c06b4607cdf392e461c70a8475865c62b94608be1be6f6"
+    },
+    {
+      "signature": "FK|dbo.team_eligibility_issues|dbo.majors|major_id=id|0|0|0|0|0",
+      "count": 1,
+      "definitionHash": "a191e4099989af5bc833b7b508b78d9e5e0c01e0791fa9d0cc3cb5a70144b525"
+    },
+    {
+      "signature": "FK|dbo.team_eligibility_issues|dbo.team_eligibility_checks|eligibility_check_id=id|0|0|0|0|0",
+      "count": 1,
+      "definitionHash": "7f6233fc41a4b288181c6303a26467770535c84a98a2362f19a359c310c97a62"
+    },
+    {
+      "signature": "FK|dbo.team_eligibility_issues|dbo.users|user_id=id|0|0|0|0|0",
+      "count": 1,
+      "definitionHash": "a564288c216e53f765a4ac3268102480f4d2db769f92dd3917a3caa30a973994"
+    },
+    {
+      "signature": "MODULE|dbo.chat_scope_members|V |1|1",
+      "count": 1,
+      "definitionHash": "80e9af0a7269f3cd7786dc9aec425982520bd60c68ee1b2199fbb7e7b902cc6f"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_department|TR|1|1",
+      "count": 1,
+      "definitionHash": "78033115cc3a8d2e58750b28c33cfe83c183f9b1337860609e1758708145c515"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_organization|TR|1|1",
+      "count": 1,
+      "definitionHash": "edf2bb775cde163d32aa42a4d1ad39ace859b2a4399351b39e3e8dbf67dd2485"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_project_close|TR|1|1",
+      "count": 1,
+      "definitionHash": "bd205dc0fa14cb30ee826ef77a03f5d6b2d8febbd73d79a3d93dd100deb83273"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_roles|TR|1|1",
+      "count": 1,
+      "definitionHash": "1fe523084422f96bfcc63ea75a619d70d098e2669bc936dc6d112f4293ee8da2"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_supervisors|TR|1|1",
+      "count": 1,
+      "definitionHash": "6c7bb2196f81f8a47eec6be4f1b4ce6ed6639f20093f17c7822797ea6929b784"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_team_close|TR|1|1",
+      "count": 1,
+      "definitionHash": "e54a4cd9c4f32feff292e88d32ccbf9c23f87d7d7a1838847440454a28c020a7"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_team_members|TR|1|1",
+      "count": 1,
+      "definitionHash": "a57991b209220dff74a8b2d3b7629cc7d3ea60d9445c6a91243ff2c41428cc41"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_users|TR|1|1",
+      "count": 1,
+      "definitionHash": "206a6a0ac18db7f082878d83c5d45c0364ed8d669a8ced0e8293a3df4bf67687"
+    }
+  ],
+  "extra": [
+    {
+      "signature": "TABLE|dbo.sysdiagrams|0|0",
+      "count": 1,
+      "definitionHash": "780a88d9443c775881ece1579f2a565850e01d82fbda3d31e4578556c790a444"
+    },
+    {
+      "signature": "COLUMN|dbo.meetings|meeting_delivery_mode|varchar|20|0|0|1|0|0|SQL_Latin1_General_CP1_CI_AS|||||0",
+      "count": 1,
+      "definitionHash": "ef05c6bddb7fe79f5947a855aabbf7bcb7e75230b1af6bffde1a61020a2924b9"
+    },
+    {
+      "signature": "COLUMN|dbo.meetings|video_channel|varchar|30|0|0|1|0|0|SQL_Latin1_General_CP1_CI_AS|||||0",
+      "count": 1,
+      "definitionHash": "f16d7da7abc68c9c9107daaa4be00f63473c588a568414cc9ebb95c1928e2a11"
+    },
+    {
+      "signature": "COLUMN|dbo.sysdiagrams|name|sysname|256|0|0|0|0|0|SQL_Latin1_General_CP1_CI_AS|||||0",
+      "count": 1,
+      "definitionHash": "f9d9cb54d767a2b8275be7ea33a19547210865767e2c8209645287aec300aaba"
+    },
+    {
+      "signature": "COLUMN|dbo.sysdiagrams|principal_id|int|4|10|0|0|0|0||||||0",
+      "count": 1,
+      "definitionHash": "9cd71fd6408d7e02102314d513e6ae810e8046847e29c8c42c0ca5d70d29595f"
+    },
+    {
+      "signature": "COLUMN|dbo.sysdiagrams|diagram_id|int|4|10|0|0|1|0||||1|1|0",
+      "count": 1,
+      "definitionHash": "2b9ad790335f2cd738d89dd24eccafe15d71b33e555ce342ed1b6b9330a826fa"
+    },
+    {
+      "signature": "COLUMN|dbo.sysdiagrams|version|int|4|10|0|1|0|0||||||0",
+      "count": 1,
+      "definitionHash": "91c74c78594b27e6eedd746d6fd4d628eb5c067814b136315a857708b7d98acf"
+    },
+    {
+      "signature": "COLUMN|dbo.sysdiagrams|definition|varbinary|-1|0|0|1|0|0||||||0",
+      "count": 1,
+      "definitionHash": "e3818048e9a8ab08eec64e090bba77cb7c1569159f86d0362f7340bf1802ca31"
+    },
+    {
+      "signature": "CHECK|dbo.ai_runs|([kind]='REPORT_SUMMARY' OR [kind]='PROJECT_ASK')|0|0|0",
+      "count": 1,
+      "definitionHash": "e6c231757672057f5cb5da3a6383efa3a0749fbde6220b12dc8a6ebca6329544"
+    },
+    {
+      "signature": "INDEX|dbo.task_comments|2|0|0|0|0||task_id:1:0:0,created_at:2:0:0,id:3:0:0",
+      "count": 1,
+      "definitionHash": "5020d22b5afffbf4805033cf89c8effdf83d9da9dd1ff497e0835ff8cb01d97f"
+    },
+    {
+      "signature": "INDEX|dbo.sysdiagrams|1|1|1|0|0||diagram_id:1:0:0",
+      "count": 1,
+      "definitionHash": "0ca0c5c85867a78af5d88f58913a2bd91bd974216b5e27c6b685dc8fd056f6e0"
+    },
+    {
+      "signature": "INDEX|dbo.sysdiagrams|2|1|0|1|0||principal_id:1:0:0,name:2:0:0",
+      "count": 1,
+      "definitionHash": "a39f57d45b214403d3f597965441a924ad99361f32212d301fa6a0ef30067660"
+    },
+    {
+      "signature": "MODULE|dbo.sp_alterdiagram|P |1|1",
+      "count": 1,
+      "definitionHash": "0d5d93c9dfe9a69bc84f99a5f79c04b3c5158c66e3e16dc07f2498a0a0606f34"
+    },
+    {
+      "signature": "MODULE|dbo.sp_dropdiagram|P |1|1",
+      "count": 1,
+      "definitionHash": "4b9b8cc5e2699250300f597608b4775a7ed2217d75cbfd7fc5ceb17ba7b0bfed"
+    },
+    {
+      "signature": "MODULE|dbo.fn_diagramobjects|FN|1|1",
+      "count": 1,
+      "definitionHash": "4dba95765658de550f9b670321d4590beffbb59979138599d3f2e4220225dd64"
+    },
+    {
+      "signature": "MODULE|dbo.chat_scope_members|V |1|1",
+      "count": 1,
+      "definitionHash": "1653cfebc44c3417b5e30475e9851ffe965700f4fa054e86b8fbb232fa17acb4"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_team_members|TR|1|1",
+      "count": 1,
+      "definitionHash": "6bfaccd3ba1aa7188716c4f4479822c0514da31750c5e1a32a509ff5e0a4a89c"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_supervisors|TR|1|1",
+      "count": 1,
+      "definitionHash": "a3f978fc5b6192ddd1b89f2ed64f62382b0e63a837982d718195263602f865f2"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_users|TR|1|1",
+      "count": 1,
+      "definitionHash": "ea79314a9b0970acbe783d3c869ba04ebba874d681572d1d9c66ac220b2dfa5c"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_roles|TR|1|1",
+      "count": 1,
+      "definitionHash": "2cc1d7797e0a5bcd8d51628b51228d36e0037f5f2aaee9f777a929501adb1c7c"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_project_close|TR|1|1",
+      "count": 1,
+      "definitionHash": "8cdeb972287df666785c3b2c5ff1ae8b2897545a5196f55c93dc2ff50bf351a0"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_team_close|TR|1|1",
+      "count": 1,
+      "definitionHash": "7c20dcc749381a016b3357bc76bf12bc76bba2099bf0b0b09236fb8b72e64b10"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_department|TR|1|1",
+      "count": 1,
+      "definitionHash": "e074d108eeeb0c96406bf1bc97216875b58ef7a4f45438eff4dfd0c760c2dec0"
+    },
+    {
+      "signature": "MODULE|dbo.tr_chat_organization|TR|1|1",
+      "count": 1,
+      "definitionHash": "0e01bf9b08d8f80446eae8ce2725b7a2a282e291acb24ba368403a177b780d85"
+    },
+    {
+      "signature": "MODULE|dbo.sp_upgraddiagrams|P |1|1",
+      "count": 1,
+      "definitionHash": "aef511aea00a31af65763b731e700d774735098e1fbfee939433238ebba3c012"
+    },
+    {
+      "signature": "MODULE|dbo.sp_helpdiagrams|P |1|1",
+      "count": 1,
+      "definitionHash": "3d3f835a3ddd0b7d34eeb4f2987279c36b921bda7dc7af60ad3aa91cc2628b0b"
+    },
+    {
+      "signature": "MODULE|dbo.sp_helpdiagramdefinition|P |1|1",
+      "count": 1,
+      "definitionHash": "4893545fdb933b7f90109a874a6db254e61d89bb9eb311c55c19348795158ae6"
+    },
+    {
+      "signature": "MODULE|dbo.sp_creatediagram|P |1|1",
+      "count": 1,
+      "definitionHash": "34e89c164b4ac617b0d554bb9b047c04c033020ed3581d4a4814c62025515a59"
+    },
+    {
+      "signature": "MODULE|dbo.sp_renamediagram|P |1|1",
+      "count": 1,
+      "definitionHash": "4413e76ec11176998e518a21b7421fbab31b0414805e7cf2c6ef04ca9ab8a9eb"
+    }
+  ],
+  "classification": {
+    "moduleBodiesEquivalentIgnoringLeadingComments": [
+      "dbo.chat_scope_members",
+      "dbo.tr_chat_department",
+      "dbo.tr_chat_organization",
+      "dbo.tr_chat_project_close",
+      "dbo.tr_chat_roles",
+      "dbo.tr_chat_supervisors",
+      "dbo.tr_chat_team_close",
+      "dbo.tr_chat_team_members",
+      "dbo.tr_chat_users"
+    ],
+    "expectedDuplicateEligibilityForeignKeys": 8,
+    "missingDefaults": 2,
+    "missingRedundantAssignmentTypeChecks": 2,
+    "unappliedNewAiKindMigration": true,
+    "legacySnapshotsWillNotBeBackfilled": true,
+    "sharedDatabaseMutated": false
+  }
+}

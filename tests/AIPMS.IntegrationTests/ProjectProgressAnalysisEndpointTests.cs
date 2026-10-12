@@ -31,7 +31,20 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
 
                 services.RemoveAll<AIPMS.Application.Abstractions.Security.IProjectAccessService>();
                 services.AddSingleton<AIPMS.Application.Abstractions.Security.IProjectAccessService>(ProjectAccessService);
+                // Contract-only fixture; SQL tests exercise the real scoped implementation.
+                services.RemoveAll<IScopedProgressAnalysisService>();
+                services.AddSingleton<IScopedProgressAnalysisService>(new ContractAnalysis(DataReader, ProjectAccessService));
             });
+        }
+    }
+
+    private sealed class ContractAnalysis(TestProjectProgressDataReader reader, TestProjectAccessService access) : IScopedProgressAnalysisService
+    {
+        public async Task<ProjectProgressAnalysisDto> AnalyzeAsync(long projectId, bool record, CancellationToken ct)
+        {
+            if (!await reader.ProjectExistsAsync(projectId, ct)) throw new AIPMS.Application.Common.Exceptions.NotFoundException("Project", projectId);
+            if (!access.CanAccess) throw new AIPMS.Application.Common.Exceptions.ForbiddenException();
+            return new AIPMS.AI.Services.RuleBasedProgressAnalysisService().Analyze((await reader.GetProjectProgressFactsAsync(projectId, ct))!, DateTime.UtcNow, ct);
         }
     }
 

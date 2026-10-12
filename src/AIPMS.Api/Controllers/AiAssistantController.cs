@@ -20,6 +20,11 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
 public sealed class AiAssistantController(ISender sender, AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore runs) : ControllerBase
 {
+    [HttpPost("/api/v1/projects/{projectId:long}/ai/progress-analysis")]
+    [ProducesResponseType<AIPMS.Application.Features.Projects.DTOs.ProjectProgressAnalysisDto>(200)]
+    public Task<AIPMS.Application.Features.Projects.DTOs.ProjectProgressAnalysisDto> AnalyzeProgress(long projectId,
+        [FromServices] AIPMS.Application.Features.Projects.Abstractions.IScopedProgressAnalysisService analysis, CancellationToken ct)
+        => analysis.AnalyzeAsync(projectId, true, ct);
     [HttpGet("/api/v1/projects/{projectId:long}/ai/runs")]
     [ProducesResponseType<AIPMS.Application.Common.Models.PagedResult<AiRunDto>>(200)]
     public Task<AIPMS.Application.Common.Models.PagedResult<AiRunDto>> History(long projectId, CancellationToken ct, int page = 1, int pageSize = 20) => runs.ListAsync(projectId, page, pageSize, ct);

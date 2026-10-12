@@ -21,9 +21,11 @@ For a manual API acceptance run:
 ./scripts/new-e2e-database.ps1
 ```
 
-The output gives the owned database name, stable aliases and a generated local
-test credential. Treat the credential as temporary; do not commit it or include
-it in acceptance artifacts. Configure a test API instance to use that database.
+The output gives the owned database name. Set AIPMS_E2E_PASSWORD privately before
+creation if interactive login is needed: the script hashes it and does not print
+it. Without that variable, it uses an undisclosed random password. Stable aliases
+are in dbo.e2e_aliases. Do not commit credentials or include them in evidence.
+Configure a test API instance to use that database and separate local storage.
 Save the exact returned name for rerun and cleanup:
 
 ```powershell
@@ -66,3 +68,10 @@ readback and audit IDs. A: IT lifecycle; B: Marketing demo; C: interdisciplinary
 D: scope/assignment/concurrency negatives; E: golden decimal scoring
 8.10/7.90/7.40 and project 7.67; F: AI unavailable/insufficient-evidence fallback.
 Mock data and successful HTTP status alone cannot establish completion.
+
+`scripts/test-v5-api-login.ps1` verifies the interactive environment foundation:
+owned per-run DB, loopback API, real password/JWT login for four synthetic actors,
+anonymous denial and actual actor-dashboard requests. It generates ephemeral
+credentials only in memory, isolates storage and disables external delivery.
+Finally it stops its API and drops only its owned database. This proves login
+middleware/startup, not Google authentication or the academic browser lifecycle.
