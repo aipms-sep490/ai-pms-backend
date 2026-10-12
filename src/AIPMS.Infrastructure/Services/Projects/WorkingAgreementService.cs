@@ -145,7 +145,8 @@ internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraf
         var previous = await db.Set<WorkingAgreement>().SingleOrDefaultAsync(a => a.ProjectId == projectId && a.Status == "ACTIVE", ct);
         if (previous is not null) { previous.Status = "SUPERSEDED"; previous.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync(ct); }
         row.Status = "ACTIVE"; row.PublishedAt = clock.GetUtcNow().UtcDateTime; row.ConcurrencyToken = Guid.NewGuid();
-        row.Members = roster.Select(m => new AgreementMember { UserId = m.UserId, TeamMemberId = m.TeamMemberId }).ToList();
+        row.Members = roster.Select(m => new AgreementMember { UserId = m.UserId, TeamMemberId = m.TeamMemberId,
+            MembershipJoinedAt = m.JoinedAt, MembershipGeneration = m.MembershipGeneration }).ToList();
         await db.SaveChangesAsync(ct); await Audit("WORKING_AGREEMENT_PUBLISHED", row, ct);
         return await Dto(row, access, ct);
     }, ct);

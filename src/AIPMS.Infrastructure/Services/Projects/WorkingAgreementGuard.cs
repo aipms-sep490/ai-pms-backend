@@ -10,17 +10,17 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal static class WorkingAgreementGuard
 {
-    internal sealed record RosterMember(long UserId, long TeamMemberId);
+    internal sealed record RosterMember(long UserId, long TeamMemberId, DateTime JoinedAt, Guid MembershipGeneration);
     internal static async Task<RosterMember[]> Roster(AipmsDbContext db, long projectId, CancellationToken ct)
     {
         var teamId = await db.Projects.Where(p => p.Id == projectId).Select(p => p.TeamId).SingleAsync(ct);
         var members = db.Database.CurrentTransaction is null ? db.TeamMembers.AsNoTracking()
             : db.TeamMembers.FromSqlInterpolated($"SELECT * FROM dbo.team_members WITH (UPDLOCK,HOLDLOCK) WHERE team_id={teamId}").AsNoTracking();
         return await members.Where(m => m.TeamId == teamId && m.LeftAt == null)
-            .OrderBy(m => m.UserId).Select(m => new RosterMember(m.UserId, m.Id)).ToArrayAsync(ct);
+            .OrderBy(m => m.UserId).Select(m => new RosterMember(m.UserId, m.Id, m.JoinedAt, m.MembershipGeneration)).ToArrayAsync(ct);
     }
     internal static bool Matches(WorkingAgreement agreement, RosterMember[] roster) => agreement.Members
-        .Select(m => new RosterMember(m.UserId, m.TeamMemberId)).OrderBy(m => m.UserId).SequenceEqual(roster);
+        .Select(m => new RosterMember(m.UserId, m.TeamMemberId, m.MembershipJoinedAt, m.MembershipGeneration)).OrderBy(m => m.UserId).SequenceEqual(roster);
     internal static async Task EnsureActivation(AipmsDbContext db, long projectId, CancellationToken ct)
     {
         var readiness = await Read(db, projectId, ct);

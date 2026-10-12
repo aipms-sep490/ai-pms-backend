@@ -43,7 +43,8 @@ Draft edits and publication change the token. Acceptances do not change the
 content token, allowing multiple people to consent to the same immutable version.
 Repeated acceptance is idempotent and does not add another audit entry.
 Publishing a successor supersedes the previous document without copying consent.
-Membership IDs are snapshotted: leaving and rejoining does not reuse old consent.
+Membership ID, joined time and generation are snapshotted: leaving and rejoining
+does not reuse old consent, including same-second reactivation of the existing row.
 
 ## Authority and activation
 
@@ -85,7 +86,8 @@ flag is disabled; disabling UI/API does not bypass a frozen academic requirement
 | Required agreement incomplete at activation | 422, WORKING_AGREEMENT_INCOMPLETE in detail |
 
 Migration `20261012_add_working_agreements.sql` adds project_working_agreements
-and agreement_members. The latter is both required-member snapshot and nullable
+and agreement_members, plus team_members.membership_generation (new GUID for each
+membership activation, not a historical academic backfill). The latter table is both required-member snapshot and nullable
 acceptance record. Unique project/version, one active/one draft, and one acceptance
 per user/version are enforced by SQL. All mutations take the project lock and
 commit audit atomically. No direct email is sent by this module.

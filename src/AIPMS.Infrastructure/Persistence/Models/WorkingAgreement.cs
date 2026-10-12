@@ -18,5 +18,7 @@ public sealed class AgreementMember
     public long AgreementId { get; set; }
     public long UserId { get; set; }
     public long TeamMemberId { get; set; }
+    public DateTime MembershipJoinedAt { get; set; }
+    public Guid MembershipGeneration { get; set; }
     public DateTime? AcceptedAt { get; set; }
 }

@@ -1,0 +1,27 @@
+{
+  "slice": "Working Agreement",
+  "baseline": "f479878db360cd0c948dbab3ba7d8c4a9a1673c1",
+  "build": "Release warnings-as-errors: PASS",
+  "unit": {
+    "skipped": 0,
+    "passed": 1050,
+    "failed": 0
+  },
+  "fullIntegrationBeforeFinalMembershipHardening": {
+    "skipped": 0,
+    "passed": 1264,
+    "failed": 0
+  },
+  "finalMembershipTeamActivationSchemaTests": {
+    "skipped": 0,
+    "passed": 100,
+    "failed": 0
+  },
+  "migration": "Fresh/upgrade/replay/rerun in isolated databases passed",
+  "limits": [
+    "JWT fixtures exercise real SQL authorization, not Google mailbox login",
+    "Shared AI_PMS not migrated at this checkpoint",
+    "No frontend/browser acceptance or feature enablement",
+    "CI required on final head"
+  ]
+}

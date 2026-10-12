@@ -7,6 +7,8 @@ public partial class AipmsDbContext
 {
     private static void ConfigureWorkingAgreements(ModelBuilder b)
     {
+        b.Entity<Generated.Models.TeamMember>().Property(x => x.MembershipGeneration)
+            .HasColumnName("membership_generation").HasDefaultValueSql("NEWID()");
         b.Entity<WorkingAgreement>(e => {
             e.ToTable("project_working_agreements"); e.HasKey(x => x.Id);
             e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);

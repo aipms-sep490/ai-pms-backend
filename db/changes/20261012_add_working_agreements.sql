@@ -1,6 +1,9 @@
 SET QUOTED_IDENTIFIER ON;
 SET XACT_ABORT ON;
 BEGIN TRANSACTION;
+IF COL_LENGTH('dbo.team_members','membership_generation') IS NULL
+ ALTER TABLE dbo.team_members ADD membership_generation UNIQUEIDENTIFIER NOT NULL
+ CONSTRAINT df_team_member_generation DEFAULT(NEWID()) WITH VALUES;
 IF OBJECT_ID('dbo.project_working_agreements','U') IS NULL
 BEGIN
  CREATE TABLE dbo.project_working_agreements (
@@ -23,6 +26,8 @@ BEGIN
   agreement_id BIGINT NOT NULL CONSTRAINT fk_agreement_member_agreement REFERENCES dbo.project_working_agreements(id),
   user_id BIGINT NOT NULL CONSTRAINT fk_agreement_member_user REFERENCES dbo.users(id),
   team_member_id BIGINT NOT NULL CONSTRAINT fk_agreement_member_membership REFERENCES dbo.team_members(id),
+  membership_joined_at DATETIME2(0) NOT NULL,
+  membership_generation UNIQUEIDENTIFIER NOT NULL,
   accepted_at DATETIME2(0) NULL,
   CONSTRAINT pk_agreement_members PRIMARY KEY(agreement_id,user_id)
  );

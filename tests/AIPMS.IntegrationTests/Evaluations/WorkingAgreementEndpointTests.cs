@@ -26,6 +26,8 @@ public sealed class WorkingAgreementEndpointTests(EvaluationDraftDatabaseFixture
         var s = await database.Seed(false);
         await using var db = database.CreateContext();
         (await db.Projects.FindAsync(s.ProjectId))!.Status = "ACTIVE";
+        foreach (var member in await db.TeamMembers.Where(m => m.UserId == s.Scope.Users.Student && m.LeftAt == null).ToListAsync())
+            member.JoinedAt = EvaluationDraftDatabaseFixture.Now.AddDays(-1);
         var snapshot = await db.Set<ProjectRegistrationSnapshot>().SingleAsync(p => p.ProjectId == s.ProjectId);
         var policy = new PeriodPolicyVersion { ProjectPeriodId = s.PeriodId, Version = 1, Status = "LOCKED",
             EffectiveFrom = EvaluationDraftDatabaseFixture.Now.AddDays(-2), EffectiveTo = EvaluationDraftDatabaseFixture.Now.AddDays(2),
@@ -136,8 +138,8 @@ public sealed class WorkingAgreementEndpointTests(EvaluationDraftDatabaseFixture
             var member = await db.TeamMembers.SingleAsync(m => m.UserId == s.Scope.Users.Student && m.LeftAt == null);
             member.LeftAt = EvaluationDraftDatabaseFixture.Now;
             await db.SaveChangesAsync();
-            db.TeamMembers.Add(new() { TeamId = member.TeamId, AcademicSemesterId = member.AcademicSemesterId,
-                UserId = member.UserId, IsLeader = true, JoinedAt = EvaluationDraftDatabaseFixture.Now });
+            member.LeftAt = null;
+            member.MembershipGeneration = Guid.NewGuid();
             await db.SaveChangesAsync();
         }
         var row = await Body<WorkingAgreementDto>(await leader.GetAsync(Url(s.ProjectId)));
