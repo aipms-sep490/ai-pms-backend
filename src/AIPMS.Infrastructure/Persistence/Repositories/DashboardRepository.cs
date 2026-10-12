@@ -59,7 +59,9 @@ public sealed class DashboardRepository(AipmsDbContext db) : IDashboardRepositor
         var profile = await db.SupervisorProfiles.AsNoTracking().Where(p => p.UserId == userId)
             .Select(p => new { p.IsAvailable, p.MaxActiveProjects }).SingleOrDefaultAsync(ct);
         // An ended assignment does not grant access to live project data in the existing resource policy.
-        var assignedIds = db.SupervisorAssignments.Where(a => a.SupervisorProfile.UserId == userId && a.EndedAt == null)
+        // Legacy cards contain whole-project analysis; major-scoped actors use dashboards/me.
+        var assignedIds = db.SupervisorAssignments.Where(a => a.SupervisorProfile.UserId == userId && a.EndedAt == null
+            && a.AssignmentType == "PRIMARY" && a.IsPrimary)
             .Select(a => a.ProjectId).Distinct();
         var workload = new SupervisorWorkloadDto(profile is not null, profile?.IsAvailable ?? false,
             await assignedIds.CountAsync(ct), profile?.MaxActiveProjects);
@@ -161,7 +163,7 @@ public sealed class DashboardRepository(AipmsDbContext db) : IDashboardRepositor
             ((p.Status == "DRAFT" || p.Status == "REVISION_REQUIRED" || !latest.Any(s => s.ProjectId == p.Id))
                 && p.ProjectMajors.Any(m => m.Major.DepartmentId == departmentId))
             || (p.Status != "DRAFT" && p.Status != "REVISION_REQUIRED" && latest.Any(s => s.ProjectId == p.Id
-                && (s.LeadDepartmentId == departmentId || s.Decisions.Any(d => d.DepartmentId == departmentId)))))
+                && s.LeadDepartmentId == departmentId)))
             .Select(p => p.Id);
     }
 }

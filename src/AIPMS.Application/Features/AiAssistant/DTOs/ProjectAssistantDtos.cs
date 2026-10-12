@@ -14,4 +14,4 @@ public sealed record ProjectAssistantResponseDto(
     IReadOnlyList<EvidenceReferenceDto> Evidence,
     string? LimitationNote,
     bool InsufficientEvidence,
-    DateTime GeneratedAt);
+    DateTime GeneratedAt, string GenerationStatus = "COMPLETED", long? RunId = null);

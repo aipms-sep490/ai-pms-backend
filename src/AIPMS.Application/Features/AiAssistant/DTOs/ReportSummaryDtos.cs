@@ -21,4 +21,4 @@ public sealed record ReportSummaryDto(
     string ContextScope,
     IReadOnlyList<EvidenceReferenceDto> Evidence,
     string? LimitationNote,
-    DateTime GeneratedAt);
+    DateTime GeneratedAt, string GenerationStatus = "COMPLETED", long? RunId = null);

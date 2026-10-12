@@ -1,0 +1,178 @@
+{
+  "date": "2026-10-12",
+  "database": "AI_PMS",
+  "migration": "20261012_add_chat_collaboration.sql",
+  "passes": 2,
+  "before": [
+    {
+      "name": "users",
+      "count": 21
+    },
+    {
+      "name": "projects",
+      "count": 4
+    },
+    {
+      "name": "tasks",
+      "count": 11
+    },
+    {
+      "name": "meetings",
+      "count": 16
+    },
+    {
+      "name": "evaluations",
+      "count": 3
+    },
+    {
+      "name": "student_results",
+      "count": 0
+    }
+  ],
+  "after": [
+    {
+      "name": "users",
+      "count": 21
+    },
+    {
+      "name": "projects",
+      "count": 4
+    },
+    {
+      "name": "tasks",
+      "count": 11
+    },
+    {
+      "name": "meetings",
+      "count": 16
+    },
+    {
+      "name": "evaluations",
+      "count": 3
+    },
+    {
+      "name": "student_results",
+      "count": 0
+    }
+  ],
+  "checks": [
+    {
+      "name": "ck_chat_message_body",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "ck_chat_upload_size",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "ck_chat_upload_status",
+      "is_disabled": false,
+      "is_not_trusted": false
+    }
+  ],
+  "foreignKeys": [
+    {
+      "name": "fk_chat_attachment_message",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_chat_attachment_upload",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_chat_outbox_message",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_chat_reaction_actor",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_chat_reaction_message",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_chat_upload_actor",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_chat_upload_conversation",
+      "is_disabled": false,
+      "is_not_trusted": false
+    }
+  ],
+  "indexes": [
+    {
+      "name": "ux_chat_upload_key",
+      "is_unique": true,
+      "is_disabled": false,
+      "filter_definition": null
+    },
+    {
+      "name": "ix_chat_upload_cleanup",
+      "is_unique": false,
+      "is_disabled": false,
+      "filter_definition": null
+    },
+    {
+      "name": "ix_chat_upload_owner",
+      "is_unique": false,
+      "is_disabled": false,
+      "filter_definition": null
+    },
+    {
+      "name": "pk_chat_message_attachment",
+      "is_unique": true,
+      "is_disabled": false,
+      "filter_definition": null
+    },
+    {
+      "name": "ux_chat_attachment_upload",
+      "is_unique": true,
+      "is_disabled": false,
+      "filter_definition": null
+    },
+    {
+      "name": "pk_chat_reaction",
+      "is_unique": true,
+      "is_disabled": false,
+      "filter_definition": null
+    }
+  ],
+  "columns": [
+    {
+      "table_name": "chat_member_state",
+      "name": "muted_until",
+      "is_nullable": true
+    },
+    {
+      "table_name": "chat_outbox",
+      "name": "message_id",
+      "is_nullable": true
+    }
+  ],
+  "newTableCounts": [
+    {
+      "name": "chat_uploads",
+      "count": 0
+    },
+    {
+      "name": "chat_message_attachments",
+      "count": 0
+    },
+    {
+      "name": "chat_reactions",
+      "count": 0
+    }
+  ],
+  "status": "VERIFIED",
+  "note": "Additive schema only; no lifecycle mutation or historical backfill."
+}

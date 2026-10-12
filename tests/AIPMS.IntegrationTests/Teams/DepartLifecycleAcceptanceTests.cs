@@ -26,12 +26,44 @@ public sealed partial class InterdisciplinaryWorkflowTests
     [InlineData(false)]
     [InlineData(true)]
     public async Task Depart_D08_qualification_to_archive_uses_real_api_transitions(bool interdisciplinary)
+        => await RunLifecycle(interdisciplinary);
+
+    [Fact]
+    public async Task V5_B_marketing_demo_lifecycle_cannot_publish_official_results()
+        => await RunLifecycle(false, marketingDemo: true);
+
+    [Fact]
+    public async Task V5_C_three_department_lifecycle_uses_frozen_scope_and_real_api_transitions()
+        => await RunLifecycle(true, threeDepartments: true);
+
+    private async Task RunLifecycle(bool interdisciplinary, bool threeDepartments = false, bool marketingDemo = false)
     {
         var s = await SeedAsync();
         var now = TeamDatabaseFixture.Now;
+        long designMajor = 0, designStaff = 0;
         long adminId, primaryId, replacementId, mentorId, evaluatorId, primaryProfile, replacementProfile, mentorProfile, finalPeriod, evaluationPeriod, invalidCertificateId;
         await using (var setup = database.CreateContext())
         {
+            if (marketingDemo)
+            {
+                var major = (await setup.Majors.FindAsync(s.Team.SeMajorId))!;
+                major.Code = "MKT"; major.Name = "Marketing";
+                (await setup.Departments.FindAsync(s.LeadDepartment))!.Name = "Marketing";
+            }
+            if (threeDepartments)
+            {
+                var marketing = (await setup.Majors.FindAsync(s.Team.IsMajorId))!;
+                marketing.Name = "Marketing";
+                var department = new Department { Code = "DESIGN", Name = "Design", IsActive = true,
+                    OrganizationId = (await setup.Departments.FindAsync(s.LeadDepartment))!.OrganizationId };
+                var major = new Major { Code = "DES", Name = "Design", IsActive = true, Department = department };
+                var designReviewer = new User { Email = Guid.NewGuid().ToString("N") + "@v5.invalid", FullName = "Design staff", PasswordHash = "unused",
+                    Status = "ACTIVE", Department = department, UserRoleUsers = [new() { RoleId = await setup.Roles.Where(r => r.Code == "DEPARTMENT_STAFF").Select(r => r.Id).SingleAsync() }] };
+                setup.AddRange(major, designReviewer); await setup.SaveChangesAsync();
+                var student = (await setup.Users.FindAsync(s.Team.Students[5]))!;
+                student.MajorId = major.Id; student.DepartmentId = department.Id;
+                designMajor = major.Id; designStaff = designReviewer.Id;
+            }
             var roles = await setup.Roles.Where(r => r.Code == "ADMIN" || r.Code == "LECTURER").ToDictionaryAsync(r => r.Code);
             foreach (var code in new[] { "ADMIN", "LECTURER" })
                 if (!roles.ContainsKey(code)) { var role = new Role { Code = code, Name = code, IsSystemRole = true }; setup.Add(role); roles.Add(code, role); }
@@ -61,7 +93,7 @@ public sealed partial class InterdisciplinaryWorkflowTests
             setup.Add(template);
             await setup.SaveChangesAsync();
             (primaryProfile, replacementProfile, mentorProfile) = (p.Id, r.Id, m.Id);
-            (await setup.ProjectPeriods.FindAsync(s.Team.PeriodId))!.MinDistinctMajors = interdisciplinary ? 2 : 1;
+            (await setup.ProjectPeriods.FindAsync(s.Team.PeriodId))!.MinDistinctMajors = threeDepartments ? 3 : interdisciplinary ? 2 : 1;
             ProjectPeriod Period(string type) => new() { AcademicSemesterId = s.Team.SemesterId, Code = type, Name = type,
                 PeriodType = type, Status = "ACTIVE", StartAt = now.AddDays(-1), EndAt = now.AddDays(20), MaxProjectsPerSupervisor = 5 };
             var execution = Period("EXECUTION"); execution.MilestoneTemplateId = template.MilestoneTemplateId; execution.MilestoneTemplateVersionId = template.Id;
@@ -75,11 +107,15 @@ public sealed partial class InterdisciplinaryWorkflowTests
         {
             services.RemoveAll<IFileStorage>(); services.AddSingleton<IFileStorage>(memoryStorage);
         });
+        var evidence = new ApiAcceptanceEvidence(marketingDemo ? "B-marketing-demo" : threeDepartments ? "C-three-department" : interdisciplinary ? "regression-two-department" : "A-it-single-major");
+        app.AcceptanceEvidence = evidence;
         var memberId = s.Team.Students[interdisciplinary ? 4 : 1];
         using var leader = app.CreateAuthenticatedClient(s.Team.Students[0]);
         using var member = app.CreateAuthenticatedClient(memberId);
         using var staff = app.CreateAuthenticatedClient(s.LeadStaff, roles: ["DEPARTMENT_STAFF"]);
         using var otherStaff = app.CreateAuthenticatedClient(s.OtherStaff, roles: ["DEPARTMENT_STAFF"]);
+        using var designStudentClient = app.CreateAuthenticatedClient(s.Team.Students[5]);
+        using var designStaffClient = app.CreateAuthenticatedClient(threeDepartments ? designStaff : s.OtherStaff, roles: ["DEPARTMENT_STAFF"]);
         using var adminClient = app.CreateAuthenticatedClient(adminId, roles: ["ADMIN"]);
         using var primaryClient = app.CreateAuthenticatedClient(primaryId, roles: ["LECTURER"]);
         using var mentorClient = app.CreateAuthenticatedClient(mentorId, roles: ["LECTURER"]);
@@ -92,7 +128,9 @@ public sealed partial class InterdisciplinaryWorkflowTests
         Assert.Equal(HttpStatusCode.UnprocessableEntity, (await leader.PostAsJsonAsync("/api/v1/student-qualifications/me/evidence",
             new SubmitStudentQualificationEvidenceRequest("CAPSTONE_READINESS", "TRAINING_COMPLETED", "INVALID-MIME", invalidCertificateId,
                 now.AddDays(-1), now.AddYears(1)))).StatusCode);
-        foreach (var (student, reviewer) in new[] { (leader, staff), (member, interdisciplinary ? otherStaff : staff) })
+        var qualificationActors = new List<(HttpClient, HttpClient)> { (leader, staff), (member, interdisciplinary ? otherStaff : staff) };
+        if (threeDepartments) qualificationActors.Add((designStudentClient, designStaffClient));
+        foreach (var (student, reviewer) in qualificationActors)
         {
             var qualification = await Body<StudentQualificationDto>(await student.PostAsJsonAsync("/api/v1/student-qualifications/me/evidence",
                 new SubmitStudentQualificationEvidenceRequest("CAPSTONE_READINESS", "TRAINING_COMPLETED", "DEPART-CERT", null, now.AddDays(-1), now.AddYears(1))));
@@ -104,18 +142,30 @@ public sealed partial class InterdisciplinaryWorkflowTests
             await Body<StudentQualificationDto>(await reviewer.PostAsJsonAsync(route + "/verify", new { expectedConcurrencyToken = resubmitted.ConcurrencyToken }));
         }
         var scope = interdisciplinary ? Scope(s) : new TeamAcademicScopeRequest("SINGLE_MAJOR", s.Team.SeMajorId,
-            s.LeadDepartment, [new(s.Team.SeMajorId, 2, 3, "Engineering")]);
+            s.LeadDepartment, [new(s.Team.SeMajorId, 2, 3, marketingDemo ? "Marketing research and campaign" : "Engineering")]);
+        if (threeDepartments) scope = new("INTERDISCIPLINARY", null, s.LeadDepartment,
+            [new(s.Team.SeMajorId, 1, 1, "IT"), new(s.Team.IsMajorId, 1, 1, "Marketing"), new(designMajor, 1, 1, "Design")]);
         var team = await Body<TeamDto>(await leader.PostAsJsonAsync("/api/v1/teams", new { academicSemesterId = s.Team.SemesterId,
             code = "DEPART-LIFECYCLE", name = "DEPART acceptance", academicScope = scope }));
         var invite = await Invite(leader, team.Id, memberId);
         await Body<TeamDto>(await member.PostAsync($"/api/v1/teams/invitations/{invite.Id}/accept", null));
-        var majors = interdisciplinary ? new[] { s.Team.SeMajorId, s.Team.IsMajorId } : [s.Team.SeMajorId];
+        if (threeDepartments)
+        {
+            var thirdInvite = await Invite(leader, team.Id, s.Team.Students[5]);
+            await Body<TeamDto>(await designStudentClient.PostAsync($"/api/v1/teams/invitations/{thirdInvite.Id}/accept", null));
+        }
+        var majors = threeDepartments ? new[] { s.Team.SeMajorId, s.Team.IsMajorId, designMajor } : interdisciplinary ? new[] { s.Team.SeMajorId, s.Team.IsMajorId } : [s.Team.SeMajorId];
         var project = await Body<ProjectDto>(await leader.PostAsJsonAsync("/api/v1/projects", new CreateProjectDraftRequest(
             "DEPART lifecycle", "Description", "Objectives", "Problem", "Output", majors, "Education", ["Dotnet"], ["Capstone"])));
         project = await Transition(staff, await Transition(leader, project, "submit"), "start-review");
         var review = await Review(leader, project.Id);
         if (interdisciplinary)
         {
+            if (threeDepartments)
+            {
+                Assert.Equal(3, review.LatestSubmission!.Evidence!.DepartmentIds.Count);
+                review = await Decide(designStaffClient, project.Id, review);
+            }
             review = await Decide(otherStaff, project.Id, review);
             review = await Decide(staff, project.Id, review);
         }
@@ -160,7 +210,8 @@ public sealed partial class InterdisciplinaryWorkflowTests
         rubric = await Body<RubricDto>(await staff.PostAsJsonAsync($"/api/v1/rubrics/{rubric.Id}/publish", new ChangeRubricStatusRequest(rubric.ConcurrencyToken)));
         var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
             new SaveEvaluationSchemeRequest(project.Id, evaluationPeriod, "DEPART scheme", 5, [new("Common", "COMMON", null, rubric.Id, 100, 100, 1)],
-                Policy: new(false, "APPROVED", "SYNTHETIC-REGRESSION-ONLY", CalculationVersion: "LEGACY_V1"))));
+                Policy: marketingDemo ? new(true, "DEMO", "SYNTHETIC-MARKETING-DEMO", CalculationVersion: "LEGACY_V1")
+                    : new(false, "APPROVED", "SYNTHETIC-REGRESSION-ONLY", CalculationVersion: "LEGACY_V1"))));
         scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{scheme.Id}/publish", new SchemeTokenRequest(scheme.ConcurrencyToken)));
         var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync($"/api/v1/projects/{project.Id}/evaluation-assignments",
             new AssignEvaluatorRequest(evaluatorId, evaluationPeriod, "LECTURER", "COMMON", null, null, scheme.Components.Single().Id)));
@@ -171,7 +222,23 @@ public sealed partial class InterdisciplinaryWorkflowTests
         evaluationDraft = await Body<EvaluationDraftDto>(await evaluatorClient.PutAsJsonAsync(scoreUrl + "/draft",
             new SaveEvaluationDraftRequest(evaluationDraft.ConcurrencyToken, "Reviewed", [new(rubric.Criteria[0].Id, 8, null)])));
         await Body<EvaluationDraftDto>(await evaluatorClient.PostAsJsonAsync(scoreUrl + "/finalize", new { evaluationDraft.ConcurrencyToken }));
-        foreach (var studentId in new[] { s.Team.Students[0], memberId })
+        if (marketingDemo)
+        {
+            var preview = await Body<ProjectResultPreviewDto>(await staff.GetAsync($"/api/v1/projects/{project.Id}/result/preview"));
+            Assert.Equal(8m, preview.TotalScore); Assert.False(preview.CanPublish);
+            Assert.Contains("DEMO_SCHEME_NOT_OFFICIAL", preview.Blockers);
+            Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"/api/v1/projects/{project.Id}/result", new PublishProjectResultRequest(preview.ConfirmationToken))).StatusCode);
+            await using var demoDb = database.CreateContext();
+            Assert.Equal("FINAL_SUBMISSION", (await demoDb.Projects.FindAsync(project.Id))!.Status);
+            Assert.False(await demoDb.Set<AIPMS.Infrastructure.Persistence.Models.ProjectResult>().AnyAsync(r => r.ProjectId == project.Id));
+            Assert.True(await demoDb.AuditLogs.AnyAsync(a => a.Action == "EVALUATION_FINALIZED" && a.EntityId == evaluationDraft.Id.ToString()));
+            await evidence.SaveAsync(new { projectStatus = "FINAL_SUBMISSION", projectResults = 0, finalizedAudit = true,
+                auditIds = await demoDb.AuditLogs.Where(a => a.Action == "EVALUATION_FINALIZED" && a.EntityId == evaluationDraft.Id.ToString()).Select(a => a.Id).ToArrayAsync(),
+                publication = "blocked: DEMO_SCHEME_NOT_OFFICIAL", score = preview.TotalScore });
+            return;
+        }
+        var resultStudents = threeDepartments ? new[] { s.Team.Students[0], memberId, s.Team.Students[5] } : [s.Team.Students[0], memberId];
+        foreach (var studentId in resultStudents)
         {
             var resultUrl = $"/api/v1/projects/{project.Id}/students/{studentId}/result";
             var preview = await Body<ProjectResultPreviewDto>(await staff.GetAsync(resultUrl + "/preview"));
@@ -199,6 +266,10 @@ public sealed partial class InterdisciplinaryWorkflowTests
         var history = await check.ProjectStatusHistories.Where(h => h.ProjectId == project.Id).Select(h => h.NewStatus).ToListAsync();
         foreach (var state in new[] { "SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "FINAL_SUBMISSION", "COMPLETED", "ARCHIVED" }) Assert.Contains(state, history);
         Assert.True(await check.AuditLogs.AnyAsync(a => a.Action == "PROJECT_ARCHIVED" && a.EntityId == project.Id.ToString()));
+        await evidence.SaveAsync(new { projectStatus = "ARCHIVED", history, archiveAudit = true, majors = majors.Length,
+            auditIds = await check.AuditLogs.Where(a => a.Action == "PROJECT_ARCHIVED" && a.EntityId == project.Id.ToString()).Select(a => a.Id).ToArrayAsync(),
+            departmentCount = threeDepartments ? 3 : interdisciplinary ? 2 : 1,
+            publicationPolicy = "SYNTHETIC-REGRESSION-ONLY; not institutional approval", students = resultStudents.Length });
     }
 
     private sealed class DepartLifecycleStorage : IFileStorage
