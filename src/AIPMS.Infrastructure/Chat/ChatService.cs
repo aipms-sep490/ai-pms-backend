@@ -16,8 +16,9 @@ using Task = System.Threading.Tasks.Task;
 
 namespace AIPMS.Infrastructure.Chat;
 
-internal sealed class ChatService(AipmsDbContext db, ChatAccessService access, IOptions<ChatSettings> settings,
-    TimeProvider clock, IChatWakeSignal wake, IChatCredentialGuard? credentials = null) : IChatService
+internal sealed partial class ChatService(AipmsDbContext db, ChatAccessService access, IOptions<ChatSettings> settings,
+    TimeProvider clock, IChatWakeSignal wake, IChatCredentialGuard? credentials = null,
+    AIPMS.Application.Abstractions.Storage.IFileStorage? storage = null) : IChatService
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
     private static string S(long n) => n.ToString(CultureInfo.InvariantCulture);
@@ -152,7 +153,8 @@ internal sealed class ChatService(AipmsDbContext db, ChatAccessService access, I
             Title = c.Kind=="DIRECT" ? db.Users.Where(u=>u.Id==(c.FirstUserId==actor?c.SecondUserId:c.FirstUserId)).Select(u=>u.FullName).FirstOrDefault()
                 : c.Kind=="TEAM" ? db.Teams.Where(t=>t.Id==c.TeamId).Select(t=>t.Name).FirstOrDefault() : db.Projects.Where(p=>p.Id==c.ProjectId).Select(p=>p.Title).FirstOrDefault(),
             Floor = db.Set<ChatMembershipInterval>().Where(m=>m.ConversationId==c.Id && m.UserId==actor && m.LeftAt==null).Select(m=>(long?)m.FromSequence).FirstOrDefault(),
-            Read = db.Set<ChatMemberState>().Where(m=>m.ConversationId==c.Id && m.UserId==actor).Select(m=>(long?)m.LastReadSequence).FirstOrDefault()
+            Read = db.Set<ChatMemberState>().Where(m=>m.ConversationId==c.Id && m.UserId==actor).Select(m=>(long?)m.LastReadSequence).FirstOrDefault(),
+            MutedUntil = db.Set<ChatMemberState>().Where(m=>m.ConversationId==c.Id && m.UserId==actor).Select(m=>m.MutedUntil).FirstOrDefault()
         }).ToListAsync(ct);
         var messageFacts = await db.Set<ChatMessage>().Where(m=>ids.Contains(m.ConversationId)
                 && db.Set<ChatMembershipInterval>().Any(i=>i.ConversationId==m.ConversationId && i.UserId==actor && i.LeftAt==null && i.FromSequence<=m.Sequence)
@@ -168,7 +170,8 @@ internal sealed class ChatService(AipmsDbContext db, ChatAccessService access, I
         var stillAllowed=await access.Allowed(actor).Where(c=>ids.Contains(c.Id)).Select(c=>c.Id).ToListAsync(ct);
         return rows.Where(c=>stillAllowed.Contains(c.Id)).Select(c=>new ChatConversationDto(S(c.Id),c.Kind,facts.Single(f=>f.Id==c.Id).Title??"Conversation",c.Status,
             c.TeamId.HasValue?S(c.TeamId.Value):null,c.ProjectId.HasValue?S(c.ProjectId.Value):null,S(c.Sequence),S(c.Version),Utc(c.UpdatedAt),
-            messageFacts.FirstOrDefault(f=>f.Id==c.Id)?.Unread??0,dto.FirstOrDefault(m=>m.ConversationId==S(c.Id)),c.Status=="OPEN")).ToArray();
+            messageFacts.FirstOrDefault(f=>f.Id==c.Id)?.Unread??0,dto.FirstOrDefault(m=>m.ConversationId==S(c.Id)),c.Status=="OPEN",
+            facts.Single(f=>f.Id==c.Id).MutedUntil is DateTime muted ? Utc(muted) : null)).ToArray();
     }
 
     public Task<ChatPage<ChatPerson>> MembersAsync(long actor,long id,string? cursor,int size,CancellationToken ct) =>
@@ -199,9 +202,15 @@ internal sealed class ChatService(AipmsDbContext db, ChatAccessService access, I
     private void Text(string body) { if(string.IsNullOrWhiteSpace(body)||body.Length>settings.Value.MaxMessageLength||body.IndexOf('\0')>=0) throw new ArgumentException("CHAT_INVALID_BODY"); }
     public Task<ChatMessageDto> SendAsync(long actor,long id,ChatSendRequest request,CancellationToken ct) =>
         InConversation(actor,id,true,async c => {
-            Text(request.Body); if(request.ClientMessageId==Guid.Empty) throw new ArgumentException("CHAT_CLIENT_MESSAGE_ID_REQUIRED");
+            var attachments = (request.AttachmentIds ?? []).Select(Id).Order().ToArray();
+            if (attachments.Length > 10 || attachments.Distinct().Count() != attachments.Length) throw new ArgumentException("CHAT_INVALID_ATTACHMENTS");
+            if (attachments.Length == 0 || !string.IsNullOrEmpty(request.Body)) Text(request.Body!);
+            if(request.ClientMessageId==Guid.Empty) throw new ArgumentException("CHAT_CLIENT_MESSAGE_ID_REQUIRED");
             long? reply=request.ReplyToMessageId is null?null:Id(request.ReplyToMessageId);
-            var hash=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { request.Body, Reply=reply }))));
+            // Preserve pre-attachment hashes for retries of existing text-only messages.
+            var hashInput = attachments.Length == 0 ? JsonSerializer.Serialize(new { request.Body, Reply=reply })
+                : JsonSerializer.Serialize(new { Body=request.Body ?? "", Reply=reply, Attachments=attachments });
+            var hash=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hashInput)));
             var existing=await db.Set<ChatMessage>().SingleOrDefaultAsync(m=>m.ConversationId==id && m.SenderId==actor && m.ClientMessageId==request.ClientMessageId,ct);
             if(existing is not null) {
                 if(existing.RequestHash!=hash) throw new ConflictException("Retry key has different content.","CHAT_IDEMPOTENCY_CONFLICT");
@@ -209,9 +218,15 @@ internal sealed class ChatService(AipmsDbContext db, ChatAccessService access, I
                 return (await Map(actor,[existing],ct)).Single();
             }
             if(reply.HasValue && !await Visible(actor,id).AnyAsync(m=>m.Id==reply && m.RecalledAt==null,ct)) throw Hidden();
+            var uploads = await db.Set<ChatUpload>().Where(u => attachments.Contains(u.Id) && u.ConversationId == id
+                && u.UploadedBy == actor && u.Status == "READY" && u.ExpiresAt > Now).ToArrayAsync(ct);
+            if (uploads.Length != attachments.Length) throw new ConflictException("Uploads are expired, used or outside your conversation.", "CHAT_ATTACHMENT_UNAVAILABLE");
             var m=new ChatMessage { ConversationId=id,SenderId=actor,Sequence=++c.Sequence,ClientMessageId=request.ClientMessageId,
-                RequestHash=hash,ReplyToMessageId=reply,Body=request.Body,CreatedAt=Now };
-            db.Set<ChatMessage>().Add(m); Event(c,actor,"MessagesChanged","CHAT_SENT");
+                RequestHash=hash,ReplyToMessageId=reply,Body=request.Body ?? "",CreatedAt=Now };
+            db.Set<ChatMessage>().Add(m); var sentEvent = Event(c,actor,"MessagesChanged","CHAT_SENT");
+            await db.SaveChangesAsync(ct);
+            sentEvent.MessageId = m.Id;
+            foreach (var upload in uploads) { upload.Status = "ATTACHED"; db.Add(new ChatMessageAttachment { MessageId = m.Id, UploadId = upload.Id }); }
             await db.SaveChangesAsync(ct); return (await Map(actor,[m],ct)).Single();
         },ct);
 
@@ -226,7 +241,9 @@ internal sealed class ChatService(AipmsDbContext db, ChatAccessService access, I
             if(m.ConcurrencyToken!=token) throw new ConflictException("Message changed.","CHAT_STALE");
             if(m.RecalledAt.HasValue || Now>m.CreatedAt.AddMinutes(recall?settings.Value.RecallWindowMinutes:settings.Value.EditWindowMinutes))
                 throw new ConflictException("Message can no longer be changed.","CHAT_CHANGE_WINDOW_CLOSED");
-            if(recall) { m.Body=null; m.RecalledAt=Now; } else { Text(body!);m.Body=body;m.EditedAt=Now; }
+            if(recall) { m.Body=null; m.RecalledAt=Now; } else {
+                if (!string.IsNullOrEmpty(body) || !await db.Set<ChatMessageAttachment>().AnyAsync(a => a.MessageId == m.Id, ct)) Text(body!);
+                m.Body=body ?? "";m.EditedAt=Now; }
             m.ConcurrencyToken=Guid.NewGuid(); Event(c,actor,"MessagesChanged",recall?"CHAT_RECALLED":"CHAT_EDITED");
             await db.SaveChangesAsync(ct); return (await Map(actor,[m],ct)).Single();
         },ct);
@@ -240,11 +257,13 @@ internal sealed class ChatService(AipmsDbContext db, ChatAccessService access, I
             return true;
         },ct);
 
-    private void Event(ChatConversation c,long actor,string type,string? audit)
+    private ChatOutbox Event(ChatConversation c,long actor,string type,string? audit)
     {
         c.Version++; c.ConcurrencyToken=Guid.NewGuid(); if(type!="ReadStateChanged") c.UpdatedAt=Now;
-        db.Set<ChatOutbox>().Add(new() { ConversationId=c.Id,Version=c.Version,EventType=type,CreatedAt=Now,NextAttemptAt=Now });
+        var item = new ChatOutbox { ConversationId=c.Id,Version=c.Version,EventType=type,CreatedAt=Now,NextAttemptAt=Now };
+        db.Set<ChatOutbox>().Add(item);
         if(audit is not null) db.AuditLogs.Add(new(){ ActorUserId=actor,Action=audit,EntityType="CHAT_CONVERSATION",EntityId=S(c.Id),Outcome="SUCCESS",OccurredAt=Now });
+        return item;
     }
     private async Task<IReadOnlyList<ChatMessageDto>> Map(long actor,IReadOnlyList<ChatMessage> rows,CancellationToken ct)
     {
@@ -255,11 +274,18 @@ internal sealed class ChatService(AipmsDbContext db, ChatAccessService access, I
         var replyIds=rows.Where(m=>m.ReplyToMessageId.HasValue).Select(m=>m.ReplyToMessageId!.Value).ToArray();
         var replies=await db.Set<ChatMessage>().AsNoTracking().Where(m=>replyIds.Contains(m.Id)
             && db.Set<ChatMembershipInterval>().Any(i=>i.UserId==actor && i.ConversationId==m.ConversationId && i.LeftAt==null && i.FromSequence<=m.Sequence)).ToDictionaryAsync(m=>m.Id,ct);
+        var visibleIds = rows.Where(m => m.RecalledAt == null).Select(m => m.Id).ToArray();
+        var attachments = await (from a in db.Set<ChatMessageAttachment>() join u in db.Set<ChatUpload>() on a.UploadId equals u.Id
+            where visibleIds.Contains(a.MessageId) && u.Status == "ATTACHED" select new { a.MessageId, Upload = u }).AsNoTracking().ToArrayAsync(ct);
+        var reactions = await db.Set<ChatReaction>().Where(r => visibleIds.Contains(r.MessageId)).GroupBy(r => new { r.MessageId, r.Emoji })
+            .Select(g => new { g.Key.MessageId, g.Key.Emoji, Count = g.Count(), Mine = g.Any(r => r.UserId == actor) }).ToArrayAsync(ct);
         return rows.Select(m=>new ChatMessageDto(S(m.Id),S(m.ConversationId),S(m.Sequence),S(m.SenderId),names.GetValueOrDefault(m.SenderId,"Member"),m.ClientMessageId,
             m.Body,Utc(m.CreatedAt),m.EditedAt.HasValue?Utc(m.EditedAt.Value):null,m.RecalledAt.HasValue?Utc(m.RecalledAt.Value):null,m.ConcurrencyToken,
             m.ReplyToMessageId is long r ? replies.TryGetValue(r,out var parent)&&parent.RecalledAt is null?new(S(r),parent.Body,false):new(S(r),null,true):null,
             writable.Contains(m.ConversationId)&&m.SenderId==actor&&m.RecalledAt is null&&Now<=m.CreatedAt.AddMinutes(settings.Value.EditWindowMinutes),
-            writable.Contains(m.ConversationId)&&m.SenderId==actor&&m.RecalledAt is null&&Now<=m.CreatedAt.AddMinutes(settings.Value.RecallWindowMinutes))).ToArray();
+            writable.Contains(m.ConversationId)&&m.SenderId==actor&&m.RecalledAt is null&&Now<=m.CreatedAt.AddMinutes(settings.Value.RecallWindowMinutes),
+            attachments.Where(a => a.MessageId == m.Id).OrderBy(a => a.Upload.Id).Select(a => Attachment(a.Upload)).ToArray(),
+            reactions.Where(r => r.MessageId == m.Id).OrderBy(r => r.Emoji).Select(r => new ChatReactionDto(r.Emoji, r.Count, r.Mine)).ToArray())).ToArray();
     }
     private static DateTime Utc(DateTime date)=>DateTime.SpecifyKind(date,DateTimeKind.Utc);
 }

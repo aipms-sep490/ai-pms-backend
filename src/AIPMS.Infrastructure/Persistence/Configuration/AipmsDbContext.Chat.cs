@@ -14,7 +14,12 @@ public partial class AipmsDbContext
         model.Entity<ChatMemberState>().ToTable("chat_member_state").HasKey(x => new { x.ConversationId, x.UserId });
         model.Entity<ChatOutbox>().ToTable("chat_outbox");
         model.Entity<ChatScopeMember>().HasNoKey().ToView("chat_scope_members");
-        foreach (var type in new[] { typeof(ChatConversation), typeof(ChatMembershipInterval), typeof(ChatMessage), typeof(ChatMemberState), typeof(ChatOutbox), typeof(ChatScopeMember) })
+        model.Entity<ChatUpload>().ToTable("chat_uploads");
+        model.Entity<ChatMessageAttachment>().ToTable("chat_message_attachments").HasKey(x => new { x.MessageId, x.UploadId });
+        model.Entity<ChatMessageAttachment>().HasIndex(x => x.UploadId).IsUnique();
+        model.Entity<ChatReaction>().ToTable("chat_reactions").HasKey(x => new { x.MessageId, x.UserId, x.Emoji });
+        model.Entity<ChatReaction>().Property(x => x.Emoji).HasMaxLength(32);
+        foreach (var type in new[] { typeof(ChatConversation), typeof(ChatMembershipInterval), typeof(ChatMessage), typeof(ChatMemberState), typeof(ChatOutbox), typeof(ChatScopeMember), typeof(ChatUpload), typeof(ChatMessageAttachment), typeof(ChatReaction) })
         foreach (var property in model.Entity(type).Metadata.GetProperties())
             property.SetColumnName(Regex.Replace(property.Name, "(?<!^)([A-Z])", "_$1").ToLowerInvariant());
         model.Entity<ChatConversation>().Property(x => x.ConcurrencyToken).IsConcurrencyToken();

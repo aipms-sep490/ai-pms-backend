@@ -23,6 +23,11 @@ public sealed class ChatApiTests(FinalSubmissionDraftDatabaseFixture fixture) : 
         using var outsider=app.CreateAuthenticatedClient(s.Users.Admin);
         Assert.Equal(HttpStatusCode.NotFound,(await outsider.GetAsync($"/api/v1/chat/conversations/{c.Id}/messages")).StatusCode);
         var swagger=await student.GetStringAsync("/swagger/v1/swagger.json");Assert.Contains("/api/v1/chat/conversations/{id}/messages",swagger);
+        using var contract = System.Text.Json.JsonDocument.Parse(swagger);
+        var schemas = contract.RootElement.GetProperty("components").GetProperty("schemas");
+        Assert.True(schemas.GetProperty("ChatMessageDto").GetProperty("properties").TryGetProperty("attachments", out _));
+        Assert.True(schemas.GetProperty("ChatMessageDto").GetProperty("properties").TryGetProperty("reactions", out _));
+        Assert.True(schemas.GetProperty("ChatConversationDto").GetProperty("properties").TryGetProperty("mutedUntil", out _));
     }
     [Fact]
     public async Task Disabled_feature_fails_closed()

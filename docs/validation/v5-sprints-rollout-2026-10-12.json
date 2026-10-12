@@ -1,0 +1,204 @@
+{
+  "date": "2026-10-12",
+  "database": "AI_PMS",
+  "migration": "20261012_add_sprints.sql",
+  "passes": 2,
+  "before": [
+    {
+      "name": "users",
+      "count": 21
+    },
+    {
+      "name": "projects",
+      "count": 4
+    },
+    {
+      "name": "tasks",
+      "count": 11
+    },
+    {
+      "name": "meetings",
+      "count": 16
+    },
+    {
+      "name": "evaluations",
+      "count": 3
+    },
+    {
+      "name": "student_results",
+      "count": 0
+    }
+  ],
+  "after": [
+    {
+      "name": "users",
+      "count": 21
+    },
+    {
+      "name": "projects",
+      "count": 4
+    },
+    {
+      "name": "tasks",
+      "count": 11
+    },
+    {
+      "name": "meetings",
+      "count": 16
+    },
+    {
+      "name": "evaluations",
+      "count": 3
+    },
+    {
+      "name": "student_results",
+      "count": 0
+    }
+  ],
+  "checks": [
+    {
+      "name": "ck_sprint_dates",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "ck_sprint_event_kind",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "ck_sprint_event_points",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "ck_sprint_lifecycle",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "ck_sprint_status",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "ck_task_story_points",
+      "is_disabled": false,
+      "is_not_trusted": false
+    }
+  ],
+  "foreignKeys": [
+    {
+      "name": "fk_board_label_task",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_sprint_creator",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_sprint_event_actor",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_sprint_event_sprint",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_sprint_event_task",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_sprint_project",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_task_sprint",
+      "is_disabled": false,
+      "is_not_trusted": false
+    }
+  ],
+  "indexes": [
+    {
+      "name": "ux_sprint_active",
+      "is_unique": true,
+      "is_disabled": false,
+      "filter_definition": "([status]='ACTIVE')"
+    },
+    {
+      "name": "ix_sprint_project",
+      "is_unique": false,
+      "is_disabled": false,
+      "filter_definition": null
+    },
+    {
+      "name": "pk_task_board_labels",
+      "is_unique": true,
+      "is_disabled": false,
+      "filter_definition": null
+    },
+    {
+      "name": "ix_board_label",
+      "is_unique": false,
+      "is_disabled": false,
+      "filter_definition": null
+    },
+    {
+      "name": "ix_sprint_events",
+      "is_unique": false,
+      "is_disabled": false,
+      "filter_definition": null
+    },
+    {
+      "name": "ux_task_code",
+      "is_unique": true,
+      "is_disabled": false,
+      "filter_definition": null
+    },
+    {
+      "name": "ix_task_sprint",
+      "is_unique": false,
+      "is_disabled": false,
+      "filter_definition": null
+    }
+  ],
+  "taskColumns": [
+    {
+      "name": "sprint_id",
+      "is_nullable": true,
+      "is_computed": false
+    },
+    {
+      "name": "story_points",
+      "is_nullable": true,
+      "is_computed": false
+    },
+    {
+      "name": "task_code",
+      "is_nullable": true,
+      "is_computed": true
+    }
+  ],
+  "newTableCounts": [
+    {
+      "name": "sprints",
+      "count": 0
+    },
+    {
+      "name": "task_board_labels",
+      "count": 0
+    },
+    {
+      "name": "sprint_task_events",
+      "count": 0
+    }
+  ],
+  "status": "VERIFIED",
+  "note": "Additive schema only; no lifecycle mutation or historical backfill."
+}

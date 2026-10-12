@@ -28,7 +28,7 @@ internal sealed class ChatOutboxWorker(IServiceScopeFactory scopes, IOptions<Cha
                     try
                     {
                         await scope.ServiceProvider.GetRequiredService<ChatDelivery>().SendAsync(
-                            long.Parse(item.Event.ConversationId,System.Globalization.CultureInfo.InvariantCulture),item.EventType,item.Event,stoppingToken);
+                            long.Parse(item.Event.ConversationId,System.Globalization.CultureInfo.InvariantCulture),item.EventType,item.Event,stoppingToken,item.MessageId);
                         await outbox.CompleteAsync(item, true, stoppingToken);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)

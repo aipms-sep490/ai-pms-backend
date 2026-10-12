@@ -17,6 +17,23 @@ namespace AIPMS.IntegrationTests.Chat;
 public sealed class ChatRealtimeTests(FinalSubmissionDraftDatabaseFixture fixture):IClassFixture<FinalSubmissionDraftDatabaseFixture>
 {
     [Fact]
+    public async Task Muted_socket_still_receives_sync_with_notification_suppressed_then_unmute_restores_it()
+    {
+        var s = await fixture.Seed(); await using var app = new Factory(fixture.ConnectionString);
+        using var leader = app.CreateAuthenticatedClient(s.Users.Student); using var member = app.CreateAuthenticatedClient(s.MemberId);
+        var opened = await leader.PostAsync($"/api/v1/chat/projects/{s.ProjectId}/conversation", null); opened.EnsureSuccessStatusCode();
+        var c = (await opened.Content.ReadFromJsonAsync<ChatConversationDto>())!;
+        using var socket = await Connect(app, member);
+        (await member.PutAsJsonAsync($"/api/v1/chat/conversations/{c.Id}/mute", new ChatMuteRequest(DateTimeOffset.UtcNow.AddHours(1)))).EnsureSuccessStatusCode();
+        (await leader.PostAsJsonAsync($"/api/v1/chat/conversations/{c.Id}/messages", new ChatSendRequest(Guid.NewGuid(), "muted sync"))).EnsureSuccessStatusCode();
+        var muted = await Event(socket, "MessagesChanged"); Assert.False(muted.GetProperty("arguments")[0].GetProperty("shouldNotify").GetBoolean());
+        (await member.PutAsJsonAsync($"/api/v1/chat/conversations/{c.Id}/mute", new ChatMuteRequest(null))).EnsureSuccessStatusCode();
+        (await leader.PostAsJsonAsync($"/api/v1/chat/conversations/{c.Id}/messages", new ChatSendRequest(Guid.NewGuid(), "notify"))).EnsureSuccessStatusCode();
+        var unmuted = await Event(socket, "MessagesChanged"); Assert.True(unmuted.GetProperty("arguments")[0].GetProperty("shouldNotify").GetBoolean());
+        socket.Abort();
+    }
+
+    [Fact]
     public async Task Two_clients_receive_committed_hints_typing_presence_and_revocation()
     {
         var s=await fixture.Seed();await using var app=new Factory(fixture.ConnectionString);
