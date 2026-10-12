@@ -68,3 +68,9 @@
 - Participating staff and reviewers read only their assigned component/major/target. Student request access does not grant locked package or review-context access. Preview of all affected totals is independent-lead-only.
 - Reviewer cannot be the affected student, current Primary or original component scorer. Publisher differs from the reviewer/bundle maker and original scorer. Request token plus confirmation token bind the exact version; stale inputs return 409. ACCEPTED and publication/audit/history/queue commit atomically, including on archived projects through this specialized workflow.
 - See `../../v5-result-appeals.md` for the endpoint/action/error matrix and isolated API evidence. Technical tests do not approve an academic policy or FE integration.
+
+### 3.8 Industry advisory
+- Admin invites dedicated role-free experts; lead staff assigns COMMON or one frozen major and explicitly shares exact file versions. Admin alone cannot assign/share; participating staff, Primary, Mentor and evaluator have no advisory-management authority.
+- Expert access requires active account, completed enrollment, active dated assignment and non-revoked share on every read/download. No roster, grades, peer, chat, AI history, individual evidence or default final-package access.
+- Enrollment binds single-use mailbox invitation, verified matching Google email, nonce and browser cookie. Existing student auto-link remains unchanged; global role management cannot grant academic roles to expert profiles.
+- Feedback is append-only advisory history; it never changes scores/readiness. Project lock, optimistic token and audit share the mutation transaction. See `../../v5-industry-advisory.md` for routes/errors/rollout and provider-test limitations.

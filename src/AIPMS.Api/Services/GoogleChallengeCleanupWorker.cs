@@ -17,6 +17,7 @@ internal sealed class GoogleChallengeCleanupWorker(IServiceScopeFactory scopes, 
             {
                 await using var scope = scopes.CreateAsyncScope();
                 await scope.ServiceProvider.GetRequiredService<IGoogleAuthService>().CleanupAsync(stoppingToken);
+                await scope.ServiceProvider.GetRequiredService<AIPMS.Application.Features.Industry.Abstractions.IIndustryService>().Cleanup(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception) { logger.LogWarning("Google challenge cleanup failed; retrying at the next interval."); }

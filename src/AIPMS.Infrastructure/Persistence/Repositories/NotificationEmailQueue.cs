@@ -11,7 +11,7 @@ using AppDelivery = AIPMS.Application.Features.Notifications.Abstractions.Notifi
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-internal sealed class NotificationEmailQueue(AipmsDbContext db, IProjectAccessService? access = null) : INotificationEmailQueue
+internal sealed class NotificationEmailQueue(AipmsDbContext db, IProjectAccessService? access = null, IndustryInvitationEmail? industry = null) : INotificationEmailQueue
 {
     public async Task<AppDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct, string? notificationType = null)
     {
@@ -48,6 +48,13 @@ internal sealed class NotificationEmailQueue(AipmsDbContext db, IProjectAccessSe
                 d.NotificationRecipient.User.Email, d.NotificationRecipient.User.FullName,
                 d.NotificationRecipient.Notification.Title, d.NotificationRecipient.Notification.Content, true) })
             .SingleAsync(ct);
+        if (source.NotificationType == IndustryService.NotificationType)
+        {
+            var body = industry is null ? null : await industry.Body(source.NotificationId, source.UserId, nowUtc, ct);
+            if (body is not null) return source.Delivery with { Body = body };
+            await MarkFailedAsync(row.NotificationRecipientId, nowUtc, "INVITATION_UNAVAILABLE", true, ct, claimedAttempt);
+            return source.Delivery with { ShouldSend = false };
+        }
         if (source.NotificationType != IMeetingReminderService.NotificationType) return source.Delivery;
         var current = await MeetingReminderService.CurrentEmailAsync(db, access ?? new ProjectAccessService(db),
             source.NotificationId, source.UserId, nowUtc, ct);
