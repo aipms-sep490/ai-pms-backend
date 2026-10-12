@@ -5,7 +5,8 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace AIPMS.Api.Hubs;
 
-public sealed class ChatDelivery(ChatConnections connections,IHubContext<ChatHub> hub,IChatAccessService access,IAccessTokenAccountValidator credentials)
+public sealed class ChatDelivery(ChatConnections connections,IHubContext<ChatHub> hub,IChatAccessService access,IAccessTokenAccountValidator credentials,
+    IChatNotificationPolicy notifications)
 {
     private async Task<ChatConnection[]> Authorized(long conversation,CancellationToken ct)
     {
@@ -20,10 +21,16 @@ public sealed class ChatDelivery(ChatConnections connections,IHubContext<ChatHub
         }
         return valid.ToArray();
     }
-    public async Task SendAsync(long conversation,string type,object payload,CancellationToken ct)
+    public async Task SendAsync(long conversation,string type,object payload,CancellationToken ct,long? messageId = null)
     {
         var recipients=await Authorized(conversation,ct);
-        if(recipients.Length>0) await hub.Clients.Clients(recipients.Select(c=>c.Id)).SendAsync(type,payload,ct);
+        if (messageId.HasValue && payload is AIPMS.Application.Features.Chat.ChatEvent hint)
+        {
+            var notify = await notifications.NotifyAsync(conversation, messageId.Value, ct);
+            foreach (var group in recipients.GroupBy(c => notify.Contains(c.UserId)))
+                await hub.Clients.Clients(group.Select(c => c.Id)).SendAsync(type, hint with { ShouldNotify = group.Key }, ct);
+        }
+        else if(recipients.Length>0) await hub.Clients.Clients(recipients.Select(c=>c.Id)).SendAsync(type,payload,ct);
     }
     public async Task PresenceAsync(long conversation,CancellationToken ct)
     {

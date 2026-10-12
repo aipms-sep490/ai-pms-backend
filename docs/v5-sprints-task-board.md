@@ -1,6 +1,10 @@
 # v5 phase 10: sprints and task board
 
-Status: local validation passed; CI and shared rollout pending. BE-N08; no frontend changes.
+Status: DELIVERED. PR #119 merged as 8d4982adba9fd36a6b7655d364465d676371d982.
+CI passed 1055 unit and 1228 integration tests, zero skips, plus isolated bootstrap
+and rerun. Shared migration ran twice and verified three tables, three task columns,
+six checks, seven FKs and seven indexes; business counts unchanged. Evidence:
+`docs/validation/v5-sprints-rollout-2026-10-12.json`. BE-N08; no frontend changes.
 
 ## Contract
 

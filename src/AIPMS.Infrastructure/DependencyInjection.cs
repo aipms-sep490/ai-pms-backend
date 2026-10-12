@@ -56,6 +56,8 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.Chat.Abstractions.IChatAccessService>(sp => sp.GetRequiredService<Chat.ChatAccessService>());
         services.AddScoped<AIPMS.Application.Features.Chat.Abstractions.IChatService, Chat.ChatService>();
         services.AddScoped<AIPMS.Application.Features.Chat.Abstractions.IChatOutbox, Chat.ChatOutboxQueue>();
+        services.AddScoped<AIPMS.Application.Features.Chat.Abstractions.IChatUploadCleanup, Chat.ChatUploadCleanup>();
+        services.AddScoped<AIPMS.Application.Features.Chat.Abstractions.IChatNotificationPolicy, Chat.ChatNotificationPolicy>();
         services.AddSingleton<AIPMS.Application.Features.Chat.Abstractions.IChatWakeSignal, Chat.ChatWakeSignal>();
         services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ExecutionConcurrencyBehavior<,>));
         services.AddScoped<IMeetingGovernanceService, MeetingGovernanceService>();

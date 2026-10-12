@@ -48,6 +48,7 @@ public sealed class ChatMemberState
     public long UserId { get; set; }
     public long LastReadSequence { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public DateTime? MutedUntil { get; set; }
 }
 public sealed class ChatOutbox
 {
@@ -64,6 +65,7 @@ public sealed class ChatOutbox
     public DateTime CreatedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public string? ErrorCode { get; set; }
+    public long? MessageId { get; set; }
 }
 public sealed class ChatScopeMember
 {
@@ -71,4 +73,31 @@ public sealed class ChatScopeMember
     public long ScopeId { get; set; }
     public long UserId { get; set; }
     public string SourceKey { get; set; } = "";
+}
+
+public sealed class ChatUpload
+{
+    public long Id { get; set; }
+    public long ConversationId { get; set; }
+    public long UploadedBy { get; set; }
+    public string StorageKey { get; set; } = "";
+    public string FileName { get; set; } = "";
+    public string ContentType { get; set; } = "";
+    public long SizeBytes { get; set; }
+    public string Sha256 { get; set; } = "";
+    public string Status { get; set; } = "UPLOADING";
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+}
+public sealed class ChatMessageAttachment
+{
+    public long MessageId { get; set; }
+    public long UploadId { get; set; }
+}
+public sealed class ChatReaction
+{
+    public long MessageId { get; set; }
+    public long UserId { get; set; }
+    public string Emoji { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
 }

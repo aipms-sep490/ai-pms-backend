@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddHostedService<Services.GoogleChallengeCleanupWorker>();
         services.AddHostedService<Services.VideoCleanupWorker>();
         services.AddHostedService<Services.ChatOutboxWorker>();
+        services.AddHostedService<Services.ChatUploadCleanupWorker>();
         services.AddSingleton<Hubs.ChatConnections>();
         services.AddScoped<Hubs.ChatDelivery>();
         services.AddSingleton<Hubs.ChatHubFilter>();

@@ -32,7 +32,7 @@ internal sealed class ChatOutboxQueue(AipmsDbContext db,TimeProvider clock) : IC
         await db.Entry(row).ReloadAsync(ct);
         row.Status="PROCESSING";row.AttemptCount++;row.LeaseToken=Guid.NewGuid();row.LeaseUntil=now.AddMinutes(2);
         await db.SaveChangesAsync(ct);await tx.CommitAsync(ct);
-        return new(row.Id,row.LeaseToken.Value,new(row.EventId,row.ConversationId.ToString(System.Globalization.CultureInfo.InvariantCulture),row.Version.ToString(System.Globalization.CultureInfo.InvariantCulture)),row.EventType);
+        return new(row.Id,row.LeaseToken.Value,new(row.EventId,row.ConversationId.ToString(System.Globalization.CultureInfo.InvariantCulture),row.Version.ToString(System.Globalization.CultureInfo.InvariantCulture)),row.EventType,row.MessageId);
     }
     public async Task CompleteAsync(ChatDispatch d,bool success,CancellationToken ct)
     {
