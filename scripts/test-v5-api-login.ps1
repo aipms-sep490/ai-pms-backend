@@ -21,7 +21,8 @@ try {
     $sql = [Data.SqlClient.SqlConnectionStringBuilder]::new($neutral.get_ConnectionString())
     $sql['Initial Catalog'] = $name
     $settings = @{
-        ASPNETCORE_ENVIRONMENT='Development'; ConnectionStrings__DefaultConnection=$sql.ConnectionString
+        ASPNETCORE_ENVIRONMENT='Staging'; DOTNET_ENVIRONMENT='Staging'; ConnectionStrings__DefaultConnection=$sql.ConnectionString
+        Cors__AllowedOrigins__0='http://localhost:5173'
         Jwt__Issuer='AI-PMS.IsolatedAcceptance'; Jwt__Audience='AI-PMS.IsolatedAcceptance'
         Jwt__SigningKey=([Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N'))
         FileStorage__Provider='Local'; FileStorage__RootPath=(Join-Path $runRoot 'files')
@@ -31,7 +32,7 @@ try {
         Observability__LogFilePath=(Join-Path $runRoot 'api-.log')
     }
     $start = @{
-        FilePath='dotnet'; ArgumentList=@('bin/Release/net8.0/AIPMS.Api.dll','--urls',$url)
+        FilePath='dotnet'; ArgumentList=@('bin/Release/net8.0/AIPMS.Api.dll','--urls',$url,'--contentRoot',('"'+$runRoot+'"'))
         WorkingDirectory=(Join-Path $root 'src/AIPMS.Api'); Environment=$settings; PassThru=$true
         RedirectStandardOutput=(Join-Path $runRoot 'stdout.log'); RedirectStandardError=(Join-Path $runRoot 'stderr.log')
     }

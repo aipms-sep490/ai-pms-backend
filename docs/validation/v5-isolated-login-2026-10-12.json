@@ -1,10 +1,5 @@
 {
-  "sourceDirty": true,
   "authentication": "Real password login and JWT middleware; synthetic identities, no Google mailbox",
-  "sourceCommit": "061de56d228ea7b2feb33ea693e5a0f00c0423ce",
-  "externalDeliveryDisabled": true,
-  "completedAtUtc": "2026-10-12T11:32:30.5042787Z",
-  "anonymousDashboard": 401,
   "actors": [
     {
       "dashboard": 200,
@@ -27,7 +22,12 @@
       "alias": "v5.primary@e2e.invalid"
     }
   ],
+  "cleanup": "Owned database and API stopped in finally",
+  "anonymousDashboard": 401,
+  "completedAtUtc": "2026-10-12T11:42:15.5912669Z",
+  "sourceDirty": true,
   "sharedDatabaseMutated": false,
-  "database": "Owned per-run E2E catalog",
-  "cleanup": "Owned database and API stopped in finally"
+  "externalDeliveryDisabled": true,
+  "sourceCommit": "ef33f6dee2802c35af79480159fd5c0ec09c3769",
+  "database": "Owned per-run E2E catalog"
 }

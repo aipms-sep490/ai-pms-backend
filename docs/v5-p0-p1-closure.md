@@ -108,6 +108,13 @@ test-v5-api-login.ps1 starts the real API and verifies password/JWT login for fo
 synthetic actors, dashboard authorization and cleanup. CI now runs this smoke.
 Evidence: `validation/v5-isolated-login-2026-10-12.json`. External delivery is off;
 no Google mailbox, SMTP or LiveKit acceptance is claimed.
+The login host uses an empty content root and explicit Staging configuration,
+including CORS, so neither local appsettings nor User Secrets can mask missing
+CI settings. The original CI smoke exposed this omission; it was corrected and
+rerun locally with the independent configuration.
+
+Tin's concrete adapter checklist is in
+[v5-fe-contract-delta-2026-10-12.md](v5-fe-contract-delta-2026-10-12.md).
 
 This does not declare P0_P1_INTEGRATED_READY. Pending: Tin's AI/sprint/chat and
 academic adapters, unified three-department full-component/COLD browser journey,

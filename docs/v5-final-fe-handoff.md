@@ -9,6 +9,8 @@ the frontend integrated or enable its feature flags. No frontend file was change
 ## Source of truth and compatibility
 
 Closure follow-up: [analysis scope and full DB audit](v5-p0-p1-closure.md).
+Concrete AI/sprint/chat adapter deltas after FE #57 are in
+[the integration checklist](v5-fe-contract-delta-2026-10-12.md).
 Explicit POST project `/ai/progress-analysis` returns runId; history adds typed
 progressAnalysis with kind PROGRESS_ANALYSIS. GET remains read-only but enforces
 AI scope. Mentor/participating staff receive MAJOR task counts, not project risk.
