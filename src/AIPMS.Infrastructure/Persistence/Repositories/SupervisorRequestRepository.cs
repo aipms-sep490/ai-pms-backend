@@ -142,6 +142,7 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
         }
         if (request.AssignmentType == "PRIMARY")
         {
+            await WorkingAgreementGuard.EnsureActivation(context, project.Id, ct);
             if (project.Status == "APPROVED") Transition("SUPERVISOR_PENDING");
             Transition("ACTIVE");
         }

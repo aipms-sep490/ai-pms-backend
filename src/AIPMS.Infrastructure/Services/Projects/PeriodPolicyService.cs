@@ -54,6 +54,10 @@ internal sealed class PeriodPolicyService(AipmsDbContext db, ICurrentUser curren
         var latest = await db.Set<PeriodPolicyVersion>().Where(p => p.ProjectPeriodId == periodId).OrderByDescending(p => p.Version).FirstAsync(ct);
         if (input.ExpectedVersion != latest.Version) throw new ConflictException("Policy version changed. Reload before saving.");
         var fields = input.Policy;
+        if (fields is not null && (fields.RequireWorkingAgreement != JsonSerializer.Deserialize<PeriodPolicyFields>(latest.SnapshotJson)!.RequireWorkingAgreement
+                || input.Operation == "PUBLISH" && fields.RequireWorkingAgreement != JsonSerializer.Deserialize<PeriodPolicyFields>(existing.SnapshotJson)!.RequireWorkingAgreement)
+            && (await transactions.GetActorAsync(current.UserId!.Value, ct))?.IsAdmin != true)
+            throw new ForbiddenException("Only Admin may change the Working Agreement requirement.");
         if (fields is null || fields.AllowedProjectModes is null || fields.AllowedProposalSources is null
             || !ProjectPeriodGovernancePolicy.IsValid(fields.AllowedProjectModes, true)
             || !ProjectPeriodGovernancePolicy.IsValid(fields.AllowedProposalSources, false)
