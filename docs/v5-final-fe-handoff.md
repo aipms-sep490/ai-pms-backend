@@ -8,6 +8,13 @@ the frontend integrated or enable its feature flags. No frontend file was change
 
 ## Source of truth and compatibility
 
+Closure follow-up: [analysis scope and full DB audit](v5-p0-p1-closure.md).
+Explicit POST project `/ai/progress-analysis` returns runId; history adds typed
+progressAnalysis with kind PROGRESS_ANALYSIS. GET remains read-only but enforces
+AI scope. Mentor/participating staff receive MAJOR task counts, not project risk.
+Milestone totals may be null; preserve unavailableMetrics/contextScope and do not
+convert hidden metrics to zero. This follow-up requires matching deployment.
+
 Use `/swagger/v1/swagger.json` on the matching backend build or the checked-in
 [OpenAPI](contracts/cib-v4/openapi.json). All business routes are under `/api/v1`.
 Keep existing project, meeting, tasks, notes, actions, result and chat aggregates.

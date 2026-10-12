@@ -27,6 +27,9 @@ public sealed class SchemaParityTests
         await SqlSchemaBootstrap.ApplyAsync(upgraded.ConnectionString, schema);
         var expected = await Inventory(fresh.ConnectionString);
         Assert.Equal(expected, await Inventory(upgraded.ConnectionString));
+        var inventoryPath = Environment.GetEnvironmentVariable("AIPMS_SCHEMA_INVENTORY_OUTPUT");
+        if (!string.IsNullOrWhiteSpace(inventoryPath))
+            await System.IO.File.WriteAllTextAsync(inventoryPath, System.Text.Json.JsonSerializer.Serialize(expected));
         await VerifyMappedColumns(fresh.ConnectionString);
 
         await SqlSchemaBootstrap.ExecuteAsync(upgraded.ConnectionString, """
@@ -41,6 +44,30 @@ public sealed class SchemaParityTests
                 VALUES(@project,@user,'2026-10-11',REPLICATE('a',64),0,0,N'{"insufficientEvidence":true}');
             """);
         var before = await SnapshotHash(upgraded.ConnectionString);
+        await SqlSchemaBootstrap.ReplayAsync(upgraded.ConnectionString);
+        Assert.Equal(expected, await Inventory(upgraded.ConnectionString));
+        Assert.Equal(before, await SnapshotHash(upgraded.ConnectionString));
+
+        await using (var auditConnection = new SqlConnection(upgraded.ConnectionString))
+        {
+            await auditConnection.OpenAsync();
+            await using var audit = new SqlCommand(await System.IO.File.ReadAllTextAsync(
+                Path.Combine(SqlSchemaBootstrap.Root, "db", "e2e", "v5-integrity-readonly.sql")), auditConnection);
+            await using var reader = await audit.ExecuteReaderAsync();
+            var signals = new Dictionary<string, long>();
+            while (await reader.ReadAsync()) signals.Add(reader.GetString(0), reader.GetInt64(1));
+            Assert.Equal(0, signals["DUPLICATE_ACTIVE_PRIMARY"]);
+            Assert.Equal(0, signals["PRIMARY_EVALUATOR_CONFLICT"]);
+        }
+        Assert.Equal(before, await SnapshotHash(upgraded.ConnectionString));
+
+        // Reproduce the shared database's four confirmed structural gaps, without touching shared data.
+        await SqlSchemaBootstrap.ExecuteAsync(upgraded.ConnectionString, """
+            ALTER TABLE dbo.meetings DROP CONSTRAINT df_meetings_delivery_mode;
+            ALTER TABLE dbo.meetings DROP CONSTRAINT df_meetings_video_channel;
+            ALTER TABLE dbo.supervisor_requests DROP CONSTRAINT ck_supervisor_requests_assignment_type;
+            ALTER TABLE dbo.supervisor_assignments DROP CONSTRAINT ck_supervisor_assignments_assignment_type;
+            """);
         await SqlSchemaBootstrap.ReplayAsync(upgraded.ConnectionString);
         Assert.Equal(expected, await Inventory(upgraded.ConnectionString));
         Assert.Equal(before, await SnapshotHash(upgraded.ConnectionString));
@@ -91,39 +118,13 @@ public sealed class SchemaParityTests
 
     private static async Task<string[]> Inventory(string connectionString)
     {
-        const string sql = """
-            SELECT CONCAT('COLUMN|' COLLATE DATABASE_DEFAULT,s.name,'.',t.name,'|',c.name,'|',TYPE_NAME(c.user_type_id),'|',c.max_length,'|',c.precision,'|',c.scale,
-                '|',c.is_nullable,'|',c.is_identity,'|',c.is_computed,'|',COALESCE(d.definition,''),'|',COALESCE(cc.definition,''))
-            FROM sys.tables t JOIN sys.schemas s ON s.schema_id=t.schema_id JOIN sys.columns c ON c.object_id=t.object_id
-            LEFT JOIN sys.default_constraints d ON d.object_id=c.default_object_id
-            LEFT JOIN sys.computed_columns cc ON cc.object_id=c.object_id AND cc.column_id=c.column_id WHERE t.is_ms_shipped=0
-            UNION ALL
-            SELECT CONCAT('CHECK|' COLLATE DATABASE_DEFAULT,OBJECT_SCHEMA_NAME(parent_object_id),'.',OBJECT_NAME(parent_object_id),'|',definition,'|',is_disabled,'|',is_not_trusted)
-            FROM sys.check_constraints
-            UNION ALL
-            SELECT CONCAT('FK|' COLLATE DATABASE_DEFAULT,OBJECT_SCHEMA_NAME(f.parent_object_id),'.',OBJECT_NAME(f.parent_object_id),'|',pc.name,'|',
-                OBJECT_SCHEMA_NAME(f.referenced_object_id),'.',OBJECT_NAME(f.referenced_object_id),'|',rc.name,'|',fc.constraint_column_id,'|',
-                f.delete_referential_action,'|',f.update_referential_action,'|',f.is_disabled,'|',f.is_not_trusted)
-            FROM sys.foreign_keys f JOIN sys.foreign_key_columns fc ON fc.constraint_object_id=f.object_id
-            JOIN sys.columns pc ON pc.object_id=f.parent_object_id AND pc.column_id=fc.parent_column_id
-            JOIN sys.columns rc ON rc.object_id=f.referenced_object_id AND rc.column_id=fc.referenced_column_id
-            UNION ALL
-            SELECT CONCAT('INDEX|' COLLATE DATABASE_DEFAULT,OBJECT_SCHEMA_NAME(i.object_id),'.',OBJECT_NAME(i.object_id),'|',i.type,'|',i.is_unique,'|',i.is_primary_key,'|',
-                i.is_unique_constraint,'|',i.is_disabled,'|',COALESCE(i.filter_definition,''),'|',ic.index_column_id,'|',ic.key_ordinal,'|',
-                ic.is_descending_key,'|',ic.is_included_column,'|',c.name)
-            FROM sys.indexes i JOIN sys.tables t ON t.object_id=i.object_id
-            JOIN sys.index_columns ic ON ic.object_id=i.object_id AND ic.index_id=i.index_id
-            JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE t.is_ms_shipped=0 AND i.index_id>0
-            UNION ALL
-            SELECT CONCAT('MODULE|' COLLATE DATABASE_DEFAULT,s.name,'.',o.name,'|',o.type,'|',m.uses_ansi_nulls,'|',m.uses_quoted_identifier,'|',m.definition)
-            FROM sys.sql_modules m JOIN sys.objects o ON o.object_id=m.object_id JOIN sys.schemas s ON s.schema_id=o.schema_id WHERE o.is_ms_shipped=0
-            """;
+        var sql = await System.IO.File.ReadAllTextAsync(Path.Combine(SqlSchemaBootstrap.Root, "db", "e2e", "schema-inventory.sql"));
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync();
         await using var command = new SqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync();
         var rows = new List<string>();
-        while (await reader.ReadAsync()) rows.Add(Regex.Replace(reader.GetString(0), @"\s+", " ").Trim());
+        while (await reader.ReadAsync()) rows.Add(reader.GetString(0).Replace("\r\n", "\n").Trim());
         return rows.Order(StringComparer.Ordinal).ToArray();
     }
 }

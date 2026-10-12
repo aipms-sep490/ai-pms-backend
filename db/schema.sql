@@ -3105,7 +3105,7 @@ BEGIN
   CONSTRAINT fk_ai_run_project FOREIGN KEY(project_id) REFERENCES dbo.projects(id),
   CONSTRAINT fk_ai_run_actor FOREIGN KEY(actor_id) REFERENCES dbo.users(id),
   CONSTRAINT fk_ai_run_report FOREIGN KEY(report_id) REFERENCES dbo.progress_reports(id),
-  CONSTRAINT ck_ai_run_kind CHECK(kind IN ('PROJECT_ASK','REPORT_SUMMARY')),
+  CONSTRAINT ck_ai_run_kind CHECK(kind IN ('PROJECT_ASK','REPORT_SUMMARY','PROGRESS_ANALYSIS')),
   CONSTRAINT ck_ai_run_status CHECK(status IN ('RUNNING','COMPLETED','FALLBACK','INSUFFICIENT_EVIDENCE','FAILED')),
   CONSTRAINT ck_ai_run_result CHECK(result_json IS NULL OR ISJSON(result_json)=1),
   CONSTRAINT ck_ai_run_evidence CHECK(ISJSON(evidence_json)=1));

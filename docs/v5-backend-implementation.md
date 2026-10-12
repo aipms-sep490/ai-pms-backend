@@ -1,5 +1,10 @@
 # AI-PMS v5 P0 + P1 implementation
 
+Closure follow-up on 2026-10-12 is tracked in [v5-p0-p1-closure.md](v5-p0-p1-closure.md).
+It fixes legacy progress-analysis scope, adds recorded risk analysis and reports
+full shared schema drift. The historical delivery status below does not certify
+that follow-up's deployment, FE integration or unresolved legacy provenance.
+
 Status: **P0_P1_BACKEND_READY** for the implemented backend/database contract and
 isolated acceptance. Phase 12 merged in PR #121 at
 `4eb34d6f29b62ec1f74db758068314120ef8470f`; its shared additive rollout is verified.

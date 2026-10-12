@@ -7,6 +7,7 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.AiAssistant.Abstractions;
 using AIPMS.Application.Features.AiAssistant.DTOs;
 using AIPMS.Application.Features.AiAssistant.Models;
+using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
@@ -18,15 +19,24 @@ internal sealed class AiRunStore(AipmsDbContext db, AiActorScope access, ICurren
 {
     public async Task<long> BeginAsync(long projectId, string kind, long? reportId, CancellationToken ct)
     {
+        if (kind is not ("PROJECT_ASK" or "REPORT_SUMMARY" or "PROGRESS_ANALYSIS")) throw new ArgumentException("Unknown AI run kind.");
         var scope = await access.Read(projectId, ct);
         if (reportId.HasValue && (!scope.Whole || !await db.ProgressReports.AnyAsync(r => r.Id == reportId && r.ProjectId == projectId, ct)))
             throw new NotFoundException("Report", reportId);
         var run = new AiRun { ProjectId = projectId, ActorId = scope.Actor, ReportId = reportId, Kind = kind,
-            ScopeHash = scope.Hash, StartedAt = clock.GetUtcNow().UtcDateTime, ModelVersion = provider.ModelVersion,
-            ConfigVersion = provider.ConfigurationVersion };
+            ScopeHash = scope.Hash, StartedAt = clock.GetUtcNow().UtcDateTime,
+            ModelVersion = kind == "PROGRESS_ANALYSIS" ? "RULE_BASED" : provider.ModelVersion,
+            ConfigVersion = kind == "PROGRESS_ANALYSIS" ? "SCOPED_ANALYSIS_V1" : provider.ConfigurationVersion };
         db.Add(run); await db.SaveChangesAsync(ct); return run.Id;
     }
-    public async Task CompleteAsync(long id, ProjectAssistantResponseDto? answer, ReportSummaryDto? report, string? error, CancellationToken ct)
+    public Task CompleteAsync(long id, ProjectAssistantResponseDto? answer, ReportSummaryDto? report, string? error, CancellationToken ct)
+        => Complete(id, answer, report, null, error, ct);
+
+    public Task CompleteProgressAsync(long id, ProjectProgressAnalysisDto result, CancellationToken ct)
+        => Complete(id, null, null, result, null, ct);
+
+    private async Task Complete(long id, ProjectAssistantResponseDto? answer, ReportSummaryDto? report,
+        ProjectProgressAnalysisDto? progress, string? error, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         var run = await db.Set<AiRun>().SingleAsync(r => r.Id == id && r.ActorId == current.UserId, ct);
@@ -39,9 +49,17 @@ internal sealed class AiRunStore(AipmsDbContext db, AiActorScope access, ICurren
             if (scope.Hash != run.ScopeHash || scope.Hash != capture.ScopeHash || !await EvidenceVisible(scope, capture.Evidence, ct))
                 throw new ForbiddenException("AI evidence scope changed during generation.");
         }
-        run.Status = error is not null ? "FAILED" : answer?.GenerationStatus ?? report?.GenerationStatus ?? "FAILED";
+        run.Status = error is not null ? "FAILED" : progress is not null
+            ? progress.DataStatus == "SUFFICIENT" ? "COMPLETED" : "INSUFFICIENT_EVIDENCE"
+            : answer?.GenerationStatus ?? report?.GenerationStatus ?? "FAILED";
         run.ErrorCode = error ?? (run.Status == "FALLBACK" ? "AI_PROVIDER_FALLBACK" : run.Status == "INSUFFICIENT_EVIDENCE" ? "AI_INSUFFICIENT_EVIDENCE" : null);
-        run.ResultJson = error is not null ? null : answer is not null ? JsonSerializer.Serialize(answer) : JsonSerializer.Serialize(report);
+        run.ResultJson = error is not null ? null : progress is not null ? JsonSerializer.Serialize(progress)
+            : answer is not null ? JsonSerializer.Serialize(answer) : JsonSerializer.Serialize(report);
+        if (progress is not null)
+        {
+            run.ModelVersion = progress.ModelVersion;
+            run.ConfigVersion = progress.RuleVersion;
+        }
         run.EvidenceJson = error is not null ? "[]" : JsonSerializer.Serialize(capture.Evidence);
         run.CompletedAt = clock.GetUtcNow().UtcDateTime;
         await db.SaveChangesAsync(ct);
@@ -80,9 +98,11 @@ internal sealed class AiRunStore(AipmsDbContext db, AiActorScope access, ICurren
     {
         var (answer, report, evidence) = Results(row);
         var visible = evidence.All(e => allowed.Contains(e.SourceId));
+        var progress = visible && row.Kind == "PROGRESS_ANALYSIS" && row.ResultJson is not null
+            ? JsonSerializer.Deserialize<ProjectProgressAnalysisDto>(row.ResultJson) : null;
         return new(row.Id, row.ProjectId, row.Kind, row.Status, row.ModelVersion, row.ConfigVersion,
             DateTime.SpecifyKind(row.StartedAt, DateTimeKind.Utc), row.CompletedAt.HasValue ? DateTime.SpecifyKind(row.CompletedAt.Value, DateTimeKind.Utc) : null,
-            visible ? row.ErrorCode : "AI_HISTORY_SCOPE_CHANGED", visible ? evidence : [], visible ? answer : null, visible ? report : null);
+            visible ? row.ErrorCode : "AI_HISTORY_SCOPE_CHANGED", visible ? evidence : [], visible ? answer : null, visible ? report : null, progress);
     }
     private async Task<bool> EvidenceVisible(AiScope scope, IReadOnlyList<EvidenceReferenceDto> evidence, CancellationToken ct)
     {

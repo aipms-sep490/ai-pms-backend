@@ -21,13 +21,17 @@ public sealed record ProjectProgressAnalysisDto(
     string ModelVersion,
     string? Limitations)
 {
+    public long? RunId { get; init; }
+    public string ContextScope { get; init; } = "PROJECT";
+    public IReadOnlyList<long> MajorIds { get; init; } = [];
+    public IReadOnlyList<string> UnavailableMetrics { get; init; } = [];
     public string Trend => TrendStatus;
     public IReadOnlyList<RiskFactorDto> Reasons => Factors;
 }
 
 public sealed record ProgressSummaryDto(
-    int TotalMilestones,
-    int CompletedMilestones,
+    int? TotalMilestones,
+    int? CompletedMilestones,
     int TotalTasks,
     int DoneTasks,
     int BlockedTasks,
