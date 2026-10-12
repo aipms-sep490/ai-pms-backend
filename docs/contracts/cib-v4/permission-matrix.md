@@ -61,3 +61,10 @@
 - Scheme `PUBLISHED` freezes configuration; it does not confer academic approval. Omitted policy on new schemes defaults to demo. Only the frozen lead department can publish an official result with explicit approval provenance; Admin alone remains denied.
 - Preview returns 200 with deterministic blockers and nullable score when inputs are incomplete. A complete demo score still has `canPublish=false` and `DEMO_SCHEME_NOT_OFFICIAL`; publication returns 409. No missing score/evaluator weight is silently redistributed.
 - Confirmation binds the scheme, calculation/approval policy, locked package and finalized snapshots. Historical results are not recomputed from live profile/rubric values. See `../../v5-scoring-results.md` for DTO, token, migration and test details.
+
+### 3.7 Appeals and result revisions
+- Existing result reads resolve the latest immutable published revision; v1/history remain readable through the same target predicates. Project governance reports the effective result version. No raw snapshot is exposed by history endpoints.
+- Appeals are disabled by default and require a recorded versioned academic policy. Lead staff opens version-targeted windows and assigns independent reviewers; students submit only for their own published version. Admin alone, Primary alone and unassigned lecturers have no appeal authority.
+- Participating staff and reviewers read only their assigned component/major/target. Student request access does not grant locked package or review-context access. Preview of all affected totals is independent-lead-only.
+- Reviewer cannot be the affected student, current Primary or original component scorer. Publisher differs from the reviewer/bundle maker and original scorer. Request token plus confirmation token bind the exact version; stale inputs return 409. ACCEPTED and publication/audit/history/queue commit atomically, including on archived projects through this specialized workflow.
+- See `../../v5-result-appeals.md` for the endpoint/action/error matrix and isolated API evidence. Technical tests do not approve an academic policy or FE integration.
