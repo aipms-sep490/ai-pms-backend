@@ -25,7 +25,8 @@ internal sealed class ResultRevisionStore(AipmsDbContext db, IAuditTrail audit, 
     internal async Task<Target[]> Current(long projectId, CancellationToken ct)
     {
         var project = await PublishedResultResolver.Project(db, projectId, ct);
-        var students = await db.Set<StudentResult>().AsNoTracking().Where(r => r.ProjectId == projectId).OrderBy(r => r.StudentId).ToArrayAsync(ct);
+        var students = await db.Set<StudentResult>().AsNoTracking().Where(r => r.ProjectId == projectId).OrderBy(r => r.StudentId).Take(1001).ToArrayAsync(ct);
+        if (students.Length > 1000) throw new ConflictException("Correction is bounded to 1000 published student targets.");
         var revisions = await db.Set<ResultRevision>().AsNoTracking().Where(r => r.ProjectId == projectId && r.StudentId != null
             && !db.Set<ResultRevision>().Any(n => n.ProjectId == projectId && n.TargetKey == r.TargetKey && n.Version > r.Version)).ToArrayAsync(ct);
         var targets = new List<Target>();

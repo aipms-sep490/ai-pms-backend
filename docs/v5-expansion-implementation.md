@@ -7,8 +7,8 @@ Baseline: develop f479878 (PR #123). Backend/database only; Tin owns frontend PR
 | Working Agreement / frozen policy | BACKEND_READY | PR #124 / f796f95; CI 1050 unit + 1265 integration; shared migration rerun and deployment verified; flag off |
 | Supervisor recommendations | BACKEND_READY | PR #125 / 7915781; CI 1056 unit + 1270 integration; shared migration rerun/deploy verified, flag off |
 | Peer evaluation rounds | BACKEND_READY | PR #126 / 6d57fbb; CI 1056 unit + 1274 integration; shared migration rerun, 562 integrity checks, healthy deployment; flag off |
-| Immutable result revisions | IN_PROGRESS | v5-result-revisions.md; immutable originals, internal transactional amendment store and authorized history; no public correction mutation yet |
-| Appeals and two-person correction | NOT_STARTED | Lead opens windows; independent review/publication |
+| Immutable result revisions | BACKEND_READY | PR #127 / 3a3e5cd; CI 1070 unit + 1275 integration; migration rerun, 581 integrity checks and healthy deployment |
+| Appeals and two-person correction | IN_PROGRESS | v5-result-appeals.md; actual scoped HTTP lifecycle on isolated SQL; policy and flag required |
 | Industry advisory | NOT_STARTED | Scoped invitations, Google enrollment, exact shared files |
 | Joint acceptance / Tin handoff | NOT_STARTED | No INTEGRATED_READY claim |
 

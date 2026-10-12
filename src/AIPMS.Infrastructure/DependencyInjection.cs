@@ -241,6 +241,8 @@ public static class DependencyInjection
         services.AddScoped<IEvaluationSchemeService, EvaluationSchemeService>();
         services.AddScoped<IResultHistoryService, ResultHistoryService>();
         services.AddScoped<ResultRevisionStore>();
+        services.AddScoped<Application.Features.Appeals.Abstractions.IAppealService, ResultAppealService>();
+        services.AddOptions<Application.Features.Appeals.AppealSettings>().BindConfiguration("Appeals");
         services.AddScoped<Application.Features.AcademicTracking.Abstractions.IAcademicTrackingService, AcademicTrackingService>();
         services.AddScoped<Application.Features.WeeklyAssessments.Abstractions.IWeeklyAssessmentService, WeeklyAssessmentService>();
         services.AddScoped<Application.Features.WorkingAgreements.Abstractions.IWorkingAgreementService, WorkingAgreementService>();
