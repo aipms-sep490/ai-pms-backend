@@ -1,0 +1,185 @@
+{
+  "date": "2026-10-12",
+  "database": "AI_PMS",
+  "migration": "20261012_add_ai_runs.sql",
+  "passes": 2,
+  "before": [
+    {
+      "name": "users",
+      "count": 21
+    },
+    {
+      "name": "projects",
+      "count": 4
+    },
+    {
+      "name": "tasks",
+      "count": 11
+    },
+    {
+      "name": "meetings",
+      "count": 16
+    },
+    {
+      "name": "evaluations",
+      "count": 3
+    },
+    {
+      "name": "student_results",
+      "count": 0
+    }
+  ],
+  "after": [
+    {
+      "name": "users",
+      "count": 21
+    },
+    {
+      "name": "projects",
+      "count": 4
+    },
+    {
+      "name": "tasks",
+      "count": 11
+    },
+    {
+      "name": "meetings",
+      "count": 16
+    },
+    {
+      "name": "evaluations",
+      "count": 3
+    },
+    {
+      "name": "student_results",
+      "count": 0
+    }
+  ],
+  "checks": [
+    {
+      "name": "ck_ai_run_evidence",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "ck_ai_run_kind",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "ck_ai_run_result",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "ck_ai_run_status",
+      "is_disabled": false,
+      "is_not_trusted": false
+    }
+  ],
+  "foreignKeys": [
+    {
+      "name": "fk_ai_run_actor",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_ai_run_project",
+      "is_disabled": false,
+      "is_not_trusted": false
+    },
+    {
+      "name": "fk_ai_run_report",
+      "is_disabled": false,
+      "is_not_trusted": false
+    }
+  ],
+  "indexes": [
+    {
+      "name": "ix_ai_run_history",
+      "is_unique": false,
+      "is_disabled": false,
+      "filter_definition": null
+    }
+  ],
+  "columns": [
+    {
+      "table_name": "ai_runs",
+      "name": "id",
+      "is_nullable": false
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "project_id",
+      "is_nullable": false
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "actor_id",
+      "is_nullable": false
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "report_id",
+      "is_nullable": true
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "kind",
+      "is_nullable": false
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "status",
+      "is_nullable": false
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "model_version",
+      "is_nullable": false
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "config_version",
+      "is_nullable": false
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "scope_hash",
+      "is_nullable": false
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "result_json",
+      "is_nullable": true
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "evidence_json",
+      "is_nullable": false
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "error_code",
+      "is_nullable": true
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "started_at",
+      "is_nullable": false
+    },
+    {
+      "table_name": "ai_runs",
+      "name": "completed_at",
+      "is_nullable": true
+    }
+  ],
+  "newTableCounts": [
+    {
+      "name": "ai_runs",
+      "count": 0
+    }
+  ],
+  "status": "VERIFIED",
+  "note": "Additive schema only; no lifecycle mutation or historical backfill."
+}

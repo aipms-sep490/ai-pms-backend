@@ -1,7 +1,8 @@
 # v5 backend acceptance A-F
 
 Status: local Release/1,055 unit/1,249 integration tests passed with zero skips;
-CI/merge/shared rollout pending, 2026-10-12. This matrix records executed
+CI 38217501773 passed and PR #121 merged at `4eb34d6f29b62ec1f74db758068314120ef8470f`.
+Shared AI migration/rerun and 211 selected schema checks passed, 2026-10-12. This matrix records executed
 backend HTTP/SQL paths and limits. Shared database checks, mocks, migration parity
 and browser integration are different evidence categories.
 

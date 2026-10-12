@@ -1,7 +1,8 @@
 # AI-PMS v5 P0/P1 backend handoff for Tin
 
-Updated 2026-10-12. Backend implementation/isolated acceptance is being finalized
-in phase 12. Release evidence and exact merge SHAs are maintained in
+Updated 2026-10-12. Backend implementation/isolated acceptance is delivered through
+PR #121, merge `4eb34d6f29b62ec1f74db758068314120ef8470f`; shared migrations verified.
+Release evidence and exact merge SHAs are maintained in
 [the delivery register](v5-backend-implementation.md). This document does not mark
 the frontend integrated or enable its feature flags. No frontend file was changed.
 
@@ -39,7 +40,7 @@ configuration still apply; the other new APIs enforce resource authorization.
 | BE-06, N05/06/07 / #118 | `calendar`, project `meeting-series`, meeting `collaboration`, `rsvp`, notes lock/history | Calendar and canonical Meeting Detail / meeting collaboration | MeetingCollaborationDto; [contract](v5-calendar-meeting-collaboration.md); CalendarV5EndpointTests and meeting collaboration tests |
 | N08 / #119 | Project sprints/start/complete/burndown/task-board; task `board` | Task board/sprint detail / sprints | SprintDto, TaskDto board additions; [contract](v5-sprints-task-board.md); SprintEndpointTests |
 | N09 / #120 | Chat uploads, messages with attachmentIds, private download, reactions, mute; SignalR | Existing chat composer/conversation / chat collaboration | ChatMessageDto, ChatConversationDto, ChatEvent; [contract](v5-chat-collaboration.md); ChatCollaborationTests and SignalR tests |
-| BE-15, N10 / phase 12 | Project AI ask/report summary/runs; `dashboards/me?semesterId=` | AI panel/history and actor home / AI history, actor dashboard | AiRunDto, ActorDashboardDto; [contract](v5-ai-history-dashboard.md); AiHistoryTests |
+| BE-15, N10 / #121 | Project AI ask/report summary/runs; `dashboards/me?semesterId=` | AI panel/history and actor home / AI history, actor dashboard | AiRunDto, ActorDashboardDto; [contract](v5-ai-history-dashboard.md); AiHistoryTests |
 
 All schema changes and shared rollout reports are mapped in the delivery register.
 Phase 12 adds only `20261012_add_ai_runs.sql`; there is no dashboard table or
