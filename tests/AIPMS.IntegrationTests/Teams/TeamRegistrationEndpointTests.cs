@@ -39,8 +39,43 @@ public sealed partial class TeamEndpointTests
         if (response.IsSuccessStatusCode)
         {
             await using var db2 = database.CreateContext();
-            var teamId = await db2.Projects.Where(p => p.Title == "Team registration regression").OrderByDescending(p => p.Id).Select(p => p.TeamId).FirstAsync();
-            await leader.PostAsync($"/api/v1/teams/{teamId}/eligibility/check", null);
+            var created = await db2.Projects.Where(p => p.Title == "Team registration regression").OrderByDescending(p => p.Id).FirstAsync();
+            var deptId = await db2.Users.Where(u => u.Id == s.Students[0]).Select(u => u.DepartmentId).SingleAsync();
+            var lecturer = new User
+            {
+                Email = Guid.NewGuid().ToString("N") + "@supervisor.test",
+                FullName = "Supervisor",
+                PasswordHash = "unused",
+                Status = "ACTIVE",
+                AcademicProfileStatus = "VERIFIED",
+                DepartmentId = deptId
+            };
+            var profile = new SupervisorProfile { User = lecturer, IsAvailable = true, MaxActiveProjects = 10 };
+            db2.AddRange(lecturer, profile);
+            await db2.SaveChangesAsync();
+            var req = new SupervisorRequest
+            {
+                ProjectId = created.Id,
+                SupervisorProfileId = profile.Id,
+                RequestedBy = created.CreatedBy,
+                Status = "ACCEPTED",
+                AssignmentType = "PRIMARY",
+                RequestedAt = TeamDatabaseFixture.Now,
+                RespondedAt = TeamDatabaseFixture.Now
+            };
+            db2.SupervisorRequests.Add(req);
+            db2.SupervisorAssignments.Add(new SupervisorAssignment
+            {
+                ProjectId = created.Id,
+                SupervisorProfileId = profile.Id,
+                SupervisorRequest = req,
+                IsPrimary = true,
+                AssignmentType = "PRIMARY",
+                AssignedBy = lecturer.Id,
+                AssignedAt = TeamDatabaseFixture.Now
+            });
+            await db2.SaveChangesAsync();
+            await leader.PostAsync($"/api/v1/teams/{created.TeamId}/eligibility/check", null);
         }
         return response;
     }

@@ -52,15 +52,121 @@ public sealed partial class InterdisciplinaryWorkflowTests(TeamDatabaseFixture d
     private static async System.Threading.Tasks.Task<TeamInvitationDto> Invite(HttpClient leader, long teamId, long userId) =>
         await Body<TeamInvitationDto>(await leader.PostAsJsonAsync($"/api/v1/teams/{teamId}/invitations", new { invitedUserId = userId }));
 
-    private static async System.Threading.Tasks.Task<ProjectDto> Proposal(HttpClient leader, Scenario s) =>
-        await Body<ProjectDto>(await leader.PostAsJsonAsync("/api/v1/projects", new CreateProjectDraftRequest(
+    private async System.Threading.Tasks.Task ConfirmSupervisorsAsync(long projectId)
+    {
+        await using var db = database.CreateContext();
+        var project = await db.Projects.Include(p => p.ProjectMajors).ThenInclude(pm => pm.Major)
+            .SingleAsync(p => p.Id == projectId);
+        var scope = await db.Set<TeamAcademicConfiguration>().Include(c => c.Requirements)
+            .SingleOrDefaultAsync(c => c.TeamId == project.TeamId);
+        var activeAssignments = await db.SupervisorAssignments
+            .Where(a => a.ProjectId == projectId && a.EndedAt == null)
+            .ToListAsync();
+
+        var role = await db.Roles.SingleOrDefaultAsync(r => r.Code == "LECTURER");
+        if (role is null) { role = new Role { Code = "LECTURER", Name = "Lecturer", IsSystemRole = true }; db.Add(role); await db.SaveChangesAsync(); }
+
+        async System.Threading.Tasks.Task<SupervisorProfile> CreateProfileAsync(long departmentId)
+        {
+            var user = new User
+            {
+                Email = Guid.NewGuid().ToString("N") + "@supervisor.test",
+                FullName = "Confirmed Supervisor",
+                PasswordHash = "unused",
+                Status = "ACTIVE",
+                AcademicProfileStatus = "VERIFIED",
+                DepartmentId = departmentId,
+                UserRoleUsers = [new() { RoleId = role.Id }]
+            };
+            var profile = new SupervisorProfile { User = user, IsAvailable = true, MaxActiveProjects = 10 };
+            db.AddRange(user, profile);
+            await db.SaveChangesAsync();
+            return profile;
+        }
+
+        var leadDeptId = scope?.LeadDepartmentId ?? project.ProjectMajors.First().Major.DepartmentId;
+        if (!activeAssignments.Any(a => a.IsPrimary))
+        {
+            var primaryProfile = await CreateProfileAsync(leadDeptId);
+            var primaryReq = new SupervisorRequest
+            {
+                ProjectId = projectId,
+                SupervisorProfileId = primaryProfile.Id,
+                RequestedBy = project.CreatedBy,
+                Status = "ACCEPTED",
+                AssignmentType = "PRIMARY",
+                RequestedAt = TeamDatabaseFixture.Now,
+                RespondedAt = TeamDatabaseFixture.Now
+            };
+            db.SupervisorRequests.Add(primaryReq);
+            db.SupervisorAssignments.Add(new SupervisorAssignment
+            {
+                ProjectId = projectId,
+                SupervisorProfileId = primaryProfile.Id,
+                SupervisorRequest = primaryReq,
+                IsPrimary = true,
+                AssignmentType = "PRIMARY",
+                AssignedBy = primaryProfile.UserId,
+                AssignedAt = TeamDatabaseFixture.Now
+            });
+        }
+
+        var isInterdisciplinary = scope?.ProjectMode == "INTERDISCIPLINARY" || (scope is null && project.ProjectMajors.Count > 1);
+        if (isInterdisciplinary)
+        {
+            var requiredMajors = (scope is not null
+                ? scope.Requirements.Select(r => r.MajorId).Concat(project.ProjectMajors.Select(pm => pm.MajorId))
+                : project.ProjectMajors.Select(pm => pm.MajorId)).Distinct().ToList();
+            var majors = await db.Majors.Where(m => requiredMajors.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.DepartmentId);
+            foreach (var majorId in requiredMajors)
+            {
+                if (!activeAssignments.Any(a => a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId == majorId))
+                {
+                    var mentorProfile = await CreateProfileAsync(majors[majorId]);
+                    var mentorReq = new SupervisorRequest
+                    {
+                        ProjectId = projectId,
+                        SupervisorProfileId = mentorProfile.Id,
+                        RequestedBy = project.CreatedBy,
+                        Status = "ACCEPTED",
+                        AssignmentType = "DISCIPLINE_MENTOR",
+                        MajorId = majorId,
+                        RequestedAt = TeamDatabaseFixture.Now,
+                        RespondedAt = TeamDatabaseFixture.Now
+                    };
+                    db.SupervisorRequests.Add(mentorReq);
+                    db.SupervisorAssignments.Add(new SupervisorAssignment
+                    {
+                        ProjectId = projectId,
+                        SupervisorProfileId = mentorProfile.Id,
+                        SupervisorRequest = mentorReq,
+                        IsPrimary = false,
+                        AssignmentType = "DISCIPLINE_MENTOR",
+                        MajorId = majorId,
+                        AssignedBy = mentorProfile.UserId,
+                        AssignedAt = TeamDatabaseFixture.Now
+                    });
+                }
+            }
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    private async System.Threading.Tasks.Task<ProjectDto> Proposal(HttpClient leader, Scenario s)
+    {
+        var project = await Body<ProjectDto>(await leader.PostAsJsonAsync("/api/v1/projects", new CreateProjectDraftRequest(
             "Hybrid proposal", "Description", "Objectives", "Problem", "Expected output",
             [s.Team.SeMajorId, s.Team.IsMajorId], "Education", ["Dotnet"], ["Capstone"])));
+        await ConfirmSupervisorsAsync(project.Id);
+        return project;
+    }
 
-    private static async System.Threading.Tasks.Task<ProjectDto> Transition(HttpClient client, ProjectDto project, string action)
+    private async System.Threading.Tasks.Task<ProjectDto> Transition(HttpClient client, ProjectDto project, string action)
     {
         if (action is "submit" or "resubmit")
         {
+            await ConfirmSupervisorsAsync(project.Id);
             await client.PostAsync($"/api/v1/teams/{project.TeamId}/eligibility/check", null);
         }
         return await Body<ProjectDto>(await client.PostAsJsonAsync($"/api/v1/projects/{project.Id}/{action}",

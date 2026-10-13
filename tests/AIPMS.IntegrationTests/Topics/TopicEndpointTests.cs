@@ -18,14 +18,14 @@ namespace AIPMS.IntegrationTests.Topics;
 
 public sealed class TopicEndpointTests(TopicDatabaseFixture database) : IClassFixture<TopicDatabaseFixture>
 {
-    private static TopicContentRequest Content(TopicScenario s, bool hybrid = false) => new("Capstone catalogue", "Description",
+    private static TopicContentRequest Content(TopicScenario s, bool hybrid = false, string title = "Capstone catalogue") => new(title, "Description",
         "Problem", "Objectives", "Expected output", "Education", ["Dotnet"], ["Capstone"],
         hybrid ? "INTERDISCIPLINARY" : "SINGLE_MAJOR", hybrid ? null : s.Major,
         hybrid ? [new(s.Major, 1, 3, "Software"), new(s.OtherMajor, 1, 2, "Business analysis")]
             : [new(s.Major, 2, 5, "Software")]);
 
-    private static CreateTopicRequest Input(TopicScenario s, bool hybrid = false, string code = "TOPIC") =>
-        new(s.Period, code, s.Users.DepartmentId, Content(s, hybrid));
+    private static CreateTopicRequest Input(TopicScenario s, bool hybrid = false, string code = "TOPIC", string? title = null) =>
+        new(s.Period, code, s.Users.DepartmentId, Content(s, hybrid, title ?? (code == "TOPIC" ? "Capstone catalogue" : $"Capstone catalogue {code}")));
 
     private static async Task<T> Body<T>(HttpResponseMessage response)
     {
@@ -295,6 +295,129 @@ public sealed class TopicEndpointTests(TopicDatabaseFixture database) : IClassFi
         using var anonymous = app.CreateClient(); using var client = app.CreateAuthenticatedClient(s.Users.Student);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(url)).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync(url)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Task2_1_exact_duplicate_title_including_normalized_diacritics_within_3_periods_returns_422()
+    {
+        var s = await database.Seed(); using var app = new Factory(database);
+        using var staff = app.CreateAuthenticatedClient(s.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
+        var first = await Publish(staff, await Create(staff, Input(s, false, "FIRST", "Hệ thống Quản lý Đồ án AI")));
+
+        var check = await Body<TopicSimilarityResultDto>(await staff.GetAsync(
+            $"/api/v1/topics/similarity-check?title={Uri.EscapeDataString("  he thong quan ly do an ai  ")}&leadDepartmentId={s.Users.DepartmentId}&periodWindow=3"));
+        Assert.NotNull(check.ExactMatch);
+        Assert.Equal(first.Id, check.ExactMatch!.Id);
+
+        var secondDraft = await Create(staff, Input(s, false, "SECOND", "  he thong quan ly do an ai  "));
+        var publishRes = await staff.PostAsJsonAsync($"/api/v1/topics/{secondDraft.Id}/publish", new PublishTopicRequest(secondDraft.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, publishRes.StatusCode);
+        var body = await publishRes.Content.ReadAsStringAsync();
+        Assert.Contains("DUPLICATE_TOPIC_TITLE", body);
+    }
+
+    [Fact]
+    public async Task Task2_2_near_similar_keywords_returns_similar_list_and_publish_succeeds_with_warning_audit()
+    {
+        var s = await database.Seed(); using var app = new Factory(database);
+        using var staff = app.CreateAuthenticatedClient(s.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
+        var firstContent = Content(s, false, "Smart Campus Parking") with { Domain = "IoT", Keywords = ["parking", "sensor", "camera"] };
+        var first = await Publish(staff, await Create(staff, new CreateTopicRequest(s.Period, "IOT1", s.Users.DepartmentId, firstContent)));
+
+        var check = await Body<TopicSimilarityResultDto>(await staff.GetAsync(
+            $"/api/v1/topics/similarity-check?title={Uri.EscapeDataString("Intelligent Lot Monitor")}&keywords=parking,sensor&leadDepartmentId={s.Users.DepartmentId}"));
+        Assert.Null(check.ExactMatch);
+        var match = Assert.Single(check.Similar);
+        Assert.Equal(first.Id, match.Id);
+        Assert.True(match.Score >= 0.5);
+
+        var secondContent = Content(s, false, "Intelligent Lot Monitor") with { Domain = "IoT", Keywords = ["parking", "sensor", "analytics"] };
+        var secondDraft = await Create(staff, new CreateTopicRequest(s.Period, "IOT2", s.Users.DepartmentId, secondContent));
+        var published = await Publish(staff, secondDraft);
+        Assert.Equal("PUBLISHED", published.Status);
+
+        await using var db = database.CreateContext();
+        Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == "TOPIC_SIMILARITY_WARNING" && a.EntityId == published.Id.ToString()));
+    }
+
+    [Fact]
+    public async Task Task2_3_duplicate_title_in_different_lead_department_is_not_blocked()
+    {
+        var s = await database.Seed(); using var app = new Factory(database);
+        using var staff = app.CreateAuthenticatedClient(s.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
+        using var otherStaff = app.CreateAuthenticatedClient(s.Users.OutsideStaff, roles: ["DEPARTMENT_STAFF"]);
+
+        await Publish(staff, await Create(staff, Input(s, false, "DEPT1", "Shared Cross Department Title")));
+
+        var otherContent = new TopicContentRequest("Shared Cross Department Title", "Description",
+            "Problem", "Objectives", "Expected output", "Business", ["ERP"], ["Finance"],
+            "SINGLE_MAJOR", s.OtherMajor, [new(s.OtherMajor, 2, 5, "Business analysis")]);
+        var otherDraft = await Create(otherStaff, new CreateTopicRequest(s.Period, "DEPT2", s.OtherDepartment, otherContent));
+        var published = await Publish(otherStaff, otherDraft);
+        Assert.Equal("PUBLISHED", published.Status);
+    }
+
+    [Fact]
+    public async Task Task2_4_duplicate_title_in_4th_period_back_is_not_blocked()
+    {
+        var s = await database.Seed(); using var app = new Factory(database);
+        using var staff = app.CreateAuthenticatedClient(s.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
+
+        await using (var db = database.CreateContext())
+        {
+            for (var i = 3; i >= 1; i--)
+            {
+                var oldSem = new AIPMS.Infrastructure.Persistence.Generated.Models.AcademicSemester
+                {
+                    OrganizationId = s.Organization,
+                    Code = $"OLD-{i}-{Guid.NewGuid():N}"[..16],
+                    Name = $"Old Semester {i}",
+                    Status = "CLOSED",
+                    StartDate = DateOnly.FromDateTime(TopicDatabaseFixture.Now.AddDays(-100 * i)),
+                    EndDate = DateOnly.FromDateTime(TopicDatabaseFixture.Now.AddDays(-100 * i + 60))
+                };
+                var oldPeriod = new AIPMS.Infrastructure.Persistence.Generated.Models.ProjectPeriod
+                {
+                    AcademicSemester = oldSem,
+                    Code = $"REG-{i}",
+                    Name = $"Old Reg {i}",
+                    PeriodType = "REGISTRATION",
+                    Status = "CLOSED",
+                    StartAt = TopicDatabaseFixture.Now.AddDays(-100 * i),
+                    EndAt = TopicDatabaseFixture.Now.AddDays(-100 * i + 15),
+                    MinTeamSize = 2,
+                    MaxTeamSize = 5,
+                    MinDistinctMajors = 1
+                };
+                db.Add(oldPeriod);
+                await db.SaveChangesAsync();
+
+                if (i == 3)
+                {
+                    // 4th registration period back (outside the 3 most recent registration periods: s.Period, REG-1, REG-2)
+                    db.Add(new ProjectTopic
+                    {
+                        ProjectPeriodId = oldPeriod.Id,
+                        LeadDepartmentId = s.Users.DepartmentId,
+                        ProjectMode = "SINGLE_MAJOR",
+                        PrimaryMajorId = s.Major,
+                        Code = "OLD4TH",
+                        Title = "Legacy Historical Topic",
+                        Status = "PUBLISHED",
+                        CreatedBy = s.Users.Staff,
+                        UpdatedBy = s.Users.Staff,
+                        PublishedBy = s.Users.Staff,
+                        PublishedAt = oldPeriod.StartAt,
+                        ConcurrencyToken = Guid.NewGuid()
+                    });
+                    await db.SaveChangesAsync();
+                }
+            }
+        }
+
+        var allowedDraft = await Create(staff, Input(s, false, "REUSE4", "Legacy Historical Topic"));
+        var published = await Publish(staff, allowedDraft);
+        Assert.Equal("PUBLISHED", published.Status);
     }
 
     private sealed class Factory(TopicDatabaseFixture database, string? failAuditAction = null, TopicGate? gate = null) : AipmsWebApplicationFactory

@@ -170,6 +170,11 @@ public sealed partial class InterdisciplinaryWorkflowTests
             review = await Decide(staff, project.Id, review);
         }
         project = await Transition(staff, project with { ConcurrencyToken = review.ConcurrencyToken }, "approve");
+        await using (var cleanup = database.CreateContext())
+        {
+            await cleanup.SupervisorAssignments.Where(a => a.ProjectId == project.Id).ExecuteDeleteAsync();
+            await cleanup.SupervisorRequests.Where(r => r.ProjectId == project.Id).ExecuteDeleteAsync();
+        }
         var supervisorRequest = await Body<SupervisorRequestDto>(await leader.PostAsJsonAsync($"/api/v1/projects/{project.Id}/supervisor-requests", new { supervisorProfileId = primaryProfile }));
         var accepted = await Body<SupervisorRequestDto>(await primaryClient.PostAsJsonAsync($"/api/v1/supervisor-requests/{supervisorRequest.Id}/accept", new { responseMessage = "Accepted" }));
         var replacement = await Body<SupervisorAssignmentDto>(await staff.PostAsJsonAsync($"/api/v1/supervisor-assignments/{accepted.AssignmentId}/replace",

@@ -43,6 +43,6 @@ public sealed class GetSupervisorRequestsQueryValidator : AbstractValidator<GetS
         RuleFor(r => r.ProjectId).GreaterThan(0).When(r => r.ProjectId.HasValue);
         RuleFor(r => r.Page).InclusiveBetween(1, 1_000_000);
         RuleFor(r => r.PageSize).InclusiveBetween(1, 100);
-        RuleFor(r => r.Status).Must(s => s is null or "PENDING" or "ACCEPTED" or "REJECTED" or "CANCELLED");
+        RuleFor(r => r.Status).Must(s => s is null or "PENDING" or "ACCEPTED" or "REJECTED" or "CANCELLED" or "EXPIRED" or "RELEASED");
     }
 }

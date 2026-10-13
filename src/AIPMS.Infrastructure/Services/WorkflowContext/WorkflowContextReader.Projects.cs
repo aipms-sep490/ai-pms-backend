@@ -36,6 +36,12 @@ internal sealed partial class WorkflowContextReader
         var canTransition = Enum.TryParse<ProjectStatus>(project.Status.Replace("_", ""), true, out var status);
         bool Transition(ProjectStatus target) => canTransition && ProjectStateMachine.CanTransition(status, target);
         var proposalIssues = new List<string>();
+        var domainTag = project.Tags.FirstOrDefault(t => t.TagType == "DOMAIN")?.Name;
+        var techTags = project.Tags.Where(t => t.TagType == "TECHNOLOGY").Select(t => t.Name).ToArray();
+        var keywordTags = project.Tags.Where(t => t.TagType == "KEYWORD").Select(t => t.Name).ToArray();
+        proposalIssues.AddRange(AIPMS.Domain.Topics.TopicRules.ProposalCompletenessIssues(
+            project.ProposalSource, project.ProblemStatement, project.Objectives, project.ExpectedOutput,
+            domainTag, techTags, keywordTags));
         if (string.IsNullOrWhiteSpace(project.Title) || string.IsNullOrWhiteSpace(project.ProblemStatement)
             || string.IsNullOrWhiteSpace(project.Objectives) || string.IsNullOrWhiteSpace(project.ExpectedOutput))
             proposalIssues.Add("PROPOSAL_FIELDS_REQUIRED");
@@ -45,6 +51,11 @@ internal sealed partial class WorkflowContextReader
         if (team.Team.AcademicScope is not null && !project.Majors.Select(m => m.MajorId).Order()
             .SequenceEqual(team.Team.AcademicScope.Requirements.Select(r => r.MajorId).Order()))
             proposalIssues.Add("PROJECT_MAJOR_SCOPE_MISMATCH");
+        var confirmation = await projects.GetSupervisorConfirmationAsync(projectId, ct);
+        if (!confirmation.HasConfirmedPrimarySupervisor)
+            proposalIssues.Add("SUPERVISOR_NOT_CONFIRMED");
+        foreach (var missingMajorId in confirmation.MissingMentorMajorIds)
+            proposalIssues.Add($"MENTOR_NOT_CONFIRMED:{missingMajorId}");
         var registration = await teams.GetOpenWindowAsync(team.Team.SemesterId, now.UtcDateTime, ct);
         if (registration is not null)
         {
@@ -58,7 +69,7 @@ internal sealed partial class WorkflowContextReader
         var candidateProject = await candidateReader.GetProjectAsync(projectId, now.UtcDateTime, ct);
         var selectionPolicies = await candidateReader.GetSelectionPoliciesAsync(team.Team.SemesterId, now.UtcDateTime, ct);
         var supervisorIssues = new List<string>();
-        if (candidateProject is null || candidateProject.Status != "APPROVED" || candidateProject.HasActiveAssignment)
+        if (candidateProject is null || candidateProject.Status is not ("DRAFT" or "REVISION_REQUIRED" or "APPROVED") || candidateProject.HasActiveAssignment)
             supervisorIssues.Add("SUPERVISOR_SELECTION_STATE_INVALID");
         if (candidateProject is null || !candidateProject.HasActiveSemester || candidateProject.DepartmentIds.Count == 0)
             supervisorIssues.Add("PROJECT_ACADEMIC_CONTEXT_INACTIVE");

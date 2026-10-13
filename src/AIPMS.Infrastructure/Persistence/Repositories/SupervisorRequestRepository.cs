@@ -105,6 +105,7 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
             RequestedBy = actorId, Status = "PENDING", RequestMessage = message,
             AssignmentType = assignmentType,
             MajorId = majorId,
+            ExpiresAt = now.AddDays(7),
             RequestedAt = now, CreatedAt = now, UpdatedAt = now };
         context.SupervisorRequests.Add(request);
         await context.SaveChangesAsync(ct);
@@ -140,7 +141,9 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
                 NewStatus = next, ChangedBy = actorId, ChangedAt = now, Reason = $"Supervisor request {request.Id} accepted." });
             project.Status = next;
         }
-        if (request.AssignmentType == "PRIMARY")
+        var shouldActivate = request.AssignmentType == "PRIMARY"
+            && project.Status is not ("DRAFT" or "REVISION_REQUIRED");
+        if (shouldActivate)
         {
             await WorkingAgreementGuard.EnsureActivation(context, project.Id, ct);
             if (project.Status == "APPROVED") Transition("SUPERVISOR_PENDING");
@@ -154,7 +157,7 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
         context.SupervisorAssignments.Add(assignment);
         await context.SaveChangesAsync(ct);
         await AIPMS.Infrastructure.Services.Projects.PolicyVersions.InheritSupervisorAsync(context, assignment.ProjectId, assignment.Id, now, ct);
-        if (request.AssignmentType == "PRIMARY")
+        if (shouldActivate)
             await new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context).ApplyMilestoneTemplateAsync(request.ProjectId, actorId, now, ct);
         return assignment.Id;
     }
@@ -162,6 +165,22 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
     public async Task<IReadOnlyList<SupervisorRequestModel>> GetOtherPendingAsync(long projectId, long requestId, CancellationToken ct) =>
         await context.SupervisorRequests.AsNoTracking().Where(r => r.ProjectId == projectId && r.Id != requestId && r.Status == "PENDING")
             .OrderBy(r => r.Id).Select(SupervisorRequestMapper.Projection).ToListAsync(ct);
+
+    public async Task ExpireOverdueAsync(DateTime now, CancellationToken ct, long? projectId = null, long? requestId = null)
+    {
+        var query = context.SupervisorRequests.Where(r => r.Status == "PENDING" && r.ExpiresAt != null && r.ExpiresAt <= now);
+        if (projectId.HasValue) query = query.Where(r => r.ProjectId == projectId.Value);
+        if (requestId.HasValue) query = query.Where(r => r.Id == requestId.Value);
+        var overdue = await query.ToListAsync(ct);
+        if (overdue.Count == 0) return;
+        foreach (var item in overdue)
+        {
+            item.Status = "EXPIRED";
+            item.RespondedAt = now;
+            item.UpdatedAt = now;
+        }
+        await context.SaveChangesAsync(ct);
+    }
 
     private static bool IsConflict(Exception ex)
     {

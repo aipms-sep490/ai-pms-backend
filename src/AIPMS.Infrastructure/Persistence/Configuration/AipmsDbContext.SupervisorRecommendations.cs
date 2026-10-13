@@ -28,5 +28,9 @@ public partial class AipmsDbContext
                 p.SetColumnName(System.Text.RegularExpressions.Regex.Replace(p.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());
                 if (p.ClrType == typeof(DateTime)) p.SetPrecision(0);
             }
+        b.Entity<Generated.Models.SupervisorRequest>()
+            .Property(x => x.ExpiresAt)
+            .HasColumnName("expires_at")
+            .HasPrecision(0);
     }
 }

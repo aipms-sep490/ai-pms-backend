@@ -8,7 +8,7 @@ public sealed record RespondToSupervisorRequest(string? Message);
 public sealed record SupervisorRequestDto(long Id, long ProjectId, long SupervisorProfileId,
     long RequestedBy, string Status, string? RequestMessage, string? ResponseMessage,
     DateTime RequestedAt, DateTime? RespondedAt, long? AssignmentId,
-    string AssignmentType = "PRIMARY", long? MajorId = null);
+    string AssignmentType = "PRIMARY", long? MajorId = null, DateTime? ExpiresAt = null);
 
 internal static class SupervisorRequestDtoMapper
 {
@@ -16,5 +16,5 @@ internal static class SupervisorRequestDtoMapper
         new(request.Id, request.ProjectId, request.SupervisorProfileId, request.RequestedBy,
             request.Status, request.RequestMessage, request.ResponseMessage,
             request.RequestedAt, request.RespondedAt, request.AssignmentId,
-            request.AssignmentType, request.MajorId);
+            request.AssignmentType, request.MajorId, request.ExpiresAt);
 }

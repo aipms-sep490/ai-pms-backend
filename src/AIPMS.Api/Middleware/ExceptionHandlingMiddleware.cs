@@ -73,6 +73,8 @@ public sealed class ExceptionHandlingMiddleware(
             problem.Extensions["code"] = forbidden.Code;
         else if (exception is ServiceUnavailableException { Code: not null } unavailable)
             problem.Extensions["code"] = unavailable.Code;
+        else if (exception is DomainException { Code: not null } domain)
+            problem.Extensions["code"] = domain.Code;
 
         if (exception is ValidationException validationException)
         {

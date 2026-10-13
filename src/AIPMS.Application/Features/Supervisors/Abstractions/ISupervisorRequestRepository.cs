@@ -20,4 +20,6 @@ public interface ISupervisorRequestRepository
     Task<SupervisorRequestModel> RespondAsync(long requestId, string status, string? message, DateTime now, CancellationToken ct);
     Task<long> AssignAndActivateAsync(SupervisorRequestModel request, long actorId, DateTime now, CancellationToken ct);
     Task<IReadOnlyList<SupervisorRequestModel>> GetOtherPendingAsync(long projectId, long requestId, CancellationToken ct);
+    Task ExpireOverdueAsync(DateTime now, CancellationToken ct, long? projectId = null, long? requestId = null) => Task.CompletedTask;
 }
+

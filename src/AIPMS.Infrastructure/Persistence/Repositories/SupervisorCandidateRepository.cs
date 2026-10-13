@@ -38,13 +38,25 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
     }
 
     public async Task<IReadOnlyList<SupervisorSelectionPolicy>> GetSelectionPoliciesAsync(
-        long academicSemesterId, DateTime now, CancellationToken ct, bool execution = false) =>
-        await context.ProjectPeriods.AsNoTracking()
+        long academicSemesterId, DateTime now, CancellationToken ct, bool execution = false)
+    {
+        var policies = await context.ProjectPeriods.AsNoTracking()
             .Where(p => p.AcademicSemesterId == academicSemesterId && p.PeriodType == "SUPERVISOR_SELECTION"
                 && (execution ? (p.Status == "ACTIVE" || p.Status == "CLOSED") && p.StartAt <= now
                     : p.Status == "ACTIVE" && p.StartAt <= now && now < p.EndAt))
             .OrderByDescending(p => p.StartAt).ThenByDescending(p => p.Id).Take(execution ? 1 : 2)
             .Select(p => new SupervisorSelectionPolicy(p.Id, p.MaxProjectsPerSupervisor)).ToListAsync(ct);
+        if (policies.Count == 0 && !await context.ProjectPeriods.AsNoTracking()
+            .AnyAsync(p => p.AcademicSemesterId == academicSemesterId && p.PeriodType == "SUPERVISOR_SELECTION", ct))
+        {
+            policies = await context.ProjectPeriods.AsNoTracking()
+                .Where(p => p.AcademicSemesterId == academicSemesterId && p.PeriodType == "REGISTRATION"
+                    && p.Status == "ACTIVE" && p.StartAt <= now && now < p.EndAt && p.MaxProjectsPerSupervisor != null)
+                .OrderByDescending(p => p.StartAt).ThenByDescending(p => p.Id).Take(2)
+                .Select(p => new SupervisorSelectionPolicy(p.Id, p.MaxProjectsPerSupervisor)).ToListAsync(ct);
+        }
+        return policies;
+    }
 
     public async Task<PagedResult<SupervisorCandidateModel>> SearchAsync(SupervisorCandidateSearch search, CancellationToken ct)
     {

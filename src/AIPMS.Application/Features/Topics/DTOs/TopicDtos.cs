@@ -18,3 +18,7 @@ public sealed record TopicDto(long Id, string Code, string Status, long ProjectP
     IReadOnlyList<TopicMajorRequirementDto> Requirements, long CreatedBy, long UpdatedBy, DateTime CreatedAt,
     DateTime UpdatedAt, long? PublishedBy, DateTime? PublishedAt, long? ClosedBy, DateTime? ClosedAt,
     string? CloseReason, Guid ConcurrencyToken, bool? MatchesMyMajor);
+public sealed record TopicSummaryDto(long Id, string Title, string SemesterCode);
+public sealed record SimilarTopicMatchDto(long Id, string Title, string SemesterCode, double Score);
+public sealed record TopicSimilarityResultDto(TopicSummaryDto? ExactMatch, IReadOnlyList<SimilarTopicMatchDto> Similar);
+

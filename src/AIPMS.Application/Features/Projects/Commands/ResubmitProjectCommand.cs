@@ -108,6 +108,43 @@ public sealed class ResubmitProjectCommandHandler(
             throw new ConflictException("The project registration period is currently closed or the deadline has passed.");
         }
 
+        // BR-58: Re-validate topic selection if proposal source is PUBLISHED_TOPIC
+        if (string.Equals(project.ProposalSource, "PUBLISHED_TOPIC", StringComparison.OrdinalIgnoreCase))
+        {
+            if (project.TopicId is null)
+            {
+                throw new ConflictException("A published-topic proposal must reference a valid topic.");
+            }
+
+            // Lock project, team, team members, and topic rows with UPDLOCK, HOLDLOCK
+            await repository.LockProjectAndTopicAsync(project.Id, project.TopicId.Value, cancellationToken);
+
+            await topicSelectionGuard.ValidateTopicSelectionAsync(
+                project.TopicId.Value,
+                project.Id,
+                actorUserId,
+                cancellationToken);
+        }
+
+        // Task 3: Pre-check content completeness for STUDENT_PROPOSAL
+        var domainTag = project.Tags.FirstOrDefault(t => t.TagType == "DOMAIN")?.Name ?? string.Empty;
+        var techTags = project.Tags.Where(t => t.TagType == "TECHNOLOGY").Select(t => t.Name).ToArray();
+        var keywordTags = project.Tags.Where(t => t.TagType == "KEYWORD").Select(t => t.Name).ToArray();
+        var completenessIssues = AIPMS.Domain.Topics.TopicRules.ProposalCompletenessIssues(
+            project.ProposalSource,
+            project.ProblemStatement,
+            project.Objectives,
+            project.ExpectedOutput,
+            domainTag,
+            techTags,
+            keywordTags);
+        if (completenessIssues.Count > 0)
+        {
+            throw new AIPMS.Domain.Exceptions.DomainException(
+                $"Student proposal content is incomplete ({completenessIssues[0]}).",
+                completenessIssues[0]);
+        }
+
         // BR-51: Check required fields are complete
         if (string.IsNullOrWhiteSpace(project.Title) ||
             string.IsNullOrWhiteSpace(project.ProblemStatement) ||
@@ -128,22 +165,40 @@ public sealed class ResubmitProjectCommandHandler(
         {
             throw new ConflictException("The project proposal must have at least one Domain, one Technology, and one Keyword tag defined.");
         }
-        // BR-58: Re-validate topic selection if proposal source is PUBLISHED_TOPIC
-        if (string.Equals(project.ProposalSource, "PUBLISHED_TOPIC", StringComparison.OrdinalIgnoreCase))
+
+        // Task 2: Check duplicate title and similarity for STUDENT_PROPOSAL
+        AIPMS.Application.Features.Topics.DTOs.TopicSimilarityResultDto? similarity = null;
+        if (string.Equals(project.ProposalSource, "STUDENT_PROPOSAL", StringComparison.Ordinal))
         {
-            if (project.TopicId is null)
-            {
-                throw new ConflictException("A published-topic proposal must reference a valid topic.");
-            }
-
-            // Lock project, team, team members, and topic rows with UPDLOCK, HOLDLOCK
-            await repository.LockProjectAndTopicAsync(project.Id, project.TopicId.Value, cancellationToken);
-
-            await topicSelectionGuard.ValidateTopicSelectionAsync(
-                project.TopicId.Value,
+            similarity = await repository.CheckProposalSimilarityAsync(
+                project.TeamId,
+                project.Title,
+                keywordTags,
+                domainTag,
                 project.Id,
-                actorUserId,
                 cancellationToken);
+            if (similarity.ExactMatch is not null)
+            {
+                throw new AIPMS.Domain.Exceptions.DomainException(
+                    "Proposal title duplicates an existing topic or approved project in the last 3 periods.",
+                    "DUPLICATE_TOPIC_TITLE");
+            }
+        }
+
+        // Task 1 (D18): Require confirmed primary supervisor and required discipline mentors before resubmission
+        var confirmation = await repository.GetSupervisorConfirmationAsync(project.Id, cancellationToken);
+        if (!confirmation.HasConfirmedPrimarySupervisor)
+        {
+            throw new AIPMS.Domain.Exceptions.DomainException(
+                "A primary supervisor must accept the invitation before submission.",
+                "SUPERVISOR_NOT_CONFIRMED");
+        }
+        if (confirmation.MissingMentorMajorIds.Count > 0)
+        {
+            var missingMajorId = confirmation.MissingMentorMajorIds[0];
+            throw new AIPMS.Domain.Exceptions.DomainException(
+                $"A discipline mentor must accept the invitation for major {missingMajorId} before submission.",
+                $"MENTOR_NOT_CONFIRMED:{missingMajorId}");
         }
 
         // Update project status to SUBMITTED and write history (all within repository transaction)
@@ -169,6 +224,24 @@ public sealed class ResubmitProjectCommandHandler(
                     ["title"] = updatedProject.Title
                 }),
             cancellationToken);
+
+        if (similarity is { Similar.Count: > 0 })
+        {
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    actorUserId,
+                    "PROPOSAL_SIMILARITY_WARNING",
+                    "PROJECT",
+                    updatedProject.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["teamId"] = updatedProject.TeamId,
+                        ["similarCount"] = similarity.Similar.Count,
+                        ["topMatchId"] = similarity.Similar[0].Id,
+                        ["topMatchScore"] = similarity.Similar[0].Score
+                    }),
+                cancellationToken);
+        }
 
         return updatedProject;
     }

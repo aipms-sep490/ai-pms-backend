@@ -3,7 +3,7 @@ namespace AIPMS.Application.Features.Supervisors.Models;
 public sealed record SupervisorRequestModel(long Id, long ProjectId, long SupervisorProfileId,
     long SupervisorUserId, long RequestedBy, string Status, string? RequestMessage,
     string? ResponseMessage, DateTime RequestedAt, DateTime? RespondedAt, long? AssignmentId,
-    string AssignmentType = "PRIMARY", long? MajorId = null);
+    string AssignmentType = "PRIMARY", long? MajorId = null, DateTime? ExpiresAt = null);
 
 public sealed record SupervisorWorkload(int? ProfileLimit, int ActiveProjects, int SemesterActiveProjects);
 

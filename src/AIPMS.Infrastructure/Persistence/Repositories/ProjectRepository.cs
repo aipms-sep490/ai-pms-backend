@@ -87,9 +87,12 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
                         && u.Department.IsActive && u.Department.Organization.IsActive }).SingleOrDefaultAsync(cancellationToken);
             if (actor is null) throw new ForbiddenException("An active account is required.");
             var departmentProjects = DepartmentProjectIds(actor.DepartmentId);
+            var utcNow = Now;
             if (!actor.Admin)
                 query = query.Where(p => p.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null)
                     || context.SupervisorAssignments.Any(a => a.ProjectId == p.Id && a.EndedAt == null && a.SupervisorProfile.UserId == actorId)
+                    || context.SupervisorRequests.Any(r => r.ProjectId == p.Id && r.SupervisorProfile.UserId == actorId
+                        && r.Status == "PENDING" && (r.ExpiresAt == null || r.ExpiresAt > utcNow))
                     || (actor.Staff && departmentProjects.Contains(p.Id)));
         }
 
@@ -563,6 +566,39 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
                     }
                 }
             }
+            else if (newStatus == "REJECTED")
+            {
+                var acceptedRequests = await context.SupervisorRequests
+                    .Where(r => r.ProjectId == projectId && r.Status == "ACCEPTED")
+                    .ToListAsync(cancellationToken);
+                foreach (var req in acceptedRequests)
+                {
+                    req.Status = "RELEASED";
+                    req.UpdatedAt = utcNow;
+                }
+
+                var pendingRequests = await context.SupervisorRequests
+                    .Where(r => r.ProjectId == projectId && r.Status == "PENDING")
+                    .ToListAsync(cancellationToken);
+                foreach (var req in pendingRequests)
+                {
+                    req.Status = "CANCELLED";
+                    req.RespondedAt = utcNow;
+                    req.UpdatedAt = utcNow;
+                }
+
+                var activeAssignments = await context.SupervisorAssignments
+                    .Where(a => a.ProjectId == projectId && a.EndedAt == null)
+                    .ToListAsync(cancellationToken);
+                var endReason = string.IsNullOrWhiteSpace(reason) ? "Project rejected" : reason.Trim();
+                foreach (var assignment in activeAssignments)
+                {
+                    assignment.EndedAt = utcNow;
+                    assignment.EndedBy = actorUserId;
+                    assignment.EndReason = endReason;
+                    assignment.UpdatedAt = utcNow;
+                }
+            }
 
             await context.SaveChangesAsync(cancellationToken);
             if (transaction is not null) await transaction.CommitAsync(cancellationToken);
@@ -702,7 +738,17 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             && sa.EndedAt == null, 
             cancellationToken);
 
-        return isSupervisor;
+        if (isSupervisor) return true;
+
+        var utcNow = Now;
+        var hasPendingInvitation = await context.SupervisorRequests.AnyAsync(sr =>
+            sr.ProjectId == projectId
+            && sr.SupervisorProfile.UserId == userId
+            && sr.Status == "PENDING"
+            && (sr.ExpiresAt == null || sr.ExpiresAt > utcNow),
+            cancellationToken);
+
+        return hasPendingInvitation;
     }
 
     private static string Normalize(string name) => name.Trim().ToUpperInvariant().Replace(" ", "_");
@@ -922,4 +968,86 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         // return null to allow caller to fall back to formation scope.
         return null;
     }
+
+    public async Task<ProjectSupervisorConfirmation> GetSupervisorConfirmationAsync(
+        long projectId,
+        CancellationToken cancellationToken)
+    {
+        var project = await context.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => new { p.Id, p.TeamId })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (project is null)
+            return new ProjectSupervisorConfirmation(false, false, []);
+
+        var primaryAssignment = await context.SupervisorAssignments.AsNoTracking()
+            .Where(a => a.ProjectId == projectId && a.EndedAt == null && a.IsPrimary)
+            .Select(a => new { a.Id, DepartmentId = a.SupervisorProfile.User.DepartmentId })
+            .FirstOrDefaultAsync(cancellationToken);
+        var hasPrimary = primaryAssignment is not null;
+
+        var scope = await GetTeamScopeAsync(project.TeamId, cancellationToken);
+        var projectMajors = await context.ProjectMajors.AsNoTracking()
+            .Where(pm => pm.ProjectId == projectId)
+            .Select(pm => new { pm.MajorId, pm.Major.DepartmentId })
+            .OrderBy(pm => pm.MajorId)
+            .ToListAsync(cancellationToken);
+
+        var isInterdisciplinary = scope?.ProjectMode == "INTERDISCIPLINARY"
+            || (scope is null && projectMajors.Count > 1);
+        if (!isInterdisciplinary)
+            return new ProjectSupervisorConfirmation(hasPrimary, false, []);
+
+        var confirmedMentorMajors = (await context.SupervisorAssignments.AsNoTracking()
+            .Where(a => a.ProjectId == projectId && a.EndedAt == null && a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId != null)
+            .Select(a => a.MajorId!.Value)
+            .ToListAsync(cancellationToken)).ToHashSet();
+
+        var requiredMajorIds = (scope is not null
+            ? scope.Requirements.Select(r => r.MajorId).Concat(projectMajors.Select(pm => pm.MajorId))
+            : projectMajors.Select(pm => pm.MajorId))
+            .Distinct()
+            .ToList();
+
+        var missingMentorMajors = requiredMajorIds
+            .Where(m => !confirmedMentorMajors.Contains(m))
+            .ToArray();
+
+        return new ProjectSupervisorConfirmation(hasPrimary, true, missingMentorMajors);
+    }
+
+    public async Task<AIPMS.Application.Features.Topics.DTOs.TopicSimilarityResultDto> CheckProposalSimilarityAsync(
+        long teamId,
+        string title,
+        IReadOnlyList<string> keywords,
+        string domain,
+        long? excludeProjectId,
+        CancellationToken cancellationToken)
+    {
+        var teamInfo = await context.Teams.AsNoTracking()
+            .Where(t => t.Id == teamId)
+            .Select(t => new { t.AcademicSemester.OrganizationId })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (teamInfo is null)
+            return new AIPMS.Application.Features.Topics.DTOs.TopicSimilarityResultDto(null, []);
+
+        var scope = await GetTeamScopeAsync(teamId, cancellationToken);
+        var leadDeptId = scope?.LeadDepartmentId
+            ?? await context.TeamMembers.AsNoTracking()
+                .Where(tm => tm.TeamId == teamId && tm.IsLeader && tm.LeftAt == null)
+                .Select(tm => tm.User.DepartmentId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+        return await new TopicRepository(context).CheckSimilarityAsync(
+            teamInfo.OrganizationId,
+            leadDeptId,
+            title,
+            keywords,
+            domain,
+            3,
+            null,
+            excludeProjectId,
+            cancellationToken);
+    }
 }
+
