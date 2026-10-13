@@ -225,9 +225,16 @@ public sealed class TeamWorkflow(
 
     public async Task<TeamDto> GetAsync(long teamId, CancellationToken ct)
     {
-        var actor = await ActorAsync(ct);
+        if (!currentUser.IsAuthenticated || currentUser.UserId is null)
+            throw new UnauthorizedException();
+        var userId = currentUser.UserId.Value;
+        var canView = await repository.CanUserViewTeamAsync(teamId, userId, Now, ct);
+        if (!canView)
+            throw new ForbiddenException("You are not authorized to view this team.");
+
         var team = await TeamAsync(teamId, ct);
-        RequireMember(team, actor.UserId);
+        if (currentUser.Roles.Contains(AppRoles.Student) && !currentUser.Roles.Contains(AppRoles.Admin))
+            RequireMember(team, userId);
         return await MapAsync(team, ct);
     }
 

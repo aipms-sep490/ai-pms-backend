@@ -67,6 +67,24 @@ public sealed class UpdateProjectDraftCommandHandler(
             throw new NotFoundException("Major", string.Join(", ", request.RequiredMajorIds));
         }
 
+        AIPMS.Application.Features.Topics.DTOs.TopicSimilarityResultDto? similarity = null;
+        if (string.Equals(project.ProposalSource, "STUDENT_PROPOSAL", StringComparison.Ordinal))
+        {
+            similarity = await repository.CheckProposalSimilarityAsync(
+                project.TeamId,
+                request.Title,
+                request.Keywords,
+                request.Domain,
+                project.Id,
+                cancellationToken);
+            if (similarity.ExactMatch is not null)
+            {
+                throw new AIPMS.Domain.Exceptions.DomainException(
+                    "Proposal title duplicates an existing topic or approved project in the last 3 periods.",
+                    "DUPLICATE_TOPIC_TITLE");
+            }
+        }
+
         // Update the project
         var updatedProject = await repository.UpdateDraftAsync(
             request.ProjectId,
@@ -95,6 +113,24 @@ public sealed class UpdateProjectDraftCommandHandler(
                     ["title"] = updatedProject.Title
                 }),
             cancellationToken);
+
+        if (similarity is { Similar.Count: > 0 })
+        {
+            await auditTrail.RecordAsync(
+                new AuditEntry(
+                    actorUserId,
+                    "PROPOSAL_SIMILARITY_WARNING",
+                    "PROJECT",
+                    updatedProject.Id,
+                    new Dictionary<string, object?>
+                    {
+                        ["teamId"] = updatedProject.TeamId,
+                        ["similarCount"] = similarity.Similar.Count,
+                        ["topMatchId"] = similarity.Similar[0].Id,
+                        ["topMatchScore"] = similarity.Similar[0].Score
+                    }),
+                cancellationToken);
+        }
 
         return updatedProject;
     }

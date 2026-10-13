@@ -200,7 +200,8 @@ public sealed class ProjectTests
         var command = new SubmitProjectCommand(50, "token123");
 
         // Act & Assert
-        await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(command, CancellationToken.None));
+        var ex = await Assert.ThrowsAsync<AIPMS.Domain.Exceptions.DomainException>(() => handler.Handle(command, CancellationToken.None));
+        Assert.Equal("PROPOSAL_CONTENT_INCOMPLETE:problemStatement", ex.Code);
     }
 
     [Fact]

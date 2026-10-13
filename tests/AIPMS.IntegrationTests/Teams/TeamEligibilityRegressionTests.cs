@@ -1327,6 +1327,14 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
             project.ProjectTags.Add(new ProjectTag { Tag = new Tag { Name = ".NET", NormalizedName = ".NET", TagType = "TECHNOLOGY", CreatedAt = DateTime.UtcNow } });
             project.ProjectTags.Add(new ProjectTag { Tag = new Tag { Name = "Test", NormalizedName = "TEST", TagType = "KEYWORD", CreatedAt = DateTime.UtcNow } });
             ctx.Projects.Add(project);
+            var deptId = await ctx.Users.Where(u => u.Id == s.Students[0]).Select(u => u.DepartmentId).SingleAsync();
+            var supUser = new User { Email = Guid.NewGuid().ToString("N") + "@sup.test", FullName = "Supervisor", PasswordHash = "unused", Status = "ACTIVE", AcademicProfileStatus = "VERIFIED", DepartmentId = deptId };
+            var supProfile = new SupervisorProfile { User = supUser, IsAvailable = true, MaxActiveProjects = 5 };
+            ctx.AddRange(supUser, supProfile);
+            await ctx.SaveChangesAsync();
+            var supReq = new SupervisorRequest { ProjectId = project.Id, SupervisorProfileId = supProfile.Id, RequestedBy = s.Students[0], Status = "ACCEPTED", AssignmentType = "PRIMARY", RequestedAt = DateTime.UtcNow, RespondedAt = DateTime.UtcNow };
+            ctx.SupervisorRequests.Add(supReq);
+            ctx.SupervisorAssignments.Add(new SupervisorAssignment { ProjectId = project.Id, SupervisorProfileId = supProfile.Id, SupervisorRequest = supReq, IsPrimary = true, AssignmentType = "PRIMARY", AssignedBy = supUser.Id, AssignedAt = DateTime.UtcNow });
             await ctx.SaveChangesAsync();
             projectId = project.Id;
             concurrencyToken = Convert.ToBase64String(project.RowVersion);

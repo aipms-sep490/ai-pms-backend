@@ -32,13 +32,14 @@ public sealed class SupervisorCandidatePolicy(ISupervisorCandidateRepository rep
         var now = clock.GetUtcNow().UtcDateTime;
         if (request.AssignmentType == "DISCIPLINE_MENTOR")
         {
-            if (project.Status != "ACTIVE" || !project.HasActiveAssignment
+            if (project.Status is not ("DRAFT" or "REVISION_REQUIRED" or "ACTIVE")
+                || (project.Status == "ACTIVE" && !project.HasActiveAssignment)
                 || project.RequiredMajorIds?.Contains(request.MajorId ?? 0) != true
                 || project.OccupiedMentorMajors?.Contains(request.MajorId ?? 0) == true)
-                throw new ConflictException("Discipline mentor selection requires an ACTIVE project.");
+                throw new ConflictException("Discipline mentor selection requires an ACTIVE, DRAFT, or REVISION_REQUIRED project.");
         }
-        else if (project.Status != "APPROVED" || project.HasActiveAssignment)
-            throw new ConflictException("Supervisor selection requires an approved project without an active assignment.");
+        else if (project.Status is not ("DRAFT" or "REVISION_REQUIRED" or "APPROVED") || project.HasActiveAssignment)
+            throw new ConflictException("Supervisor selection requires a draft, revision-required, or approved project without an active assignment.");
         if (!project.HasActiveSemester || project.DepartmentIds.Count == 0)
             throw new ConflictException("The project must have an active semester and active majors in its organization.");
 

@@ -223,6 +223,25 @@ public sealed class WorkflowContextTests(TeamDatabaseFixture database) : IClassF
         var team = await CreateTeam(leader, s); await Join(leader, member, team.Id, s.Students[1]);
         var project = await Body<ProjectDto>(await leader.PostAsJsonAsync("/api/v1/projects", new CreateProjectDraftRequest(
             "Context proposal", "Description", "Objectives", "Problem", "Output", [s.SeMajorId], "Education", ["Dotnet"], ["Capstone"])));
+        await using (var db = database.CreateContext())
+        {
+            var deptId = await db.Users.Where(u => u.Id == s.Students[0]).Select(u => u.DepartmentId).SingleAsync();
+            var supUser = new User { Email = Guid.NewGuid().ToString("N") + "@sup.test", FullName = "Supervisor", PasswordHash = "unused", Status = "ACTIVE", AcademicProfileStatus = "VERIFIED", DepartmentId = deptId };
+            var supProfile = new SupervisorProfile { User = supUser, IsAvailable = true, MaxActiveProjects = 5 };
+            db.AddRange(supUser, supProfile);
+            await db.SaveChangesAsync();
+            db.SupervisorAssignments.Add(new SupervisorAssignment
+            {
+                ProjectId = project.Id,
+                SupervisorProfileId = supProfile.Id,
+                IsPrimary = true,
+                AssignmentType = "PRIMARY",
+                AssignedBy = supUser.Id,
+                AssignedAt = TeamDatabaseFixture.Now,
+                SupervisorRequest = new SupervisorRequest { ProjectId = project.Id, SupervisorProfileId = supProfile.Id, RequestedBy = s.Students[0], Status = "ACCEPTED", AssignmentType = "PRIMARY", RequestedAt = TeamDatabaseFixture.Now, RespondedAt = TeamDatabaseFixture.Now }
+            });
+            await db.SaveChangesAsync();
+        }
         var url = $"/api/v1/projects/{project.Id}/actions";
         var actions = await Body<ProjectWorkflowActionsDto>(await leader.GetAsync(url));
         Allowed(actions.Actions, "submit_project", true);
@@ -238,6 +257,8 @@ public sealed class WorkflowContextTests(TeamDatabaseFixture database) : IClassF
             "invite_member", false, "ROSTER_LOCKED");
         await using (var db = database.CreateContext())
         {
+            await db.SupervisorAssignments.Where(a => a.ProjectId == project.Id).ExecuteDeleteAsync();
+            await db.SupervisorRequests.Where(r => r.ProjectId == project.Id).ExecuteDeleteAsync();
             (await db.Projects.FindAsync(project.Id))!.Status = "APPROVED";
             db.ProjectPeriods.Add(new ProjectPeriod { AcademicSemesterId = s.SemesterId, Code = "SUP", Name = "Supervisor selection",
                 PeriodType = "SUPERVISOR_SELECTION", Status = "ACTIVE", StartAt = TeamDatabaseFixture.Now.AddDays(-1),
@@ -275,5 +296,260 @@ public sealed class WorkflowContextTests(TeamDatabaseFixture database) : IClassF
         await using (var db = database.CreateContext())
             await db.Users.Where(u => u.Id == s.Students[0]).ExecuteUpdateAsync(u => u.SetProperty(x => x.Status, "INACTIVE"));
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(ContextUrl)).StatusCode);
+    }
+
+    [Fact]
+    public async Task D18_3_submit_without_confirmed_supervisor_blocks_with_SUPERVISOR_NOT_CONFIRMED()
+    {
+        var s = await database.SeedAsync(); using var app = new TeamTestFactory(database, s);
+        using var leader = app.CreateAuthenticatedClient(s.Students[0]);
+        using var member = app.CreateAuthenticatedClient(s.Students[1]);
+        var team = await CreateTeam(leader, s);
+        await Join(leader, member, team.Id, s.Students[1]);
+
+        var project = await Body<ProjectDto>(await leader.PostAsJsonAsync("/api/v1/projects", new CreateProjectDraftRequest(
+            "No Supervisor Proposal", "Description", "Objectives", "Problem", "Output", [s.SeMajorId], "Education", ["Dotnet"], ["Capstone"])));
+
+        var actions = await Body<ProjectWorkflowActionsDto>(await leader.GetAsync($"/api/v1/projects/{project.Id}/actions"));
+        Allowed(actions.Actions, "submit_project", false, "SUPERVISOR_NOT_CONFIRMED");
+
+        await leader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
+        var submitRes = await leader.PostAsJsonAsync($"/api/v1/projects/{project.Id}/submit", new { concurrencyToken = project.ConcurrencyToken });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, submitRes.StatusCode);
+        Assert.Contains("SUPERVISOR_NOT_CONFIRMED", await submitRes.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task D18_4_and_5_interdisciplinary_missing_mentor_and_added_third_major_block_with_MENTOR_NOT_CONFIRMED()
+    {
+        var s = await database.SeedAsync();
+        long leadDeptId, thirdMajorId, supProfileId, mentorSeProfileId, mentorIsProfileId, mentorThirdProfileId;
+        await using (var db = database.CreateContext())
+        {
+            leadDeptId = await db.Majors.Where(m => m.Id == s.SeMajorId).Select(m => m.DepartmentId).SingleAsync();
+            var thirdMajor = new Major { Code = "DES", Name = "Design", DepartmentId = leadDeptId, IsActive = true };
+            db.Majors.Add(thirdMajor);
+            (await db.ProjectPeriods.FindAsync(s.PeriodId))!.MaxTeamSize = 4;
+            await db.SaveChangesAsync();
+            thirdMajorId = thirdMajor.Id;
+            (await db.Users.FindAsync(s.Students[2]))!.MajorId = thirdMajorId;
+
+            User MakeLecturer() => new() { Email = Guid.NewGuid().ToString("N") + "@sup.test", FullName = "Lecturer", PasswordHash = "unused", Status = "ACTIVE", AcademicProfileStatus = "VERIFIED", DepartmentId = leadDeptId };
+            var p1 = new SupervisorProfile { User = MakeLecturer(), IsAvailable = true, MaxActiveProjects = 10 };
+            var p2 = new SupervisorProfile { User = MakeLecturer(), IsAvailable = true, MaxActiveProjects = 10 };
+            var p3 = new SupervisorProfile { User = MakeLecturer(), IsAvailable = true, MaxActiveProjects = 10 };
+            var p4 = new SupervisorProfile { User = MakeLecturer(), IsAvailable = true, MaxActiveProjects = 10 };
+            db.AddRange(p1, p2, p3, p4);
+            await db.SaveChangesAsync();
+            supProfileId = p1.Id; mentorSeProfileId = p2.Id; mentorIsProfileId = p3.Id; mentorThirdProfileId = p4.Id;
+        }
+
+        using var app = new TeamTestFactory(database, s, maxMembers: 4);
+        using var leader = app.CreateAuthenticatedClient(s.Students[0]);
+        using var isMember = app.CreateAuthenticatedClient(s.Students[4]);
+        using var thirdMember = app.CreateAuthenticatedClient(s.Students[2]);
+
+        var scope2 = new TeamAcademicScopeRequest("INTERDISCIPLINARY", null, leadDeptId,
+            [new(s.SeMajorId, 1, 2, "Software"), new(s.IsMajorId, 1, 1, "Business")]);
+        var team = await Body<TeamDto>(await leader.PostAsJsonAsync("/api/v1/teams", new { academicSemesterId = s.SemesterId, code = "HYB2", name = "Hybrid 2", academicScope = scope2 }));
+        await Join(leader, isMember, team.Id, s.Students[4]);
+
+        var project = await Body<ProjectDto>(await leader.PostAsJsonAsync("/api/v1/projects", new CreateProjectDraftRequest(
+            "Interdisciplinary D18 Proposal", "Description", "Objectives", "Problem", "Output", [s.SeMajorId, s.IsMajorId], "Education", ["Dotnet"], ["Capstone"])));
+
+        // Confirm Primary Supervisor + Mentor for SE, leaving IS mentor unconfirmed (Case 4: missing 1/2 mentor)
+        await using (var db = database.CreateContext())
+        {
+            db.SupervisorAssignments.AddRange(
+                new SupervisorAssignment
+                {
+                    ProjectId = project.Id,
+                    SupervisorProfileId = supProfileId,
+                    IsPrimary = true,
+                    AssignmentType = "PRIMARY",
+                    AssignedBy = s.Students[0],
+                    AssignedAt = TeamDatabaseFixture.Now,
+                    SupervisorRequest = new SupervisorRequest { ProjectId = project.Id, SupervisorProfileId = supProfileId, RequestedBy = s.Students[0], Status = "ACCEPTED", AssignmentType = "PRIMARY", RequestedAt = TeamDatabaseFixture.Now, RespondedAt = TeamDatabaseFixture.Now }
+                },
+                new SupervisorAssignment
+                {
+                    ProjectId = project.Id,
+                    SupervisorProfileId = mentorSeProfileId,
+                    IsPrimary = false,
+                    AssignmentType = "DISCIPLINE_MENTOR",
+                    MajorId = s.SeMajorId,
+                    AssignedBy = s.Students[0],
+                    AssignedAt = TeamDatabaseFixture.Now,
+                    SupervisorRequest = new SupervisorRequest { ProjectId = project.Id, SupervisorProfileId = mentorSeProfileId, RequestedBy = s.Students[0], Status = "ACCEPTED", AssignmentType = "DISCIPLINE_MENTOR", MajorId = s.SeMajorId, RequestedAt = TeamDatabaseFixture.Now, RespondedAt = TeamDatabaseFixture.Now }
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var actions = await Body<ProjectWorkflowActionsDto>(await leader.GetAsync($"/api/v1/projects/{project.Id}/actions"));
+        Allowed(actions.Actions, "submit_project", false, $"MENTOR_NOT_CONFIRMED:{s.IsMajorId}");
+
+        await leader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
+        var missingMentorRes = await leader.PostAsJsonAsync($"/api/v1/projects/{project.Id}/submit", new { concurrencyToken = project.ConcurrencyToken });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, missingMentorRes.StatusCode);
+        Assert.Contains($"MENTOR_NOT_CONFIRMED:{s.IsMajorId}", await missingMentorRes.Content.ReadAsStringAsync());
+
+        // Confirm 2nd mentor (IS) -> now both existing majors have mentors
+        await using (var db = database.CreateContext())
+        {
+            db.SupervisorAssignments.Add(new SupervisorAssignment
+            {
+                ProjectId = project.Id,
+                SupervisorProfileId = mentorIsProfileId,
+                IsPrimary = false,
+                AssignmentType = "DISCIPLINE_MENTOR",
+                MajorId = s.IsMajorId,
+                AssignedBy = s.Students[0],
+                AssignedAt = TeamDatabaseFixture.Now,
+                SupervisorRequest = new SupervisorRequest { ProjectId = project.Id, SupervisorProfileId = mentorIsProfileId, RequestedBy = s.Students[0], Status = "ACCEPTED", AssignmentType = "DISCIPLINE_MENTOR", MajorId = s.IsMajorId, RequestedAt = TeamDatabaseFixture.Now, RespondedAt = TeamDatabaseFixture.Now }
+            });
+            await db.SaveChangesAsync();
+        }
+        actions = await Body<ProjectWorkflowActionsDto>(await leader.GetAsync($"/api/v1/projects/{project.Id}/actions"));
+        Allowed(actions.Actions, "submit_project", true);
+
+        // Case 5: Add a 3rd major after the first 2 mentors are already confirmed -> submit is blocked again for the new 3rd major!
+        team = await Body<TeamDto>(await leader.GetAsync($"/api/v1/teams/{team.Id}"));
+        var scope3 = new TeamAcademicScopeRequest("INTERDISCIPLINARY", null, leadDeptId,
+            [new(s.SeMajorId, 1, 2, "Software"), new(s.IsMajorId, 1, 1, "Business"), new(thirdMajorId, 1, 1, "Design")],
+            team.AcademicScope!.ConcurrencyToken);
+        await Body<TeamDto>(await leader.PutAsJsonAsync($"/api/v1/teams/{team.Id}/academic-scope", scope3));
+        await Join(leader, thirdMember, team.Id, s.Students[2]);
+        project = await Body<ProjectDto>(await leader.GetAsync($"/api/v1/projects/{project.Id}"));
+        project = await Body<ProjectDto>(await leader.PutAsJsonAsync($"/api/v1/projects/{project.Id}/majors",
+            new SetProjectMajorsRequest(project.ConcurrencyToken, [s.SeMajorId, s.IsMajorId, thirdMajorId])));
+
+        actions = await Body<ProjectWorkflowActionsDto>(await leader.GetAsync($"/api/v1/projects/{project.Id}/actions"));
+        Allowed(actions.Actions, "submit_project", false, $"MENTOR_NOT_CONFIRMED:{thirdMajorId}");
+
+        await leader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
+        var thirdMissingRes = await leader.PostAsJsonAsync($"/api/v1/projects/{project.Id}/submit", new { concurrencyToken = project.ConcurrencyToken });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, thirdMissingRes.StatusCode);
+        Assert.Contains($"MENTOR_NOT_CONFIRMED:{thirdMajorId}", await thirdMissingRes.Content.ReadAsStringAsync());
+
+        // Confirm 3rd mentor -> submit succeeds!
+        await using (var db = database.CreateContext())
+        {
+            db.SupervisorAssignments.Add(new SupervisorAssignment
+            {
+                ProjectId = project.Id,
+                SupervisorProfileId = mentorThirdProfileId,
+                IsPrimary = false,
+                AssignmentType = "DISCIPLINE_MENTOR",
+                MajorId = thirdMajorId,
+                AssignedBy = s.Students[0],
+                AssignedAt = TeamDatabaseFixture.Now,
+                SupervisorRequest = new SupervisorRequest { ProjectId = project.Id, SupervisorProfileId = mentorThirdProfileId, RequestedBy = s.Students[0], Status = "ACCEPTED", AssignmentType = "DISCIPLINE_MENTOR", MajorId = thirdMajorId, RequestedAt = TeamDatabaseFixture.Now, RespondedAt = TeamDatabaseFixture.Now }
+            });
+            await db.SaveChangesAsync();
+        }
+        var submitted = await Body<ProjectDto>(await leader.PostAsJsonAsync($"/api/v1/projects/{project.Id}/submit", new { concurrencyToken = project.ConcurrencyToken }));
+        Assert.Equal("SUBMITTED", submitted.Status);
+    }
+
+    [Fact]
+    public async Task Task2_5_student_proposal_exact_duplicate_title_returns_422_DUPLICATE_TOPIC_TITLE()
+    {
+        var s = await database.SeedAsync(); using var app = new TeamTestFactory(database, s);
+        using var leader = app.CreateAuthenticatedClient(s.Students[0]);
+        using var member = app.CreateAuthenticatedClient(s.Students[1]);
+        var team = await CreateTeam(leader, s);
+        await Join(leader, member, team.Id, s.Students[1]);
+
+        await using (var db = database.CreateContext())
+        {
+            var leadDeptId = await db.Majors.Where(m => m.Id == s.SeMajorId).Select(m => m.DepartmentId).SingleAsync();
+            db.Add(new AIPMS.Infrastructure.Persistence.Models.ProjectTopic
+            {
+                ProjectPeriodId = s.PeriodId,
+                LeadDepartmentId = leadDeptId,
+                ProjectMode = "SINGLE_MAJOR",
+                PrimaryMajorId = s.SeMajorId,
+                Code = "PUB1",
+                Title = "Nền tảng Quản lý Đồ án Thông minh",
+                Status = "PUBLISHED",
+                CreatedBy = s.Students[0],
+                UpdatedBy = s.Students[0],
+                PublishedBy = s.Students[0],
+                PublishedAt = TeamDatabaseFixture.Now,
+                ConcurrencyToken = Guid.NewGuid()
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var createDupRes = await leader.PostAsJsonAsync("/api/v1/projects", new CreateProjectDraftRequest(
+            "  nen tang quan ly do an thong minh  ", "Description", "Objectives", "Problem", "Output", [s.SeMajorId], "Education", ["Dotnet"], ["Capstone"]));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, createDupRes.StatusCode);
+        Assert.Contains("DUPLICATE_TOPIC_TITLE", await createDupRes.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Task3_1_2_3_student_proposal_completeness_precheck_and_published_topic_exemption()
+    {
+        var s = await database.SeedAsync(); using var app = new TeamTestFactory(database, s);
+        using var leader = app.CreateAuthenticatedClient(s.Students[0]);
+        using var member = app.CreateAuthenticatedClient(s.Students[1]);
+        var team = await CreateTeam(leader, s);
+        await Join(leader, member, team.Id, s.Students[1]);
+
+        var project = await Body<ProjectDto>(await leader.PostAsJsonAsync("/api/v1/projects", new CreateProjectDraftRequest(
+            "Completeness Check Proposal", "Description", "Objectives", "Problem", "Output", [s.SeMajorId], "Education", ["Dotnet"], ["Capstone"])));
+
+        await using (var db = database.CreateContext())
+        {
+            var deptId = await db.Users.Where(u => u.Id == s.Students[0]).Select(u => u.DepartmentId).SingleAsync();
+            var supUser = new User { Email = Guid.NewGuid().ToString("N") + "@sup.test", FullName = "Supervisor", PasswordHash = "unused", Status = "ACTIVE", AcademicProfileStatus = "VERIFIED", DepartmentId = deptId };
+            var supProfile = new SupervisorProfile { User = supUser, IsAvailable = true, MaxActiveProjects = 5 };
+            db.AddRange(supUser, supProfile);
+            await db.SaveChangesAsync();
+            db.SupervisorAssignments.Add(new SupervisorAssignment
+            {
+                ProjectId = project.Id,
+                SupervisorProfileId = supProfile.Id,
+                IsPrimary = true,
+                AssignmentType = "PRIMARY",
+                AssignedBy = supUser.Id,
+                AssignedAt = TeamDatabaseFixture.Now,
+                SupervisorRequest = new SupervisorRequest { ProjectId = project.Id, SupervisorProfileId = supProfile.Id, RequestedBy = s.Students[0], Status = "ACCEPTED", AssignmentType = "PRIMARY", RequestedAt = TeamDatabaseFixture.Now, RespondedAt = TeamDatabaseFixture.Now }
+            });
+            // Task 3 Case 1: Clear problemStatement on STUDENT_PROPOSAL
+            (await db.Projects.FindAsync(project.Id))!.ProblemStatement = "   ";
+            await db.SaveChangesAsync();
+        }
+
+        var url = $"/api/v1/projects/{project.Id}/actions";
+        var actions = await Body<ProjectWorkflowActionsDto>(await leader.GetAsync(url));
+        Allowed(actions.Actions, "submit_project", false, "PROPOSAL_CONTENT_INCOMPLETE:problemStatement");
+
+        await leader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
+        project = await Body<ProjectDto>(await leader.GetAsync($"/api/v1/projects/{project.Id}"));
+        var incompleteSubmit = await leader.PostAsJsonAsync($"/api/v1/projects/{project.Id}/submit", new { concurrencyToken = project.ConcurrencyToken });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, incompleteSubmit.StatusCode);
+        Assert.Contains("PROPOSAL_CONTENT_INCOMPLETE:problemStatement", await incompleteSubmit.Content.ReadAsStringAsync());
+
+        // Task 3 Case 2: All 6 fields present -> no PROPOSAL_CONTENT_INCOMPLETE:* issue
+        project = await Body<ProjectDto>(await leader.PutAsJsonAsync($"/api/v1/projects/{project.Id}", new UpdateProjectDraftRequest(
+            project.ConcurrencyToken, "Completeness Check Proposal", "Description", "Objectives", "Complete Problem Statement", "Output",
+            [s.SeMajorId], "Education", ["Dotnet"], ["Capstone"])));
+        actions = await Body<ProjectWorkflowActionsDto>(await leader.GetAsync(url));
+        var submitAction = Assert.Single(actions.Actions, a => a.Code == "submit_project");
+        Assert.DoesNotContain(submitAction.Reasons, r => r.StartsWith("PROPOSAL_CONTENT_INCOMPLETE:", StringComparison.Ordinal));
+        Assert.True(submitAction.Allowed);
+
+        // Task 3 Case 3: PUBLISHED_TOPIC does not emit PROPOSAL_CONTENT_INCOMPLETE:* even if problemStatement is blank
+        await using (var db = database.CreateContext())
+        {
+            var row = (await db.Projects.FindAsync(project.Id))!;
+            row.ProposalSource = "PUBLISHED_TOPIC";
+            row.ProblemStatement = null;
+            await db.SaveChangesAsync();
+        }
+        actions = await Body<ProjectWorkflowActionsDto>(await leader.GetAsync(url));
+        submitAction = Assert.Single(actions.Actions, a => a.Code == "submit_project");
+        Assert.DoesNotContain(submitAction.Reasons, r => r.StartsWith("PROPOSAL_CONTENT_INCOMPLETE:", StringComparison.Ordinal));
     }
 }

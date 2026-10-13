@@ -6,10 +6,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Services.Projects;
 
-internal sealed class ProjectAccessService(AipmsDbContext context) : IProjectAccessService
+internal sealed class ProjectAccessService(AipmsDbContext context, TimeProvider? clock = null) : IProjectAccessService
 {
     public async Task<bool> CanAccessAsync(long userId, long projectId, CancellationToken cancellationToken = default)
     {
+        var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         var actor = await context.Users.AsNoTracking().Where(u => u.Id == userId && u.Status == "ACTIVE")
             .Select(u => new { u.DepartmentId,
                 HasScope = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive,
@@ -26,7 +27,10 @@ internal sealed class ProjectAccessService(AipmsDbContext context) : IProjectAcc
             && ((actor.Roles.Contains(AppRoles.Student)
                     && p.Team.TeamMembers.Any(m => m.UserId == userId && m.LeftAt == null))
                 || (actor.Roles.Contains(AppRoles.Lecturer)
-                    && p.SupervisorAssignments.Any(a => a.EndedAt == null && a.SupervisorProfile.UserId == userId))),
+                    && (p.SupervisorAssignments.Any(a => a.EndedAt == null && a.SupervisorProfile.UserId == userId)
+                        || p.SupervisorRequests.Any(r => r.SupervisorProfile.UserId == userId
+                            && r.Status == "PENDING" && (r.ExpiresAt == null || r.ExpiresAt > now))))),
             cancellationToken);
     }
 }
+

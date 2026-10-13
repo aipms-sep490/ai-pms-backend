@@ -25,6 +25,13 @@ public sealed class TopicsController(ISender sender) : ControllerBase
         Ok(await sender.Send(new ListTopicsQuery(new TopicFilter(academicSemesterId, projectPeriodId, departmentId,
             majorId, projectMode, status, search, compatibleOnly, mineOnly, page, pageSize)), ct));
 
+    [HttpGet("similarity-check")]
+    [ProducesResponseType<TopicSimilarityResultDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<TopicSimilarityResultDto>> SimilarityCheck([FromQuery] string? title = null,
+        [FromQuery] string? keywords = null, [FromQuery] long? leadDepartmentId = null,
+        [FromQuery] int periodWindow = 3, CancellationToken ct = default) =>
+        Ok(await sender.Send(new CheckTopicSimilarityQuery(title, keywords, leadDepartmentId, periodWindow), ct));
+
     [HttpGet("{id:long}")]
     [ProducesResponseType<TopicDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<TopicDto>> Get(long id, CancellationToken ct) => Ok(await sender.Send(new GetTopicQuery(id), ct));

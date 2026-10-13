@@ -29,4 +29,6 @@ public interface ITeamRepository
     Task RespondAsync(long invitationId, string status, DateTime now, CancellationToken cancellationToken);
     Task<PagedResult<TeamInvitationData>> GetInvitationsAsync(long userId, long? teamId,
         int page, int pageSize, CancellationToken cancellationToken);
+    Task<bool> CanUserViewTeamAsync(long teamId, long userId, DateTime now, CancellationToken cancellationToken) =>
+        Task.FromResult(true);
 }

@@ -191,6 +191,101 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
         { throw new ConflictException("Topic or academic policy is being changed. Reload before retrying."); }
     }
 
+    public async Task<TopicSimilarityResultDto> CheckSimilarityAsync(long organizationId, long? leadDepartmentId, string? title,
+        IReadOnlyList<string>? keywords, string? domain, int periodWindow, long? excludeTopicId, long? excludeProjectId, CancellationToken ct)
+    {
+        var window = Math.Max(1, periodWindow);
+        var recentPeriods = await db.ProjectPeriods.AsNoTracking()
+            .Where(p => p.AcademicSemester.OrganizationId == organizationId && p.PeriodType == "REGISTRATION")
+            .OrderByDescending(p => p.StartAt).ThenByDescending(p => p.Id)
+            .Select(p => new { p.Id, p.AcademicSemesterId })
+            .Take(window)
+            .ToArrayAsync(ct);
+
+        if (recentPeriods.Length == 0)
+            return new TopicSimilarityResultDto(null, []);
+
+        var recentPeriodIds = recentPeriods.Select(p => p.Id).ToArray();
+        var recentSemesterIds = recentPeriods.Select(p => p.AcademicSemesterId).Distinct().ToArray();
+
+        var topicsQuery = db.Set<ProjectTopic>().AsNoTracking()
+            .Where(t => t.Status == "PUBLISHED" && recentPeriodIds.Contains(t.ProjectPeriodId));
+        if (leadDepartmentId.HasValue)
+            topicsQuery = topicsQuery.Where(t => t.LeadDepartmentId == leadDepartmentId.Value);
+        if (excludeTopicId.HasValue)
+            topicsQuery = topicsQuery.Where(t => t.Id != excludeTopicId.Value);
+
+        var publishedTopics = await topicsQuery
+            .Select(t => new
+            {
+                t.Id,
+                t.Title,
+                SemesterCode = t.Period.AcademicSemester.Code,
+                t.KeywordsJson,
+                t.Domain
+            })
+            .ToArrayAsync(ct);
+
+        var publishedTopicIds = publishedTopics.Select(t => t.Id).ToHashSet();
+
+        var projectsQuery = db.Projects.AsNoTracking()
+            .Where(p => (p.Status == "APPROVED" || p.Status == "ACTIVE" || p.Status == "COMPLETED")
+                && recentSemesterIds.Contains(p.Team.AcademicSemesterId));
+        if (leadDepartmentId.HasValue)
+            projectsQuery = projectsQuery.Where(p => p.ProjectMajors.Any(pm => pm.Major.DepartmentId == leadDepartmentId.Value)
+                || db.Set<ProjectRegistrationSnapshot>().Any(s => s.ProjectId == p.Id && s.LeadDepartmentId == leadDepartmentId.Value));
+        if (excludeProjectId.HasValue)
+            projectsQuery = projectsQuery.Where(p => p.Id != excludeProjectId.Value);
+
+        var approvedProjects = await projectsQuery
+            .Select(p => new
+            {
+                p.Id,
+                p.Title,
+                SemesterCode = p.Team.AcademicSemester.Code,
+                Keywords = p.ProjectTags.Where(pt => pt.Tag.TagType == "KEYWORD").Select(pt => pt.Tag.Name).ToArray(),
+                Domain = p.ProjectTags.Where(pt => pt.Tag.TagType == "DOMAIN").Select(pt => pt.Tag.Name).FirstOrDefault(),
+                p.TopicId
+            })
+            .ToArrayAsync(ct);
+
+        var candidates = publishedTopics
+            .Select(t => (t.Id, t.Title, t.SemesterCode, Keywords: ParseKeywords(t.KeywordsJson), t.Domain))
+            .Concat(approvedProjects
+                .Where(p => p.TopicId == null || !publishedTopicIds.Contains(p.TopicId.Value))
+                .Select(p => (p.Id, p.Title, p.SemesterCode, Keywords: (IReadOnlyList<string>)p.Keywords, p.Domain)))
+            .ToArray();
+
+        var normalizedQueryTitle = AIPMS.Domain.Topics.TopicRules.NormalizeTitle(title);
+        TopicSummaryDto? exactMatch = null;
+        var similar = new List<SimilarTopicMatchDto>();
+
+        foreach (var candidate in candidates)
+        {
+            var candidateNormTitle = AIPMS.Domain.Topics.TopicRules.NormalizeTitle(candidate.Title);
+            if (!string.IsNullOrEmpty(normalizedQueryTitle) && candidateNormTitle == normalizedQueryTitle)
+            {
+                exactMatch ??= new TopicSummaryDto(candidate.Id, candidate.Title, candidate.SemesterCode);
+            }
+
+            var score = AIPMS.Domain.Topics.TopicRules.CalculateSimilarity(keywords, domain, candidate.Keywords, candidate.Domain);
+            if (score >= AIPMS.Domain.Topics.TopicRules.SimilarityWarningThreshold)
+            {
+                similar.Add(new SimilarTopicMatchDto(candidate.Id, candidate.Title, candidate.SemesterCode, score));
+            }
+        }
+
+        return new TopicSimilarityResultDto(exactMatch,
+            similar.OrderByDescending(s => s.Score).ThenByDescending(s => s.Id).ToArray());
+    }
+
+    private static IReadOnlyList<string> ParseKeywords(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<string[]>(json) ?? []; }
+        catch { return []; }
+    }
+
     private static bool LockConflict(Exception error)
     {
         for (Exception? e = error; e is not null; e = e.InnerException)
@@ -198,3 +293,4 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
         return false;
     }
 }
+

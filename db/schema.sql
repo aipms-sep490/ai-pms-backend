@@ -551,11 +551,12 @@ CREATE TABLE dbo.supervisor_requests (
     request_message         NVARCHAR(2000) NULL,
     response_message        NVARCHAR(2000) NULL,
     requested_at            DATETIME2(0) NOT NULL CONSTRAINT df_supervisor_requests_requested_at DEFAULT (SYSUTCDATETIME()),
+    expires_at              DATETIME2(0) NULL,
     responded_at            DATETIME2(0) NULL,
     created_at              DATETIME2(0) NOT NULL CONSTRAINT df_supervisor_requests_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at              DATETIME2(0) NOT NULL CONSTRAINT df_supervisor_requests_updated_at DEFAULT (SYSUTCDATETIME()),
     CONSTRAINT pk_supervisor_requests PRIMARY KEY (id),
-    CONSTRAINT ck_supervisor_requests_status CHECK (status IN (N'PENDING', N'ACCEPTED', N'REJECTED', N'CANCELLED')),
+    CONSTRAINT ck_supervisor_requests_status CHECK (status IN (N'PENDING', N'ACCEPTED', N'REJECTED', N'CANCELLED', N'EXPIRED', N'RELEASED')),
     CONSTRAINT ck_supervisor_requests_assignment_type CHECK (assignment_type IN ('PRIMARY','DISCIPLINE_MENTOR')),
     CONSTRAINT ck_supervisor_requests_assignment_slot CHECK ((assignment_type = 'PRIMARY' AND major_id IS NULL)
         OR (assignment_type = 'DISCIPLINE_MENTOR' AND major_id IS NOT NULL)),
