@@ -103,6 +103,24 @@ public sealed class SubmitProjectCommandHandler(
             throw new ConflictException("The project registration period is currently closed or the deadline has passed.");
         }
 
+        // BR-58: Re-validate topic selection if proposal source is PUBLISHED_TOPIC
+        if (string.Equals(project.ProposalSource, "PUBLISHED_TOPIC", StringComparison.OrdinalIgnoreCase))
+        {
+            if (project.TopicId is null)
+            {
+                throw new ConflictException("A published-topic proposal must reference a valid topic.");
+            }
+
+            if (topicSelectionGuard is not null)
+            {
+                await topicSelectionGuard.ValidateTopicSelectionAsync(
+                    project.TopicId.Value,
+                    project.Id,
+                    actorUserId,
+                    cancellationToken);
+            }
+        }
+
         // Task 3: Pre-check content completeness for STUDENT_PROPOSAL
         var domainTag = project.Tags.FirstOrDefault(t => t.TagType == "DOMAIN")?.Name ?? string.Empty;
         var techTags = project.Tags.Where(t => t.TagType == "TECHNOLOGY").Select(t => t.Name).ToArray();
@@ -176,24 +194,6 @@ public sealed class SubmitProjectCommandHandler(
             throw new AIPMS.Domain.Exceptions.DomainException(
                 $"A discipline mentor must accept the invitation for major {missingMajorId} before submission.",
                 $"MENTOR_NOT_CONFIRMED:{missingMajorId}");
-        }
-
-        // BR-58: Re-validate topic selection if proposal source is PUBLISHED_TOPIC
-        if (string.Equals(project.ProposalSource, "PUBLISHED_TOPIC", StringComparison.OrdinalIgnoreCase))
-        {
-            if (project.TopicId is null)
-            {
-                throw new ConflictException("A published-topic proposal must reference a valid topic.");
-            }
-
-            if (topicSelectionGuard is not null)
-            {
-                await topicSelectionGuard.ValidateTopicSelectionAsync(
-                    project.TopicId.Value,
-                    project.Id,
-                    actorUserId,
-                    cancellationToken);
-            }
         }
 
         // Update project status to SUBMITTED and write history (all within repository transaction)

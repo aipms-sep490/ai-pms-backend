@@ -25,11 +25,13 @@ $processEnvironment = @{
     Jwt__SigningKey = 'offline-openapi-generation-only-not-a-deployment-signing-key-123456789'
     Observability__LogFilePath = $logBase + '-app.log'
 }
+foreach ($k in $processEnvironment.Keys) {
+    [System.Environment]::SetEnvironmentVariable($k, $processEnvironment[$k], "Process")
+}
 $start = @{
     FilePath = 'dotnet'
     ArgumentList = @('run','--project','src/AIPMS.Api/AIPMS.Api.csproj','-c','Release','--no-build','--no-launch-profile','--urls',$apiUrl)
     WorkingDirectory = $repoRoot
-    Environment = $processEnvironment
     PassThru = $true
     RedirectStandardOutput = $logBase + '-out.log'
     RedirectStandardError = $logBase + '-err.log'
@@ -49,7 +51,7 @@ try {
     try {
         $options = [System.Text.Json.JsonSerializerOptions]::new()
         $options.WriteIndented = $true
-        $formatted = [System.Text.Json.JsonSerializer]::Serialize[System.Text.Json.JsonElement]($doc.RootElement, $options)
+        $formatted = [System.Text.Json.JsonSerializer]::Serialize($doc.RootElement, $options)
         [System.IO.File]::WriteAllText($openApiPath, $formatted)
     } finally { $doc.Dispose() }
     Write-Output 'Updated OpenAPI from an offline host with delivery workers disabled.'
