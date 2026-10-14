@@ -1,0 +1,186 @@
+{
+  "sourceCommit": "f5e515c1cc62c12f0078cbc40643fcebe56df502",
+  "ciRun": 38538251172,
+  "unitTests": 1076,
+  "integrationTests": 1299,
+  "sharedMigration": {
+    "commit": "f5e515c1cc62c12f0078cbc40643fcebe56df502",
+    "file": "db/changes/20261013_add_industry_advisory.sql",
+    "sha256": "0C1444EEC712927A0EAD60A2DE3CDB2DE56A5BF5573EBD76979A57ADDF239007",
+    "passes": 2,
+    "before": {
+      "dbName": "AI_PMS",
+      "users": 21,
+      "projects": 4,
+      "assignments": 2
+    },
+    "after": {
+      "dbName": "AI_PMS",
+      "users": 21,
+      "projects": 4,
+      "assignments": 2
+    },
+    "constraints": [
+      {
+        "name": "fk_industry_assignment_creator",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_share_assignment",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_share_version",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_share_file",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_share_creator",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_feedback_assignment",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_feedback_author",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_expert_user",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_expert_creator",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_invite_expert",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_invite_notification",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_assignment_project",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_assignment_expert",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "fk_industry_assignment_major",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "ck_industry_assignment_scope",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "ck_industry_assignment_dates",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "ck_industry_share_size",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "ck_industry_feedback_version",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "ck_industry_feedback_length",
+        "is_disabled": false,
+        "is_not_trusted": false
+      },
+      {
+        "name": "ck_industry_invite_dates",
+        "is_disabled": false,
+        "is_not_trusted": false
+      }
+    ],
+    "atUtc": "2026-10-14T09:01:32.958773Z",
+    "industryEnabled": false
+  },
+  "schemaAudit": {
+    "integrityChecks": 637,
+    "integrityPass": true,
+    "missingSignatures": 17,
+    "extraSignatures": 26,
+    "schemaMatch": false,
+    "businessSignals": [
+      {
+        "code": "DUPLICATE_ACTIVE_PRIMARY",
+        "affected": 0
+      },
+      {
+        "code": "DUPLICATE_ACTIVE_MENTOR",
+        "affected": 0
+      },
+      {
+        "code": "PRIMARY_EVALUATOR_CONFLICT",
+        "affected": 0
+      },
+      {
+        "code": "MISSING_FROZEN_REGISTRATION",
+        "affected": 3
+      },
+      {
+        "code": "UNKNOWN_SNAPSHOT_LEAD_OR_MAJOR_MAP",
+        "affected": 1
+      },
+      {
+        "code": "FINAL_FILE_MISSING_EXACT_REFERENCE",
+        "affected": 0
+      },
+      {
+        "code": "FINAL_FILE_UNKNOWN_TARGET",
+        "affected": 0
+      }
+    ]
+  },
+  "deployment": {
+    "industryOpenApiRoutes": 12,
+    "image": "aipms-api:f5e515c",
+    "health": "healthy",
+    "flags": {
+      "WorkingAgreement": false,
+      "PeerEvaluation": false,
+      "Industry": false,
+      "Appeals": false,
+      "SupervisorRecommendations": false
+    },
+    "verifiedAtUtc": "2026-10-14T09:06:49.9689255Z",
+    "publicSystemStatus": 200,
+    "previousImage": "aipms-api:3337e60"
+  },
+  "integratedReady": false,
+  "limitations": [
+    "Google verifier and storage test adapters; real provider/browser acceptance outstanding",
+    "Shared legacy provenance not inferred or backfilled",
+    "Appeal academic policy approval remains separate"
+  ]
+}

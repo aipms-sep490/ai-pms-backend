@@ -40,7 +40,9 @@ public sealed class WorkingAgreementEndpointTests(EvaluationDraftDatabaseFixture
     [Fact]
     public async Task Publish_accept_successor_preserves_version_and_audit_and_rerun()
     {
-        var s = await Seed(true); using var app = new AgreementFactory(database);
+        var s = await Seed(true);
+        var evidence = new ApiAcceptanceEvidence("expansion-working-agreement");
+        using var app = new AgreementFactory(database) { AcceptanceEvidence = evidence };
         using var leader = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         Assert.Equal(HttpStatusCode.NoContent, (await leader.GetAsync(Url(s.ProjectId))).StatusCode);
         var draft = await Body<WorkingAgreementDto>(await leader.PutAsJsonAsync(Url(s.ProjectId) + "/draft", Input()));
@@ -64,6 +66,8 @@ public sealed class WorkingAgreementEndpointTests(EvaluationDraftDatabaseFixture
         foreach (var batch in System.Text.RegularExpressions.Regex.Split(sql, @"(?im)^\s*GO\s*$"))
             if (!string.IsNullOrWhiteSpace(batch)) await db.Database.ExecuteSqlRawAsync(batch);
         Assert.Equal(2, await db.Set<WorkingAgreement>().CountAsync(a => a.ProjectId == s.ProjectId));
+        await evidence.SaveAsync(new { versions = 2, acceptanceAuditExactlyOnce = true,
+            successorInheritsConsent = false, migrationRerunPreservesHistory = true });
     }
     [Fact]
     public async Task Scope_disabled_archived_and_roster_change_fail_closed()
