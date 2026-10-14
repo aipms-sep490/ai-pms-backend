@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : ISupervisorCandidateRepository
+internal sealed class SupervisorCandidateRepository(AipmsDbContext context, TimeProvider clock) : ISupervisorCandidateRepository
 {
     public async Task<SupervisorCandidateProject?> GetProjectAsync(long projectId, DateTime now, CancellationToken ct)
     {
@@ -60,12 +60,14 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context) : IS
 
     public async Task<PagedResult<SupervisorCandidateModel>> SearchAsync(SupervisorCandidateSearch search, CancellationToken ct)
     {
+        var now = clock.GetUtcNow().UtcDateTime;
         var profiles = context.SupervisorProfiles.AsNoTracking()
             .Where(p => p.IsAvailable && p.User.Status == "ACTIVE" && p.User.Department != null
                 && p.User.Department.IsActive && p.User.Department.Organization.IsActive
                 && search.DepartmentIds.Contains(p.User.DepartmentId!.Value)
                 && p.User.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Lecturer)
                 && !p.SupervisorRequests.Any(r => r.ProjectId == search.ProjectId && r.Status == "PENDING"
+                    && (r.ExpiresAt == null || r.ExpiresAt > now)
                     && r.AssignmentType == search.AssignmentType && r.MajorId == search.MajorId));
         if (search.ExcludedProfileId.HasValue) profiles = profiles.Where(p => p.Id != search.ExcludedProfileId);
         if (search.ProfileIds is not null) profiles = profiles.Where(p => search.ProfileIds.Contains(p.Id));

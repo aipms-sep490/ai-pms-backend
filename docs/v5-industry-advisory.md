@@ -111,3 +111,6 @@ invariants, deploy merged image with Industry off. Preserve previous image/data;
 rollback through application/feature configuration. Enable only after Tin implements
 the enrollment route, adapters and provider/browser acceptance. Configure email
 worker and persisted Data Protection keys before invites.
+
+A dedicated isolated scenario exchanges the enrollment response's issued JWT through the production account validator (no academic role) and verifies immediate 401 after account disable. Google identity remains a fake verifier; this does not claim live provider acceptance.
+

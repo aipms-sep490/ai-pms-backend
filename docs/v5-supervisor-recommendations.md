@@ -93,3 +93,6 @@ SupervisorRequestEndpointTests; existing supervisor request/replacement/D17 test
 SchemaParityTests fresh/upgrade/rerun and mapped-column checks. SQL/API tests use
 owned isolated databases. API evidence is allowlisted synthetic request/response,
 run/item DB readback and audit; browser and real-mailbox tests are separate.
+
+Registration-expiry compatibility: a PENDING request whose expiresAt is at or before server time no longer hides the profile from candidates/recommendations. This filter runs before count/ranking/paging and does not mutate request history during a read; legacy null expiry remains pending.
+

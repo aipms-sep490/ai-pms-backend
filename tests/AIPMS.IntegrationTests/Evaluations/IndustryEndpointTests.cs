@@ -28,7 +28,7 @@ public sealed partial class PolicyEvaluationEndpointTests
     private const string IndustryRoot = "/api/v1/industry/assignments";
     private const string InviteRoot = "/api/v1/admin/industry/invitations";
     private const string EnrollRoot = "/api/v1/auth/industry/google";
-    private sealed class IndustryFactory(EvaluationDraftDatabaseFixture database, bool enabled = true, bool failAudit = false) : EvaluationFactory(database, failAudit)
+    private sealed class IndustryFactory(EvaluationDraftDatabaseFixture database, bool enabled = true, bool failAudit = false, bool realAccountValidation = false) : EvaluationFactory(database, failAudit)
     {
         public AppealStorage Storage { get; } = new();
         public AppealClock Clock { get; } = new();
@@ -43,6 +43,11 @@ public sealed partial class PolicyEvaluationEndpointTests
                 s.RemoveAll<IFileStorage>(); s.AddSingleton<IFileStorage>(Storage);
                 s.RemoveAll<TimeProvider>(); s.AddSingleton<TimeProvider>(Clock);
                 s.RemoveAll<IGoogleIdentityVerifier>(); s.AddSingleton<IGoogleIdentityVerifier, IndustryVerifier>();
+                if (realAccountValidation)
+                {
+                    s.RemoveAll<AIPMS.Application.Abstractions.Security.IAccessTokenAccountValidator>();
+                    s.AddScoped<AIPMS.Application.Abstractions.Security.IAccessTokenAccountValidator, AIPMS.Infrastructure.Identity.AccessTokenAccountValidator>();
+                }
                 s.RemoveAll<Microsoft.Extensions.Options.IConfigureOptions<RateLimiterOptions>>();
                 s.Configure<RateLimiterOptions>(o => o.AddPolicy("authentication", _ => RateLimitPartition.GetNoLimiter("industry-test")));
             });
@@ -295,5 +300,19 @@ public sealed partial class PolicyEvaluationEndpointTests
         Assert.Equal(1, files.TotalCount); Assert.Equal(mkt.FileId, Assert.Single(files.Items).FileId);
         Assert.Equal("exact", await expert.GetStringAsync(share.DownloadUrl));
         Assert.Equal(HttpStatusCode.NotFound, (await expert.GetAsync(root + "/evidence/999999/download")).StatusCode);
+    }
+    [Fact]
+    public async Task Industry_enrollment_issued_role_free_JWT_uses_real_account_validation()
+    {
+        var (s, _) = await Seed(); using var app = new IndustryFactory(database, realAccountValidation:true);
+        app.Clock.Now = new DateTime(DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond, DateTimeKind.Utc);
+        using var admin = app.CreateAuthenticatedClient(s.Scope.Users.Admin);
+        var invited = await InviteIndustry(app, admin); using var browser = IndustryBrowser(app);
+        var login = await Body<LoginResponse>(await browser.PostAsJsonAsync(EnrollRoot + "/enroll", Enrollment(await IndustryChallenge(browser), invited.Invite, invited.Secret)));
+        using var expert = app.CreateClient(); expert.DefaultRequestHeaders.Authorization = new("Bearer", login.AccessToken);
+        Assert.Empty((await Body<PagedResult<IndustryAssignmentDto>>(await expert.GetAsync(IndustryRoot))).Items);
+        await using (var db = database.CreateContext())
+        { var u = (await db.Users.FindAsync(invited.Invite.ExpertId))!; u.Status = "INACTIVE"; await db.SaveChangesAsync(); }
+        Assert.Equal(HttpStatusCode.Unauthorized, (await expert.GetAsync(IndustryRoot)).StatusCode);
     }
 }
