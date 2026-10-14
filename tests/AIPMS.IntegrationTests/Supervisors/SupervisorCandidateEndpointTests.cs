@@ -53,7 +53,7 @@ public sealed class SupervisorCandidateEndpointTests(SupervisorDatabaseFixture d
     }
 
     [Theory]
-    [InlineData("DRAFT")]
+    [InlineData("SUBMITTED")]
     [InlineData("UNDER_REVIEW")]
     [InlineData("SUPERVISOR_PENDING")]
     [InlineData("ACTIVE")]

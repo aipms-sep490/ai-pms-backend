@@ -6,6 +6,7 @@ using AIPMS.Application.Features.Teams.Abstractions;
 using AIPMS.Application.Features.Topics.Abstractions;
 using AIPMS.Application.Features.Topics.DTOs;
 using AIPMS.Application.Features.Topics.Models;
+using AIPMS.Domain.Exceptions;
 using AIPMS.Domain.Teams;
 using AIPMS.Domain.Topics;
 
@@ -93,6 +94,22 @@ public sealed class TopicWorkflow(ITopicRepository repository, ITeamFormationPol
     public async Task<TopicDto> GetForSelection(long id, CancellationToken ct) =>
         await repository.GetByIdForSelectionAsync(id, await Actor(ct), ct) ?? throw new NotFoundException("Topic", id);
 
+    public async Task<TopicSimilarityResultDto> CheckSimilarity(string? title, string? keywords, long? leadDepartmentId,
+        int periodWindow, CancellationToken ct)
+    {
+        var actor = await Actor(ct);
+        if (actor.OrganizationId is not long organizationId)
+            return new TopicSimilarityResultDto(null, []);
+
+        var effectiveDepartmentId = leadDepartmentId ?? actor.DepartmentId;
+        var keywordList = string.IsNullOrWhiteSpace(keywords)
+            ? []
+            : keywords.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return await repository.CheckSimilarityAsync(organizationId, effectiveDepartmentId, title, keywordList, null,
+            periodWindow <= 0 ? 3 : periodWindow, null, null, ct);
+    }
+
     public Task<TopicDto> Create(CreateTopicRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
     {
         var actor = await Actor(ct);
@@ -124,9 +141,30 @@ public sealed class TopicWorkflow(ITopicRepository repository, ITeamFormationPol
         RequireToken(topic, token);
         if (publish ? topic.Status != "DRAFT" : topic.Status == "CLOSED")
             throw new ConflictException("Invalid topic state transition.");
-        if (publish) await ValidateScope(topic.ProjectPeriodId, topic.LeadDepartmentId, Content(topic), true, ct);
+        TopicSimilarityResultDto? similarity = null;
+        if (publish)
+        {
+            var period = await ValidateScope(topic.ProjectPeriodId, topic.LeadDepartmentId, Content(topic), true, ct);
+            similarity = await repository.CheckSimilarityAsync(period.OrganizationId, topic.LeadDepartmentId,
+                topic.Title, topic.Keywords, topic.Domain, 3, topic.Id, null, ct);
+            if (similarity.ExactMatch is not null)
+                throw new DomainException("Topic title duplicates an existing topic or approved project in the last 3 periods.", "DUPLICATE_TOPIC_TITLE");
+        }
         var result = await repository.SetStatusAsync(id, publish, reason, actor, clock.GetUtcNow().UtcDateTime, ct);
         await Audit(publish ? "TOPIC_PUBLISHED" : "TOPIC_CLOSED", result, actor, ct);
+        if (publish && similarity is { Similar.Count: > 0 })
+        {
+            await audit.RecordAsync(new AuditEntry(actor.Id, "TOPIC_SIMILARITY_WARNING", "PROJECT_TOPIC", result.Id,
+                new Dictionary<string, object?>
+                {
+                    ["projectPeriodId"] = result.ProjectPeriodId,
+                    ["leadDepartmentId"] = result.LeadDepartmentId,
+                    ["similarCount"] = similarity.Similar.Count,
+                    ["topMatchId"] = similarity.Similar[0].Id,
+                    ["topMatchScore"] = similarity.Similar[0].Score
+                }), ct);
+        }
         return result;
     }, ct);
 }
+

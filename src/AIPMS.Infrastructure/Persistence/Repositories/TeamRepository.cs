@@ -335,4 +335,53 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
             .Skip((page - 1) * pageSize).Take(pageSize).Select(InvitationProjection).ToListAsync(ct);
         return new PagedResult<TeamInvitationData>(items, page, pageSize, count);
     }
+
+    public async Task<bool> CanUserViewTeamAsync(long teamId, long userId, DateTime now, CancellationToken ct)
+    {
+        var user = await context.Users.AsNoTracking().Where(u => u.Id == userId && u.Status == "ACTIVE")
+            .Select(u => new
+            {
+                u.DepartmentId,
+                Admin = u.UserRoleUsers.Any(r => r.Role.Code == AIPMS.Application.Common.Security.AppRoles.Admin),
+                Lecturer = u.UserRoleUsers.Any(r => r.Role.Code == AIPMS.Application.Common.Security.AppRoles.Lecturer),
+                Student = u.UserRoleUsers.Any(r => r.Role.Code == AIPMS.Application.Common.Security.AppRoles.Student),
+                Staff = u.UserRoleUsers.Any(r => r.Role.Code == AIPMS.Application.Common.Security.AppRoles.DepartmentStaff)
+            }).SingleOrDefaultAsync(ct);
+        if (user is null) return false;
+        if (user.Admin) return true;
+
+        if (user.Student && await context.TeamMembers.AnyAsync(m => m.TeamId == teamId && m.UserId == userId && m.LeftAt == null, ct))
+            return true;
+
+        if (user.Lecturer)
+        {
+            var isInvitedOrAssigned = await context.Projects.AnyAsync(p => p.TeamId == teamId && (
+                p.SupervisorAssignments.Any(a => a.SupervisorProfile.UserId == userId && a.EndedAt == null)
+                || p.SupervisorRequests.Any(r => r.SupervisorProfile.UserId == userId
+                    && (r.Status == "ACCEPTED" || (r.Status == "PENDING" && (r.ExpiresAt == null || r.ExpiresAt > now))))
+            ), ct);
+            if (isInvitedOrAssigned) return true;
+        }
+
+        if (user.Staff && user.DepartmentId.HasValue)
+        {
+            var config = await context.Set<TeamAcademicConfiguration>().AsNoTracking()
+                .Include(c => c.Requirements)
+                .SingleOrDefaultAsync(c => c.TeamId == teamId, ct);
+            if (config != null)
+            {
+                if (config.LeadDepartmentId == user.DepartmentId.Value) return true;
+                var reqMajorIds = config.Requirements.Select(r => r.MajorId).ToArray();
+                if (await context.Majors.AnyAsync(m => reqMajorIds.Contains(m.Id) && m.DepartmentId == user.DepartmentId.Value, ct))
+                    return true;
+            }
+            else
+            {
+                if (await context.TeamMembers.AnyAsync(m => m.TeamId == teamId && m.User.DepartmentId == user.DepartmentId.Value && m.LeftAt == null, ct))
+                    return true;
+            }
+        }
+
+        return false;
+    }
 }

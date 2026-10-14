@@ -53,5 +53,6 @@
   "20261012_add_peer_evaluations.sql",
   "20261012_add_result_revisions.sql",
   "20261013_add_result_appeals.sql",
+  "20261013_add_supervisor_request_expiry_and_release.sql",
   "20261013_add_industry_advisory.sql"
 ]

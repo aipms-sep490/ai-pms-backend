@@ -133,6 +133,12 @@ internal static class PolicyVersions
             && (execution ? (p.Status == "ACTIVE" || p.Status == "CLOSED") && p.StartAt <= now
                 : p.Status == "ACTIVE" && p.StartAt <= now && now < p.EndAt))
             .OrderByDescending(p => p.StartAt).ThenByDescending(p => p.Id).FirstOrDefaultAsync(ct);
+        if (selection is null && !await db.ProjectPeriods.AnyAsync(p => p.AcademicSemesterId == semesterId && p.PeriodType == "SUPERVISOR_SELECTION", ct))
+        {
+            selection = await db.ProjectPeriods.Where(p => p.AcademicSemesterId == semesterId && p.PeriodType == "REGISTRATION"
+                && p.Status == "ACTIVE" && p.StartAt <= now && now < p.EndAt && p.MaxProjectsPerSupervisor != null)
+                .OrderByDescending(p => p.StartAt).ThenByDescending(p => p.Id).FirstOrDefaultAsync(ct);
+        }
         if (selection is null) throw new ConflictException("A supervisor capacity policy is required.");
         var capacity = await EnsureAsync(db, selection.Id, now, ct);
         if (!execution && (now < capacity.EffectiveFrom || now >= capacity.EffectiveTo))

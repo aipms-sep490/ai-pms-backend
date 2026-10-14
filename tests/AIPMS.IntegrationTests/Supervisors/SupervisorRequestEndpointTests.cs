@@ -389,6 +389,171 @@ public sealed partial class SupervisorRequestEndpointTests(SupervisorDatabaseFix
         Assert.Equal("REJECTED", (await Body<SupervisorRequestDto>(await Respond(lecturer, request.Id, "reject"))).Status);
     }
 
+    [Fact]
+    public async Task D18_1_send_and_accept_primary_on_draft_project_keeps_draft_and_grants_scoped_lecturer_read()
+    {
+        var s = await database.SeedAsync();
+        var p = await SeedProject(s);
+        await using (var db = database.CreateContext())
+        {
+            (await db.Projects.FindAsync(p.Id))!.Status = "DRAFT";
+            await db.SaveChangesAsync();
+        }
+        using var app = new SupervisorFactory(database, clock: new Clock());
+        using var leader = app.CreateAuthenticatedClient(p.LeaderId);
+        using var lecturer = app.CreateAuthenticatedClient(s.Lecturer, roles: [AIPMS.Application.Common.Security.AppRoles.Lecturer]);
+        using var uninvited = app.CreateAuthenticatedClient(s.NewLecturer, roles: [AIPMS.Application.Common.Security.AppRoles.Lecturer]);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await lecturer.GetAsync($"/api/v1/projects/{p.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await lecturer.GetAsync($"/api/v1/teams/{p.TeamId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await uninvited.GetAsync($"/api/v1/projects/{p.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await uninvited.GetAsync($"/api/v1/teams/{p.TeamId}")).StatusCode);
+
+        var request = await Body<SupervisorRequestDto>(await Send(leader, p.Id, s.ProfileId));
+        Assert.Equal("PENDING", request.Status);
+        Assert.Equal(Now.AddDays(7), request.ExpiresAt);
+
+        Assert.Equal(HttpStatusCode.OK, (await lecturer.GetAsync($"/api/v1/projects/{p.Id}")).StatusCode);
+        var teamScoped = await Body<AIPMS.Application.Features.Teams.DTOs.TeamDto>(await lecturer.GetAsync($"/api/v1/teams/{p.TeamId}"));
+        Assert.Equal(2, teamScoped.Members.Count);
+        Assert.Equal(HttpStatusCode.Forbidden, (await uninvited.GetAsync($"/api/v1/projects/{p.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await uninvited.GetAsync($"/api/v1/teams/{p.TeamId}")).StatusCode);
+
+        var accepted = await Body<SupervisorRequestDto>(await Respond(lecturer, request.Id, "accept"));
+        Assert.Equal("ACCEPTED", accepted.Status);
+        Assert.NotNull(accepted.AssignmentId);
+
+        await using var verify = database.CreateContext();
+        Assert.Equal("DRAFT", (await verify.Projects.FindAsync(p.Id))!.Status);
+        var assignment = await verify.SupervisorAssignments.SingleAsync(a => a.ProjectId == p.Id);
+        Assert.True(assignment.IsPrimary);
+        Assert.Null(assignment.EndedAt);
+        Assert.Equal(HttpStatusCode.OK, (await lecturer.GetAsync($"/api/v1/projects/{p.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await lecturer.GetAsync($"/api/v1/teams/{p.TeamId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task D18_2_parallel_mentor_requests_for_same_major_first_accept_wins_and_cancels_loser()
+    {
+        var s = await database.SeedAsync();
+        var p = await SeedProject(s);
+        var secondProfile = await AddProfile(s.NewLecturer);
+        long majorId;
+        await using (var db = database.CreateContext())
+        {
+            (await db.Projects.FindAsync(p.Id))!.Status = "DRAFT";
+            majorId = await db.ProjectMajors.Where(m => m.ProjectId == p.Id).Select(m => m.MajorId).SingleAsync();
+            var secondMajor = new Major { DepartmentId = s.DepartmentId, Code = Guid.NewGuid().ToString("N"), Name = "AI", IsActive = true };
+            db.ProjectMajors.Add(new() { ProjectId = p.Id, Major = secondMajor });
+            db.SupervisorExpertises.AddRange(
+                new SupervisorExpertise { SupervisorProfileId = s.ProfileId, ExpertiseName = "SE" },
+                new SupervisorExpertise { SupervisorProfileId = secondProfile, ExpertiseName = "SE" });
+            await db.SaveChangesAsync();
+        }
+        using var app = new SupervisorFactory(database, clock: new Clock());
+        using var leader = app.CreateAuthenticatedClient(p.LeaderId);
+        using var mentor1 = app.CreateAuthenticatedClient(s.Lecturer);
+        using var mentor2 = app.CreateAuthenticatedClient(s.NewLecturer);
+
+        var r1 = await Body<SupervisorRequestDto>(await SendMentor(leader, p.Id, s.ProfileId, majorId));
+        var r2 = await Body<SupervisorRequestDto>(await SendMentor(leader, p.Id, secondProfile, majorId));
+        Assert.Equal("PENDING", r1.Status);
+        Assert.Equal("PENDING", r2.Status);
+
+        var accepted = await Body<SupervisorRequestDto>(await Respond(mentor1, r1.Id, "accept"));
+        Assert.Equal("ACCEPTED", accepted.Status);
+        Assert.Equal(HttpStatusCode.Conflict, (await Respond(mentor2, r2.Id, "accept")).StatusCode);
+
+        await using var verify = database.CreateContext();
+        Assert.Equal("DRAFT", (await verify.Projects.FindAsync(p.Id))!.Status);
+        Assert.Equal("ACCEPTED", (await verify.SupervisorRequests.FindAsync(r1.Id))!.Status);
+        Assert.Equal("CANCELLED", (await verify.SupervisorRequests.FindAsync(r2.Id))!.Status);
+        Assert.Single(await verify.SupervisorAssignments.Where(a => a.ProjectId == p.Id && a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId == majorId && a.EndedAt == null).ToListAsync());
+    }
+
+    [Fact]
+    public async Task D18_6_reject_project_releases_accepted_requests_cancels_pending_and_frees_capacity()
+    {
+        var s = await database.SeedAsync();
+        var p1 = await SeedProject(s, quota: 1);
+        var p2 = await SeedProject(s, p1.SemesterId);
+        var mentorProfile = await AddProfile(s.NewLecturer);
+        long majorId;
+        await using (var db = database.CreateContext())
+        {
+            (await db.SupervisorProfiles.FindAsync(s.ProfileId))!.MaxActiveProjects = 1;
+            (await db.Projects.FindAsync(p1.Id))!.Status = "DRAFT";
+            (await db.Projects.FindAsync(p2.Id))!.Status = "DRAFT";
+            majorId = await db.ProjectMajors.Where(m => m.ProjectId == p1.Id).Select(m => m.MajorId).SingleAsync();
+            db.SupervisorExpertises.Add(new SupervisorExpertise { SupervisorProfileId = mentorProfile, ExpertiseName = "SE" });
+            await db.SaveChangesAsync();
+        }
+        using var app = new SupervisorFactory(database, clock: new Clock());
+        using var leader1 = app.CreateAuthenticatedClient(p1.LeaderId);
+        using var leader2 = app.CreateAuthenticatedClient(p2.LeaderId);
+        using var lecturer = app.CreateAuthenticatedClient(s.Lecturer);
+        using var staff = app.CreateAuthenticatedClient(s.Staff, roles: AppRoles.DepartmentStaff);
+
+        var req1 = await Body<SupervisorRequestDto>(await Send(leader1, p1.Id, s.ProfileId));
+        var accepted1 = await Body<SupervisorRequestDto>(await Respond(lecturer, req1.Id, "accept"));
+        Assert.Equal("ACCEPTED", accepted1.Status);
+
+        var pendingMentor = await Body<SupervisorRequestDto>(await SendMentor(leader1, p1.Id, mentorProfile, majorId));
+        Assert.Equal("PENDING", pendingMentor.Status);
+
+        // Capacity is now full (1/1), so p2 cannot send/accept for s.ProfileId yet.
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(leader2, p2.Id, s.ProfileId)).StatusCode);
+
+        var token = await PrepareApproval(p1);
+        var rejected = await staff.PostAsJsonAsync($"/api/v1/projects/{p1.Id}/reject", new { concurrencyToken = token, reason = "Rejected by department" });
+        Assert.Equal(HttpStatusCode.OK, rejected.StatusCode);
+
+        await using (var verify = database.CreateContext())
+        {
+            Assert.Equal("REJECTED", (await verify.Projects.FindAsync(p1.Id))!.Status);
+            Assert.Equal("RELEASED", (await verify.SupervisorRequests.FindAsync(req1.Id))!.Status);
+            Assert.Equal("CANCELLED", (await verify.SupervisorRequests.FindAsync(pendingMentor.Id))!.Status);
+            var assignment = await verify.SupervisorAssignments.SingleAsync(a => a.Id == accepted1.AssignmentId);
+            Assert.NotNull(assignment.EndedAt);
+        }
+
+        // Lecturer capacity is freed, so p2 can now invite and be accepted!
+        var req2 = await Body<SupervisorRequestDto>(await Send(leader2, p2.Id, s.ProfileId));
+        var accepted2 = await Body<SupervisorRequestDto>(await Respond(lecturer, req2.Id, "accept"));
+        Assert.Equal("ACCEPTED", accepted2.Status);
+    }
+
+    [Fact]
+    public async Task D18_7_pending_request_past_7_days_expires_on_read_and_accept()
+    {
+        var s = await database.SeedAsync();
+        var p = await SeedProject(s);
+        await using (var db = database.CreateContext())
+        {
+            (await db.Projects.FindAsync(p.Id))!.Status = "DRAFT";
+            (await db.ProjectPeriods.FindAsync(p.PeriodId))!.EndAt = Now.AddDays(20);
+            await db.SaveChangesAsync();
+        }
+        using var app = new SupervisorFactory(database, clock: new Clock());
+        using var leader = app.CreateAuthenticatedClient(p.LeaderId);
+        var req = await Body<SupervisorRequestDto>(await Send(leader, p.Id, s.ProfileId));
+        Assert.Equal("PENDING", req.Status);
+        Assert.Equal(Now.AddDays(7), req.ExpiresAt);
+
+        using var expiredApp = new SupervisorFactory(database, clock: new OffsetClock(Now.AddDays(7).AddMinutes(1)));
+        using var lecturer = expiredApp.CreateAuthenticatedClient(s.Lecturer);
+        using var expiredLeader = expiredApp.CreateAuthenticatedClient(p.LeaderId);
+
+        Assert.Equal(HttpStatusCode.Conflict, (await Respond(lecturer, req.Id, "accept")).StatusCode);
+        var list = await Body<PagedResult<SupervisorRequestDto>>(await expiredLeader.GetAsync(ProjectUrl(p.Id)));
+        Assert.Equal("EXPIRED", Assert.Single(list.Items, i => i.Id == req.Id).Status);
+    }
+
+    private sealed class OffsetClock(DateTime utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(utcNow, TimeSpan.Zero);
+    }
+
     private static async Task AssertOneWinner(HttpResponseMessage[] results)
     {
         Assert.Single(results, r => r.StatusCode == HttpStatusCode.OK);

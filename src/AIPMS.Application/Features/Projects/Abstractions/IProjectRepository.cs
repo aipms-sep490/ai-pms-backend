@@ -140,4 +140,25 @@ public interface IProjectRepository
     Task<IReadOnlyList<long>?> GetAuthoritativeDepartmentIdsForTeamAsync(
         long teamId,
         CancellationToken cancellationToken);
+
+    Task<ProjectSupervisorConfirmation> GetSupervisorConfirmationAsync(
+        long projectId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(new ProjectSupervisorConfirmation(true, false, Array.Empty<long>()));
+
+    Task<AIPMS.Application.Features.Topics.DTOs.TopicSimilarityResultDto> CheckProposalSimilarityAsync(
+        long teamId,
+        string title,
+        IReadOnlyList<string> keywords,
+        string domain,
+        long? excludeProjectId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(new AIPMS.Application.Features.Topics.DTOs.TopicSimilarityResultDto(
+            null, Array.Empty<AIPMS.Application.Features.Topics.DTOs.SimilarTopicMatchDto>()));
 }
+
+public sealed record ProjectSupervisorConfirmation(
+    bool HasConfirmedPrimarySupervisor,
+    bool IsInterdisciplinary,
+    IReadOnlyList<long> MissingMentorMajorIds);
+

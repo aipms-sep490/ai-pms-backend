@@ -29,6 +29,7 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
                 throw new ConflictException("PRIMARY requires no majorId; DISCIPLINE_MENTOR requires a positive majorId.");
             await repository.LockSupervisorAndProjectAsync(profileId, projectId, token);
             var now = clock.GetUtcNow().UtcDateTime;
+            await repository.ExpireOverdueAsync(now, token, projectId: projectId);
             await RequireEligibilityAsync(projectId, profileId, now, false, assignmentType == "PRIMARY", majorId, token);
             if (await repository.HasPendingAsync(projectId, profileId, token, assignmentType, majorId))
                 throw new ConflictException("A pending request already exists for this project and supervisor.");
@@ -40,8 +41,10 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             return request.ToDto();
         }, ct);
 
-    public Task<SupervisorRequestDto> CancelAsync(long requestId, CancellationToken ct) =>
-        repository.InTransactionAsync(async token =>
+    public async Task<SupervisorRequestDto> CancelAsync(long requestId, CancellationToken ct)
+    {
+        await repository.ExpireOverdueAsync(clock.GetUtcNow().UtcDateTime, ct, requestId: requestId);
+        return await repository.InTransactionAsync(async token =>
         {
             var actor = await access.EnsureCanReadAsync(token);
             await repository.LockRequestAsync(requestId, token);
@@ -56,9 +59,12 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             await AuditAsync("SUPERVISOR_REQUEST_CANCELLED", actor.UserId, request, result, token);
             return result.ToDto();
         }, ct);
+    }
 
-    public Task<SupervisorRequestDto> RespondAsync(long requestId, bool accept, string? message, CancellationToken ct) =>
-        repository.InTransactionAsync(async token =>
+    public async Task<SupervisorRequestDto> RespondAsync(long requestId, bool accept, string? message, CancellationToken ct)
+    {
+        await repository.ExpireOverdueAsync(clock.GetUtcNow().UtcDateTime, ct, requestId: requestId);
+        return await repository.InTransactionAsync(async token =>
         {
             var actor = await access.EnsureCanReadAsync(token);
             await repository.LockRequestAsync(requestId, token);
@@ -82,6 +88,7 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             {
                 await repository.LockSupervisorAndProjectAsync(request.SupervisorProfileId, request.ProjectId, token);
                 now = clock.GetUtcNow().UtcDateTime;
+                await repository.ExpireOverdueAsync(now, token, projectId: request.ProjectId);
                 var project = await RequireEligibilityAsync(request.ProjectId, request.SupervisorProfileId, now,
                     true, request.AssignmentType == "PRIMARY", request.MajorId, token);
                 previousProjectStatus = project.Status;
@@ -105,13 +112,14 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
                 await audit.RecordAsync(new AuditEntry(actor.UserId, "SUPERVISOR_ASSIGNED", "SUPERVISOR_ASSIGNMENT",
                     result.AssignmentId, new Dictionary<string, object?> { ["requestId"] = request.Id,
                         ["projectId"] = request.ProjectId, ["supervisorProfileId"] = request.SupervisorProfileId }), token);
-                if (request.AssignmentType == "PRIMARY")
+                if (request.AssignmentType == "PRIMARY" && previousProjectStatus is not ("DRAFT" or "REVISION_REQUIRED"))
                     await audit.RecordAsync(new AuditEntry(actor.UserId, "PROJECT_ACTIVATED", "PROJECT",
                         request.ProjectId, new Dictionary<string, object?> { ["requestId"] = request.Id,
                             ["assignmentId"] = result.AssignmentId, ["oldStatus"] = previousProjectStatus, ["newStatus"] = "ACTIVE" }), token);
             }
             return result.ToDto();
         }, ct);
+    }
 
     public async Task<PagedResult<SupervisorRequestDto>> ListAsync(long? projectId, string? status,
         int page, int pageSize, CancellationToken ct)
@@ -125,6 +133,7 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
         }
         else if (!actor.Roles.Contains(AppRoles.Lecturer) || !actor.HasActiveAcademicScope)
             throw new ForbiddenException("Only lecturers can view their supervisor request inbox.");
+        await repository.ExpireOverdueAsync(clock.GetUtcNow().UtcDateTime, ct, projectId: projectId);
         var result = await repository.SearchAsync(new(projectId, projectId.HasValue ? null : actor.UserId,
             status, page, pageSize), ct);
         return new(result.Items.Select(r => r.ToDto()).ToArray(), result.Page, result.PageSize, result.TotalCount);
@@ -141,13 +150,16 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
         bool accepting, bool primary, long? majorId, CancellationToken ct)
     {
         var project = await candidates.GetProjectAsync(projectId, now, ct) ?? throw new NotFoundException("Project", projectId);
-        if (((primary && project.Status != "APPROVED" && !(accepting && project.Status == "SUPERVISOR_PENDING"))
-                || (!primary && project.Status != "ACTIVE"))
+        var validPrimaryStatus = project.Status is "DRAFT" or "REVISION_REQUIRED" or "APPROVED"
+            || (accepting && project.Status == "SUPERVISOR_PENDING");
+        var validMentorStatus = project.Status is "DRAFT" or "REVISION_REQUIRED" or "ACTIVE";
+        if (((primary && !validPrimaryStatus) || (!primary && !validMentorStatus))
             || (primary && project.HasActiveAssignment) || !project.HasActiveSemester || project.DepartmentIds.Count == 0)
             throw new ConflictException("The project is not eligible for supervisor selection.");
         if (!primary && (majorId is null || project.RequiredMajorIds is null || !project.RequiredMajorIds.Contains(majorId.Value)))
             throw new ConflictException("The discipline mentor major must be required by the project.");
-        if (!primary && (project.OccupiedMentorMajors?.Contains(majorId!.Value) == true || !project.HasActiveAssignment))
+        if (!primary && (project.OccupiedMentorMajors?.Contains(majorId!.Value) == true
+                || (project.Status == "ACTIVE" && !project.HasActiveAssignment)))
             throw new ConflictException("The mentor slot is occupied or the project has no primary supervisor.");
         var policies = await candidates.GetSelectionPoliciesAsync(project.AcademicSemesterId, now, ct, !primary);
         if (policies.Count != 1 || policies[0].MaxProjectsPerSupervisor is not > 0)
@@ -165,7 +177,7 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
         var workload = await repository.GetWorkloadAsync(profileId, project.AcademicSemesterId, ct, projectId);
         if (new SupervisorCapacity(workload.ProfileLimit, policies[0].MaxProjectsPerSupervisor!.Value,
                 workload.ActiveProjects, workload.SemesterActiveProjects).RemainingSlots == 0)
-            throw new ConflictException("The supervisor has reached the profile or semester capacity limit.");
+            throw new ConflictException("The supervisor has reached the profile or semester capacity limit.", "SUPERVISOR_CAPACITY_FULL");
         return project;
     }
 
