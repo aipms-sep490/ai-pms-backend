@@ -30,6 +30,9 @@ jobs:
           ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=AI_PMS;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"
           AIPMS_TEST_SQL_CONNECTION: "Server=localhost,1433;Database=master;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"
           AIPMS_ACCEPTANCE_OUTPUT: "${{ runner.temp }}/v5-acceptance"
+      - name: Verify expansion lifecycle evidence
+        shell: pwsh
+        run: ./scripts/verify-v5-expansion-evidence.ps1 -Directory "${{ runner.temp }}/v5-acceptance"
       - name: Preserve redacted v5 acceptance evidence
         uses: actions/upload-artifact@v4
         with:

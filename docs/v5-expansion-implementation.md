@@ -9,8 +9,8 @@ Baseline: develop f479878 (PR #123). Backend/database only; Tin owns frontend PR
 | Peer evaluation rounds | BACKEND_READY | PR #126 / 6d57fbb; CI 1056 unit + 1274 integration; shared migration rerun, 562 integrity checks, healthy deployment; flag off |
 | Immutable result revisions | BACKEND_READY | PR #127 / 3a3e5cd; CI 1070 unit + 1275 integration; migration rerun, 581 integrity checks and healthy deployment |
 | Appeals and two-person correction | BACKEND_READY | PR #128 / 3337e60; CI 1070 unit + 1279 integration; migration rerun, 617 integrity checks, healthy deploy; flag off, policy required |
-| Industry advisory | IN_PROGRESS | v5-industry-advisory.md; scoped invitations, separate Google enrollment, exact shared files and immutable advisory feedback |
-| Joint acceptance / Tin handoff | NOT_STARTED | No INTEGRATED_READY claim |
+| Industry advisory | BACKEND_READY | PR #129 / f5e515c; CI 1076 unit + 1299 integration; migration rerun, 637 integrity checks, healthy deploy; flag off |
+| Joint acceptance / Tin handoff | BACKEND_READY | v5-expansion-handoff.md; seven isolated HTTP/DB reports enforced in CI; browser/provider acceptance outstanding, no INTEGRATED_READY claim |
 
 Keep changes in separate dependency-ordered PRs from updated develop. Each slice
 includes additive bootstrap/manifest/model synchronization, isolated SQL lifecycle,
@@ -22,3 +22,10 @@ recommendations use deterministic rules; peer is visible to author/current Prima
 scoped staff only; appeals require lead-opened windows and two-person decisions;
 Industry is advisory only. No re-defense, course-grade conversion or weighted
 industry scoring. These additions do not close pending P0/P1 browser/provider gates.
+
+Shared rollout evidence: `validation/v5-industry-rollout-2026-10-14.json`.
+All five module flags remain off. Shared legacy schema drift (17 missing / 26 extra
+signatures) and missing academic provenance are recorded separately from passing
+isolated bootstrap/upgrade/rerun parity; no inferred snapshot repair was performed.
+Final contract, screen mapping, test IDs, token/error matrix and rollout runbook:
+`v5-expansion-handoff.md`.

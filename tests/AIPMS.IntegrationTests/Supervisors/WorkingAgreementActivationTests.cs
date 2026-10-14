@@ -33,7 +33,8 @@ public sealed partial class SupervisorRequestEndpointTests
             db.Add(new PeriodPolicyUsage { PolicyVersionId = policy.Id, EntityType = "PROJECT_SUBMISSION", EntityId = snapshot.Id, CreatedAt = Now });
             await db.SaveChangesAsync();
         }
-        using var app = new SupervisorFactory(database, clock: new Clock());
+        var evidence = new ApiAcceptanceEvidence("expansion-working-agreement-activation");
+        using var app = new SupervisorFactory(database, clock: new Clock()) { AcceptanceEvidence = evidence };
         app.Services.GetRequiredService<IOptions<WorkingAgreementSettings>>().Value.Enabled = true;
         using var leader = app.CreateAuthenticatedClient(p.LeaderId);
         using var member = app.CreateAuthenticatedClient(p.MemberId);
@@ -64,5 +65,7 @@ public sealed partial class SupervisorRequestEndpointTests
             Assert.Equal("ACTIVE", (await db.Projects.FindAsync(p.Id))!.Status);
             Assert.Single(await db.SupervisorAssignments.Where(a => a.ProjectId == p.Id).ToArrayAsync());
         }
+        await evidence.SaveAsync(new { incompleteStatusCode = 422, projectStatus = "ACTIVE",
+            activeAssignments = 1, currentRosterConsentRequired = true });
     }
 }
