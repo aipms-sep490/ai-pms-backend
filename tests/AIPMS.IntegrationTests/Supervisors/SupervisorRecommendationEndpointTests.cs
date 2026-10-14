@@ -23,6 +23,22 @@ public sealed partial class SupervisorRequestEndpointTests
     }
 
     [Fact]
+    public async Task Recommendations_ignore_expired_pending_requests_before_count_without_read_side_mutation()
+    {
+        var s = await database.SeedAsync(); var p = await SeedProject(s); await FreezeRecommendations(s, p);
+        using var app = new SupervisorFactory(database, clock: new Clock()); EnableRecommendations(app);
+        using var leader = app.CreateAuthenticatedClient(p.LeaderId);
+        var request = await Body<SupervisorRequestDto>(await Send(leader, p.Id, s.ProfileId));
+        var url = Recommendations(p.Id) + "?pageSize=1";
+        Assert.Empty((await Body<SupervisorRecommendationPreview>(await leader.GetAsync(url))).Candidates.Items);
+        await using (var db = database.CreateContext())
+        { var row = (await db.SupervisorRequests.FindAsync(request.Id))!; row.ExpiresAt = Now; await db.SaveChangesAsync(); }
+        var page = await Body<SupervisorRecommendationPreview>(await leader.GetAsync(url));
+        Assert.Equal(1, page.Candidates.TotalCount); Assert.Equal(s.ProfileId, Assert.Single(page.Candidates.Items).Candidate.Id);
+        await using (var db = database.CreateContext()) Assert.Equal("PENDING", (await db.SupervisorRequests.FindAsync(request.Id))!.Status);
+    }
+
+    [Fact]
     public async Task Recommendations_rank_all_eligible_candidates_before_paging_and_persist_readback_audit()
     {
         var s = await database.SeedAsync(); var p = await SeedProject(s); await FreezeRecommendations(s, p);

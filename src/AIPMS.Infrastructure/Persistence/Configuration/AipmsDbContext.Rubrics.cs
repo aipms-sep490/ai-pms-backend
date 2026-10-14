@@ -17,6 +17,7 @@ public partial class AipmsDbContext
         ConfigurePeerEvaluations(modelBuilder);
         ConfigureResultRevisions(modelBuilder);
         ConfigureResultAppeals(modelBuilder);
+        ConfigureIndustry(modelBuilder);
         ConfigureAcademicTracking(modelBuilder);
         ConfigureMeetingCollaboration(modelBuilder);
         ConfigureSprints(modelBuilder);
