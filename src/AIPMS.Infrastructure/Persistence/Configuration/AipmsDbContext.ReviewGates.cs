@@ -37,7 +37,7 @@ public partial class AipmsDbContext
             e.Property(x => x.Code).HasMaxLength(20).IsUnicode(false); e.Property(x => x.Title).HasMaxLength(255);
             e.Property(x => x.Objective).HasMaxLength(2000); e.Property(x => x.Status).HasMaxLength(30).IsUnicode(false);
             e.Property(x => x.ReviewEligibility).HasMaxLength(20).IsUnicode(false); e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
-            e.HasMany(x => x.Requirements).WithOne().HasForeignKey(x => x.GateInstanceId).OnDelete(DeleteBehavior.NoAction);
+            e.HasMany(x => x.Requirements).WithOne(x => x.GateInstance).HasForeignKey(x => x.GateInstanceId).OnDelete(DeleteBehavior.NoAction);
             e.HasMany(x => x.Assignments).WithOne().HasForeignKey(x => x.GateInstanceId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<ReviewGateTemplate>().WithMany().HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.NoAction);
