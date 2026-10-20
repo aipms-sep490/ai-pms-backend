@@ -62,12 +62,13 @@ public partial class AipmsDbContext
         });
         b.Entity<GateReviewerAssignment>(e => {
             e.ToTable("review_gate_assignments"); e.HasKey(x => x.Id);
-            e.HasIndex(x => new { x.GateInstanceId, x.ReviewerId, x.Scope, x.StudentId }).IsUnique();
+            e.HasIndex(x => new { x.GateInstanceId, x.ReviewerId, x.Scope, x.MajorId, x.StudentId }).IsUnique();
             e.Property(x => x.Scope).HasMaxLength(30).IsUnicode(false); e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.LatestDecision).HasMaxLength(30).IsUnicode(false); e.Property(x => x.ReviewerNotes).HasMaxLength(2000);
             e.Property(x => x.RevocationReason).HasMaxLength(2000);
             e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasOne<Generated.Models.User>().WithMany().HasForeignKey(x => x.ReviewerId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Generated.Models.User>().WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Generated.Models.User>().WithMany().HasForeignKey(x => x.RevokedBy).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.GateInstance).WithMany(x => x.Assignments).HasForeignKey(x => x.GateInstanceId).OnDelete(DeleteBehavior.NoAction);
         });

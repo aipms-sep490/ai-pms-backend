@@ -3503,10 +3503,10 @@ IF OBJECT_ID('dbo.review_gate_requirements','U') IS NULL
 BEGIN
  CREATE TABLE dbo.review_gate_requirements(
   id bigint IDENTITY PRIMARY KEY, gate_definition_id bigint NOT NULL, code varchar(50) NOT NULL, title nvarchar(255) NOT NULL,
-  description nvarchar(2000) NULL, type varchar(40) NOT NULL, scope varchar(30) NOT NULL, major_id bigint NULL,
+  description nvarchar(2000) NULL, type varchar(40) NOT NULL, scope varchar(30) NOT NULL, major_id bigint NULL, target_student_id bigint NULL,
   verification varchar(30) NOT NULL, required bit NOT NULL CONSTRAINT df_review_gate_requirement_required DEFAULT 1,
   CONSTRAINT uq_review_gate_requirement_code UNIQUE(gate_definition_id,code), CONSTRAINT fk_review_gate_requirement_gate FOREIGN KEY(gate_definition_id) REFERENCES dbo.review_gate_definitions(id),
-  CONSTRAINT fk_review_gate_requirement_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id)
+  CONSTRAINT fk_review_gate_requirement_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id), CONSTRAINT fk_review_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id)
  );
 END;
 IF OBJECT_ID('dbo.project_gate_instances','U') IS NULL
@@ -3514,7 +3514,7 @@ BEGIN
  CREATE TABLE dbo.project_gate_instances(
   id bigint IDENTITY PRIMARY KEY, project_id bigint NOT NULL, template_id bigint NOT NULL, template_version int NOT NULL, code varchar(20) NOT NULL,
   sequence int NOT NULL, title nvarchar(255) NOT NULL, objective nvarchar(2000) NOT NULL, status varchar(30) NOT NULL,
-  review_eligibility varchar(20) NOT NULL, required bit NOT NULL, window_start datetime2(0) NULL, window_end datetime2(0) NULL,
+  review_eligibility varchar(20) NOT NULL, required bit NOT NULL, block_next_gate bit NOT NULL CONSTRAINT df_project_gate_block_next_bootstrap DEFAULT 1, blocks_defense bit NOT NULL CONSTRAINT df_project_gate_blocks_defense_bootstrap DEFAULT 0, window_start datetime2(0) NULL, window_end datetime2(0) NULL,
   concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_project_gate_token DEFAULT NEWID(), created_at datetime2(0) NOT NULL CONSTRAINT df_project_gate_created DEFAULT SYSUTCDATETIME(),
   CONSTRAINT uq_project_gate_code UNIQUE(project_id,code), CONSTRAINT fk_project_gate_project FOREIGN KEY(project_id) REFERENCES dbo.projects(id), CONSTRAINT fk_project_gate_template FOREIGN KEY(template_id) REFERENCES dbo.review_gate_templates(id)
  );
@@ -3523,9 +3523,9 @@ IF OBJECT_ID('dbo.project_gate_requirements','U') IS NULL
 BEGIN
  CREATE TABLE dbo.project_gate_requirements(
   id bigint IDENTITY PRIMARY KEY, gate_instance_id bigint NOT NULL, code varchar(50) NOT NULL, title nvarchar(255) NOT NULL, type varchar(40) NOT NULL,
-  scope varchar(30) NOT NULL, major_id bigint NULL, required bit NOT NULL, verification_status varchar(20) NOT NULL,
+  scope varchar(30) NOT NULL, major_id bigint NULL, target_student_id bigint NULL, required bit NOT NULL, verification_status varchar(20) NOT NULL,
   latest_evidence_id bigint NULL, reviewer_feedback nvarchar(2000) NULL,
-  CONSTRAINT uq_project_gate_requirement_code UNIQUE(gate_instance_id,code), CONSTRAINT fk_project_gate_requirement_gate FOREIGN KEY(gate_instance_id) REFERENCES dbo.project_gate_instances(id), CONSTRAINT fk_project_gate_requirement_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id)
+  CONSTRAINT uq_project_gate_requirement_code UNIQUE(gate_instance_id,code), CONSTRAINT fk_project_gate_requirement_gate FOREIGN KEY(gate_instance_id) REFERENCES dbo.project_gate_instances(id), CONSTRAINT fk_project_gate_requirement_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id), CONSTRAINT fk_project_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id)
  );
 END;
 IF OBJECT_ID('dbo.review_gate_evidence','U') IS NULL
@@ -3544,9 +3544,9 @@ IF COL_LENGTH('dbo.review_gate_evidence','storage_key') IS NULL ALTER TABLE dbo.
 IF OBJECT_ID('dbo.review_gate_assignments','U') IS NULL
 BEGIN
  CREATE TABLE dbo.review_gate_assignments(
-  id bigint IDENTITY PRIMARY KEY, gate_instance_id bigint NOT NULL, reviewer_id bigint NOT NULL, scope varchar(30) NOT NULL, major_id bigint NULL,
+  id bigint IDENTITY PRIMARY KEY, gate_instance_id bigint NOT NULL, reviewer_id bigint NOT NULL, scope varchar(30) NOT NULL, major_id bigint NULL, student_id bigint NULL,
   status varchar(20) NOT NULL, latest_decision varchar(30) NULL, reviewer_notes nvarchar(2000) NULL, concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_review_gate_assignment_token DEFAULT NEWID(), created_at datetime2(0) NOT NULL CONSTRAINT df_review_gate_assignment_created DEFAULT SYSUTCDATETIME(),
-  CONSTRAINT uq_review_gate_assignment UNIQUE(gate_instance_id,reviewer_id,scope), CONSTRAINT fk_review_gate_assignment_gate FOREIGN KEY(gate_instance_id) REFERENCES dbo.project_gate_instances(id), CONSTRAINT fk_review_gate_assignment_reviewer FOREIGN KEY(reviewer_id) REFERENCES dbo.users(id), CONSTRAINT fk_review_gate_assignment_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id)
+  CONSTRAINT uq_review_gate_assignment UNIQUE(gate_instance_id,reviewer_id,scope,major_id,student_id), CONSTRAINT fk_review_gate_assignment_gate FOREIGN KEY(gate_instance_id) REFERENCES dbo.project_gate_instances(id), CONSTRAINT fk_review_gate_assignment_reviewer FOREIGN KEY(reviewer_id) REFERENCES dbo.users(id), CONSTRAINT fk_review_gate_assignment_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id), CONSTRAINT fk_review_gate_assignment_student FOREIGN KEY(student_id) REFERENCES dbo.users(id)
  );
 END;
 IF OBJECT_ID('dbo.review_gate_evidence_verifications','U') IS NULL
@@ -3584,10 +3584,23 @@ IF COL_LENGTH('dbo.review_gate_assignments','revoked_by') IS NULL ALTER TABLE db
 IF COL_LENGTH('dbo.review_gate_assignments','revocation_reason') IS NULL ALTER TABLE dbo.review_gate_assignments ADD revocation_reason nvarchar(2000) NULL;
 IF COL_LENGTH('dbo.project_gate_instances','block_next_gate') IS NULL ALTER TABLE dbo.project_gate_instances ADD block_next_gate bit NOT NULL CONSTRAINT df_project_gate_block_next DEFAULT 1;
 IF COL_LENGTH('dbo.project_gate_instances','blocks_defense') IS NULL ALTER TABLE dbo.project_gate_instances ADD blocks_defense bit NOT NULL CONSTRAINT df_project_gate_blocks_defense DEFAULT 0;
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_requirement_target_student')
+    ALTER TABLE dbo.review_gate_requirements ADD CONSTRAINT fk_review_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id);
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_project_gate_requirement_target_student')
+    ALTER TABLE dbo.project_gate_requirements ADD CONSTRAINT fk_project_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id);
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_assignment_student')
+    ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT fk_review_gate_assignment_student FOREIGN KEY(student_id) REFERENCES dbo.users(id);
 IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = N'uq_review_gate_assignment' AND parent_object_id = OBJECT_ID(N'dbo.review_gate_assignments'))
+   AND NOT EXISTS (
+       SELECT 1
+       FROM sys.indexes i
+       JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+       JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+       WHERE i.object_id = OBJECT_ID(N'dbo.review_gate_assignments')
+         AND i.name = N'uq_review_gate_assignment' AND c.name = N'major_id')
 BEGIN
  ALTER TABLE dbo.review_gate_assignments DROP CONSTRAINT uq_review_gate_assignment;
- ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT uq_review_gate_assignment UNIQUE(gate_instance_id,reviewer_id,scope,student_id);
+ ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT uq_review_gate_assignment UNIQUE(gate_instance_id,reviewer_id,scope,major_id,student_id);
 END;
 COMMIT;
 GO

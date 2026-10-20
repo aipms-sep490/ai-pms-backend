@@ -24,7 +24,8 @@ public sealed record StudentReviewTimelineDto(string ProjectId, string ProjectCo
     ReviewGateCapabilitiesDto Capabilities);
 public sealed record StudentGateInstanceDto(string GateInstanceId, string Code, string Title, string Objective, string Status,
     string ReviewEligibility, bool IsRequired, DateTime? WindowStart, DateTime? WindowEnd,
-    IReadOnlyList<ReviewGateBlockingReasonDto> BlockingReasons, IReadOnlyList<StudentGateRequirementDto> Requirements);
+    IReadOnlyList<ReviewGateBlockingReasonDto> BlockingReasons, IReadOnlyList<StudentGateRequirementDto> Requirements,
+    string ConcurrencyToken = "");
 public sealed record ReviewGateBlockingReasonDto(string Code, string? RequirementCode, string Message);
 public sealed record ReviewGateCapabilitiesDto(bool CanSubmitPackage, bool CanSubmitRevision, IReadOnlyList<string> BlockingReasons);
 public sealed record StudentGateRequirementDto(string Id, string Code, string Title, string Type, string Scope, bool IsMandatory,

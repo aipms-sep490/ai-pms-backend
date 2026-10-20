@@ -13,6 +13,15 @@ IF COL_LENGTH(N'dbo.project_gate_instances', N'block_next_gate') IS NULL
     ALTER TABLE dbo.project_gate_instances ADD block_next_gate BIT NOT NULL CONSTRAINT df_project_gate_block_next DEFAULT 1;
 IF COL_LENGTH(N'dbo.project_gate_instances', N'blocks_defense') IS NULL
     ALTER TABLE dbo.project_gate_instances ADD blocks_defense BIT NOT NULL CONSTRAINT df_project_gate_blocks_defense DEFAULT 0;
+IF COL_LENGTH(N'dbo.review_gate_requirements', N'target_student_id') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_requirement_target_student')
+    ALTER TABLE dbo.review_gate_requirements ADD CONSTRAINT fk_review_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id);
+IF COL_LENGTH(N'dbo.project_gate_requirements', N'target_student_id') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_project_gate_requirement_target_student')
+    ALTER TABLE dbo.project_gate_requirements ADD CONSTRAINT fk_project_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id);
+IF COL_LENGTH(N'dbo.review_gate_assignments', N'student_id') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_assignment_student')
+    ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT fk_review_gate_assignment_student FOREIGN KEY(student_id) REFERENCES dbo.users(id);
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_assignment_revoked_by')
     ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT fk_review_gate_assignment_revoked_by FOREIGN KEY(revoked_by) REFERENCES dbo.users(id);
 IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_review_gate_assignment_revocation')
