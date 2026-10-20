@@ -3576,5 +3576,13 @@ BEGIN
  );
  CREATE INDEX ix_project_gate_scope_project ON dbo.project_gate_scope_decisions(project_id,status);
 END;
+IF COL_LENGTH('dbo.review_gate_requirements','target_student_id') IS NULL ALTER TABLE dbo.review_gate_requirements ADD target_student_id bigint NULL;
+IF COL_LENGTH('dbo.project_gate_requirements','target_student_id') IS NULL ALTER TABLE dbo.project_gate_requirements ADD target_student_id bigint NULL;
+IF COL_LENGTH('dbo.review_gate_assignments','student_id') IS NULL ALTER TABLE dbo.review_gate_assignments ADD student_id bigint NULL;
+IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = N'uq_review_gate_assignment' AND parent_object_id = OBJECT_ID(N'dbo.review_gate_assignments'))
+BEGIN
+ ALTER TABLE dbo.review_gate_assignments DROP CONSTRAINT uq_review_gate_assignment;
+ ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT uq_review_gate_assignment UNIQUE(gate_instance_id,reviewer_id,scope,student_id);
+END;
 COMMIT;
 GO

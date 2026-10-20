@@ -45,6 +45,7 @@ public sealed class ReviewGateRequirement
     public string Type { get; set; } = "DOCUMENT";
     public string Scope { get; set; } = "COMMON";
     public long? MajorId { get; set; }
+    public long? TargetStudentId { get; set; }
     public string Verification { get; set; } = "HUMAN";
     public bool Required { get; set; } = true;
 }
@@ -80,6 +81,7 @@ public sealed class ProjectGateRequirement
     public string Type { get; set; } = "DOCUMENT";
     public string Scope { get; set; } = "COMMON";
     public long? MajorId { get; set; }
+    public long? TargetStudentId { get; set; }
     public bool Required { get; set; } = true;
     public string VerificationStatus { get; set; } = "PENDING";
     public long? LatestEvidenceId { get; set; }
@@ -114,6 +116,7 @@ public sealed class GateReviewerAssignment
     public long ReviewerId { get; set; }
     public string Scope { get; set; } = "COMMON";
     public long? MajorId { get; set; }
+    public long? StudentId { get; set; }
     public string Status { get; set; } = "PENDING_REVIEW";
     public string? LatestDecision { get; set; }
     public string? ReviewerNotes { get; set; }

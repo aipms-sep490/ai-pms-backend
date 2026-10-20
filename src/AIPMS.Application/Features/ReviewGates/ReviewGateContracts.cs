@@ -3,7 +3,7 @@ using AIPMS.Application.Common.Models;
 namespace AIPMS.Application.Features.ReviewGates;
 
 public sealed record ReviewGateRequirementInput(string Code, string Title, string? Description, string Type,
-    string Scope, long? MajorId, string Verification = "HUMAN", bool Required = true);
+    string Scope, long? MajorId, long? TargetStudentId = null, string Verification = "HUMAN", bool Required = true);
 public sealed record ReviewGateDefinitionInput(string Code, int Sequence, string Title, string Objective,
     bool Required, bool BlockNextGate, bool BlocksDefense, DateTime? Start, DateTime? End,
     string ReviewerPolicy, string ReviewScope, IReadOnlyList<ReviewGateRequirementInput> Requirements);
@@ -16,7 +16,7 @@ public sealed record ReviewGateDefinitionDto(string Id, string Code, int Sequenc
     bool Required, bool BlockNextGate, bool BlocksDefense, DateTime? WindowStart, DateTime? WindowEnd,
     DateTime? Start, DateTime? End, string ReviewerPolicy, string ReviewScope, IReadOnlyList<ReviewGateRequirementDto> Requirements);
 public sealed record ReviewGateRequirementDto(string Id, string Code, string Title, string? Description, string Type,
-    string Scope, long? MajorId, string Verification, bool Required);
+    string Scope, long? MajorId, long? TargetStudentId, string Verification, bool Required);
 
 public sealed record StudentReviewTimelineDto(string ProjectId, string ProjectCode, string ProjectName, string ProjectMode,
     string Major, string EffectivePolicyVersion, string CurrentGateCode, IReadOnlyList<StudentGateInstanceDto> Gates,
@@ -44,7 +44,7 @@ public sealed record SubmitReviewGateDecisionRequest(string Decision, string Not
 public sealed record UpdateReviewGateDecisionRequest(string NewStatus, string? ConcurrencyToken);
 public sealed record UpdateReviewGateScopeRequest(string NewStatus, string? ConcurrencyToken);
 public sealed record CreateReviewGateAssignmentRequest(string ProjectId, string GateCode, long ReviewerId,
-    string Scope, long? MajorId, string? ConcurrencyToken);
+    string Scope, long? MajorId, long? StudentId, string? ConcurrencyToken);
 
 public sealed record ProjectReviewMatrixRowDto(string ProjectId, string ProjectName, string Mode, string Major, string Dept,
     decimal TaskProgress, IReadOnlyDictionary<string, string> GateStatuses,
