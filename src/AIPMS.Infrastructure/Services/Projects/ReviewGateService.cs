@@ -215,6 +215,7 @@ internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current,
                 && (x.Scope != "MAJOR_SPECIFIC" || x.MajorId == evidence.Requirement.MajorId), ct);
             if (!memberOrSupervisor && !assigned) throw new ForbiddenException("The evidence is outside the review assignment scope.");
         }
+        if (string.IsNullOrWhiteSpace(evidence.StorageKey)) throw new NotFoundException("ReviewGateEvidenceFile", evidence.Id);
         try { return new(await storage.OpenReadAsync(evidence.StorageKey, ct), evidence.ContentType, evidence.ArtifactName); }
         catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { throw new NotFoundException("ReviewGateEvidenceFile", evidence.Id); }
     }
