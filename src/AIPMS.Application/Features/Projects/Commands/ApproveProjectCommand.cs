@@ -103,6 +103,19 @@ public sealed class ApproveProjectCommandHandler(
         await publisher.Publish(new WorkflowNotificationEvent(
             WorkflowNotificationKind.ProjectApproved, updatedProject.Id, actorUserId, updatedProject.UpdatedAt), cancellationToken);
 
+        // D18 confirms supervision before submission; no later acceptance remains to activate the project.
+        var confirmation = await repository.GetSupervisorConfirmationAsync(project.Id, cancellationToken);
+        if (confirmation.HasConfirmedPrimarySupervisor && confirmation.MissingMentorMajorIds.Count == 0)
+        {
+            updatedProject = await repository.UpdateStatusAsync(project.Id, updatedProject.ConcurrencyToken,
+                "APPROVED", "SUPERVISOR_PENDING", actorUserId, "Confirm pre-approval supervision.", cancellationToken);
+            updatedProject = await repository.UpdateStatusAsync(project.Id, updatedProject.ConcurrencyToken,
+                "SUPERVISOR_PENDING", "ACTIVE", actorUserId, "Supervision confirmed before academic approval.", cancellationToken);
+            await auditTrail.RecordAsync(new AuditEntry(actorUserId, "PROJECT_ACTIVATED", "PROJECT", project.Id,
+                new Dictionary<string, object?> { ["oldStatus"] = "SUPERVISOR_PENDING", ["newStatus"] = "ACTIVE",
+                    ["source"] = "PRE_APPROVAL_SUPERVISION" }), cancellationToken);
+        }
+
         return updatedProject;
     }
 }

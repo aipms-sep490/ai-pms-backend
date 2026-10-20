@@ -70,6 +70,13 @@ internal sealed class EvaluationAssignmentAccessService(
         var (row, canScore) = await Load(assignmentId, ct);
         var dto = new EvaluationAssignmentDto(row.Id, row.ProjectId, row.EvaluatorId, row.RubricId, row.ProjectPeriodId, row.DepartmentId,
             row.EvaluationType, row.Status, row.AssignedBy, row.AssignedAt, row.RevokedAt, row.ConcurrencyToken.ToString("N"), row.Scope, row.MajorId, row.StudentId, row.ComponentId, row.PolicyVersionId, row.Stage, row.ColdPackageId);
+        dto = dto with {
+            ProjectTitle = await db.Projects.Where(p => p.Id == row.ProjectId).Select(p => p.Title).SingleOrDefaultAsync(ct),
+            ComponentName = await db.Set<EvaluationSchemeComponent>().Where(c => c.Id == row.ComponentId).Select(c => c.Name).SingleOrDefaultAsync(ct),
+            RubricName = await db.Rubrics.Where(r => r.Id == row.RubricId).Select(r => r.Name).SingleOrDefaultAsync(ct),
+            MajorName = await db.Majors.Where(m => m.Id == row.MajorId).Select(m => m.Name).SingleOrDefaultAsync(ct),
+            StudentName = await db.Users.Where(u => u.Id == row.StudentId).Select(u => u.FullName).SingleOrDefaultAsync(ct)
+        };
         var legacy = row.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL");
         string? reason = legacy ? "LEGACY_SCOPE_UNKNOWN" : null;
         if (canScore && !legacy)

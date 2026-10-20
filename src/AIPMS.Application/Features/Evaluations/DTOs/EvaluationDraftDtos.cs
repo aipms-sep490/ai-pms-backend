@@ -11,7 +11,7 @@ public sealed record EvaluationAssignmentDto(long Id, long ProjectId, long Evalu
     long ProjectPeriodId, long DepartmentId, string EvaluationType, string Status, long AssignedBy,
     DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken, string Scope = "UNKNOWN",
     long? MajorId = null, long? StudentId = null, long? ComponentId = null, long? PolicyVersionId = null,
-    string? Stage = null, long? ColdPackageId = null);
+    string? Stage = null, long? ColdPackageId = null, string? ProjectTitle = null, string? ComponentName = null, string? RubricName = null, string? MajorName = null, string? StudentName = null);
 public sealed record EvaluationScoreDto(long RubricCriterionId, string Name, string? Description, decimal WeightPercent,
     decimal MaxScore, int SortOrder, bool IsRequired, decimal? Score, string? Comments);
 public sealed record EvaluationDraftDto(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
@@ -30,7 +30,7 @@ public static class EvaluationDraftDtoMapper
     public static EvaluationAssignmentDto ToDto(this EvaluationAssignmentRecord a) => new(a.Id,
         a.ProjectId, a.EvaluatorId, a.RubricId, a.PeriodId, a.DepartmentId, a.EvaluationType,
         a.Status, a.AssignedBy, Utc(a.AssignedAt), a.RevokedAt.HasValue ? Utc(a.RevokedAt.Value) : null,
-        a.ConcurrencyToken, a.Scope, a.MajorId, a.StudentId, a.ComponentId, a.PolicyVersionId, a.Stage, a.ColdPackageId);
+        a.ConcurrencyToken, a.Scope, a.MajorId, a.StudentId, a.ComponentId, a.PolicyVersionId, a.Stage, a.ColdPackageId, a.ProjectTitle, a.ComponentName, a.RubricName, a.MajorName, a.StudentName);
 
     public static EvaluationDraftDto ToDto(this EvaluationDraftRecord e) => new(e.Id, e.AssignmentId,
         e.ProjectId, e.EvaluatorId, e.RubricId, e.RubricName, e.RootRubricId, e.RubricVersion, e.EvaluationType, e.Status, e.Comments, e.TotalScore,

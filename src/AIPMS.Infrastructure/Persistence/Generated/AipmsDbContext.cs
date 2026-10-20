@@ -107,6 +107,17 @@ public partial class AipmsDbContext : DbContext
 
     public virtual DbSet<UserRole> UserRoles { get; set; }
 
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.ReviewGateTemplate> ReviewGateTemplates { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.ReviewGateDefinition> ReviewGateDefinitions { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.ReviewGateRequirement> ReviewGateRequirements { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.ProjectGateInstance> ProjectGateInstances { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.ProjectGateRequirement> ProjectGateRequirements { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.GateEvidence> GateEvidence { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.GateReviewerAssignment> GateReviewerAssignments { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.GateEvidenceVerification> GateEvidenceVerifications { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.GateDecision> GateDecisions { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.ProjectGateScopeDecision> ProjectGateScopeDecisions { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<AcademicProfileVerification>(entity =>
