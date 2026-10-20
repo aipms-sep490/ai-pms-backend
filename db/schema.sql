@@ -3585,11 +3585,11 @@ IF COL_LENGTH('dbo.review_gate_assignments','revocation_reason') IS NULL ALTER T
 IF COL_LENGTH('dbo.project_gate_instances','block_next_gate') IS NULL ALTER TABLE dbo.project_gate_instances ADD block_next_gate bit NOT NULL CONSTRAINT df_project_gate_block_next DEFAULT 1;
 IF COL_LENGTH('dbo.project_gate_instances','blocks_defense') IS NULL ALTER TABLE dbo.project_gate_instances ADD blocks_defense bit NOT NULL CONSTRAINT df_project_gate_blocks_defense DEFAULT 0;
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_requirement_target_student')
-    ALTER TABLE dbo.review_gate_requirements ADD CONSTRAINT fk_review_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id);
+    EXEC(N'ALTER TABLE dbo.review_gate_requirements ADD CONSTRAINT fk_review_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id)');
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_project_gate_requirement_target_student')
-    ALTER TABLE dbo.project_gate_requirements ADD CONSTRAINT fk_project_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id);
+    EXEC(N'ALTER TABLE dbo.project_gate_requirements ADD CONSTRAINT fk_project_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id)');
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_assignment_student')
-    ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT fk_review_gate_assignment_student FOREIGN KEY(student_id) REFERENCES dbo.users(id);
+    EXEC(N'ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT fk_review_gate_assignment_student FOREIGN KEY(student_id) REFERENCES dbo.users(id)');
 IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = N'uq_review_gate_assignment' AND parent_object_id = OBJECT_ID(N'dbo.review_gate_assignments'))
    AND NOT EXISTS (
        SELECT 1
@@ -3600,7 +3600,7 @@ IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = N'uq_review_gate_assig
          AND i.name = N'uq_review_gate_assignment' AND c.name = N'major_id')
 BEGIN
  ALTER TABLE dbo.review_gate_assignments DROP CONSTRAINT uq_review_gate_assignment;
- ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT uq_review_gate_assignment UNIQUE(gate_instance_id,reviewer_id,scope,major_id,student_id);
+ EXEC(N'ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT uq_review_gate_assignment UNIQUE(gate_instance_id,reviewer_id,scope,major_id,student_id)');
 END;
 COMMIT;
 GO

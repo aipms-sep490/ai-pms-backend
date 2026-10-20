@@ -15,17 +15,17 @@ IF COL_LENGTH(N'dbo.project_gate_instances', N'blocks_defense') IS NULL
     ALTER TABLE dbo.project_gate_instances ADD blocks_defense BIT NOT NULL CONSTRAINT df_project_gate_blocks_defense DEFAULT 0;
 IF COL_LENGTH(N'dbo.review_gate_requirements', N'target_student_id') IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_requirement_target_student')
-    ALTER TABLE dbo.review_gate_requirements ADD CONSTRAINT fk_review_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id);
+    EXEC(N'ALTER TABLE dbo.review_gate_requirements ADD CONSTRAINT fk_review_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id)');
 IF COL_LENGTH(N'dbo.project_gate_requirements', N'target_student_id') IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_project_gate_requirement_target_student')
-    ALTER TABLE dbo.project_gate_requirements ADD CONSTRAINT fk_project_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id);
+    EXEC(N'ALTER TABLE dbo.project_gate_requirements ADD CONSTRAINT fk_project_gate_requirement_target_student FOREIGN KEY(target_student_id) REFERENCES dbo.users(id)');
 IF COL_LENGTH(N'dbo.review_gate_assignments', N'student_id') IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_assignment_student')
-    ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT fk_review_gate_assignment_student FOREIGN KEY(student_id) REFERENCES dbo.users(id);
+    EXEC(N'ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT fk_review_gate_assignment_student FOREIGN KEY(student_id) REFERENCES dbo.users(id)');
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_assignment_revoked_by')
-    ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT fk_review_gate_assignment_revoked_by FOREIGN KEY(revoked_by) REFERENCES dbo.users(id);
+    EXEC(N'ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT fk_review_gate_assignment_revoked_by FOREIGN KEY(revoked_by) REFERENCES dbo.users(id)');
 IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_review_gate_assignment_revocation')
-    ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT ck_review_gate_assignment_revocation CHECK (
-        (status <> 'REVOKED' AND revoked_at IS NULL AND revoked_by IS NULL AND revocation_reason IS NULL)
-        OR (status = 'REVOKED' AND revoked_at IS NOT NULL AND revoked_by IS NOT NULL AND LEN(LTRIM(RTRIM(revocation_reason))) > 0));
+    EXEC(N'ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT ck_review_gate_assignment_revocation CHECK (
+        (status <> ''REVOKED'' AND revoked_at IS NULL AND revoked_by IS NULL AND revocation_reason IS NULL)
+        OR (status = ''REVOKED'' AND revoked_at IS NOT NULL AND revoked_by IS NOT NULL AND LEN(LTRIM(RTRIM(revocation_reason))) > 0))');
 COMMIT TRANSACTION;
