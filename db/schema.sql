@@ -3579,6 +3579,11 @@ END;
 IF COL_LENGTH('dbo.review_gate_requirements','target_student_id') IS NULL ALTER TABLE dbo.review_gate_requirements ADD target_student_id bigint NULL;
 IF COL_LENGTH('dbo.project_gate_requirements','target_student_id') IS NULL ALTER TABLE dbo.project_gate_requirements ADD target_student_id bigint NULL;
 IF COL_LENGTH('dbo.review_gate_assignments','student_id') IS NULL ALTER TABLE dbo.review_gate_assignments ADD student_id bigint NULL;
+IF COL_LENGTH('dbo.review_gate_assignments','revoked_at') IS NULL ALTER TABLE dbo.review_gate_assignments ADD revoked_at datetime2(0) NULL;
+IF COL_LENGTH('dbo.review_gate_assignments','revoked_by') IS NULL ALTER TABLE dbo.review_gate_assignments ADD revoked_by bigint NULL;
+IF COL_LENGTH('dbo.review_gate_assignments','revocation_reason') IS NULL ALTER TABLE dbo.review_gate_assignments ADD revocation_reason nvarchar(2000) NULL;
+IF COL_LENGTH('dbo.project_gate_instances','block_next_gate') IS NULL ALTER TABLE dbo.project_gate_instances ADD block_next_gate bit NOT NULL CONSTRAINT df_project_gate_block_next DEFAULT 1;
+IF COL_LENGTH('dbo.project_gate_instances','blocks_defense') IS NULL ALTER TABLE dbo.project_gate_instances ADD blocks_defense bit NOT NULL CONSTRAINT df_project_gate_blocks_defense DEFAULT 0;
 IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = N'uq_review_gate_assignment' AND parent_object_id = OBJECT_ID(N'dbo.review_gate_assignments'))
 BEGIN
  ALTER TABLE dbo.review_gate_assignments DROP CONSTRAINT uq_review_gate_assignment;

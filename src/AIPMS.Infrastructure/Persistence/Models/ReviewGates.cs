@@ -63,6 +63,8 @@ public sealed class ProjectGateInstance
     public string Status { get; set; } = "PLANNED";
     public string ReviewEligibility { get; set; } = "BLOCKED";
     public bool Required { get; set; } = true;
+    public bool BlockNextGate { get; set; } = true;
+    public bool BlocksDefense { get; set; }
     public DateTime? WindowStart { get; set; }
     public DateTime? WindowEnd { get; set; }
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
@@ -120,6 +122,9 @@ public sealed class GateReviewerAssignment
     public string Status { get; set; } = "PENDING_REVIEW";
     public string? LatestDecision { get; set; }
     public string? ReviewerNotes { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public long? RevokedBy { get; set; }
+    public string? RevocationReason { get; set; }
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
     public DateTime CreatedAt { get; set; }
     public ProjectGateInstance GateInstance { get; set; } = null!;

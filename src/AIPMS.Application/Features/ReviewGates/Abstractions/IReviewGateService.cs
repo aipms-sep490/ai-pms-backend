@@ -10,7 +10,7 @@ public interface IReviewGateService
     Task<IReadOnlyList<ReviewGateTemplateDto>> Templates(CancellationToken ct);
     Task<ReviewGateTemplateDto?> Template(long id, CancellationToken ct);
     Task<ReviewGateTemplateDto> SaveTemplate(SaveReviewGateTemplateRequest request, long? id, CancellationToken ct);
-    Task<ReviewGateTemplateDto> PublishTemplate(long id, CancellationToken ct);
+    Task<ReviewGateTemplateDto> PublishTemplate(long id, PublishReviewGateTemplateRequest? request, CancellationToken ct);
     Task<StudentReviewTimelineDto> Timeline(long projectId, CancellationToken ct);
     Task<StudentReviewTimelineDto> MyTimeline(CancellationToken ct);
     Task<StudentReviewTimelineDto> SubmitEvidence(long projectId, string gateCode, SubmitReviewGateEvidenceRequest request, CancellationToken ct);
@@ -20,6 +20,7 @@ public interface IReviewGateService
     Task<AssignedReviewItemDto> VerifyEvidence(long assignmentId, VerifyReviewGateEvidenceRequest request, CancellationToken ct);
     Task<AssignedReviewItemDto> Decide(long assignmentId, SubmitReviewGateDecisionRequest request, CancellationToken ct);
     Task<AssignedReviewItemDto> Assign(CreateReviewGateAssignmentRequest request, CancellationToken ct);
+    Task<AssignedReviewItemDto> Revoke(long assignmentId, RevokeReviewGateAssignmentRequest request, CancellationToken ct);
     Task<ProjectReviewMatrixRowDto> UpdateDecision(long projectId, string gateCode, UpdateReviewGateDecisionRequest request, CancellationToken ct);
     Task<ProjectReviewMatrixRowDto> UpdateScope(long projectId, string scope, UpdateReviewGateScopeRequest request, CancellationToken ct);
     Task<IReadOnlyList<ProjectReviewMatrixRowDto>> Matrix(string? mode, long? departmentId, CancellationToken ct);

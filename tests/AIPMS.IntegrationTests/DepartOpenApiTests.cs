@@ -7,6 +7,21 @@ namespace AIPMS.IntegrationTests;
 public sealed class DepartOpenApiTests
 {
     [Fact]
+    public async Task Review_gates_contract_documents_distinct_json_and_multipart_operations()
+    {
+        using var app = new AipmsWebApplicationFactory();
+        using var client = app.CreateClient();
+        using var doc = JsonDocument.Parse(await client.GetStringAsync("/swagger/v1/swagger.json"));
+        var paths = doc.RootElement.GetProperty("paths");
+        var json = paths.GetProperty("/api/v1/projects/{projectId}/review-gates/{gateCode}/evidence").GetProperty("post");
+        Assert.True(json.GetProperty("requestBody").GetProperty("content").TryGetProperty("application/json", out _));
+        var multipart = paths.GetProperty("/api/v1/projects/{projectId}/review-gates/{gateCode}/evidence/file").GetProperty("post");
+        Assert.True(multipart.GetProperty("requestBody").GetProperty("content").TryGetProperty("multipart/form-data", out _));
+        Assert.True(paths.GetProperty("/api/v1/review-gates/assignments/{assignmentId}/revoke").GetProperty("post").GetProperty("requestBody").GetProperty("content").TryGetProperty("application/json", out _));
+        Assert.Contains(paths.GetProperty("/api/v1/academic/gate-templates/{id}/publish").GetProperty("post").GetProperty("requestBody").GetProperty("content").EnumerateObject().Select(x => x.Value.GetProperty("schema").GetProperty("$ref").GetString()), r => r?.EndsWith("/PublishReviewGateTemplateRequest", StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
     public async Task Depart_contract_documents_new_routes_tokens_and_authority()
     {
         using var app = new AipmsWebApplicationFactory();

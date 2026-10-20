@@ -55,5 +55,6 @@
   "20261013_add_result_appeals.sql",
   "20261013_add_supervisor_request_expiry_and_release.sql",
   "20261013_add_industry_advisory.sql",
-  "20261020_add_review_gates.sql"
+  "20261020_add_review_gates.sql",
+  "20261020_extend_review_gate_assignments.sql"
 ]

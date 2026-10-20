@@ -9,6 +9,7 @@ public sealed record ReviewGateDefinitionInput(string Code, int Sequence, string
     string ReviewerPolicy, string ReviewScope, IReadOnlyList<ReviewGateRequirementInput> Requirements);
 public sealed record SaveReviewGateTemplateRequest(long? ProjectPeriodId, string Code, string Name, string Mode,
     string Major, string Version, string? ConcurrencyToken, IReadOnlyList<ReviewGateDefinitionInput> Gates);
+public sealed record PublishReviewGateTemplateRequest(string? ConcurrencyToken);
 public sealed record ReviewGateTemplateDto(string Id, long? ProjectPeriodId, string Code, string Name, string Mode,
     string Major, string Status, string Version, string ConcurrencyToken, int GatesCount,
     IReadOnlyList<ReviewGateDefinitionDto> Gates);
@@ -45,6 +46,7 @@ public sealed record UpdateReviewGateDecisionRequest(string NewStatus, string? C
 public sealed record UpdateReviewGateScopeRequest(string NewStatus, string? ConcurrencyToken);
 public sealed record CreateReviewGateAssignmentRequest(string ProjectId, string GateCode, long ReviewerId,
     string Scope, long? MajorId, long? StudentId, string? ConcurrencyToken);
+public sealed record RevokeReviewGateAssignmentRequest(string ConcurrencyToken, string Reason);
 
 public sealed record ProjectReviewMatrixRowDto(string ProjectId, string ProjectName, string Mode, string Major, string Dept,
     decimal TaskProgress, IReadOnlyDictionary<string, string> GateStatuses,

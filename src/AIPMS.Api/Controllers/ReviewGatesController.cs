@@ -22,7 +22,7 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     [HttpPut("api/v1/academic/gate-templates/{id:long}")]
     public async Task<ActionResult<ReviewGateTemplateDto>> UpdateTemplate(long id, SaveReviewGateTemplateRequest request, CancellationToken ct) => Ok(await service.SaveTemplate(request, id, ct));
     [HttpPost("api/v1/academic/gate-templates/{id:long}/publish")]
-    public async Task<ActionResult<ReviewGateTemplateDto>> PublishTemplate(long id, CancellationToken ct) => Ok(await service.PublishTemplate(id, ct));
+    public async Task<ActionResult<ReviewGateTemplateDto>> PublishTemplate(long id, PublishReviewGateTemplateRequest? request, CancellationToken ct) => Ok(await service.PublishTemplate(id, request, ct));
     [HttpGet("api/v1/projects/{projectId:long}/review-gates/timeline")]
     public async Task<ActionResult<StudentReviewTimelineDto>> Timeline(long projectId, CancellationToken ct) => Ok(await service.Timeline(projectId, ct));
     [HttpGet("api/v1/projects/{projectId:long}/review-gates")]
@@ -32,7 +32,7 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/evidence")]
     [Consumes("application/json")]
     public async Task<ActionResult<StudentReviewTimelineDto>> SubmitEvidence(long projectId, string gateCode, SubmitReviewGateEvidenceRequest request, CancellationToken ct) => Ok(await service.SubmitEvidence(projectId, gateCode, request, ct));
-    [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/evidence")]
+    [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/evidence/file")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(22 * 1024 * 1024)]
     [RequestFormLimits(MultipartBodyLengthLimit = 22 * 1024 * 1024)]
@@ -55,6 +55,8 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public async Task<ActionResult<AssignedReviewItemDto>> Decide(long assignmentId, SubmitReviewGateDecisionRequest request, CancellationToken ct) => Ok(await service.Decide(assignmentId, request, ct));
     [HttpPost("api/v1/review-gates/assignments")]
     public async Task<ActionResult<AssignedReviewItemDto>> Assign(CreateReviewGateAssignmentRequest request, CancellationToken ct) => Ok(await service.Assign(request, ct));
+    [HttpPost("api/v1/review-gates/assignments/{assignmentId:long}/revoke")]
+    public async Task<ActionResult<AssignedReviewItemDto>> Revoke(long assignmentId, RevokeReviewGateAssignmentRequest request, CancellationToken ct) => Ok(await service.Revoke(assignmentId, request, ct));
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/decision")]
     public async Task<ActionResult<ProjectReviewMatrixRowDto>> UpdateDecision(long projectId, string gateCode, UpdateReviewGateDecisionRequest request, CancellationToken ct) => Ok(await service.UpdateDecision(projectId, gateCode, request, ct));
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/scopes/{scope}")]
