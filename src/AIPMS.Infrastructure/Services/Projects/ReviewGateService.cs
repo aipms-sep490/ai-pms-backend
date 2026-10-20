@@ -15,6 +15,7 @@ using AIPMS.Application.Features.ReviewGates.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 
 namespace AIPMS.Infrastructure.Services.Projects;
 
@@ -212,15 +213,35 @@ internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current,
         Page(page, pageSize);
         if (!await HasReviewerPermission(ct))
             throw new ForbiddenException("An active reviewer permission is required.");
-        var query = db.GateReviewerAssignments.AsNoTracking().Include(x => x.GateInstance).ThenInclude(x => x.Requirements).ThenInclude(x => x.Evidence)
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return await ReadAssignedReviewsPage(page, pageSize, ct); }
+            catch (SqlException ex) when (ex.Number is 1205 or 1222)
+            {
+                if (attempt >= 2) throw new ConflictException("The reviewer queue is busy; retry shortly.", "REVIEW_QUEUE_BUSY");
+                await Task.Delay(TimeSpan.FromMilliseconds(50 * (attempt + 1)), ct);
+            }
+        }
+    }
+
+    private async Task<PagedResult<AssignedReviewItemDto>> ReadAssignedReviewsPage(int page, int pageSize, CancellationToken ct)
+    {
+        var query = db.GateReviewerAssignments.AsNoTracking()
             .Where(x => x.ReviewerId == Actor && x.Status != "DECIDED" && x.Status != "REVOKED"
-                && !db.SupervisorAssignments.Any(a => a.ProjectId == x.GateInstance.ProjectId && a.EndedAt == null && a.SupervisorProfile.UserId == Actor))
-            .OrderBy(x => x.GateInstance.WindowEnd).ThenBy(x => x.Id);
+                && !db.SupervisorAssignments.Any(a => a.ProjectId == x.GateInstance.ProjectId && a.EndedAt == null && a.SupervisorProfile.UserId == Actor));
         var total = await query.LongCountAsync(ct);
-        var rows = await query.Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(ct);
+        var ids = await query.OrderBy(x => x.GateInstance.WindowEnd).ThenBy(x => x.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).Select(x => x.Id).ToArrayAsync(ct);
+        if (ids.Length == 0) return new([], page, pageSize, total);
+
+        var rows = await db.GateReviewerAssignments.AsNoTracking().AsSplitQuery()
+            .Include(x => x.GateInstance).ThenInclude(x => x.Requirements).ThenInclude(x => x.Evidence)
+            .Where(x => ids.Contains(x.Id) && x.ReviewerId == Actor && x.Status != "DECIDED" && x.Status != "REVOKED")
+            .ToArrayAsync(ct);
+        var byId = rows.ToDictionary(x => x.Id);
         var projectIds = rows.Select(x => x.GateInstance.ProjectId).Distinct().ToArray();
         var projects = await db.Projects.AsNoTracking().Where(x => projectIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
-        return new(rows.Select(x => AssignmentDto(x, projects[x.GateInstance.ProjectId])).ToArray(), page, pageSize, total);
+        return new(ids.Where(byId.ContainsKey).Select(id => AssignmentDto(byId[id], projects[byId[id].GateInstance.ProjectId])).ToArray(), page, pageSize, total);
     }
 
     public async Task<FileDownload> DownloadEvidence(long projectId, string gateCode, long requirementId, int version, CancellationToken ct)
