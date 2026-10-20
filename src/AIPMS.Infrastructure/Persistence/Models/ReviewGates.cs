@@ -84,6 +84,7 @@ public sealed class ProjectGateRequirement
     public string VerificationStatus { get; set; } = "PENDING";
     public long? LatestEvidenceId { get; set; }
     public string? ReviewerFeedback { get; set; }
+    public ProjectGateInstance GateInstance { get; set; } = null!;
     public ICollection<GateEvidence> Evidence { get; set; } = [];
 }
 
@@ -94,11 +95,16 @@ public sealed class GateEvidence
     public long RequirementId { get; set; }
     public int Version { get; set; }
     public string ArtifactName { get; set; } = "";
+    public string ContentType { get; set; } = "application/octet-stream";
+    public long SizeBytes { get; set; }
+    public string Sha256 { get; set; } = "";
+    public string StorageKey { get; set; } = "";
     public string? Notes { get; set; }
     public long SubmittedBy { get; set; }
     public DateTime SubmittedAt { get; set; }
     public string Status { get; set; } = "SUBMITTED";
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
+    public ProjectGateRequirement Requirement { get; set; } = null!;
 }
 
 public sealed class GateReviewerAssignment

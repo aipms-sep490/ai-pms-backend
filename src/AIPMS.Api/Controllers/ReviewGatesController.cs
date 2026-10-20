@@ -1,7 +1,11 @@
 using AIPMS.Application.Features.ReviewGates;
 using AIPMS.Application.Features.ReviewGates.Abstractions;
+using AIPMS.Application.Common.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.ComponentModel.DataAnnotations;
+using AIPMS.Application.Features.Deliverables.Models;
+using AIPMS.Application.Features.Deliverables.DTOs;
 
 namespace AIPMS.Api.Controllers;
 
@@ -26,13 +30,25 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     [HttpGet("api/v1/students/me/review-gates/timeline")]
     public async Task<ActionResult<StudentReviewTimelineDto>> MyTimeline(CancellationToken ct) => Ok(await service.MyTimeline(ct));
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/evidence")]
+    [Consumes("application/json")]
     public async Task<ActionResult<StudentReviewTimelineDto>> SubmitEvidence(long projectId, string gateCode, SubmitReviewGateEvidenceRequest request, CancellationToken ct) => Ok(await service.SubmitEvidence(projectId, gateCode, request, ct));
+    [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/evidence")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(22 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 22 * 1024 * 1024)]
+    public async Task<ActionResult<StudentReviewTimelineDto>> SubmitEvidenceFile(long projectId, string gateCode, [FromForm] ReviewGateFileForm request, CancellationToken ct)
+    {
+        await using var stream = request.File.OpenReadStream();
+        return Ok(await service.SubmitEvidenceFile(projectId, gateCode,
+            new(request.RequirementId, request.Notes, request.ExpectedVersion, request.ConcurrencyToken),
+            new(request.File.FileName, request.File.ContentType, request.File.Length, stream), ct));
+    }
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/submit-for-review")]
     public async Task<ActionResult<StudentReviewTimelineDto>> SubmitForReview(long projectId, string gateCode, SubmitReviewGateForReviewRequest request, CancellationToken ct) => Ok(await service.SubmitForReview(projectId, gateCode, request, ct));
     [HttpGet("api/v1/reviewers/me/gate-assignments")]
-    public async Task<ActionResult<IReadOnlyList<AssignedReviewItemDto>>> AssignedReviews(CancellationToken ct) => Ok(await service.AssignedReviews(ct));
+    public async Task<ActionResult<PagedResult<AssignedReviewItemDto>>> AssignedReviews([FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) => Ok(await service.AssignedReviews(page, pageSize, ct));
     [HttpGet("api/v1/review-gates/my-assigned-reviews")]
-    public async Task<ActionResult<IReadOnlyList<AssignedReviewItemDto>>> MyAssignedReviews(CancellationToken ct) => Ok(await service.AssignedReviews(ct));
+    public async Task<ActionResult<PagedResult<AssignedReviewItemDto>>> MyAssignedReviews([FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) => Ok(await service.AssignedReviews(page, pageSize, ct));
     [HttpPost("api/v1/review-gates/assignments/{assignmentId:long}/evidence/{requirementId:long}/verify")]
     public async Task<ActionResult<AssignedReviewItemDto>> VerifyEvidence(long assignmentId, string requirementId, VerifyReviewGateEvidenceRequest request, CancellationToken ct) => Ok(await service.VerifyEvidence(assignmentId, request with { RequirementId = requirementId }, ct));
     [HttpPost("api/v1/review-gates/assignments/{assignmentId:long}/decision")]
@@ -51,4 +67,21 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public async Task<ActionResult<DefenseReadinessDto>> DefenseReadiness(long projectId, CancellationToken ct) => Ok(await service.DefenseReadiness(projectId, ct));
     [HttpGet("api/v1/projects/{projectKey}/defense-readiness")]
     public async Task<ActionResult<DefenseReadinessDto>> DefenseReadinessByKey(string projectKey, CancellationToken ct) => Ok(await service.DefenseReadinessByKey(projectKey, ct));
+    [HttpGet("api/v1/projects/{projectId:long}/review-gates/{gateCode}/requirements/{requirementId:long}/evidence/{version:int}/download")]
+    public async Task<IActionResult> DownloadEvidence(long projectId, string gateCode, long requirementId, int version, CancellationToken ct)
+    {
+        var file = await service.DownloadEvidence(projectId, gateCode, requirementId, version, ct);
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers.CacheControl = "no-store";
+        return File(file.Content, file.ContentType, file.FileName);
+    }
+}
+
+public sealed class ReviewGateFileForm
+{
+    [Required] public IFormFile File { get; init; } = null!;
+    [Required] public string RequirementId { get; init; } = "";
+    public string? Notes { get; init; }
+    public int ExpectedVersion { get; init; }
+    public string? ConcurrencyToken { get; init; }
 }

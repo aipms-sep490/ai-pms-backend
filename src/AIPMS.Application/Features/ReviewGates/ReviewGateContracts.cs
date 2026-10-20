@@ -28,14 +28,17 @@ public sealed record ReviewGateBlockingReasonDto(string Code, string? Requiremen
 public sealed record ReviewGateCapabilitiesDto(bool CanSubmitPackage, bool CanSubmitRevision, IReadOnlyList<string> BlockingReasons);
 public sealed record StudentGateRequirementDto(string Id, string Code, string Title, string Type, string Scope, bool IsMandatory,
     string VerificationStatus, ReviewGateArtifactDto? LatestArtifact, string? ReviewerFeedback);
-public sealed record ReviewGateArtifactDto(int Version, string Filename, DateTime SubmittedAt, string SubmittedBy, string? Notes);
+public sealed record ReviewGateArtifactDto(int Version, string Filename, DateTime SubmittedAt, string SubmittedBy, string? Notes,
+    string ContentType = "application/octet-stream", long SizeBytes = 0, string Sha256 = "", string DownloadUrl = "");
 public sealed record SubmitReviewGateEvidenceRequest(string RequirementId, string ArtifactName, string? Notes, int ExpectedVersion,
     string? ConcurrencyToken);
+public sealed record SubmitReviewGateFileRequest(string RequirementId, string? Notes, int ExpectedVersion, string? ConcurrencyToken);
 public sealed record SubmitReviewGateForReviewRequest(string? Notes, string? ConcurrencyToken);
 
 public sealed record AssignedReviewItemDto(string Id, string ProjectId, string ProjectCode, string ProjectName, string GateCode,
     string GateTitle, string Scope, DateTime? DueAt, string Status, string? LatestDecision,
-    IReadOnlyList<StudentGateRequirementDto> Requirements, string? ReviewerNotes, string ConcurrencyToken);
+    IReadOnlyList<StudentGateRequirementDto> Requirements, string? ReviewerNotes, string ConcurrencyToken,
+    int Page = 1, int PageSize = 100, long TotalCount = 0);
 public sealed record VerifyReviewGateEvidenceRequest(string RequirementId, string Decision, string? Feedback, string ConcurrencyToken);
 public sealed record SubmitReviewGateDecisionRequest(string Decision, string Notes, string ConcurrencyToken);
 public sealed record UpdateReviewGateDecisionRequest(string NewStatus, string? ConcurrencyToken);

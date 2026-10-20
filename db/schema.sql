@@ -3537,6 +3537,10 @@ BEGIN
   CONSTRAINT uq_review_gate_evidence_version UNIQUE(requirement_id,version), CONSTRAINT fk_review_gate_evidence_project FOREIGN KEY(project_id) REFERENCES dbo.projects(id), CONSTRAINT fk_review_gate_evidence_requirement FOREIGN KEY(requirement_id) REFERENCES dbo.project_gate_requirements(id), CONSTRAINT fk_review_gate_evidence_submitter FOREIGN KEY(submitted_by) REFERENCES dbo.users(id)
  );
 END;
+IF COL_LENGTH('dbo.review_gate_evidence','content_type') IS NULL ALTER TABLE dbo.review_gate_evidence ADD content_type varchar(255) NOT NULL CONSTRAINT df_review_gate_evidence_content_type DEFAULT 'application/octet-stream';
+IF COL_LENGTH('dbo.review_gate_evidence','size_bytes') IS NULL ALTER TABLE dbo.review_gate_evidence ADD size_bytes bigint NOT NULL CONSTRAINT df_review_gate_evidence_size DEFAULT 0;
+IF COL_LENGTH('dbo.review_gate_evidence','sha256') IS NULL ALTER TABLE dbo.review_gate_evidence ADD sha256 varchar(64) NOT NULL CONSTRAINT df_review_gate_evidence_sha DEFAULT '';
+IF COL_LENGTH('dbo.review_gate_evidence','storage_key') IS NULL ALTER TABLE dbo.review_gate_evidence ADD storage_key varchar(32) NOT NULL CONSTRAINT df_review_gate_evidence_storage DEFAULT '';
 IF OBJECT_ID('dbo.review_gate_assignments','U') IS NULL
 BEGIN
  CREATE TABLE dbo.review_gate_assignments(

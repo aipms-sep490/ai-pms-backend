@@ -48,12 +48,14 @@ public partial class AipmsDbContext
             e.Property(x => x.Code).HasMaxLength(50).IsUnicode(false); e.Property(x => x.Title).HasMaxLength(255);
             e.Property(x => x.Type).HasMaxLength(40).IsUnicode(false); e.Property(x => x.Scope).HasMaxLength(30).IsUnicode(false);
             e.Property(x => x.VerificationStatus).HasMaxLength(20).IsUnicode(false); e.Property(x => x.ReviewerFeedback).HasMaxLength(2000);
-            e.HasMany(x => x.Evidence).WithOne().HasForeignKey(x => x.RequirementId).OnDelete(DeleteBehavior.NoAction);
+            e.HasMany(x => x.Evidence).WithOne(x => x.Requirement).HasForeignKey(x => x.RequirementId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<GateEvidence>(e => {
             e.ToTable("review_gate_evidence"); e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.RequirementId, x.Version }).IsUnique();
-            e.Property(x => x.ArtifactName).HasMaxLength(255); e.Property(x => x.Notes).HasMaxLength(2000);
+            e.Property(x => x.ArtifactName).HasMaxLength(255); e.Property(x => x.ContentType).HasMaxLength(255).IsUnicode(false);
+            e.Property(x => x.Sha256).HasMaxLength(64).IsUnicode(false); e.Property(x => x.StorageKey).HasMaxLength(32).IsUnicode(false);
+            e.Property(x => x.Notes).HasMaxLength(2000);
             e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false); e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasOne<Generated.Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
         });
