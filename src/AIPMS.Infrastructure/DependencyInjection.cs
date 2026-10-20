@@ -247,6 +247,7 @@ public static class DependencyInjection
         services.AddOptions<Application.Features.Industry.IndustrySettings>().BindConfiguration("Industry");
         services.AddOptions<Application.Features.Appeals.AppealSettings>().BindConfiguration("Appeals");
         services.AddScoped<Application.Features.AcademicTracking.Abstractions.IAcademicTrackingService, AcademicTrackingService>();
+        services.AddScoped<AIPMS.Application.Features.ReviewGates.Abstractions.IReviewGateService, ReviewGateService>();
         services.AddScoped<Application.Features.WeeklyAssessments.Abstractions.IWeeklyAssessmentService, WeeklyAssessmentService>();
         services.AddScoped<Application.Features.WorkingAgreements.Abstractions.IWorkingAgreementService, WorkingAgreementService>();
         services.AddOptions<Application.Features.WorkingAgreements.WorkingAgreementSettings>().BindConfiguration("WorkingAgreement");

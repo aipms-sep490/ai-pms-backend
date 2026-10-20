@@ -238,6 +238,24 @@ public sealed class ProjectTests
         await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(command, CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData(true, false, "ACTIVE")]
+    [InlineData(false, false, "APPROVED")]
+    [InlineData(true, true, "APPROVED")]
+    public async Task ApproveProject_OnlyCompletePreconfirmedSupervisionActivates(bool primary, bool missingMentor, string expected)
+    {
+        var repository = new StubProjectRepository { Confirmation = new(primary, missingMentor, missingMentor ? [302] : []) };
+        repository.Projects[50] = new ProjectDto(50, 1, "Team 1", "PRJ001", "Title", null, null, "UNDER_REVIEW", FixedNow, null, null, null, 10, "L", FixedNow, FixedNow, "P", "O", "token123", [], []);
+        var audit = new RecordingAuditTrail();
+        var handler = new ApproveProjectCommandHandler(repository, new StubAcademicStructureRepository(),
+            new TestCurrentUser(11, AppRoles.Admin), audit, new RecordingPublisher());
+        var result = await handler.Handle(new(50, "token123"), default);
+        Assert.Equal(expected, result.Status);
+        Assert.Equal(expected == "ACTIVE" ? 3 : 1, repository.StatusHistories[50].Count);
+        Assert.Equal(expected == "ACTIVE" ? 1 : 0, audit.Entries.Count(e => e.Action == "PROJECT_ACTIVATED"));
+        Assert.Single(audit.Entries.Where(e => e.Action == "PROJECT_APPROVED"));
+    }
+
     [Fact]
     public async Task ApproveProject_ConcurrencyConflict_ThrowsConflict()
     {
@@ -648,6 +666,8 @@ internal sealed class StubProjectRepository : IProjectRepository
     public bool MajorsExist { get; set; } = true;
     public List<long> ProjectDeptIds { get; } = new();
     public bool CanView { get; set; } = true;
+    public ProjectSupervisorConfirmation Confirmation { get; set; } = new(true, false, []);
+    public Task<ProjectSupervisorConfirmation> GetSupervisorConfirmationAsync(long projectId, CancellationToken ct) => Task.FromResult(Confirmation);
 
     public Task<ProjectDto?> GetByIdAsync(long id, CancellationToken cancellationToken) =>
         Task.FromResult(Projects.GetValueOrDefault(id));

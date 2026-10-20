@@ -185,7 +185,17 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         if (status is not null) query = query.Where(a => a.Status == status);
         var total = await query.LongCountAsync(ct);
         var rows = await query.OrderByDescending(a => a.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
-        return new(rows.Select(Map).ToArray(), page, pageSize, total);
+        var projectIds = rows.Select(a => a.ProjectId).Distinct().ToArray();
+        var componentIds = rows.Select(a => a.ComponentId).Distinct().ToArray();
+        var rubricIds = rows.Select(a => a.RubricId).Distinct().ToArray();
+        var majorIds = rows.Select(a => a.MajorId).Distinct().ToArray();
+        var studentIds = rows.Select(a => a.StudentId).Distinct().ToArray();
+        var projects = await db.Projects.Where(p => projectIds.Contains(p.Id)).Select(p => new { p.Id, p.Title }).ToDictionaryAsync(p => p.Id, p => p.Title, ct);
+        var components = await db.Set<EvaluationSchemeComponent>().Where(c => componentIds.Contains(c.Id)).Select(c => new { c.Id, c.Name }).ToDictionaryAsync(c => c.Id, c => c.Name, ct);
+        var rubrics = await db.Rubrics.Where(r => rubricIds.Contains(r.Id)).Select(r => new { r.Id, r.Name }).ToDictionaryAsync(r => r.Id, r => r.Name, ct);
+        var majors = await db.Majors.Where(m => majorIds.Contains(m.Id)).Select(m => new { m.Id, m.Name }).ToDictionaryAsync(m => m.Id, m => m.Name, ct);
+        var students = await db.Users.Where(u => studentIds.Contains(u.Id)).Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return new(rows.Select(a => Map(a) with { ProjectTitle = projects.GetValueOrDefault(a.ProjectId), ComponentName = components.GetValueOrDefault(a.ComponentId ?? 0), RubricName = rubrics.GetValueOrDefault(a.RubricId), MajorName = majors.GetValueOrDefault(a.MajorId ?? 0), StudentName = students.GetValueOrDefault(a.StudentId ?? 0) }).ToArray(), page, pageSize, total);
     }
 
     public async Task<EvaluationDraftRecord?> GetDraftAsync(long id, CancellationToken ct)

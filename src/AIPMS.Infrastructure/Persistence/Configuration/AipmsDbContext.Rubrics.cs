@@ -19,6 +19,7 @@ public partial class AipmsDbContext
         ConfigureResultAppeals(modelBuilder);
         ConfigureIndustry(modelBuilder);
         ConfigureAcademicTracking(modelBuilder);
+        ConfigureReviewGates(modelBuilder);
         ConfigureMeetingCollaboration(modelBuilder);
         ConfigureSprints(modelBuilder);
         ConfigureAiRuns(modelBuilder);

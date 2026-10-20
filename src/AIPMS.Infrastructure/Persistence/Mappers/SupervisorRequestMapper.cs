@@ -11,5 +11,6 @@ internal static class SupervisorRequestMapper
             r.Status, r.RequestMessage, r.ResponseMessage, r.RequestedAt, r.RespondedAt,
             r.SupervisorAssignment != null && r.SupervisorAssignment.ProjectId == r.ProjectId
                 && r.SupervisorAssignment.SupervisorProfileId == r.SupervisorProfileId
-                ? r.SupervisorAssignment.Id : null, r.AssignmentType, r.MajorId, r.ExpiresAt);
+                ? r.SupervisorAssignment.Id : null, r.AssignmentType, r.MajorId, r.ExpiresAt,
+            r.SupervisorProfile.User.FullName);
 }
