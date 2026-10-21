@@ -498,8 +498,9 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             : null;
         string[] exactTokens = major is null ? [] : [major.Id.ToString(), major.Code, major.Name];
         var exact = candidates.Where(x => exactTokens.Contains(x.Major, StringComparer.OrdinalIgnoreCase)).ToArray();
-        var generic = candidates.Where(x => string.IsNullOrWhiteSpace(x.Major) || x.Major.Equals("INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase)).ToArray();
-        var template = exact.FirstOrDefault() ?? (generic.Length == 1 ? generic[0] : null);
+        var generic = candidates.Where(x => string.IsNullOrWhiteSpace(x.Major)).ToArray();
+        var interdisciplinary = candidates.FirstOrDefault(x => x.Major.Equals("INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase));
+        var template = scope.MajorIds.Count > 1 ? interdisciplinary : exact.FirstOrDefault() ?? (generic.Length == 1 ? generic[0] : null);
         if (template is null) return [];
         var created = template.Gates.OrderBy(x => x.Sequence).Select(g => new ProjectGateInstance { ProjectId = project.Id, TemplateId = template.Id, TemplateVersion = template.Version, Code = g.Code, Sequence = g.Sequence, Title = g.Title, Objective = g.Objective, Status = g.Sequence == 1 ? "PLANNED" : "LOCKED", ReviewEligibility = g.Sequence == 1 ? "READY" : "BLOCKED", Required = g.Required, BlockNextGate = g.BlockNextGate, BlocksDefense = g.BlocksDefense, Weight = g.Weight, WindowStart = g.WindowStart, WindowEnd = g.WindowEnd, CreatedAt = Now, Requirements = g.Requirements.Select(r => new ProjectGateRequirement { Code = r.Code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId, TargetStudentId = r.TargetStudentId, Required = r.Required }).ToList() }).ToArray();
         db.ProjectGateInstances.AddRange(created); await db.SaveChangesAsync(ct); return created;
