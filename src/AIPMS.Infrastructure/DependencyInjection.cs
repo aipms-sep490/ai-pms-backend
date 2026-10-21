@@ -66,6 +66,7 @@ public static class DependencyInjection
         services.AddScoped<AiActorScope>();
         services.AddScoped<IScopedProgressAnalysisService, ScopedProgressAnalysisService>();
         services.AddScoped<AIPMS.Application.Features.Dashboards.Abstractions.IActorDashboardService, ActorDashboardService>();
+        services.AddScoped<AIPMS.Application.Features.ActionAggregators.Abstractions.IActionAggregatorService, ActionAggregatorService>();
         services.AddScoped<AiEvidenceCapture>();
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiContextRetriever, ScopedAiContextRetriever>();
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore, AiRunStore>();
