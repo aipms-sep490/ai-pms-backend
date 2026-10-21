@@ -28,6 +28,7 @@ public sealed class ReviewGateDefinition
     public bool Required { get; set; } = true;
     public bool BlockNextGate { get; set; } = true;
     public bool BlocksDefense { get; set; }
+    public decimal? Weight { get; set; }
     public DateTime? WindowStart { get; set; }
     public DateTime? WindowEnd { get; set; }
     public string ReviewerPolicy { get; set; } = "ASSIGNED_REVIEWER";
@@ -65,6 +66,7 @@ public sealed class ProjectGateInstance
     public bool Required { get; set; } = true;
     public bool BlockNextGate { get; set; } = true;
     public bool BlocksDefense { get; set; }
+    public decimal? Weight { get; set; }
     public DateTime? WindowStart { get; set; }
     public DateTime? WindowEnd { get; set; }
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();

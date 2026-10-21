@@ -3495,7 +3495,7 @@ BEGIN
   id bigint IDENTITY PRIMARY KEY, template_id bigint NOT NULL, code varchar(20) NOT NULL, sequence int NOT NULL,
   title nvarchar(255) NOT NULL, objective nvarchar(2000) NOT NULL, required bit NOT NULL CONSTRAINT df_review_gate_required DEFAULT 1,
   block_next_gate bit NOT NULL CONSTRAINT df_review_gate_block_next DEFAULT 1, blocks_defense bit NOT NULL CONSTRAINT df_review_gate_blocks_defense DEFAULT 0,
-  window_start datetime2(0) NULL, window_end datetime2(0) NULL, reviewer_policy varchar(100) NOT NULL, review_scope varchar(30) NOT NULL,
+  window_start datetime2(0) NULL, window_end datetime2(0) NULL, weight decimal(5,2) NULL, reviewer_policy varchar(100) NOT NULL, review_scope varchar(30) NOT NULL,
   CONSTRAINT uq_review_gate_definition_code UNIQUE(template_id,code), CONSTRAINT fk_review_gate_definition_template FOREIGN KEY(template_id) REFERENCES dbo.review_gate_templates(id)
  );
 END;
@@ -3514,7 +3514,7 @@ BEGIN
  CREATE TABLE dbo.project_gate_instances(
   id bigint IDENTITY PRIMARY KEY, project_id bigint NOT NULL, template_id bigint NOT NULL, template_version int NOT NULL, code varchar(20) NOT NULL,
   sequence int NOT NULL, title nvarchar(255) NOT NULL, objective nvarchar(2000) NOT NULL, status varchar(30) NOT NULL,
-  review_eligibility varchar(20) NOT NULL, required bit NOT NULL, block_next_gate bit NOT NULL CONSTRAINT df_project_gate_block_next_bootstrap DEFAULT 1, blocks_defense bit NOT NULL CONSTRAINT df_project_gate_blocks_defense_bootstrap DEFAULT 0, window_start datetime2(0) NULL, window_end datetime2(0) NULL,
+  review_eligibility varchar(20) NOT NULL, required bit NOT NULL, block_next_gate bit NOT NULL CONSTRAINT df_project_gate_block_next_bootstrap DEFAULT 1, blocks_defense bit NOT NULL CONSTRAINT df_project_gate_blocks_defense_bootstrap DEFAULT 0, window_start datetime2(0) NULL, window_end datetime2(0) NULL, weight decimal(5,2) NULL,
   concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_project_gate_token DEFAULT NEWID(), created_at datetime2(0) NOT NULL CONSTRAINT df_project_gate_created DEFAULT SYSUTCDATETIME(),
   CONSTRAINT uq_project_gate_code UNIQUE(project_id,code), CONSTRAINT fk_project_gate_project FOREIGN KEY(project_id) REFERENCES dbo.projects(id), CONSTRAINT fk_project_gate_template FOREIGN KEY(template_id) REFERENCES dbo.review_gate_templates(id)
  );

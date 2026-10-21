@@ -19,7 +19,7 @@ using Microsoft.Data.SqlClient;
 
 namespace AIPMS.Infrastructure.Services.Projects;
 
-internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current, IProjectRepository transactions,
+internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser current, IProjectRepository transactions,
     IAuditTrail audit, TimeProvider clock, IFileStorage storage) : IReviewGateService
 {
     private long Actor => current.UserId ?? throw new UnauthorizedException();
@@ -61,6 +61,9 @@ internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current,
             if (input.Mode is not ("SINGLE_MAJOR" or "INTERDISCIPLINARY")) throw new ValidationException(new Dictionary<string, string[]> { ["mode"] = ["Unsupported project mode."] });
             if (input.Gates.Any(g => g.Sequence < 1) || input.Gates.GroupBy(g => g.Sequence).Any(g => g.Count() > 1) || input.Gates.GroupBy(g => g.Code.Trim(), StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1))
                 throw new ValidationException(new Dictionary<string, string[]> { ["gates"] = ["Gate codes and sequence numbers must be unique positive values."] });
+            var weights = input.Gates.Select(g => g.Weight).ToArray();
+            if (weights.Any(x => x is < 0 or > 100) || weights.Any(x => x.HasValue) && (weights.Any(x => !x.HasValue) || weights.Sum(x => x ?? 0) != 100m))
+                throw new ValidationException(new Dictionary<string, string[]> { ["weights"] = ["Either leave all gate weights unset, or provide non-negative weights totaling 100."] });
             foreach (var requirement in input.Gates.SelectMany(g => g.Requirements ?? []))
             {
                 var normalizedScope = requirement.Scope.Trim().ToUpperInvariant();
@@ -89,6 +92,7 @@ internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current,
             {
                 Code = g.Code.Trim(), Sequence = g.Sequence, Title = g.Title.Trim(), Objective = g.Objective?.Trim() ?? "",
                 Required = g.Required, BlockNextGate = g.BlockNextGate, BlocksDefense = g.BlocksDefense,
+                Weight = g.Weight,
                 WindowStart = g.Start?.ToUniversalTime(), WindowEnd = g.End?.ToUniversalTime(),
                 ReviewerPolicy = g.ReviewerPolicy.Trim(), ReviewScope = g.ReviewScope.Trim(),
                 Requirements = (g.Requirements ?? []).Select(r => new ReviewGateRequirement { Code = r.Code.Trim(), Title = r.Title.Trim(), Description = r.Description?.Trim(), Type = r.Type.Trim(), Scope = r.Scope.Trim().ToUpperInvariant(), MajorId = r.MajorId, TargetStudentId = r.TargetStudentId, Verification = r.Verification.Trim(), Required = r.Required }).ToList()
@@ -246,6 +250,7 @@ internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current,
 
     public async Task<FileDownload> DownloadEvidence(long projectId, string gateCode, long requirementId, int version, CancellationToken ct)
     {
+        await RequireActiveActor(ct);
         var project = await db.Projects.AsNoTracking().SingleOrDefaultAsync(x => x.Id == projectId, ct) ?? throw new NotFoundException("Project", projectId);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
         var evidence = await db.GateEvidence.AsNoTracking().Include(x => x.Requirement).ThenInclude(x => x.GateInstance)
@@ -253,8 +258,6 @@ internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current,
             ?? throw new NotFoundException("ReviewGateEvidence", requirementId);
         if (!await IsAdmin(ct))
         {
-            var isMember = await db.TeamMembers.AnyAsync(x => x.Team.Project != null && x.Team.Project.Id == projectId && x.UserId == Actor && x.LeftAt == null, ct);
-            var isSupervisor = await db.SupervisorAssignments.AnyAsync(x => x.ProjectId == projectId && x.EndedAt == null && x.SupervisorProfile.UserId == Actor, ct);
             var assigned = await db.GateReviewerAssignments.AnyAsync(x => x.GateInstanceId == evidence.Requirement.GateInstanceId && x.ReviewerId == Actor
                 && x.Status != "REVOKED"
                 && (x.Scope == "COMMON" && evidence.Requirement.Scope == "COMMON"
@@ -262,14 +265,7 @@ internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current,
                     || x.Scope == "INDIVIDUAL" && evidence.Requirement.Scope == "INDIVIDUAL" && x.StudentId == evidence.Requirement.TargetStudentId), ct);
             if (!assigned)
             {
-                if (evidence.Requirement.Scope == "INDIVIDUAL" && isMember && evidence.Requirement.TargetStudentId != Actor)
-                    throw new ForbiddenException("Individual evidence is restricted to the target student and authorized reviewers.");
-                if (evidence.Requirement.Scope == "MAJOR_SPECIFIC" && isMember)
-                {
-                    var actorMajor = await db.Users.Where(x => x.Id == Actor).Select(x => x.MajorId).SingleOrDefaultAsync(ct);
-                    if (actorMajor != evidence.Requirement.MajorId) throw new ForbiddenException("The evidence is outside the student's major scope.");
-                }
-                if (!isMember && !isSupervisor && !await CanReadProjectScope(projectId, scope, ct))
+                if (!await CanReadEvidence(projectId, scope, evidence.Requirement, ct))
                     throw new ForbiddenException("The evidence is outside the review assignment scope.");
             }
         }
@@ -496,9 +492,16 @@ internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current,
             .Where(x => x.Status == "PUBLISHED" && x.Mode == mode);
         if (periodId.HasValue) templates = templates.Where(x => x.ProjectPeriodId == periodId.Value);
         else templates = templates.Where(x => x.ProjectPeriodId == null);
-        var template = await templates.OrderByDescending(x => x.Version).FirstOrDefaultAsync(ct);
+        var candidates = await templates.OrderByDescending(x => x.Version).ThenByDescending(x => x.UpdatedAt).ToArrayAsync(ct);
+        var major = scope.MajorIds.Count == 1
+            ? await db.Majors.AsNoTracking().Where(x => x.Id == scope.MajorIds[0]).Select(x => new { x.Id, x.Code, x.Name }).SingleOrDefaultAsync(ct)
+            : null;
+        string[] exactTokens = major is null ? [] : [major.Id.ToString(), major.Code, major.Name];
+        var exact = candidates.Where(x => exactTokens.Contains(x.Major, StringComparer.OrdinalIgnoreCase)).ToArray();
+        var generic = candidates.Where(x => string.IsNullOrWhiteSpace(x.Major) || x.Major.Equals("INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var template = exact.FirstOrDefault() ?? (generic.Length == 1 ? generic[0] : null);
         if (template is null) return [];
-        var created = template.Gates.OrderBy(x => x.Sequence).Select(g => new ProjectGateInstance { ProjectId = project.Id, TemplateId = template.Id, TemplateVersion = template.Version, Code = g.Code, Sequence = g.Sequence, Title = g.Title, Objective = g.Objective, Status = g.Sequence == 1 ? "PLANNED" : "LOCKED", ReviewEligibility = g.Sequence == 1 ? "READY" : "BLOCKED", Required = g.Required, BlockNextGate = g.BlockNextGate, BlocksDefense = g.BlocksDefense, WindowStart = g.WindowStart, WindowEnd = g.WindowEnd, CreatedAt = Now, Requirements = g.Requirements.Select(r => new ProjectGateRequirement { Code = r.Code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId, TargetStudentId = r.TargetStudentId, Required = r.Required }).ToList() }).ToArray();
+        var created = template.Gates.OrderBy(x => x.Sequence).Select(g => new ProjectGateInstance { ProjectId = project.Id, TemplateId = template.Id, TemplateVersion = template.Version, Code = g.Code, Sequence = g.Sequence, Title = g.Title, Objective = g.Objective, Status = g.Sequence == 1 ? "PLANNED" : "LOCKED", ReviewEligibility = g.Sequence == 1 ? "READY" : "BLOCKED", Required = g.Required, BlockNextGate = g.BlockNextGate, BlocksDefense = g.BlocksDefense, Weight = g.Weight, WindowStart = g.WindowStart, WindowEnd = g.WindowEnd, CreatedAt = Now, Requirements = g.Requirements.Select(r => new ProjectGateRequirement { Code = r.Code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId, TargetStudentId = r.TargetStudentId, Required = r.Required }).ToList() }).ToArray();
         db.ProjectGateInstances.AddRange(created); await db.SaveChangesAsync(ct); return created;
     }
 
@@ -509,7 +512,36 @@ internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current,
         var mode = scope.MajorIds.Count > 1 ? "INTERDISCIPLINARY" : "SINGLE_MAJOR";
         var majorNames = await db.Majors.AsNoTracking().Where(x => scope.MajorIds.Contains(x.Id)).OrderBy(x => x.Id).Select(x => x.Name).ToArrayAsync(ct);
         var policyVersion = gates.FirstOrDefault()?.TemplateVersion.ToString("0.##") ?? "UNKNOWN";
-        return new(project.Id.ToString(), project.Code, project.Title, mode, string.Join(" + ", majorNames), policyVersion, current?.Code ?? "", gates.Select(g => new StudentGateInstanceDto(g.Id.ToString(), g.Code, g.Title, g.Objective, g.Status, g.ReviewEligibility, g.Required, g.WindowStart, g.WindowEnd, Blocking(g), g.Requirements.Select(r => new StudentGateRequirementDto(r.Id.ToString(), r.Code, r.Title, r.Type, r.Scope, r.Required, r.VerificationStatus, Artifact(r, g.Code), r.ReviewerFeedback)).ToArray(), g.ConcurrencyToken.ToString("N"))).ToArray(), new(leader && current is not null && current.ReviewEligibility == "READY", leader && current is not null && current.Status == "REVISION_REQUIRED", leader ? [] : ["Chỉ trưởng nhóm mới được nộp minh chứng."]));
+        var timelineGates = gates.Select(g => new StudentGateInstanceDto(g.Id.ToString(), g.Code, g.Title, g.Objective, g.Status, g.ReviewEligibility, g.Required, g.WindowStart, g.WindowEnd, Blocking(g), g.Requirements.Select(r => new StudentGateRequirementDto(r.Id.ToString(), r.Code, r.Title, r.Type, r.Scope, r.Required, r.VerificationStatus, Artifact(r, g.Code), r.ReviewerFeedback)).ToArray(), g.ConcurrencyToken.ToString("N"), g.Weight)).ToArray();
+        var weights = gates.Select(g => g.Weight).ToArray();
+        var configured = gates.Length > 0 && weights.All(x => x.HasValue) && weights.Sum(x => x ?? 0) > 0;
+        var academicProgress = configured ? Math.Round(gates.Sum(g => g.Status == "PASSED" ? g.Weight ?? 0 : 0) * 100m / weights.Sum(x => x ?? 0), 2) : (decimal?)null;
+        var academicSource = configured ? "FROZEN_GATE_WEIGHTS" : "NOT_CONFIGURED";
+        var taskCount = await db.Tasks.CountAsync(x => x.Milestone.ProjectId == project.Id, ct);
+        var doneTasks = await db.Tasks.CountAsync(x => x.Milestone.ProjectId == project.Id && (x.Status == "DONE" || x.Status == "COMPLETED"), ct);
+        var taskProgress = taskCount == 0 ? (decimal?)null : Math.Round(doneTasks * 100m / taskCount, 2);
+        var disciplineProgress = new List<DisciplineBranchProgressDto>();
+        var commonGates = gates.Where(g => g.Requirements.Any(r => r.Scope == "COMMON")).ToArray();
+        disciplineProgress.Add(BranchProgress("COMMON", "Phạm vi chung", commonGates));
+        foreach (var major in scope.MajorIds.Select((id, index) => (id, name: majorNames.ElementAtOrDefault(index) ?? id.ToString())))
+            disciplineProgress.Add(BranchProgress($"MAJOR:{major.id}", major.name,
+                gates.Where(g => g.Requirements.Any(r => r.Scope == "MAJOR_SPECIFIC" && r.MajorId == major.id)).ToArray()));
+        var defenseReady = gates.Length == 0 ? (bool?)null : gates.Where(g => g.BlocksDefense).All(g => g.Status == "PASSED");
+        var feedbacks = await db.Set<AIPMS.Infrastructure.Persistence.Generated.Models.SupervisorFeedback>().AsNoTracking()
+            .Where(x => x.ProjectId == project.Id).OrderByDescending(x => x.CreatedAt).Take(20)
+            .Select(x => new SupervisorFeedbackDto("GENERAL", x.FeedbackText, x.CreatedAt, x.SupervisorAssignment.SupervisorProfile.User.FullName)).ToArrayAsync(ct);
+        return new(project.Id.ToString(), project.Code, project.Title, mode, string.Join(" + ", majorNames), policyVersion, current?.Code ?? "", timelineGates,
+            new(leader && current is not null && current.ReviewEligibility == "READY", leader && current is not null && current.Status == "REVISION_REQUIRED", leader ? [] : ["Chỉ trưởng nhóm mới được nộp minh chứng."]),
+            academicProgress, academicSource, defenseReady, defenseReady is null ? "NOT_CONFIGURED" : defenseReady.Value ? "READY" : "BLOCKED", disciplineProgress, feedbacks, taskProgress);
+    }
+
+    private static DisciplineBranchProgressDto BranchProgress(string scope, string name, IReadOnlyList<ProjectGateInstance> gates)
+    {
+        var weighted = gates.Where(x => x.Weight.HasValue).ToArray();
+        if (weighted.Length == 0) return new(scope, name, null, null, "NOT_CONFIGURED");
+        var total = weighted.Sum(x => x.Weight!.Value);
+        var progress = total <= 0 ? (decimal?)null : Math.Round(weighted.Sum(x => x.Status == "PASSED" ? x.Weight!.Value : 0) * 100m / total, 2);
+        return new(scope, name, progress, Math.Round(total, 2), progress == 100m ? "PASSED" : "IN_PROGRESS");
     }
 
     private static IReadOnlyList<ReviewGateBlockingReasonDto> Blocking(ProjectGateInstance g) => g.ReviewEligibility == "BLOCKED" ? [new("PREVIOUS_GATE_REQUIRED", null, "Cổng trước chưa đạt.")] : g.Requirements.Where(x => x.Required && x.VerificationStatus != "ACCEPTED").Select(x => new ReviewGateBlockingReasonDto("EVIDENCE_REQUIRED", x.Code, "Minh chứng bắt buộc chưa được chấp thuận.")).ToArray();
@@ -612,7 +644,7 @@ internal sealed class ReviewGateService(AipmsDbContext db, ICurrentUser current,
     private async Task RequireProjectLeader(long projectId, CancellationToken ct)
     { if (!await db.TeamMembers.AnyAsync(x => x.Team.Project != null && x.Team.Project.Id == projectId && x.UserId == Actor && x.IsLeader && x.LeftAt == null, ct)) throw new ForbiddenException("Only the active project leader may submit evidence."); }
 
-    private static ReviewGateTemplateDto Map(ReviewGateTemplate x) => new(x.Id.ToString(), x.ProjectPeriodId, x.Code, x.Name, x.Mode, x.Major, x.Status, x.Version.ToString("0.##"), x.ConcurrencyToken.ToString("N"), x.Gates.Count, x.Gates.OrderBy(g => g.Sequence).Select(g => new ReviewGateDefinitionDto(g.Id.ToString(), g.Code, g.Sequence, g.Title, g.Objective, g.Required, g.BlockNextGate, g.BlocksDefense, g.WindowStart, g.WindowEnd, g.WindowStart, g.WindowEnd, g.ReviewerPolicy, g.ReviewScope, g.Requirements.OrderBy(r => r.Id).Select(r => new ReviewGateRequirementDto(r.Id.ToString(), r.Code, r.Title, r.Description, r.Type, r.Scope, r.MajorId, r.TargetStudentId, r.Verification, r.Required)).ToArray())).ToArray());
+    private static ReviewGateTemplateDto Map(ReviewGateTemplate x) => new(x.Id.ToString(), x.ProjectPeriodId, x.Code, x.Name, x.Mode, x.Major, x.Status, x.Version.ToString("0.##"), x.ConcurrencyToken.ToString("N"), x.Gates.Count, x.Gates.OrderBy(g => g.Sequence).Select(g => new ReviewGateDefinitionDto(g.Id.ToString(), g.Code, g.Sequence, g.Title, g.Objective, g.Required, g.BlockNextGate, g.BlocksDefense, g.WindowStart, g.WindowEnd, g.WindowStart, g.WindowEnd, g.ReviewerPolicy, g.ReviewScope, g.Requirements.OrderBy(r => r.Id).Select(r => new ReviewGateRequirementDto(r.Id.ToString(), r.Code, r.Title, r.Description, r.Type, r.Scope, r.MajorId, r.TargetStudentId, r.Verification, r.Required)).ToArray(), g.Weight)).ToArray());
     private static AssignedReviewItemDto AssignmentDto(GateReviewerAssignment x, AIPMS.Infrastructure.Persistence.Generated.Models.Project project) => new(x.Id.ToString(), project.Id.ToString(), project.Code, project.Title, x.GateInstance.Code, x.GateInstance.Title, x.Scope, x.GateInstance.WindowEnd, x.Status, x.LatestDecision,
         x.GateInstance.Requirements.Where(r => x.Scope == "COMMON" && r.Scope == "COMMON"
             || x.Scope == "MAJOR_SPECIFIC" && r.Scope == "MAJOR_SPECIFIC" && r.MajorId == x.MajorId

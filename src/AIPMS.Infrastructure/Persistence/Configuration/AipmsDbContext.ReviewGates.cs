@@ -22,6 +22,7 @@ public partial class AipmsDbContext
             e.Property(x => x.Code).HasMaxLength(20).IsUnicode(false); e.Property(x => x.Title).HasMaxLength(255);
             e.Property(x => x.Objective).HasMaxLength(2000); e.Property(x => x.ReviewerPolicy).HasMaxLength(100).IsUnicode(false);
             e.Property(x => x.ReviewScope).HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.Weight).HasPrecision(5, 2);
             e.HasMany(x => x.Requirements).WithOne().HasForeignKey(x => x.GateDefinitionId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<ReviewGateRequirement>(e => {
@@ -36,6 +37,7 @@ public partial class AipmsDbContext
             e.HasIndex(x => new { x.ProjectId, x.Code }).IsUnique();
             e.Property(x => x.Code).HasMaxLength(20).IsUnicode(false); e.Property(x => x.Title).HasMaxLength(255);
             e.Property(x => x.Objective).HasMaxLength(2000); e.Property(x => x.Status).HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.Weight).HasPrecision(5, 2);
             e.Property(x => x.BlockNextGate).HasColumnName("block_next_gate"); e.Property(x => x.BlocksDefense).HasColumnName("blocks_defense");
             e.Property(x => x.ReviewEligibility).HasMaxLength(20).IsUnicode(false); e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasMany(x => x.Requirements).WithOne(x => x.GateInstance).HasForeignKey(x => x.GateInstanceId).OnDelete(DeleteBehavior.NoAction);

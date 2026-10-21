@@ -6,7 +6,8 @@ public sealed record ReviewGateRequirementInput(string Code, string Title, strin
     string Scope, long? MajorId, long? TargetStudentId = null, string Verification = "HUMAN", bool Required = true);
 public sealed record ReviewGateDefinitionInput(string Code, int Sequence, string Title, string Objective,
     bool Required, bool BlockNextGate, bool BlocksDefense, DateTime? Start, DateTime? End,
-    string ReviewerPolicy, string ReviewScope, IReadOnlyList<ReviewGateRequirementInput> Requirements);
+    string ReviewerPolicy, string ReviewScope, IReadOnlyList<ReviewGateRequirementInput> Requirements,
+    decimal? Weight = null);
 public sealed record SaveReviewGateTemplateRequest(long? ProjectPeriodId, string Code, string Name, string Mode,
     string Major, string Version, string? ConcurrencyToken, IReadOnlyList<ReviewGateDefinitionInput> Gates);
 public sealed record PublishReviewGateTemplateRequest(string? ConcurrencyToken);
@@ -15,17 +16,22 @@ public sealed record ReviewGateTemplateDto(string Id, long? ProjectPeriodId, str
     IReadOnlyList<ReviewGateDefinitionDto> Gates);
 public sealed record ReviewGateDefinitionDto(string Id, string Code, int Sequence, string Title, string Objective,
     bool Required, bool BlockNextGate, bool BlocksDefense, DateTime? WindowStart, DateTime? WindowEnd,
-    DateTime? Start, DateTime? End, string ReviewerPolicy, string ReviewScope, IReadOnlyList<ReviewGateRequirementDto> Requirements);
+    DateTime? Start, DateTime? End, string ReviewerPolicy, string ReviewScope, IReadOnlyList<ReviewGateRequirementDto> Requirements,
+    decimal? Weight = null);
 public sealed record ReviewGateRequirementDto(string Id, string Code, string Title, string? Description, string Type,
     string Scope, long? MajorId, long? TargetStudentId, string Verification, bool Required);
 
 public sealed record StudentReviewTimelineDto(string ProjectId, string ProjectCode, string ProjectName, string ProjectMode,
     string Major, string EffectivePolicyVersion, string CurrentGateCode, IReadOnlyList<StudentGateInstanceDto> Gates,
-    ReviewGateCapabilitiesDto Capabilities);
+    ReviewGateCapabilitiesDto Capabilities, decimal? AcademicProgress = null, string AcademicProgressSource = "NOT_CONFIGURED",
+    bool? IsDefenseReady = null, string? DefenseReadinessStatus = null, IReadOnlyList<DisciplineBranchProgressDto>? DisciplineProgress = null,
+    IReadOnlyList<SupervisorFeedbackDto>? SupervisorFeedbacks = null, decimal? TaskProgress = null);
 public sealed record StudentGateInstanceDto(string GateInstanceId, string Code, string Title, string Objective, string Status,
     string ReviewEligibility, bool IsRequired, DateTime? WindowStart, DateTime? WindowEnd,
     IReadOnlyList<ReviewGateBlockingReasonDto> BlockingReasons, IReadOnlyList<StudentGateRequirementDto> Requirements,
-    string ConcurrencyToken = "");
+    string ConcurrencyToken = "", decimal? Weight = null);
+public sealed record DisciplineBranchProgressDto(string Scope, string Name, decimal? Progress, decimal? Weight = null, string? Status = null);
+public sealed record SupervisorFeedbackDto(string GateCode, string Feedback, DateTime SubmittedAt, string? SupervisorName = null);
 public sealed record ReviewGateBlockingReasonDto(string Code, string? RequirementCode, string Message);
 public sealed record ReviewGateCapabilitiesDto(bool CanSubmitPackage, bool CanSubmitRevision, IReadOnlyList<string> BlockingReasons);
 public sealed record StudentGateRequirementDto(string Id, string Code, string Title, string Type, string Scope, bool IsMandatory,
