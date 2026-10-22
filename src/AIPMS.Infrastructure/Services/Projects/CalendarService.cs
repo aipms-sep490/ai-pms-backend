@@ -46,7 +46,7 @@ internal sealed partial class CalendarService(AipmsDbContext db, ICurrentUser cu
         if (from >= to || to - from > TimeSpan.FromDays(366)) throw Invalid("from/to must be a bounded range of at most 366 days.");
         if (pageSize is < 1 or > 100) throw Invalid("pageSize must be 1..100.");
         sourceType = sourceType?.Trim().ToUpperInvariant();
-        var sources = new[] { "TASK", "MILESTONE", "MEETING", "DELIVERABLE", "FINAL_SUBMISSION", "EVALUATION_ASSIGNMENT", "CHECKPOINT", "DEFENSE_SESSION" };
+        var sources = new[] { "TASK", "MILESTONE", "MEETING", "DELIVERABLE", "FINAL_SUBMISSION", "EVALUATION_ASSIGNMENT", "CHECKPOINT", "DEFENSE_SESSION", "PROGRESS_REPORT" };
         if (sourceType is not null && !sources.Contains(sourceType)) throw Invalid("Unknown sourceType.");
         var actor = currentUser.IsAuthenticated ? currentUser.UserId ?? throw new UnauthorizedException() : throw new UnauthorizedException();
         var queryKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{actor}|{from.UtcTicks}|{to.UtcTicks}|{sourceType}")));
@@ -77,7 +77,7 @@ internal sealed partial class CalendarService(AipmsDbContext db, ICurrentUser cu
         {
             if (text.Length > 1024) throw Invalid("Invalid cursor.");
             var value = JsonSerializer.Deserialize<Cursor>(Convert.FromBase64String(text));
-            if (value is null || value.Version != 2 || value.Query != query || value.Id <= 0 || value.SourceOrder is < 0 or > 7
+            if (value is null || value.Version != 2 || value.Query != query || value.Id <= 0 || value.SourceOrder is < 0 or > 8
                 || value.DueAt < from || value.DueAt >= to) throw Invalid("The cursor does not match this actor/range/source; restart paging.");
             return value;
         }

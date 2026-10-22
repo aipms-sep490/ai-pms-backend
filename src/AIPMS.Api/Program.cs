@@ -23,6 +23,7 @@ var app = builder.Build();
 app.Logger.LogInformation("Starting AI-PMS API");
 app.UseApiPipeline();
 app.MapHub<AIPMS.Api.Hubs.ChatHub>("/hubs/chat", options=>options.CloseOnAuthenticationExpiration=true);
+app.MapHub<AIPMS.Api.Hubs.NotificationHub>("/hubs/notifications", options=>options.CloseOnAuthenticationExpiration=true);
 app.Run();
 
 public partial class Program;

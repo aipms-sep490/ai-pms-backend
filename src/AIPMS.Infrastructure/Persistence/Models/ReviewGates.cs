@@ -105,6 +105,7 @@ public sealed class GateEvidence
     public long SizeBytes { get; set; }
     public string Sha256 { get; set; } = "";
     public string StorageKey { get; set; } = "";
+    public string? LinkUrl { get; set; }
     public string? Notes { get; set; }
     public long SubmittedBy { get; set; }
     public DateTime SubmittedAt { get; set; }

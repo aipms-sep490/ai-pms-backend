@@ -25,7 +25,8 @@ public sealed record ProgressReportDto(
     string? InProgressWork = null,
     string? Blockers = null,
     string? Risks = null,
-    string? NextActions = null);
+    string? NextActions = null,
+    DateTime? DueAt = null);
 
 public sealed record ProgressReportDetailDto(
     long Id,
@@ -50,7 +51,8 @@ public sealed record ProgressReportDetailDto(
     string? InProgressWork = null,
     string? Blockers = null,
     string? Risks = null,
-    string? NextActions = null);
+    string? NextActions = null,
+    DateTime? DueAt = null);
 
 public sealed record ProgressReportFeedbackDto(
     long Id,

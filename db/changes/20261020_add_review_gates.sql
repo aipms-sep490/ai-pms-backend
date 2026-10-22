@@ -69,6 +69,7 @@ IF COL_LENGTH('dbo.review_gate_evidence','content_type') IS NULL ALTER TABLE dbo
 IF COL_LENGTH('dbo.review_gate_evidence','size_bytes') IS NULL ALTER TABLE dbo.review_gate_evidence ADD size_bytes bigint NOT NULL CONSTRAINT df_review_gate_evidence_size DEFAULT 0;
 IF COL_LENGTH('dbo.review_gate_evidence','sha256') IS NULL ALTER TABLE dbo.review_gate_evidence ADD sha256 varchar(64) NOT NULL CONSTRAINT df_review_gate_evidence_sha DEFAULT '';
 IF COL_LENGTH('dbo.review_gate_evidence','storage_key') IS NULL ALTER TABLE dbo.review_gate_evidence ADD storage_key varchar(32) NOT NULL CONSTRAINT df_review_gate_evidence_storage DEFAULT '';
+IF COL_LENGTH('dbo.review_gate_evidence','link_url') IS NULL ALTER TABLE dbo.review_gate_evidence ADD link_url varchar(2048) NULL;
 IF OBJECT_ID('dbo.review_gate_assignments','U') IS NULL
 BEGIN
  CREATE TABLE dbo.review_gate_assignments(

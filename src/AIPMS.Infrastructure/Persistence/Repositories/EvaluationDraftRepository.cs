@@ -29,7 +29,9 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
             Stage = scope.Stage, ColdPackageId = scope.ColdPackageId };
         db.Add(row); await db.SaveChangesAsync(ct);
         db.Add(new PeriodPolicyUsage { PolicyVersionId = scope.PolicyVersionId, EntityType = "EVALUATION_ASSIGNMENT", EntityId = row.Id, CreatedAt = now });
-        await db.SaveChangesAsync(ct); return Map(row);
+        await db.SaveChangesAsync(ct);
+        var dueAt = await db.ProjectPeriods.AsNoTracking().Where(p => p.Id == periodId).Select(p => (DateTime?)p.EndAt).SingleOrDefaultAsync(ct);
+        return Map(row, dueAt);
     }
     public Task<bool> HasLockedSubmissionAsync(long projectId, CancellationToken ct) =>
         db.Set<FinalSubmission>().AnyAsync(s => s.ProjectId == projectId && s.Items.Any(), ct);
@@ -120,15 +122,18 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
             ["LECTURER"])).ToArray(), page, pageSize, total);
     }
 
-    private static EvaluationAssignmentRecord Map(EvaluationAssignment a) => new(a.Id, a.ProjectId, a.EvaluatorId,
+    private static EvaluationAssignmentRecord Map(EvaluationAssignment a, DateTime? dueAt = null) => new(a.Id, a.ProjectId, a.EvaluatorId,
         a.RubricId, a.ProjectPeriodId, a.DepartmentId, a.EvaluationType, a.Status, a.AssignedBy,
         a.AssignedAt, a.RevokedAt, a.ConcurrencyToken.ToString("N"), a.Scope, a.MajorId, a.StudentId,
-        a.ComponentId, a.PolicyVersionId, a.Stage, a.ColdPackageId);
+        a.ComponentId, a.PolicyVersionId, a.Stage, a.ColdPackageId, DueAt: dueAt);
 
     public async Task<EvaluationAssignmentRecord?> GetAssignmentAsync(long id, CancellationToken ct)
     {
-        var row = await db.Set<EvaluationAssignment>().AsNoTracking().SingleOrDefaultAsync(a => a.Id == id, ct);
-        return row is null ? null : Map(row);
+        var row = await (from a in db.Set<EvaluationAssignment>().AsNoTracking()
+                         join p in db.ProjectPeriods.AsNoTracking() on a.ProjectPeriodId equals p.Id
+                         where a.Id == id
+                         select new { Assignment = a, DueAt = (DateTime?)p.EndAt }).SingleOrDefaultAsync(ct);
+        return row is null ? null : Map(row.Assignment, row.DueAt);
     }
 
     public async Task<EvaluationAssignmentRecord> AssignAsync(long projectId, long evaluatorId, long periodId,
@@ -143,7 +148,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
             EvaluationType = type, AssignedBy = actorId, AssignedAt = now, ConcurrencyToken = Guid.NewGuid() };
         db.Set<EvaluationAssignment>().Add(row);
         await db.SaveChangesAsync(ct);
-        return Map(row);
+        var dueAt = await db.ProjectPeriods.AsNoTracking().Where(p => p.Id == periodId).Select(p => (DateTime?)p.EndAt).SingleOrDefaultAsync(ct);
+        return Map(row, dueAt);
     }
 
     public async Task<EvaluationAssignmentRecord> RevokeAsync(long id, string reason, DateTime now, CancellationToken ct)
@@ -154,7 +160,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         row.RevocationReason = reason;
         row.ConcurrencyToken = Guid.NewGuid();
         await db.SaveChangesAsync(ct);
-        return Map(row);
+        var dueAt = await db.ProjectPeriods.AsNoTracking().Where(p => p.Id == row.ProjectPeriodId).Select(p => (DateTime?)p.EndAt).SingleOrDefaultAsync(ct);
+        return Map(row, dueAt);
     }
 
     private async Task<IReadOnlyList<long>> ManagedDepartmentsAsync(EvaluationActor actor, long projectId, CancellationToken ct)
@@ -186,6 +193,7 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         var total = await query.LongCountAsync(ct);
         var rows = await query.OrderByDescending(a => a.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         var projectIds = rows.Select(a => a.ProjectId).Distinct().ToArray();
+        var periodIds = rows.Select(a => a.ProjectPeriodId).Distinct().ToArray();
         var componentIds = rows.Select(a => a.ComponentId).Distinct().ToArray();
         var rubricIds = rows.Select(a => a.RubricId).Distinct().ToArray();
         var majorIds = rows.Select(a => a.MajorId).Distinct().ToArray();
@@ -195,7 +203,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         var rubrics = await db.Rubrics.Where(r => rubricIds.Contains(r.Id)).Select(r => new { r.Id, r.Name }).ToDictionaryAsync(r => r.Id, r => r.Name, ct);
         var majors = await db.Majors.Where(m => majorIds.Contains(m.Id)).Select(m => new { m.Id, m.Name }).ToDictionaryAsync(m => m.Id, m => m.Name, ct);
         var students = await db.Users.Where(u => studentIds.Contains(u.Id)).Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
-        return new(rows.Select(a => Map(a) with { ProjectTitle = projects.GetValueOrDefault(a.ProjectId), ComponentName = components.GetValueOrDefault(a.ComponentId ?? 0), RubricName = rubrics.GetValueOrDefault(a.RubricId), MajorName = majors.GetValueOrDefault(a.MajorId ?? 0), StudentName = students.GetValueOrDefault(a.StudentId ?? 0) }).ToArray(), page, pageSize, total);
+        var dueAt = await db.ProjectPeriods.AsNoTracking().Where(p => periodIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => (DateTime?)p.EndAt, ct);
+        return new(rows.Select(a => Map(a, dueAt.GetValueOrDefault(a.ProjectPeriodId)) with { ProjectTitle = projects.GetValueOrDefault(a.ProjectId), ComponentName = components.GetValueOrDefault(a.ComponentId ?? 0), RubricName = rubrics.GetValueOrDefault(a.RubricId), MajorName = majors.GetValueOrDefault(a.MajorId ?? 0), StudentName = students.GetValueOrDefault(a.StudentId ?? 0) }).ToArray(), page, pageSize, total);
     }
 
     public async Task<EvaluationDraftRecord?> GetDraftAsync(long id, CancellationToken ct)

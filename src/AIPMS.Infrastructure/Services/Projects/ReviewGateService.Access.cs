@@ -39,7 +39,7 @@ internal sealed partial class ReviewGateService
             .Select(x => new { x.AssignmentType, x.IsPrimary, x.MajorId }).ToArrayAsync(ct);
         if (assignments.Length > 0)
             return requirement.Scope == "COMMON" || assignments.Any(x => x.AssignmentType == "PRIMARY" && x.IsPrimary)
-                || assignments.Any(x => x.AssignmentType == "MENTOR" && x.MajorId.HasValue && x.MajorId == requirement.MajorId);
+                || assignments.Any(x => x.AssignmentType == "DISCIPLINE_MENTOR" && x.MajorId.HasValue && x.MajorId == requirement.MajorId);
 
         // Project visibility alone never grants access to another department's evidence.
         if (!await IsStaff(ct)) return false;

@@ -32,7 +32,8 @@ internal static class ProgressReportMapper
             report.InProgressWork,
             report.Blockers,
             report.Risks,
-            report.NextActions);
+            report.NextActions,
+            report.ProgressReportPeriod is null ? null : DateTime.SpecifyKind(report.ProgressReportPeriod.Deadline, DateTimeKind.Utc));
     }
 
     public static ProgressReportDetailDto ToDetailDto(this ReportEntity report)
@@ -65,7 +66,8 @@ internal static class ProgressReportMapper
             report.InProgressWork,
             report.Blockers,
             report.Risks,
-            report.NextActions);
+            report.NextActions,
+            report.ProgressReportPeriod is null ? null : DateTime.SpecifyKind(report.ProgressReportPeriod.Deadline, DateTimeKind.Utc));
     }
 
     public static ProgressReportFeedbackDto ToDto(this FeedbackEntity feedback) =>

@@ -45,6 +45,8 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     }
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/submit-for-review")]
     public async Task<ActionResult<StudentReviewTimelineDto>> SubmitForReview(long projectId, string gateCode, SubmitReviewGateForReviewRequest request, CancellationToken ct) => Ok(await service.SubmitForReview(projectId, gateCode, request, ct));
+    [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/feedback")]
+    public async Task<ActionResult<SupervisorFeedbackDto>> AddFeedback(long projectId, string gateCode, AddReviewGateFeedbackRequest request, CancellationToken ct) => Ok(await service.AddFeedback(projectId, gateCode, request, ct));
     [HttpGet("api/v1/reviewers/me/gate-assignments")]
     public async Task<ActionResult<PagedResult<AssignedReviewItemDto>>> AssignedReviews([FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) => Ok(await service.AssignedReviews(page, pageSize, ct));
     [HttpGet("api/v1/review-gates/my-assigned-reviews")]

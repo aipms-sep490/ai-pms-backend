@@ -66,6 +66,14 @@ internal sealed partial class CalendarService
                 .Select(x => new CalendarRow { SourceOrder = 7, SourceType = "DEFENSE_SESSION", SourceId = x.s.Id, ProjectId = x.p.Id,
                     ProjectCode = x.p.Code, ProjectTitle = x.p.Title, Title = "Defense session", StartAt = x.s.StartAt,
                     EndAt = x.s.EndAt, DueAt = x.s.StartAt, Status = x.s.Status, DeepLink = $"/defense-sessions/{x.s.Id}" });
+            case 8: return db.Set<ProgressReportPeriod>().AsNoTracking().Where(r => r.Deadline >= r.PeriodStart &&
+                !db.ProgressReports.Any(report => report.ProgressReportPeriodId == r.Id && report.Status != "DRAFT") &&
+                (whole.Contains(r.ProjectId) || scope.Lecturer && projects.Contains(r.ProjectId) &&
+                    db.SupervisorAssignments.Any(a => a.ProjectId == r.ProjectId && a.EndedAt == null && a.SupervisorProfile.UserId == actor)))
+                .Select(r => new CalendarRow { SourceOrder = 8, SourceType = "PROGRESS_REPORT", SourceId = r.Id,
+                    ProjectId = r.ProjectId, ProjectCode = r.Project.Code, ProjectTitle = r.Project.Title,
+                    Title = $"Progress report {r.ReportType}", StartAt = r.PeriodStart, EndAt = r.Deadline,
+                    DueAt = r.Deadline, Status = "OPEN", DeepLink = $"/projects/{r.ProjectId}/progress-reports" });
             default: throw new InvalidOperationException();
         }
     }

@@ -1572,6 +1572,7 @@ public partial class AipmsDbContext : DbContext
                 .HasColumnName("created_at");
             entity.Property(e => e.DeliverableVersionId).HasColumnName("deliverable_version_id");
             entity.Property(e => e.FeedbackText).HasColumnName("feedback_text");
+            entity.Property(e => e.GateCode).HasMaxLength(20).IsUnicode(false).HasColumnName("gate_code");
             entity.Property(e => e.MeetingId).HasColumnName("meeting_id");
             entity.Property(e => e.ProgressReportId).HasColumnName("progress_report_id");
             entity.Property(e => e.ProjectId).HasColumnName("project_id");

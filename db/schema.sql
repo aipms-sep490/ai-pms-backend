@@ -984,6 +984,7 @@ CREATE TABLE dbo.supervisor_feedback (
     progress_report_id      BIGINT NULL,
     deliverable_version_id  BIGINT NULL,
     meeting_id              BIGINT NULL,
+    gate_code               VARCHAR(20) NULL,
     feedback_text           NVARCHAR(MAX) NOT NULL,
     created_at              DATETIME2(0) NOT NULL CONSTRAINT df_supervisor_feedback_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at              DATETIME2(0) NOT NULL CONSTRAINT df_supervisor_feedback_updated_at DEFAULT (SYSUTCDATETIME()),
@@ -1186,6 +1187,7 @@ CREATE TABLE dbo.notification_recipients (
     is_read         BIT NOT NULL CONSTRAINT df_notification_recipients_is_read DEFAULT (0),
     read_at         DATETIME2(0) NULL,
     delivered_at    DATETIME2(0) NULL,
+    realtime_delivered_at DATETIME2(0) NULL,
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_notification_recipients_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_notification_recipients_updated_at DEFAULT (SYSUTCDATETIME()),
     CONSTRAINT pk_notification_recipients PRIMARY KEY (id),
@@ -1259,6 +1261,9 @@ CREATE INDEX ix_evaluations_rubric_id ON dbo.evaluations(rubric_id);
 CREATE INDEX ix_evaluation_details_rubric_criterion_id ON dbo.evaluation_details(rubric_criterion_id);
 CREATE INDEX ix_notifications_related_entity ON dbo.notifications(related_entity_type, related_entity_id);
 CREATE INDEX ix_notification_recipients_user_read ON dbo.notification_recipients(user_id, is_read, created_at DESC);
+GO
+CREATE INDEX ix_notification_recipients_realtime_pending ON dbo.notification_recipients(realtime_delivered_at, id)
+    WHERE realtime_delivered_at IS NULL;
 GO
 
 PRINT N'AI-PMS schema created successfully.';
@@ -3541,6 +3546,7 @@ IF COL_LENGTH('dbo.review_gate_evidence','content_type') IS NULL ALTER TABLE dbo
 IF COL_LENGTH('dbo.review_gate_evidence','size_bytes') IS NULL ALTER TABLE dbo.review_gate_evidence ADD size_bytes bigint NOT NULL CONSTRAINT df_review_gate_evidence_size DEFAULT 0;
 IF COL_LENGTH('dbo.review_gate_evidence','sha256') IS NULL ALTER TABLE dbo.review_gate_evidence ADD sha256 varchar(64) NOT NULL CONSTRAINT df_review_gate_evidence_sha DEFAULT '';
 IF COL_LENGTH('dbo.review_gate_evidence','storage_key') IS NULL ALTER TABLE dbo.review_gate_evidence ADD storage_key varchar(32) NOT NULL CONSTRAINT df_review_gate_evidence_storage DEFAULT '';
+IF COL_LENGTH('dbo.review_gate_evidence','link_url') IS NULL ALTER TABLE dbo.review_gate_evidence ADD link_url varchar(2048) NULL;
 IF OBJECT_ID('dbo.review_gate_assignments','U') IS NULL
 BEGIN
  CREATE TABLE dbo.review_gate_assignments(

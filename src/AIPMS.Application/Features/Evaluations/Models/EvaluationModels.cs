@@ -13,7 +13,8 @@ public sealed record EvaluationAssignmentRecord(long Id, long ProjectId, long Ev
     long PeriodId, long DepartmentId, string EvaluationType, string Status, long AssignedBy,
     DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken, string Scope = "UNKNOWN",
     long? MajorId = null, long? StudentId = null, long? ComponentId = null, long? PolicyVersionId = null,
-    string? Stage = null, long? ColdPackageId = null, string? ProjectTitle = null, string? ComponentName = null, string? RubricName = null, string? MajorName = null, string? StudentName = null);
+    string? Stage = null, long? ColdPackageId = null, string? ProjectTitle = null, string? ComponentName = null, string? RubricName = null, string? MajorName = null, string? StudentName = null,
+    DateTime? DueAt = null);
 public sealed record EvaluationDraftRecord(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
     long RubricId, string RubricName, long RootRubricId, int RubricVersion, string EvaluationType, string Status, string? Comments, decimal? TotalScore,
     string ConcurrencyToken, DateTime CreatedAt, DateTime UpdatedAt, IReadOnlyList<EvaluationScoreRecord> Scores,

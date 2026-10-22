@@ -23,6 +23,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         var entity = await context.ProgressReports
             .AsNoTracking()
             .Include(r => r.SubmittedByNavigation)
+            .Include(r => r.ProgressReportPeriod)
             .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
 
         return entity?.ToDto();
@@ -33,6 +34,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         var entity = await context.ProgressReports
             .AsNoTracking()
             .Include(r => r.SubmittedByNavigation)
+            .Include(r => r.ProgressReportPeriod)
             .Include(r => r.SupervisorFeedbacks)
                 .ThenInclude(f => f.SupervisorAssignment)
                     .ThenInclude(a => a.SupervisorProfile)
@@ -55,6 +57,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         var query = context.ProgressReports
             .AsNoTracking()
             .Include(r => r.SubmittedByNavigation)
+            .Include(r => r.ProgressReportPeriod)
             .Where(r => r.ProjectId == projectId);
 
         if (!string.IsNullOrWhiteSpace(reportType))

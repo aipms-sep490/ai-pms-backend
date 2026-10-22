@@ -68,8 +68,10 @@ internal sealed class EvaluationAssignmentAccessService(
     public async Task<EvaluationAssignmentDetailDto> GetAsync(long assignmentId, CancellationToken ct = default)
     {
         var (row, canScore) = await Load(assignmentId, ct);
+        var dueAt = await db.ProjectPeriods.AsNoTracking().Where(p => p.Id == row.ProjectPeriodId).Select(p => (DateTime?)p.EndAt).SingleOrDefaultAsync(ct);
         var dto = new EvaluationAssignmentDto(row.Id, row.ProjectId, row.EvaluatorId, row.RubricId, row.ProjectPeriodId, row.DepartmentId,
             row.EvaluationType, row.Status, row.AssignedBy, row.AssignedAt, row.RevokedAt, row.ConcurrencyToken.ToString("N"), row.Scope, row.MajorId, row.StudentId, row.ComponentId, row.PolicyVersionId, row.Stage, row.ColdPackageId);
+        dto = dto with { DueAt = dueAt.HasValue ? DateTime.SpecifyKind(dueAt.Value, DateTimeKind.Utc) : null };
         dto = dto with {
             ProjectTitle = await db.Projects.Where(p => p.Id == row.ProjectId).Select(p => p.Title).SingleOrDefaultAsync(ct),
             ComponentName = await db.Set<EvaluationSchemeComponent>().Where(c => c.Id == row.ComponentId).Select(c => c.Name).SingleOrDefaultAsync(ct),

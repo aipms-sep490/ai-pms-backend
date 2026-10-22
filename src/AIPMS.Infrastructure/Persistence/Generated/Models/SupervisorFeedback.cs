@@ -9,6 +9,8 @@ public partial class SupervisorFeedback
 
     public long ProjectId { get; set; }
 
+    public string? GateCode { get; set; }
+
     public long SupervisorAssignmentId { get; set; }
 
     public long? ProgressReportId { get; set; }

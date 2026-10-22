@@ -70,6 +70,9 @@ public sealed class ChatConnections(TimeProvider clock,IOptions<ChatSettings> op
 }
 internal sealed class ChatHubFilter(ChatConnections connections,IOptions<ChatSettings> options) : IHubFilter
 {
+    private static bool IsChat(HubCallerContext context) =>
+        context.GetHttpContext()?.Request.Path.StartsWithSegments("/hubs/chat") == true;
+
     private async Task Validate(HubCallerContext context,IServiceProvider services)
     {
         if(!options.Value.Enabled||!options.Value.RealtimeEnabled) throw new HubException("CHAT_DISABLED");
@@ -80,12 +83,14 @@ internal sealed class ChatHubFilter(ChatConnections connections,IOptions<ChatSet
     }
     public async Task OnConnectedAsync(HubLifetimeContext context,Func<HubLifetimeContext,Task> next)
     {
+        if (!IsChat(context.Context)) { await next(context); return; }
         connections.Add(context.Context);
         try { await Validate(context.Context,context.ServiceProvider);await next(context); }
         catch { connections.Remove(context.Context.ConnectionId);throw; }
     }
     public async ValueTask<object?> InvokeMethodAsync(HubInvocationContext context,Func<HubInvocationContext,ValueTask<object?>> next)
     {
+        if (!IsChat(context.Context)) return await next(context);
         await Validate(context.Context,context.ServiceProvider);
         try { return await next(context); }
         catch(AIPMS.Application.Common.Exceptions.NotFoundException) { throw new HubException("CHAT_NOT_FOUND"); }

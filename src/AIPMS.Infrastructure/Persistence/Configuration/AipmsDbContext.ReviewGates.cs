@@ -59,6 +59,7 @@ public partial class AipmsDbContext
             e.Property(x => x.ArtifactName).HasMaxLength(255); e.Property(x => x.ContentType).HasMaxLength(255).IsUnicode(false);
             e.Property(x => x.Sha256).HasMaxLength(64).IsUnicode(false); e.Property(x => x.StorageKey).HasMaxLength(32).IsUnicode(false);
             e.Property(x => x.Notes).HasMaxLength(2000);
+            e.Property(x => x.LinkUrl).HasMaxLength(2048).IsUnicode(false);
             e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false); e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasOne<Generated.Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
         });
