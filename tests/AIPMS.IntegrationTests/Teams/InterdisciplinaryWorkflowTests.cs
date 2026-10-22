@@ -227,7 +227,7 @@ public sealed partial class InterdisciplinaryWorkflowTests(TeamDatabaseFixture d
         await AssertAction(lead, project.Id, "approve_project", true);
         await AssertAction(other, project.Id, "approve_project", false, "LEAD_DEPARTMENT_REVIEWER_REQUIRED");
         project = await Transition(lead, project with { ConcurrencyToken = review.ConcurrencyToken }, "approve");
-        Assert.Equal("APPROVED", project.Status);
+        Assert.Equal("ACTIVE", project.Status);
         Assert.Equal("INTERDISCIPLINARY", project.AcademicScope!.ProjectMode);
     }
 
@@ -435,7 +435,7 @@ public sealed partial class InterdisciplinaryWorkflowTests(TeamDatabaseFixture d
         var pending = review.LatestSubmission.Decisions.Single(d => d.Decision == "PENDING");
         await Decide(pending.DepartmentId == s.LeadDepartment ? lead : other, project.Id, review);
         review = await Review(leader, project.Id);
-        Assert.Equal("APPROVED", (await Transition(lead, project with { ConcurrencyToken = review.ConcurrencyToken }, "approve")).Status);
+        Assert.Equal("ACTIVE", (await Transition(lead, project with { ConcurrencyToken = review.ConcurrencyToken }, "approve")).Status);
     }
 
     [Fact]
@@ -487,6 +487,6 @@ public sealed partial class InterdisciplinaryWorkflowTests(TeamDatabaseFixture d
             "Single proposal", "Description", "Objectives", "Problem", "Expected output", [s.Team.SeMajorId], "Education", ["Dotnet"], ["Capstone"])));
         project = await Transition(lead, await Transition(leader, project, "submit"), "start-review");
         Assert.Empty((await Review(leader, project.Id)).LatestSubmission!.Decisions);
-        Assert.Equal("APPROVED", (await Transition(lead, project, "approve")).Status);
+        Assert.Equal("ACTIVE", (await Transition(lead, project, "approve")).Status);
     }
 }

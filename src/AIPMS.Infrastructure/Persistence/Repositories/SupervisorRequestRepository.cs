@@ -142,7 +142,7 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
             project.Status = next;
         }
         var shouldActivate = request.AssignmentType == "PRIMARY"
-            && project.Status is not ("DRAFT" or "REVISION_REQUIRED");
+            && project.Status is "APPROVED" or "SUPERVISOR_PENDING";
         if (shouldActivate)
         {
             await WorkingAgreementGuard.EnsureActivation(context, project.Id, ct);

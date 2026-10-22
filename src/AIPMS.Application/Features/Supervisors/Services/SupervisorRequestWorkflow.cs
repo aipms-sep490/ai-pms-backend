@@ -150,7 +150,10 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
         bool accepting, bool primary, long? majorId, CancellationToken ct)
     {
         var project = await candidates.GetProjectAsync(projectId, now, ct) ?? throw new NotFoundException("Project", projectId);
-        var validPrimaryStatus = project.Status is "DRAFT" or "REVISION_REQUIRED" or "APPROVED"
+        // Keep a small compatibility window for projects that were approved
+        // before D18 assignments were collected. A missing primary may still
+        // be requested on ACTIVE; accepting it leaves the project ACTIVE.
+        var validPrimaryStatus = project.Status is "DRAFT" or "REVISION_REQUIRED" or "APPROVED" or "ACTIVE"
             || (accepting && project.Status == "SUPERVISOR_PENDING");
         var validMentorStatus = project.Status is "DRAFT" or "REVISION_REQUIRED" or "ACTIVE";
         if (((primary && !validPrimaryStatus) || (!primary && !validMentorStatus))

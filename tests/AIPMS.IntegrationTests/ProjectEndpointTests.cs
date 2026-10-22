@@ -239,6 +239,7 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         _factory.ProjectRepository.SuppressSupervisorActivationFor.Add(project.Id);
         var approveRequest = new SubmitProjectRequest(project.ConcurrencyToken);
         var approveResponse = await staffClient.PostAsJsonAsync($"api/v1/projects/{project.Id}/approve", approveRequest);
+        _factory.ProjectRepository.SuppressSupervisorActivationFor.Remove(project.Id);
         Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
 
         project = await approveResponse.Content.ReadFromJsonAsync<ProjectDto>();
