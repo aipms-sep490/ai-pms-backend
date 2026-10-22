@@ -234,6 +234,9 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         Assert.NotNull(project);
 
         // 12. Approve Project (Staff)
+        // Keep this fixture focused on the academic transition. D18 activation
+        // is exercised by the supervisor workflow integration tests.
+        _factory.ProjectRepository.SupervisorConfirmed = false;
         var approveRequest = new SubmitProjectRequest(project.ConcurrencyToken);
         var approveResponse = await staffClient.PostAsJsonAsync($"api/v1/projects/{project.Id}/approve", approveRequest);
         Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
@@ -1115,6 +1118,9 @@ public sealed class TestAcademicRepository : IAcademicStructureRepository
 public sealed class TestProjectRepository : IProjectRepository
 {
     public Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) => action(ct);
+    // D18 submission can be enabled independently from academic approval.
+    public Task<ProjectSupervisorConfirmation> GetSupervisorConfirmationAsync(long projectId, CancellationToken ct) =>
+        Task.FromResult(new ProjectSupervisorConfirmation(SupervisorConfirmed, false, Array.Empty<long>()));
     public Task<ProjectAcademicReviewDto> GetAcademicReviewAsync(long projectId, CancellationToken ct) => throw new NotSupportedException();
     public Task<ProjectAcademicReviewDto> RecordDepartmentDecisionAsync(long projectId, long actorId,
         DepartmentDecisionRequest request, CancellationToken ct) => throw new NotSupportedException();
@@ -1136,6 +1142,7 @@ public sealed class TestProjectRepository : IProjectRepository
     public bool MajorsExist { get; set; } = true;
     public List<long> ProjectDeptIds { get; } = new();
     public bool CanView { get; set; } = true;
+    public bool SupervisorConfirmed { get; set; } = true;
 
     public Task<ProjectDto?> GetByIdAsync(long id, CancellationToken cancellationToken) =>
         Task.FromResult(Projects.GetValueOrDefault(id));
