@@ -236,7 +236,7 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
         // 12. Approve Project (Staff)
         // Keep this fixture focused on the academic transition. D18 activation
         // is exercised by the supervisor workflow integration tests.
-        _factory.ProjectRepository.SupervisorConfirmed = false;
+        _factory.ProjectRepository.SuppressSupervisorActivationFor.Add(project.Id);
         var approveRequest = new SubmitProjectRequest(project.ConcurrencyToken);
         var approveResponse = await staffClient.PostAsJsonAsync($"api/v1/projects/{project.Id}/approve", approveRequest);
         Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
@@ -1120,7 +1120,8 @@ public sealed class TestProjectRepository : IProjectRepository
     public Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) => action(ct);
     // D18 submission can be enabled independently from academic approval.
     public Task<ProjectSupervisorConfirmation> GetSupervisorConfirmationAsync(long projectId, CancellationToken ct) =>
-        Task.FromResult(new ProjectSupervisorConfirmation(SupervisorConfirmed, false, Array.Empty<long>()));
+        Task.FromResult(new ProjectSupervisorConfirmation(
+            !SuppressSupervisorActivationFor.Contains(projectId), false, Array.Empty<long>()));
     public Task<ProjectAcademicReviewDto> GetAcademicReviewAsync(long projectId, CancellationToken ct) => throw new NotSupportedException();
     public Task<ProjectAcademicReviewDto> RecordDepartmentDecisionAsync(long projectId, long actorId,
         DepartmentDecisionRequest request, CancellationToken ct) => throw new NotSupportedException();
@@ -1142,7 +1143,7 @@ public sealed class TestProjectRepository : IProjectRepository
     public bool MajorsExist { get; set; } = true;
     public List<long> ProjectDeptIds { get; } = new();
     public bool CanView { get; set; } = true;
-    public bool SupervisorConfirmed { get; set; } = true;
+    public HashSet<long> SuppressSupervisorActivationFor { get; } = new();
 
     public Task<ProjectDto?> GetByIdAsync(long id, CancellationToken cancellationToken) =>
         Task.FromResult(Projects.GetValueOrDefault(id));
