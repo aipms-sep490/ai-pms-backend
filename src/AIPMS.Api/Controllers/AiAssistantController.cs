@@ -2,6 +2,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Features.AiAssistant.DTOs;
 using AIPMS.Application.Features.AiAssistant.Queries;
+using AIPMS.Application.Features.AcademicKnowledge;
+using AIPMS.Application.Features.AcademicKnowledge.Abstractions;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -18,7 +20,7 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
-public sealed class AiAssistantController(ISender sender, AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore runs) : ControllerBase
+public sealed class AiAssistantController(ISender sender, AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore runs, IAcademicKnowledgeService knowledge) : ControllerBase
 {
     [HttpPost("/api/v1/projects/{projectId:long}/ai/progress-analysis")]
     [ProducesResponseType<AIPMS.Application.Features.Projects.DTOs.ProjectProgressAnalysisDto>(200)]
@@ -51,6 +53,8 @@ public sealed class AiAssistantController(ISender sender, AIPMS.Application.Feat
         [FromBody] AskProjectAssistantRequest request,
         CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(request.Scope) && !string.Equals(request.Scope, "PROJECT", StringComparison.OrdinalIgnoreCase))
+            return Ok(await knowledge.AskAsync(new AcademicAssistantAskRequest(request.Query, request.Scope, request.ProjectId ?? projectId), cancellationToken));
         var result = await sender.Send(new AskProjectAssistantQuery(projectId, request.Query), cancellationToken);
         return Ok(result);
     }

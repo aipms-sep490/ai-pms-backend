@@ -9,6 +9,7 @@ using AIPMS.Application.Abstractions.Storage;
 using AIPMS.Application.Abstractions.Projects;
 using AIPMS.Application.Features.Deliverables.Abstractions;
 using AIPMS.Infrastructure.Storage;
+using AIPMS.Infrastructure.Services;
 using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.AccountSecurity.Abstractions;
 using AIPMS.Application.Features.Auth.Abstractions;
@@ -71,6 +72,7 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiContextRetriever, ScopedAiContextRetriever>();
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore, AiRunStore>();
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiAssistantService, RecordedAiAssistantService>();
+        services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IAcademicKnowledgeService, AcademicKnowledgeService>();
         services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
             {
                 settings.Enabled = bool.TryParse(config["GoogleAuth:Enabled"], out var enabled) && enabled;
