@@ -5,7 +5,9 @@ using AIPMS.Application.Features.AiAssistant.Models;
 namespace AIPMS.Application.Features.AiAssistant.DTOs;
 
 public sealed record AskProjectAssistantRequest(
-    string Query);
+    string Query,
+    string? Scope = null,
+    long? ProjectId = null);
 
 public sealed record ProjectAssistantResponseDto(
     long ProjectId,

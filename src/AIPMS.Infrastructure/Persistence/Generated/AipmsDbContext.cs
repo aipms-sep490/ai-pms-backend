@@ -106,6 +106,11 @@ public partial class AipmsDbContext : DbContext
     public virtual DbSet<AcademicProfileVerification> AcademicProfileVerifications { get; set; }
 
     public virtual DbSet<UserRole> UserRoles { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AcademicKnowledgeDocument> AcademicKnowledgeDocuments { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AcademicKnowledgeDocumentVersion> AcademicKnowledgeDocumentVersions { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AcademicKnowledgeChunk> AcademicKnowledgeChunks { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AcademicKnowledgeIndexJob> AcademicKnowledgeIndexJobs { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AcademicKnowledgeQueryRun> AcademicKnowledgeQueryRuns { get; set; }
 
     public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.ReviewGateTemplate> ReviewGateTemplates { get; set; }
     public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.ReviewGateDefinition> ReviewGateDefinitions { get; set; }
