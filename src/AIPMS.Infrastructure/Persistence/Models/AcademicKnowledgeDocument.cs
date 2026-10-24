@@ -71,3 +71,13 @@ public sealed class AcademicKnowledgeQueryRun
     public DateTime StartedAt { get; set; }
     public DateTime CompletedAt { get; set; }
 }
+
+public sealed class AcademicKnowledgePublication
+{
+    public long Id { get; set; }
+    public long DocumentId { get; set; }
+    public long? DocumentVersionId { get; set; }
+    public long ActorId { get; set; }
+    public string Action { get; set; } = "PUBLISHED";
+    public DateTime OccurredAt { get; set; }
+}

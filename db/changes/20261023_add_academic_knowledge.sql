@@ -84,5 +84,16 @@ BEGIN
  CREATE INDEX ix_knowledge_query_actor ON dbo.academic_knowledge_query_runs(actor_id,id DESC);
 END;
 
+IF OBJECT_ID('dbo.academic_knowledge_publications','U') IS NULL
+BEGIN
+ CREATE TABLE dbo.academic_knowledge_publications(
+ id bigint IDENTITY CONSTRAINT pk_academic_knowledge_publications PRIMARY KEY,
+ document_id bigint NOT NULL, document_version_id bigint NULL, actor_id bigint NOT NULL,
+ action varchar(20) NOT NULL, occurred_at datetime2(7) NOT NULL,
+ CONSTRAINT ck_knowledge_publication_action CHECK(action IN ('PUBLISHED','RETIRED')),
+ CONSTRAINT fk_knowledge_publication_document FOREIGN KEY(document_id) REFERENCES dbo.academic_knowledge_documents(id),
+ CONSTRAINT fk_knowledge_publication_version FOREIGN KEY(document_version_id) REFERENCES dbo.academic_knowledge_document_versions(id),
+ CONSTRAINT fk_knowledge_publication_actor FOREIGN KEY(actor_id) REFERENCES dbo.users(id));
+END;
 COMMIT;
 GO

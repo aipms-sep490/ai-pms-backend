@@ -59,5 +59,6 @@
   "20261020_extend_review_gate_assignments.sql",
   "20261021_add_review_gate_weights.sql",
   "20261022_add_review_gate_external_links.sql",
-  "20261022_add_notification_realtime.sql"
+  "20261022_add_notification_realtime.sql",
+  "20261023_add_academic_knowledge.sql"
 ]

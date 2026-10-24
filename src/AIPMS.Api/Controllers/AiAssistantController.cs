@@ -53,8 +53,10 @@ public sealed class AiAssistantController(ISender sender, AIPMS.Application.Feat
         [FromBody] AskProjectAssistantRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.ProjectId.HasValue && request.ProjectId != projectId)
+            return BadRequest(new ProblemDetails { Title = "ProjectId must match the route project." });
         if (!string.IsNullOrWhiteSpace(request.Scope) && !string.Equals(request.Scope, "PROJECT", StringComparison.OrdinalIgnoreCase))
-            return Ok(await knowledge.AskAsync(new AcademicAssistantAskRequest(request.Query, request.Scope, request.ProjectId ?? projectId), cancellationToken));
+            return Ok(await knowledge.AskAsync(new AcademicAssistantAskRequest(request.Query, request.Scope, projectId), cancellationToken));
         var result = await sender.Send(new AskProjectAssistantQuery(projectId, request.Query), cancellationToken);
         return Ok(result);
     }
