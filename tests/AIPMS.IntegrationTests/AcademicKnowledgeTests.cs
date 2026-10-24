@@ -114,6 +114,72 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     }
 
     [Fact]
+    public async Task GeneralConversationCallsProviderWithoutDocumentsAndSuppliesVietnamTime()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var provider = new Provider("""{"answer":"Xin chào!","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false}""");
+        var response = await Service(db, student, provider).AskAsync(new("Xin chào"), default);
+        Assert.Equal("COMPLETED", response.GenerationStatus);
+        Assert.Equal("GENERAL", response.AnswerType);
+        Assert.Empty(response.Citations);
+        Assert.False(response.InsufficientEvidence);
+        Assert.Contains("Asia/Ho_Chi_Minh", provider.LastPrompt);
+        Assert.Contains("+07:00", provider.LastPrompt.Replace("\\u002B", "+"));
+        Assert.NotNull(await db.AcademicKnowledgeQueryRuns.FindAsync(response.RunId));
+    }
+
+    [Theory]
+    [InlineData("GENERAL", false)]
+    [InlineData("INSUFFICIENT_EVIDENCE", true)]
+    public async Task UnusedRetrievedSourcesRemainInHistoryButAreNotShown(string kind, bool insufficient)
+    {
+        await using var db = fixture.Context();
+        var (admin, student, department) = await Seed(db);
+        var word = "rubric" + Guid.NewGuid().ToString("N");
+        var manager = Service(db, admin);
+        var document = await manager.CreateAsync(Request(word, department.Id), default);
+        await manager.PublishAsync(document.Id, default);
+        var output = System.Text.Json.JsonSerializer.Serialize(new { answer = "General explanation or missing official evidence", answerType = kind, citationIds = Array.Empty<string>(), insufficientEvidence = insufficient });
+        var response = await Service(db, student, new Provider(output)).AskAsync(new(word), default);
+        Assert.Equal(kind, response.AnswerType);
+        Assert.Equal(insufficient, response.InsufficientEvidence);
+        Assert.Empty(response.Citations);
+        Assert.Contains(word, (await db.AcademicKnowledgeQueryRuns.FindAsync(response.RunId))!.EvidenceJson);
+    }
+
+    [Fact]
+    public async Task GroundedResponseDisplaysOnlySelectedSourceAndRejectsFakeGeneralCitations()
+    {
+        await using var db = fixture.Context();
+        var (admin, student, department) = await Seed(db);
+        var word = "rubric" + Guid.NewGuid().ToString("N");
+        var manager = Service(db, admin);
+        foreach (var suffix in new[] { " first", " second" })
+        {
+            var doc = await manager.CreateAsync(Request(word + suffix, department.Id), default);
+            await manager.PublishAsync(doc.Id, default);
+        }
+        var output = """{"answer":"See [DOC-2]","answerType":"GROUNDED","citationIds":["DOC-2"],"insufficientEvidence":false}""";
+        var result = await Service(db, student, new Provider(output)).AskAsync(new(word), default);
+        Assert.Equal("GROUNDED", result.AnswerType);
+        Assert.EndsWith("second", Assert.Single(result.Citations).Title);
+        var fake = """{"answer":"Fake [DOC-99]","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false}""";
+        Assert.Equal("FALLBACK", (await Service(db, student, new Provider(fake)).AskAsync(new(word), default)).GenerationStatus);
+    }
+
+    [Fact]
+    public async Task ProviderFailureWithoutSourcesReturnsUnavailableInsteadOfFabricatedAnswer()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var result = await Service(db, student, new Provider("not json")).AskAsync(new("Hello"), default);
+        Assert.Equal("FALLBACK", result.GenerationStatus);
+        Assert.Empty(result.Citations);
+        Assert.Contains("kết nối", result.Answer);
+    }
+
+    [Fact]
     public async Task ProjectIdIsAuthorizedEvenForAcademicOnlyQueries()
     {
         await using var db = fixture.Context();
@@ -165,9 +231,14 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     }
     private sealed class Provider(string? output) : IAiTextGenerationProvider
     {
+        public string LastPrompt { get; private set; } = "";
         public string ModelVersion => output is null ? "GROUNDED_LOCAL_V1" : "TEST_REMOTE";
         public string ConfigurationVersion => "test";
-        public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken ct = default) => Task.FromResult(output ?? "");
+        public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
+        {
+            LastPrompt = userPrompt;
+            return Task.FromResult(output ?? "");
+        }
     }
     private sealed class DeniedProject : IAiContextRetriever
     {
