@@ -57,3 +57,16 @@ Only the API container was recreated; no SQL migration or data reset was needed.
 The local FE at localhost:5175 loads the updated labels from the task branch.
 Rollback by selecting the previous image in the private compose environment and
 recreating only the API with --no-build --no-deps. Preserve all query history.
+
+## Signed-in profile follow-up
+
+The model now receives `currentUser.displayName` from the active database user,
+so it can answer questions about the signed-in user's name. No email, password,
+token or other user's profile is added. The display name is explicitly treated
+as data rather than instructions. This does not add conversation memory.
+
+All 14 academic integration tests passed, including exact profile-field isolation.
+Staging image `aipms-api:assistant-profile-20261024` is healthy; previous
+`assistant-conversation-20261024` remains available for rollback. A real browser
+login and "Ten toi la gi?" question returned HTTP 200, GENERAL, zero citations,
+run 25; the answer matches the logged-in test account's display name.

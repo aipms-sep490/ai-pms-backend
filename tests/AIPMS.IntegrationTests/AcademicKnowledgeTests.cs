@@ -149,6 +149,25 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     }
 
     [Fact]
+    public async Task ConversationIncludesOnlyTheCurrentActorsDisplayName()
+    {
+        await using var db = fixture.Context();
+        var (admin, student, _) = await Seed(db);
+        admin.FullName = "Another private user";
+        student.FullName = "Current student";
+        await db.SaveChangesAsync();
+        var provider = new Provider("""{"answer":"Current student","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false}""");
+        await Service(db, student, provider).AskAsync(new("What is my name?"), default);
+        using var prompt = System.Text.Json.JsonDocument.Parse(provider.LastPrompt);
+        var profile = prompt.RootElement.GetProperty("currentUser");
+        Assert.Equal(student.FullName, profile.GetProperty("displayName").GetString());
+        Assert.Single(profile.EnumerateObject());
+        Assert.DoesNotContain(admin.FullName, provider.LastPrompt);
+        Assert.DoesNotContain(student.Email, provider.LastPrompt);
+        Assert.DoesNotContain(student.PasswordHash, provider.LastPrompt);
+    }
+
+    [Fact]
     public async Task GroundedResponseDisplaysOnlySelectedSourceAndRejectsFakeGeneralCitations()
     {
         await using var db = fixture.Context();
