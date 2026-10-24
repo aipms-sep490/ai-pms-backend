@@ -117,6 +117,108 @@
         }
       }
     },
+    "/api/v1/academic/assistant/ask-with-files": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "Query": {
+                    "type": "string"
+                  },
+                  "Scope": {
+                    "type": "string"
+                  },
+                  "ProjectId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "Files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              },
+              "encoding": {
+                "Query": {
+                  "style": "form"
+                },
+                "Scope": {
+                  "style": "form"
+                },
+                "ProjectId": {
+                  "style": "form"
+                },
+                "Files": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcademicAssistantResponseDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcademicAssistantResponseDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcademicAssistantResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/assistant/runs/{id}/download": {
+      "get": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "md"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/academic/knowledge-documents": {
       "get": {
         "tags": [
@@ -54517,6 +54619,13 @@
             "type": "integer",
             "format": "int64",
             "nullable": true
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantAttachmentDto"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -55250,6 +55359,20 @@
             "type": "integer",
             "format": "int32",
             "readOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantAttachmentDto": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "nullable": true
+          },
+          "mediaType": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false

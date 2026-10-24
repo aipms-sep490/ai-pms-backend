@@ -32,6 +32,22 @@ public sealed class OpenAiTextGenerationProviderTests
     }
 
     [Fact]
+    public async Task SendsImagesAsMultimodalContentInsteadOfText()
+    {
+        using var handler = new StubHandler(async (request, ct) =>
+        {
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            var parts = body.RootElement.GetProperty("messages")[1].GetProperty("content");
+            Assert.Equal("text", parts[0].GetProperty("type").GetString());
+            Assert.Equal("image_url", parts[1].GetProperty("type").GetString());
+            Assert.Equal("data:image/png;base64,AQID", parts[1].GetProperty("image_url").GetProperty("url").GetString());
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"choices":[{"message":{"content":"Image answer"}}]}""") };
+        });
+        using var client = new HttpClient(handler);
+        Assert.Equal("Image answer", await Create(client).GenerateWithImagesAsync("System", "Read image", [new("image/png", [1, 2, 3])]));
+    }
+
+    [Fact]
     public async Task UnauthorizedRouterDoesNotReturnAnAnswerOrExposeResponseBody()
     {
         using var handler = new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)

@@ -12,3 +12,11 @@ public interface IAiTextGenerationProvider
         string userPrompt,
         CancellationToken cancellationToken = default);
 }
+
+public sealed record AiImageInput(string MediaType, byte[] Content);
+
+public interface IAiVisionProvider
+{
+    Task<string> GenerateWithImagesAsync(string systemPrompt, string userPrompt,
+        IReadOnlyList<AiImageInput> images, CancellationToken cancellationToken = default);
+}

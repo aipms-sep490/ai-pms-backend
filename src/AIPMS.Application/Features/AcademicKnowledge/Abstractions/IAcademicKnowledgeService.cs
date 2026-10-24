@@ -12,4 +12,6 @@ public interface IAcademicKnowledgeService
     Task<IReadOnlyList<KnowledgeVersionDto>> HistoryAsync(long documentId, CancellationToken ct);
     Task<KnowledgeVersionDto> ReindexAsync(long documentId, CancellationToken ct);
     Task<AcademicAssistantResponseDto> AskAsync(AcademicAssistantAskRequest request, CancellationToken ct);
+    Task<AcademicAssistantResponseDto> AskWithFilesAsync(AcademicAssistantAskRequest request, IReadOnlyList<AssistantUpload> files, CancellationToken ct);
+    Task<AssistantExport> ExportAsync(long runId, string format, CancellationToken ct);
 }

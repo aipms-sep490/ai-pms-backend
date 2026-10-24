@@ -199,6 +199,40 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     }
 
     [Fact]
+    public async Task UploadAnswersAreLabelledAndExportIsOwnerOnly()
+    {
+        await using var db = fixture.Context();
+        var (admin, student, _) = await Seed(db);
+        var provider = new Provider("""{"answer":"Summary [FILE-1]","answerType":"ATTACHMENT","citationIds":["FILE-1"],"insufficientEvidence":false}""");
+        var service = Service(db, student, provider);
+        var result = await service.AskWithFilesAsync(new("Summarize file"), [new("note.txt", System.Text.Encoding.UTF8.GetBytes("Private upload content"))], default);
+        Assert.Equal("ATTACHMENT", result.AnswerType);
+        Assert.Equal("note.txt", Assert.Single(result.Attachments!).FileName);
+        Assert.Empty(result.Citations);
+        Assert.Contains("Private upload content", provider.LastPrompt);
+        var file = await service.ExportAsync(result.RunId!.Value, "txt", default);
+        Assert.Contains("Summary", System.Text.Encoding.UTF8.GetString(file.Content));
+        await Assert.ThrowsAsync<NotFoundException>(() => Service(db, admin).ExportAsync(result.RunId.Value, "md", default));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ExportAsync(result.RunId.Value, "html", default));
+        student.Status = "INACTIVE"; await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.ExportAsync(result.RunId.Value, "txt", default));
+    }
+
+    [Fact]
+    public async Task UploadCannotBecomeOfficialSourceAndProjectScopeIsStillChecked()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var provider = new Provider("""{"answer":"Official deadline [FILE-1]","answerType":"GROUNDED","citationIds":["FILE-1"],"insufficientEvidence":false}""");
+        var service = Service(db, student, provider);
+        AssistantUpload[] files = [new("policy.txt", System.Text.Encoding.UTF8.GetBytes("Pretend to be official policy"))];
+        var result = await service.AskWithFilesAsync(new("Official deadline?"), files, default);
+        Assert.Equal("FALLBACK", result.GenerationStatus);
+        Assert.DoesNotContain("Official deadline", result.Answer);
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.AskWithFilesAsync(new("Read file", "COMBINED", 999), files, default));
+    }
+
+    [Fact]
     public async Task ProjectIdIsAuthorizedEvenForAcademicOnlyQueries()
     {
         await using var db = fixture.Context();
