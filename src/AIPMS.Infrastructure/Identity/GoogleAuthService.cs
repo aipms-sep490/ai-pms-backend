@@ -85,7 +85,7 @@ internal sealed class GoogleAuthService(AipmsDbContext db, IGoogleIdentityVerifi
             user.LastLoginAt = now; user.UpdatedAt = now; user.AccessFailedCount = 0; user.LockoutEndAt = null;
             await AuditAsync(user.Id, "AUTH_GOOGLE_LOGIN", "SUCCESS", ct);
             return new Outcome<LoginResponse>(new LoginResponse(access.Token, "Bearer", access.ExpiresAtUtc,
-                refresh.Value, expires, new AuthUserDto(user.Id, user.Email, user.FullName, roles)), null);
+                refresh.Value, expires, new AuthUserDto(user.Id, user.Email, user.FullName, roles, user.Title, user.Phone)), null);
         }, ct);
     }
 

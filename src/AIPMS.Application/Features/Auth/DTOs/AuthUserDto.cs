@@ -4,4 +4,6 @@ public sealed record AuthUserDto(
     long Id,
     string Email,
     string FullName,
-    IReadOnlyCollection<string> Roles);
+    IReadOnlyCollection<string> Roles,
+    string? Title = null,
+    string? Phone = null);
