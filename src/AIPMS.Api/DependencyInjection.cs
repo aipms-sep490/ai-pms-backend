@@ -36,8 +36,12 @@ public static class DependencyInjection
         services.AddOptions<MeetingReminderSettings>()
             .BindConfiguration(MeetingReminderSettings.SectionName)
             .ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<AIPMS.Application.Features.Projects.Models.RiskAlertSettings>()
+            .BindConfiguration(AIPMS.Application.Features.Projects.Models.RiskAlertSettings.SectionName)
+            .ValidateDataAnnotations().ValidateOnStart();
         services.AddHostedService<Services.MeetingReminderWorker>();
         services.AddHostedService<Services.ScheduledNotificationWorker>();
+        services.AddHostedService<Services.RiskAlertWorker>();
         services.AddHostedService<Services.NotificationEmailWorker>();
         services.AddHostedService<Services.PasswordRecoveryWorker>();
         services.AddHostedService<Services.GoogleChallengeCleanupWorker>();
