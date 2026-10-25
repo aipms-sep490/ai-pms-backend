@@ -28,6 +28,7 @@ public static class WebApplicationExtensions
         app.UseSwaggerUI();
         app.UseCors(CorsSettings.FrontendPolicyName);
         app.UseAuthentication();
+        app.UseMiddleware<AuthRateLimitingKeyMiddleware>();
         app.UseRateLimiter();
         app.UseAuthorization();
         app.MapControllers();
