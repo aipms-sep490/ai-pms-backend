@@ -45,6 +45,7 @@ public partial class AipmsDbContext
 ConfigureReportingCycles(modelBuilder);
         ConfigureTeamEligibilitySnapshots(modelBuilder);
         ConfigureAcademicKnowledge(modelBuilder);
+        ConfigureRiskHistory(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
         {
             entity.ToTable("rubric_versions", table =>

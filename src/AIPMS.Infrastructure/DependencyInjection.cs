@@ -267,6 +267,7 @@ public static class DependencyInjection
         services.AddScoped<IWorkflowNotificationWriter, WorkflowNotificationWriter>();
         services.AddScoped<IScheduledNotificationService, ScheduledNotificationService>();
         services.AddScoped<IMeetingReminderService, MeetingReminderService>();
+        services.AddScoped<AIPMS.Application.Features.Projects.Abstractions.IRiskAlertService, Persistence.Repositories.RiskAlertService>();
         services.AddScoped<INotificationEmailQueue, NotificationEmailQueue>();
         services.AddSingleton<INotificationEmailSender, SmtpNotificationEmailSender>();
         services.AddScoped<IContributionRepository, ContributionRepository>();
