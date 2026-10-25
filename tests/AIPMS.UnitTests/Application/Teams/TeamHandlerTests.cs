@@ -50,7 +50,7 @@ public sealed partial class TeamHandlerTests
         var expected = JsonNode.Parse("""
             { "items": [{ "id": 1, "teamId": 1, "invitedUserId": 3, "invitedBy": 1,
                 "status": "REJECTED", "message": null, "expiresAt": null,
-                "respondedAt": null, "createdAt": "2026-09-07T08:00:00Z" }],
+                "respondedAt": null, "createdAt": "2026-09-07T08:00:00Z", "teamName": null, "invitedByName": null, "invitedUserName": null }],
               "page": 1, "pageSize": 5, "totalCount": 1, "totalPages": 1 }
             """)!;
         if (responded)
