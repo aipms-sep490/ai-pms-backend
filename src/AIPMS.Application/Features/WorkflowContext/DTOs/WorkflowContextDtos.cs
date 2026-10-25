@@ -20,6 +20,8 @@ public sealed record UserWorkflowContextDto(DateTimeOffset AsOfUtc, WorkflowUser
 public sealed record TeamWorkflowActionsDto(DateTimeOffset AsOfUtc, long TeamId, long AcademicSemesterId,
     string Status, Guid? AcademicScopeConcurrencyToken, bool CanRegister, IReadOnlyList<string> EligibilityIssues,
     IReadOnlyList<WorkflowActionDto> Actions);
+public sealed record SupervisorSlotDto(string Slot, long? MajorId, string State);
 public sealed record ProjectWorkflowActionsDto(DateTimeOffset AsOfUtc, long ProjectId, string Status,
     string ConcurrencyToken, long? SubmissionSnapshotId, long? ActorDepartmentId,
-    IReadOnlyList<WorkflowActionDto> Actions);
+    IReadOnlyList<WorkflowActionDto> Actions,
+    IReadOnlyList<SupervisorSlotDto>? SupervisorSlots = null);
