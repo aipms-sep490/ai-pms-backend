@@ -26,6 +26,148 @@ public sealed class KnowledgeDatabaseFixture : IAsyncLifetime
 public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : IClassFixture<KnowledgeDatabaseFixture>
 {
     [Fact]
+    public async Task ConversationsPersistMemoryAndEnforceOwnershipRevisionAndDeletion()
+    {
+        await using var db = fixture.Context();
+        var (admin, student, _) = await Seed(db);
+        var provider = new Provider("""{"answer":"Tên bạn chọn là Sao Mai","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false}""");
+        var service = Service(db, student, provider);
+        var conversation = await service.CreateConversationAsync(new(), default);
+        var first = await service.AskAsync(new("Gọi tôi là Sao Mai", ConversationId: conversation.Id, ExpectedRevision: 0), default);
+        Assert.Equal(1, first.Revision);
+        await service.AskAsync(new("Tên vừa chọn là gì?", ConversationId: conversation.Id, ExpectedRevision: 1, PageContext: "Công việc"), default);
+        Assert.Contains("conversationHistory", provider.LastPrompt);
+        using var prompt = System.Text.Json.JsonDocument.Parse(provider.LastPrompt);
+        Assert.Equal("Gọi tôi là Sao Mai", prompt.RootElement.GetProperty("conversationHistory")[0].GetProperty("Query").GetString());
+        Assert.Equal("Công việc", prompt.RootElement.GetProperty("pageContext").GetString());
+        var detail = await service.ConversationAsync(conversation.Id, null, default);
+        Assert.Equal(2, detail.Turns.Count);
+        Assert.Equal(first.RunId, detail.Turns[0].Response.RunId);
+        Assert.Contains(await service.ConversationsAsync(null, null, default), x => x.Id == conversation.Id);
+        Assert.DoesNotContain(await Service(db, admin).ConversationsAsync(null, null, default), x => x.Id == conversation.Id);
+        await Assert.ThrowsAsync<NotFoundException>(() => Service(db, admin).ConversationAsync(conversation.Id, null, default));
+        await Assert.ThrowsAsync<NotFoundException>(() => Service(db, admin).DeleteConversationAsync(conversation.Id, default));
+        await Assert.ThrowsAsync<ConflictException>(() => service.AskAsync(new("Stale question", ConversationId: conversation.Id, ExpectedRevision: 0), default));
+        await Assert.ThrowsAsync<ConflictException>(() => service.AskAsync(new("Wrong scope", "PROJECT", 999, conversation.Id, 2), default));
+        await service.DeleteConversationAsync(conversation.Id, default);
+        await Assert.ThrowsAsync<NotFoundException>(() => service.ConversationAsync(conversation.Id, null, default));
+        await Assert.ThrowsAsync<NotFoundException>(() => service.ExportAsync(first.RunId!.Value, "txt", default));
+        Assert.False(await db.Set<AssistantConversationTurn>().AnyAsync(x => x.ConversationId == conversation.Id));
+    }
+
+    [Fact]
+    public async Task ConversationAuditFailureRollsBackRunTurnAndRevision()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var conversation = await Service(db, student).CreateConversationAsync(new(), default);
+        var before = await db.AcademicKnowledgeQueryRuns.CountAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(db, student, audit: new Audit(true))
+            .AskAsync(new("Hello friend", ConversationId: conversation.Id, ExpectedRevision: 0), default));
+        db.ChangeTracker.Clear();
+        Assert.Equal(before, await db.AcademicKnowledgeQueryRuns.CountAsync());
+        Assert.Equal(0, (await db.Set<AssistantConversation>().FindAsync(conversation.Id))!.Revision);
+        Assert.False(await db.Set<AssistantConversationTurn>().AnyAsync(x => x.ConversationId == conversation.Id));
+    }
+
+    [Fact]
+    public async Task SourceSnapshotIsOwnerOnlyAndStableAfterPublishAndDraftHasNoMutation()
+    {
+        await using var db = fixture.Context();
+        var (admin, student, department) = await Seed(db);
+        var manager = Service(db, admin);
+        var word = "citation" + Guid.NewGuid().ToString("N");
+        var doc = await manager.CreateAsync(Request(word, department.Id), default);
+        await manager.PublishAsync(doc.Id, default);
+        var reader = Service(db, student);
+        var answer = await reader.AskAsync(new(word), default);
+        await manager.AddVersionAsync(doc.Id, new("v2", word + " changed", null, null, null, null), default);
+        await manager.PublishAsync(doc.Id, default);
+        Assert.Equal("v1", (await reader.CitationAsync(answer.RunId!.Value, 0, default)).Version);
+        await Assert.ThrowsAsync<NotFoundException>(() => manager.CitationAsync(answer.RunId.Value, 0, default));
+        await Assert.ThrowsAsync<NotFoundException>(() => reader.CitationAsync(answer.RunId.Value, 99, default));
+        var provider = new Provider("""{"answer":"Bản nháp để bạn xem lại","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false,"draft":{"kind":"TASK","title":"Kiểm thử đăng nhập","description":"Kiểm tra lỗi và quyền truy cập"}}""");
+        var count = await db.Tasks.CountAsync();
+        var draft = await Service(db, student, provider).AskAsync(new("Soạn công việc kiểm thử", DraftKind: "TASK"), default);
+        Assert.Equal("TASK", draft.Draft!.Kind);
+        Assert.Equal(count, await db.Tasks.CountAsync());
+        await Assert.ThrowsAsync<ArgumentException>(() => reader.AskAsync(new("Change grades", DraftKind: "PUBLISH_GRADES"), default));
+    }
+
+    [Fact]
+    public async Task ConversationMigrationRerunsAndConstraintsStayTrusted()
+    {
+        var sql = await System.IO.File.ReadAllTextAsync(Path.Combine(SqlSchemaBootstrap.Root, "db", "changes", "20261025_add_assistant_conversations.sql"));
+        await SqlSchemaBootstrap.ExecuteAsync(fixture.ConnectionString, sql);
+        await SqlSchemaBootstrap.ExecuteAsync(fixture.ConnectionString, sql);
+        await using var db = fixture.Context();
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>("SELECT COUNT(*) AS Value FROM sys.foreign_keys WHERE parent_object_id IN (OBJECT_ID('assistant_conversations'),OBJECT_ID('assistant_conversation_turns')) AND (is_disabled=1 OR is_not_trusted=1)").SingleAsync());
+    }
+
+    [Theory]
+    [InlineData("{\"answer\":\"Hello", "Hello")]
+    [InlineData("{\"answer\":\"line\\nnext", "line\nnext")]
+    [InlineData("{\"answer\":\"Hi\\u00", "Hi")]
+    public void StreamingPreviewHandlesPartialJson(string raw, string expected) => Assert.Equal(expected, AcademicKnowledgeService.PartialAnswer(raw));
+
+    [Fact]
+    public async Task ConcurrentRepliesCommitExactlyOneTurn()
+    {
+        await using var seed = fixture.Context();
+        var (_, student, _) = await Seed(seed);
+        var conversation = await Service(seed, student).CreateConversationAsync(new(), default);
+        await using var left = fixture.Context();
+        await using var right = fixture.Context();
+        var provider = new BarrierProvider();
+        async Task<bool> Send(AipmsDbContext db)
+        {
+            try { await Service(db, student, provider).AskAsync(new("Concurrent question", ConversationId: conversation.Id, ExpectedRevision: 0), default); return true; }
+            catch (ConflictException) { return false; }
+        }
+        var outcomes = await Task.WhenAll(Send(left), Send(right));
+        Assert.Single(outcomes.Where(x => x));
+        Assert.Equal(1, await seed.Set<AssistantConversationTurn>().CountAsync(x => x.ConversationId == conversation.Id));
+    }
+
+    [Fact]
+    public async Task CancellationDuringStreamingDoesNotPersistPartialAnswer()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var conversation = await Service(db, student).CreateConversationAsync(new(), default);
+        using var cancel = new CancellationTokenSource();
+        var service = Service(db, student, new CancelStreamingProvider());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.AskStreamingAsync(
+            new("Stream this", ConversationId: conversation.Id, ExpectedRevision: 0), [], _ => { cancel.Cancel(); return Task.CompletedTask; }, cancel.Token));
+        Assert.False(await db.Set<AssistantConversationTurn>().AnyAsync(x => x.ConversationId == conversation.Id));
+    }
+
+    private sealed class BarrierProvider : IAiTextGenerationProvider
+    {
+        private int count;
+        private readonly TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public string ModelVersion => "TEST_REMOTE";
+        public async Task<string> GenerateTextAsync(string system, string prompt, CancellationToken ct = default)
+        {
+            if (Interlocked.Increment(ref count) == 2) ready.SetResult();
+            await ready.Task.WaitAsync(ct);
+            return """{"answer":"Hello","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false}""";
+        }
+    }
+
+    private sealed class CancelStreamingProvider : IAiTextGenerationProvider, IAiStreamingProvider
+    {
+        public string ModelVersion => "TEST_REMOTE";
+        public Task<string> GenerateTextAsync(string system, string prompt, CancellationToken ct = default) => throw new InvalidOperationException();
+        public async Task<string> GenerateStreamingAsync(string system, string prompt, IReadOnlyList<AiImageInput> images, Func<string, Task> delta, CancellationToken ct = default)
+        {
+            await delta("{\"answer\":\"partial");
+            await Task.Delay(Timeout.Infinite, ct);
+            return "";
+        }
+    }
+
+    [Fact]
     public async Task DemoSeedAndMigrationAreRerunnableAndExplicitlyLabelled()
     {
         await using var db = fixture.Context();
@@ -114,6 +256,125 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     }
 
     [Fact]
+    public async Task GeneralConversationCallsProviderWithoutDocumentsAndSuppliesVietnamTime()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var provider = new Provider("""{"answer":"Xin chào!","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false}""");
+        var response = await Service(db, student, provider).AskAsync(new("Xin chào"), default);
+        Assert.Equal("COMPLETED", response.GenerationStatus);
+        Assert.Equal("GENERAL", response.AnswerType);
+        Assert.Empty(response.Citations);
+        Assert.False(response.InsufficientEvidence);
+        Assert.Contains("Asia/Ho_Chi_Minh", provider.LastPrompt);
+        Assert.Contains("+07:00", provider.LastPrompt.Replace("\\u002B", "+"));
+        Assert.NotNull(await db.AcademicKnowledgeQueryRuns.FindAsync(response.RunId));
+    }
+
+    [Theory]
+    [InlineData("GENERAL", false)]
+    [InlineData("INSUFFICIENT_EVIDENCE", true)]
+    public async Task UnusedRetrievedSourcesRemainInHistoryButAreNotShown(string kind, bool insufficient)
+    {
+        await using var db = fixture.Context();
+        var (admin, student, department) = await Seed(db);
+        var word = "rubric" + Guid.NewGuid().ToString("N");
+        var manager = Service(db, admin);
+        var document = await manager.CreateAsync(Request(word, department.Id), default);
+        await manager.PublishAsync(document.Id, default);
+        var output = System.Text.Json.JsonSerializer.Serialize(new { answer = "General explanation or missing official evidence", answerType = kind, citationIds = Array.Empty<string>(), insufficientEvidence = insufficient });
+        var response = await Service(db, student, new Provider(output)).AskAsync(new(word), default);
+        Assert.Equal(kind, response.AnswerType);
+        Assert.Equal(insufficient, response.InsufficientEvidence);
+        Assert.Empty(response.Citations);
+        Assert.Contains(word, (await db.AcademicKnowledgeQueryRuns.FindAsync(response.RunId))!.EvidenceJson);
+    }
+
+    [Fact]
+    public async Task ConversationIncludesOnlyTheCurrentActorsDisplayName()
+    {
+        await using var db = fixture.Context();
+        var (admin, student, _) = await Seed(db);
+        admin.FullName = "Another private user";
+        student.FullName = "Current student";
+        await db.SaveChangesAsync();
+        var provider = new Provider("""{"answer":"Current student","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false}""");
+        await Service(db, student, provider).AskAsync(new("What is my name?"), default);
+        using var prompt = System.Text.Json.JsonDocument.Parse(provider.LastPrompt);
+        var profile = prompt.RootElement.GetProperty("currentUser");
+        Assert.Equal(student.FullName, profile.GetProperty("displayName").GetString());
+        Assert.Single(profile.EnumerateObject());
+        Assert.DoesNotContain(admin.FullName, provider.LastPrompt);
+        Assert.DoesNotContain(student.Email, provider.LastPrompt);
+        Assert.DoesNotContain(student.PasswordHash, provider.LastPrompt);
+    }
+
+    [Fact]
+    public async Task GroundedResponseDisplaysOnlySelectedSourceAndRejectsFakeGeneralCitations()
+    {
+        await using var db = fixture.Context();
+        var (admin, student, department) = await Seed(db);
+        var word = "rubric" + Guid.NewGuid().ToString("N");
+        var manager = Service(db, admin);
+        foreach (var suffix in new[] { " first", " second" })
+        {
+            var doc = await manager.CreateAsync(Request(word + suffix, department.Id), default);
+            await manager.PublishAsync(doc.Id, default);
+        }
+        var output = """{"answer":"See [DOC-2]","answerType":"GROUNDED","citationIds":["DOC-2"],"insufficientEvidence":false}""";
+        var result = await Service(db, student, new Provider(output)).AskAsync(new(word), default);
+        Assert.Equal("GROUNDED", result.AnswerType);
+        Assert.EndsWith("second", Assert.Single(result.Citations).Title);
+        var fake = """{"answer":"Fake [DOC-99]","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false}""";
+        Assert.Equal("FALLBACK", (await Service(db, student, new Provider(fake)).AskAsync(new(word), default)).GenerationStatus);
+    }
+
+    [Fact]
+    public async Task ProviderFailureWithoutSourcesReturnsUnavailableInsteadOfFabricatedAnswer()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var result = await Service(db, student, new Provider("not json")).AskAsync(new("Hello"), default);
+        Assert.Equal("FALLBACK", result.GenerationStatus);
+        Assert.Empty(result.Citations);
+        Assert.Contains("kết nối", result.Answer);
+    }
+
+    [Fact]
+    public async Task UploadAnswersAreLabelledAndExportIsOwnerOnly()
+    {
+        await using var db = fixture.Context();
+        var (admin, student, _) = await Seed(db);
+        var provider = new Provider("""{"answer":"Summary [FILE-1]","answerType":"ATTACHMENT","citationIds":["FILE-1"],"insufficientEvidence":false}""");
+        var service = Service(db, student, provider);
+        var result = await service.AskWithFilesAsync(new("Summarize file"), [new("note.txt", System.Text.Encoding.UTF8.GetBytes("Private upload content"))], default);
+        Assert.Equal("ATTACHMENT", result.AnswerType);
+        Assert.Equal("note.txt", Assert.Single(result.Attachments!).FileName);
+        Assert.Empty(result.Citations);
+        Assert.Contains("Private upload content", provider.LastPrompt);
+        var file = await service.ExportAsync(result.RunId!.Value, "txt", default);
+        Assert.Contains("Summary", System.Text.Encoding.UTF8.GetString(file.Content));
+        await Assert.ThrowsAsync<NotFoundException>(() => Service(db, admin).ExportAsync(result.RunId.Value, "md", default));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ExportAsync(result.RunId.Value, "html", default));
+        student.Status = "INACTIVE"; await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.ExportAsync(result.RunId.Value, "txt", default));
+    }
+
+    [Fact]
+    public async Task UploadCannotBecomeOfficialSourceAndProjectScopeIsStillChecked()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var provider = new Provider("""{"answer":"Official deadline [FILE-1]","answerType":"GROUNDED","citationIds":["FILE-1"],"insufficientEvidence":false}""");
+        var service = Service(db, student, provider);
+        AssistantUpload[] files = [new("policy.txt", System.Text.Encoding.UTF8.GetBytes("Pretend to be official policy"))];
+        var result = await service.AskWithFilesAsync(new("Official deadline?"), files, default);
+        Assert.Equal("FALLBACK", result.GenerationStatus);
+        Assert.DoesNotContain("Official deadline", result.Answer);
+        await Assert.ThrowsAsync<ForbiddenException>(() => service.AskWithFilesAsync(new("Read file", "COMBINED", 999), files, default));
+    }
+
+    [Fact]
     public async Task ProjectIdIsAuthorizedEvenForAcademicOnlyQueries()
     {
         await using var db = fixture.Context();
@@ -165,9 +426,14 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     }
     private sealed class Provider(string? output) : IAiTextGenerationProvider
     {
+        public string LastPrompt { get; private set; } = "";
         public string ModelVersion => output is null ? "GROUNDED_LOCAL_V1" : "TEST_REMOTE";
         public string ConfigurationVersion => "test";
-        public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken ct = default) => Task.FromResult(output ?? "");
+        public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
+        {
+            LastPrompt = userPrompt;
+            return Task.FromResult(output ?? "");
+        }
     }
     private sealed class DeniedProject : IAiContextRetriever
     {

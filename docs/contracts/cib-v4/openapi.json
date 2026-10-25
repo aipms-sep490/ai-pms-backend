@@ -117,6 +117,434 @@
         }
       }
     },
+    "/api/v1/academic/assistant/ask-with-files": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "Query": {
+                    "type": "string"
+                  },
+                  "Scope": {
+                    "type": "string"
+                  },
+                  "ProjectId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "ConversationId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "ExpectedRevision": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "PageContext": {
+                    "type": "string"
+                  },
+                  "DraftKind": {
+                    "type": "string"
+                  },
+                  "Files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              },
+              "encoding": {
+                "Query": {
+                  "style": "form"
+                },
+                "Scope": {
+                  "style": "form"
+                },
+                "ProjectId": {
+                  "style": "form"
+                },
+                "ConversationId": {
+                  "style": "form"
+                },
+                "ExpectedRevision": {
+                  "style": "form"
+                },
+                "PageContext": {
+                  "style": "form"
+                },
+                "DraftKind": {
+                  "style": "form"
+                },
+                "Files": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcademicAssistantResponseDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcademicAssistantResponseDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcademicAssistantResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/assistant/conversations": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssistantConversationRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssistantConversationRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssistantConversationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConversationDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConversationDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConversationDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "beforeId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssistantConversationDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssistantConversationDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssistantConversationDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/assistant/conversations/{id}": {
+      "get": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "beforeTurnId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConversationDetailDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConversationDetailDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConversationDetailDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/academic/assistant/runs/{id}/citations/{index}": {
+      "get": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeCitationDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeCitationDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeCitationDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/assistant/stream": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "Query": {
+                    "type": "string"
+                  },
+                  "Scope": {
+                    "type": "string"
+                  },
+                  "ProjectId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "ConversationId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "ExpectedRevision": {
+                    "type": "integer",
+                    "format": "int32"
+                  },
+                  "PageContext": {
+                    "type": "string"
+                  },
+                  "DraftKind": {
+                    "type": "string"
+                  },
+                  "Files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              },
+              "encoding": {
+                "Query": {
+                  "style": "form"
+                },
+                "Scope": {
+                  "style": "form"
+                },
+                "ProjectId": {
+                  "style": "form"
+                },
+                "ConversationId": {
+                  "style": "form"
+                },
+                "ExpectedRevision": {
+                  "style": "form"
+                },
+                "PageContext": {
+                  "style": "form"
+                },
+                "DraftKind": {
+                  "style": "form"
+                },
+                "Files": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/academic/assistant/runs/{id}/download": {
+      "get": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "md"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/academic/knowledge-documents": {
       "get": {
         "tags": [
@@ -54714,6 +55142,24 @@
             "type": "integer",
             "format": "int64",
             "nullable": true
+          },
+          "conversationId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "pageContext": {
+            "type": "string",
+            "nullable": true
+          },
+          "draftKind": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -54762,6 +55208,26 @@
             "type": "integer",
             "format": "int64",
             "nullable": true
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantAttachmentDto"
+            },
+            "nullable": true
+          },
+          "conversationId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "draft": {
+            "$ref": "#/components/schemas/AssistantDraftDto"
           }
         },
         "additionalProperties": false
@@ -55495,6 +55961,105 @@
             "type": "integer",
             "format": "int32",
             "readOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantAttachmentDto": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "nullable": true
+          },
+          "mediaType": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantConversationDetailDto": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/components/schemas/AssistantConversationDto"
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantTurnDto"
+            },
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantConversationDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "scope": {
+            "type": "string",
+            "nullable": true
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantDraftDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantTurnDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "query": {
+            "type": "string",
+            "nullable": true
+          },
+          "response": {
+            "$ref": "#/components/schemas/AcademicAssistantResponseDto"
           }
         },
         "additionalProperties": false
@@ -56786,6 +57351,21 @@
             "nullable": true
           },
           "concurrencyToken": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateAssistantConversationRequest": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "scope": {
             "type": "string",
             "nullable": true
           }

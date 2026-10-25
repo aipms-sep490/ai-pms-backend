@@ -41,7 +41,8 @@ internal sealed class HttpRequestContext(IHttpContextAccessor httpContextAccesso
             var supplied = context.Request.Headers["X-Correlation-ID"].ToString();
             correlationId = Guid.TryParse(supplied, out var parsed) ? parsed : Guid.NewGuid();
             context.Items[CorrelationItemKey] = correlationId;
-            context.Response.Headers["X-Correlation-ID"] = correlationId.ToString();
+            if (!context.Response.HasStarted)
+                context.Response.Headers["X-Correlation-ID"] = correlationId.ToString();
             return correlationId;
         }
     }
