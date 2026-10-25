@@ -39,6 +39,14 @@ public sealed record ImportUserAccountsRequest(
 
 public sealed record UpdateMyProfileRequest(string FullName, string? Phone, string? Title);
 
+public sealed record UpdateUserAccountRequest(
+    string? FullName,
+    string? Phone,
+    string? Title,
+    string? StudentCode,
+    string? EmployeeCode,
+    string? ConcurrencyToken);
+
 public sealed record SetUserStatusRequest(string Status);
 
 public sealed record SecurityRoleDto(

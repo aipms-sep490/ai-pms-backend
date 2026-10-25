@@ -77,6 +77,17 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
                 || (employeeCode != null && user.EmployeeCode == employeeCode),
             cancellationToken);
 
+    public Task<bool> IdentityExistsExcludingUserAsync(
+        long userId,
+        string? studentCode,
+        string? employeeCode,
+        CancellationToken cancellationToken = default) =>
+        context.Users.AsNoTracking().AnyAsync(
+            user => user.Id != userId
+                && ((studentCode != null && user.StudentCode == studentCode)
+                    || (employeeCode != null && user.EmployeeCode == employeeCode)),
+            cancellationToken);
+
     public async Task<AccountUser> CreateUserAsync(
         CreateAccountData data,
         long actorUserId,
@@ -185,6 +196,30 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         user.FullName = data.FullName;
         user.Phone = data.Phone;
         user.Title = data.Title;
+        user.UpdatedAt = utcNow;
+        await SaveChangesAsync(cancellationToken);
+        return (await GetUserAsync(userId, cancellationToken))!;
+    }
+
+    public async Task<AccountUser> UpdateAccountAsync(
+        long userId,
+        UpdateAccountData data,
+        string? concurrencyToken,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await context.Users.SingleAsync(item => item.Id == userId, cancellationToken);
+        if (!string.IsNullOrEmpty(concurrencyToken)
+            && Convert.ToBase64String(user.RowVersion) != concurrencyToken)
+        {
+            throw new ConflictException("The user account was modified by another operation. Please refresh and retry.");
+        }
+
+        user.FullName = data.FullName;
+        user.Phone = data.Phone;
+        user.Title = data.Title;
+        user.StudentCode = data.StudentCode;
+        user.EmployeeCode = data.EmployeeCode;
         user.UpdatedAt = utcNow;
         await SaveChangesAsync(cancellationToken);
         return (await GetUserAsync(userId, cancellationToken))!;

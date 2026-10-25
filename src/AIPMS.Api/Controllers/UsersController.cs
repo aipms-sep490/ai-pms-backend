@@ -50,6 +50,26 @@ public sealed class UsersController(ISender sender) : ControllerBase
             cancellationToken));
 
     [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
+    [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
+    [HttpPut("{userId:long}")]
+    [ProducesResponseType<UserAccountDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<UserAccountDto>> UpdateUser(
+        long userId,
+        UpdateUserAccountRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await sender.Send(
+            new UpdateUserAccountCommand(
+                userId,
+                request.FullName,
+                request.Phone,
+                request.Title,
+                request.StudentCode,
+                request.EmployeeCode,
+                request.ConcurrencyToken),
+            cancellationToken));
+
     [HttpPost]
     [ProducesResponseType<UserAccountDto>(StatusCodes.Status201Created)]
     public async Task<ActionResult<UserAccountDto>> CreateUser(
