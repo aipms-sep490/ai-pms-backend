@@ -62,6 +62,46 @@ public sealed class UpdateMyProfileCommandValidator : AbstractValidator<UpdateMy
     }
 }
 
+public sealed class UpdateUserAccountCommandValidator : AbstractValidator<UpdateUserAccountCommand>
+{
+    public UpdateUserAccountCommandValidator()
+    {
+        RuleFor(static command => command.UserId)
+            .GreaterThan(0);
+
+        When(static command => command.FullName is not null, () =>
+        {
+            RuleFor(static command => command.FullName)
+                .NotEmpty()
+                .MaximumLength(255);
+        });
+
+        When(static command => command.Phone is not null, () =>
+        {
+            RuleFor(static command => command.Phone)
+                .MaximumLength(30);
+        });
+
+        When(static command => command.Title is not null, () =>
+        {
+            RuleFor(static command => command.Title)
+                .MaximumLength(100);
+        });
+
+        When(static command => command.StudentCode is not null, () =>
+        {
+            RuleFor(static command => command.StudentCode)
+                .MaximumLength(50);
+        });
+
+        When(static command => command.EmployeeCode is not null, () =>
+        {
+            RuleFor(static command => command.EmployeeCode)
+                .MaximumLength(50);
+        });
+    }
+}
+
 public sealed class ImportUserAccountsCommandValidator
     : AbstractValidator<ImportUserAccountsCommand>
 {

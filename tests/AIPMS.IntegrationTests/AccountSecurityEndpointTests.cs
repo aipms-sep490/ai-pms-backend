@@ -100,6 +100,8 @@ public sealed class AccountSecurityEndpointTests
         public Task<bool> IdentityExistsAsync(string email, string? studentCode, string? employeeCode, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AccountUser> CreateUserAsync(CreateAccountData data, long actorUserId, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<AccountUser>> CreateUsersAsync(IReadOnlyCollection<CreateAccountData> accounts, long actorUserId, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> IdentityExistsExcludingUserAsync(long userId, string? studentCode, string? employeeCode, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AccountUser> UpdateAccountAsync(long userId, UpdateAccountData data, string? concurrencyToken, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AccountUser> UpdateProfileAsync(long userId, UpdateProfileData data, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AccountUser> SetStatusAsync(long userId, string status, DateTime utcNow, CancellationToken cancellationToken = default) =>
             Task.FromResult(Admin with { Status = status, UpdatedAt = utcNow });

@@ -34,6 +34,19 @@ public interface IUserAccountRepository
         DateTime utcNow,
         CancellationToken cancellationToken = default);
 
+    Task<bool> IdentityExistsExcludingUserAsync(
+        long userId,
+        string? studentCode,
+        string? employeeCode,
+        CancellationToken cancellationToken = default);
+
+    Task<AccountUser> UpdateAccountAsync(
+        long userId,
+        UpdateAccountData data,
+        string? concurrencyToken,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default);
+
     Task<AccountUser> UpdateProfileAsync(
         long userId,
         UpdateProfileData data,
