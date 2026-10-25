@@ -35,7 +35,6 @@ public sealed class AuthController(ISender sender) : ControllerBase
         Ok(await sender.Send(command, cancellationToken));
 
     [AllowAnonymous]
-    [EnableRateLimiting("authentication")]
     [HttpPost("logout")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Logout(
