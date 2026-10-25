@@ -39,6 +39,17 @@ public sealed class ProgressReportsController(ISender sender) : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("/api/v1/projects/{projectId:long}/progress-reports/prefill")]
+    [ProducesResponseType<ProgressReportPrefillDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<ProgressReportPrefillDto>> GetPrefill(
+        long projectId,
+        [FromQuery] long? progressReportPeriodId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await sender.Send(new GetProgressReportPrefillQuery(projectId, progressReportPeriodId), cancellationToken);
+        return Ok(result);
+    }
+
     [HttpGet("{id:long}")]
     [ProducesResponseType<ProgressReportDetailDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ProgressReportDetailDto>> GetById(

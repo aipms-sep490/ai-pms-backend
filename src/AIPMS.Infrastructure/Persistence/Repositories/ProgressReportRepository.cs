@@ -568,4 +568,89 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
 
     private static bool IsUniqueConstraintViolation(DbUpdateException ex) =>
         ex.InnerException is SqlException { Number: 2601 or 2627 };
+
+    public async Task<ProgressReportPrefillDto> GetPrefillDataAsync(
+        long projectId,
+        long? progressReportPeriodId,
+        DateOnly periodStart,
+        DateOnly periodEnd,
+        string reportType,
+        CancellationToken cancellationToken)
+    {
+        var startUtc = periodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var endUtc = periodEnd.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc);
+
+        var tasks = await context.Tasks
+            .AsNoTracking()
+            .Where(t => t.Milestone.ProjectId == projectId)
+            .Select(t => new
+            {
+                t.Id,
+                t.Title,
+                t.Status,
+                t.CompletedAt,
+                t.UpdatedAt,
+                t.DueAt
+            })
+            .ToListAsync(cancellationToken);
+
+        var completedTasks = tasks.Where(t =>
+            t.Status == "COMPLETED" &&
+            ((t.CompletedAt.HasValue && t.CompletedAt.Value >= startUtc && t.CompletedAt.Value <= endUtc)
+             || (!t.CompletedAt.HasValue && t.UpdatedAt >= startUtc && t.UpdatedAt <= endUtc)))
+            .ToList();
+
+        var inProgressTasks = tasks.Where(t => t.Status == "IN_PROGRESS").ToList();
+        var blockedTasks = tasks.Where(t => t.Status == "BLOCKED").ToList();
+        var nextTasks = tasks.Where(t => t.Status == "TODO" || t.Status == "IN_PROGRESS").Take(5).ToList();
+
+        var evidenceList = new List<ProgressReportPrefillEvidenceDto>();
+        foreach (var t in completedTasks)
+        {
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, "COMPLETED"));
+        }
+        foreach (var t in inProgressTasks)
+        {
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, "IN_PROGRESS"));
+        }
+        foreach (var t in blockedTasks)
+        {
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, "BLOCKED"));
+        }
+
+        var insufficientData = evidenceList.Count == 0;
+
+        string? completedText = completedTasks.Count > 0
+            ? string.Join("\n", completedTasks.Select(t => $"- {t.Title}"))
+            : null;
+
+        string? inProgressText = inProgressTasks.Count > 0
+            ? string.Join("\n", inProgressTasks.Select(t => $"- {t.Title}"))
+            : null;
+
+        string? blockersText = blockedTasks.Count > 0
+            ? string.Join("\n", blockedTasks.Select(t => $"- {t.Title} (BLOCKED)"))
+            : null;
+
+        string? nextActionsText = nextTasks.Count > 0
+            ? string.Join("\n", nextTasks.Select(t => $"- {t.Title}"))
+            : null;
+
+        var suggested = new ProgressReportSuggestedContentDto(
+            CompletedWork: completedText,
+            InProgressWork: inProgressText,
+            Blockers: blockersText,
+            Risks: null,
+            NextActions: nextActionsText,
+            Summary: null);
+
+        return new ProgressReportPrefillDto(
+            progressReportPeriodId,
+            reportType,
+            periodStart,
+            periodEnd,
+            suggested,
+            evidenceList,
+            insufficientData);
+    }
 }
