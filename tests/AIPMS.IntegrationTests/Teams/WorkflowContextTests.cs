@@ -280,8 +280,8 @@ public sealed class WorkflowContextTests(TeamDatabaseFixture database) : IClassF
     public async Task Interdisciplinary_active_project_with_primary_can_request_discipline_mentors()
     {
         var s = await database.SeedAsync(); using var app = new TeamTestFactory(database, s);
-        using var leader = app.CreateAuthenticatedClient(s.Students[0]);
-        var team = await CreateTeam(leader, s);
+        using var leader = app.CreateAuthenticatedClient(s.Students[0]); using var member = app.CreateAuthenticatedClient(s.Students[1]);
+        var team = await CreateTeam(leader, s); await Join(leader, member, team.Id, s.Students[1]);
         var project = await Body<ProjectDto>(await leader.PostAsJsonAsync("/api/v1/projects", new CreateProjectDraftRequest(
             "Inter proposal", "Description", "Objectives", "Problem", "Output", [s.SeMajorId, s.IsMajorId], "Education", ["Dotnet"], ["Capstone"])));
 
