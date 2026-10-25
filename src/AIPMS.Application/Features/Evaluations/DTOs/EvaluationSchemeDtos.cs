@@ -30,7 +30,11 @@ public sealed record StudentResultDto(long Id, long ProjectId, long StudentId, l
 public sealed record ResultComponentScoreDto(long ComponentId, string Name, string Scope, long? MajorId,
     decimal WeightPercent, decimal? Score, int RequiredEvaluators, int FinalizedEvaluators, string? Stage = null);
 public sealed record ResultMajorScoreDto(long MajorId, decimal? Score);
+public sealed record EvaluationFormulaComponentDto(string Type, int WeightPercent);
+public sealed record EvaluationFormulaDto(IReadOnlyList<EvaluationFormulaComponentDto> Components, string? Description = null);
+
 public sealed record ResultBreakdownDto(string? SchemeName, int? SchemeVersion, string CalculationVersion,
     bool IsLegacy, bool? IsDemo, string ApprovalStatus, string Readiness, decimal? UnroundedTotal,
     decimal? CommonScore, decimal? MajorAggregate, IReadOnlyList<ResultMajorScoreDto> MajorBreakdown,
-    IReadOnlyList<ResultComponentScoreDto> Components);
+    IReadOnlyList<ResultComponentScoreDto> Components,
+    EvaluationFormulaDto? Formula = null);
