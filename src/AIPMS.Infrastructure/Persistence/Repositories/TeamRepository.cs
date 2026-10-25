@@ -293,7 +293,8 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
 
     private static readonly Expression<Func<TeamInvitation, TeamInvitationData>> InvitationProjection = i =>
         new TeamInvitationData(i.Id, i.TeamId, i.InvitedUserId, i.InvitedBy,
-            i.Status, i.Message, i.ExpiresAt, i.RespondedAt, i.CreatedAt);
+            i.Status, i.Message, i.ExpiresAt, i.RespondedAt, i.CreatedAt,
+            i.Team.Name, i.InvitedByNavigation.FullName, i.InvitedUser.FullName);
 
     public Task<TeamInvitationData?> GetInvitationAsync(long invitationId, CancellationToken ct) =>
         context.TeamInvitations.Where(i => i.Id == invitationId).Select(InvitationProjection).SingleOrDefaultAsync(ct);

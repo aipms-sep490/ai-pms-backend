@@ -68394,6 +68394,18 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "teamName": {
+            "type": "string",
+            "nullable": true
+          },
+          "invitedByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "invitedUserName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
