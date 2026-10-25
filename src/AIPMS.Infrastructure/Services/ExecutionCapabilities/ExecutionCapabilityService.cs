@@ -30,12 +30,13 @@ internal sealed class ExecutionCapabilityService(
             .Select(x => new { x.Id, x.Status, x.RowVersion }).SingleAsync(cancellationToken);
         var active = project.Status == "ACTIVE";
         var manager = await IsProjectManager(projectId, cancellationToken);
+        var isTeamMember = await tasks.IsUserActiveTeamMemberAsync(projectId, Actor, cancellationToken);
         var execution = new[]
         {
             Action("create_task", manager && active, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
             Action("create_milestone", manager && active, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
             Action("reorder_milestones", manager && active, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
-            Action("create_progress_report", manager && active, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
+            Action("create_progress_report", isTeamMember && active, !active ? "PROJECT_NOT_ACTIVE" : "ACTIVE_TEAM_MEMBER_REQUIRED"),
             Action("schedule_meeting", manager && active, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED")
         };
         return new("PROJECT", project.Id, project.Id, project.Status, Convert.ToBase64String(project.RowVersion),
