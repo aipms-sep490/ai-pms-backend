@@ -84,7 +84,9 @@ public sealed class RefreshTokenCommandHandler(
                 session.Account.Id,
                 session.Account.Email,
                 session.Account.FullName,
-                session.Account.Roles));
+                session.Account.Roles,
+                session.Account.Title,
+                session.Account.Phone));
     }
 
     private Task RecordAuditAsync(

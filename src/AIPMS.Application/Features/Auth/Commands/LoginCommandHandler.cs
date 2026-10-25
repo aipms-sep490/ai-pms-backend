@@ -96,7 +96,9 @@ public sealed class LoginCommandHandler(
                 account.Id,
                 account.Email,
                 account.FullName,
-                account.Roles));
+                account.Roles,
+                account.Title,
+                account.Phone));
     }
 
     private Task RecordLoginAuditAsync(

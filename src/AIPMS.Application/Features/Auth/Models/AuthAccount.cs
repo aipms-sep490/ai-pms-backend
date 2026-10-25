@@ -9,4 +9,6 @@ public sealed record AuthAccount(
     IReadOnlyCollection<string> Roles,
     int AccessFailedCount,
     DateTime? LockoutEndAt,
-    DateTime? PasswordChangedAt);
+    DateTime? PasswordChangedAt,
+    string? Title = null,
+    string? Phone = null);
