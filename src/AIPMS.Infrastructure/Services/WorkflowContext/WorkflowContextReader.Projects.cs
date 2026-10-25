@@ -1,3 +1,4 @@
+using AIPMS.Domain.Supervisors;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Projects.Services;
 using AIPMS.Application.Features.WorkflowContext.DTOs;
@@ -69,12 +70,47 @@ internal sealed partial class WorkflowContextReader
         var candidateProject = await candidateReader.GetProjectAsync(projectId, now.UtcDateTime, ct);
         var selectionPolicies = await candidateReader.GetSelectionPoliciesAsync(team.Team.SemesterId, now.UtcDateTime, ct);
         var supervisorIssues = new List<string>();
-        if (candidateProject is null || candidateProject.Status is not ("DRAFT" or "REVISION_REQUIRED" or "APPROVED") || candidateProject.HasActiveAssignment)
+        if (candidateProject is null || !SupervisorSelectionEligibility.HasAnyEligibleSlot(
+                candidateProject.Status,
+                candidateProject.HasActiveAssignment,
+                candidateProject.RequiredMajorIds,
+                candidateProject.OccupiedMentorMajors))
             supervisorIssues.Add("SUPERVISOR_SELECTION_STATE_INVALID");
         if (candidateProject is null || !candidateProject.HasActiveSemester || candidateProject.DepartmentIds.Count == 0)
             supervisorIssues.Add("PROJECT_ACADEMIC_CONTEXT_INACTIVE");
         if (selectionPolicies.Count != 1 || selectionPolicies[0].MaxProjectsPerSupervisor is not > 0)
             supervisorIssues.Add("SUPERVISOR_SELECTION_POLICY_UNAVAILABLE");
+
+        List<SupervisorSlotDto>? supervisorSlots = null;
+        if (candidateProject is not null)
+        {
+            supervisorSlots = new List<SupervisorSlotDto>();
+            var primaryState = candidateProject.HasActiveAssignment
+                ? "CONFIRMED"
+                : SupervisorSelectionEligibility.CanRequestPrimary(candidateProject.Status, candidateProject.HasActiveAssignment)
+                    ? "OPEN"
+                    : "UNAVAILABLE";
+            supervisorSlots.Add(new SupervisorSlotDto("PRIMARY", null, primaryState));
+
+            if (candidateProject.RequiredMajorIds is not null)
+            {
+                foreach (var majorId in candidateProject.RequiredMajorIds)
+                {
+                    var isOccupied = candidateProject.OccupiedMentorMajors?.Contains(majorId) == true;
+                    var mentorState = isOccupied
+                        ? "CONFIRMED"
+                        : SupervisorSelectionEligibility.CanRequestMentor(
+                            candidateProject.Status,
+                            candidateProject.HasActiveAssignment,
+                            candidateProject.RequiredMajorIds,
+                            candidateProject.OccupiedMentorMajors,
+                            majorId)
+                            ? "OPEN"
+                            : "UNAVAILABLE";
+                    supervisorSlots.Add(new SupervisorSlotDto("DISCIPLINE_MENTOR", majorId, mentorState));
+                }
+            }
+        }
         var supervisorAccess = await projectAccess.CanAccessAsync(userId, projectId, ct);
         var actions = new[]
         {
@@ -101,6 +137,6 @@ internal sealed partial class WorkflowContextReader
                 (supervisorAccess && (actor.Admin || actor.Academic.HasActiveDepartmentScope), "SUPERVISOR_CONTEXT_ACCESS_DENIED")),
             WithIssues("send_supervisor_request", supervisorIssues, leader, (actor.Academic.HasActiveDepartmentScope, "ACADEMIC_SCOPE_INACTIVE"))
         };
-        return new(now, projectId, project.Status, project.ConcurrencyToken, snapshot?.Id, staffDepartment, actions);
+        return new(now, projectId, project.Status, project.ConcurrencyToken, snapshot?.Id, staffDepartment, actions, supervisorSlots);
     }
 }
