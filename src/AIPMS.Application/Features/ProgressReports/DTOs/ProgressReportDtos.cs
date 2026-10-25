@@ -93,3 +93,26 @@ public sealed record UpdateProgressReportRequest(
 
 public sealed record AddProgressReportFeedbackRequest(
     string FeedbackText);
+
+public sealed record ProgressReportPrefillDto(
+    long? ProgressReportPeriodId,
+    string ReportType,
+    DateOnly PeriodStart,
+    DateOnly PeriodEnd,
+    ProgressReportSuggestedContentDto Suggested,
+    IReadOnlyList<ProgressReportPrefillEvidenceDto> Evidence,
+    bool InsufficientData);
+
+public sealed record ProgressReportSuggestedContentDto(
+    string? CompletedWork,
+    string? InProgressWork,
+    string? Blockers,
+    string? Risks,
+    string? NextActions,
+    string? Summary = null);
+
+public sealed record ProgressReportPrefillEvidenceDto(
+    string Type,
+    long Id,
+    string Title,
+    string Status);
