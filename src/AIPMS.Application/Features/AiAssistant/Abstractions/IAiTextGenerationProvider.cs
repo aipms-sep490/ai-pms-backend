@@ -15,6 +15,12 @@ public interface IAiTextGenerationProvider
 
 public sealed record AiImageInput(string MediaType, byte[] Content);
 
+public interface IAiStreamingProvider
+{
+    Task<string> GenerateStreamingAsync(string systemPrompt, string userPrompt, IReadOnlyList<AiImageInput> images,
+        Func<string, Task> onDelta, CancellationToken cancellationToken = default);
+}
+
 public interface IAiVisionProvider
 {
     Task<string> GenerateWithImagesAsync(string systemPrompt, string userPrompt,

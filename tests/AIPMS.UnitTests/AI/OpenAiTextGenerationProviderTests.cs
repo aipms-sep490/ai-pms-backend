@@ -12,6 +12,39 @@ namespace AIPMS.UnitTests.AI;
 public sealed class OpenAiTextGenerationProviderTests
 {
     [Fact]
+    public async Task StreamingReadsActualDeltasAndRequiresCompletionMarker()
+    {
+        using var handler = new StubHandler(async (request, ct) =>
+        {
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            Assert.True(body.RootElement.GetProperty("stream").GetBoolean());
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("data: {\"choices\":[{\"delta\":{\"content\":\"Hello \"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"world\"}}]}\n\ndata: [DONE]\n\n", Encoding.UTF8, "text/event-stream") };
+        });
+        using var client = new HttpClient(handler);
+        var chunks = new List<string>();
+        var result = await Create(client).GenerateStreamingAsync("System", "Question", [], value => { chunks.Add(value); return Task.CompletedTask; });
+        Assert.Equal(new[] { "Hello ", "world" }, chunks);
+        Assert.Equal("Hello world", result);
+    }
+
+    [Fact]
+    public async Task TruncatedProviderStreamIsNotAccepted()
+    {
+        using var handler = new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
+            Content = new StringContent("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n") }));
+        using var client = new HttpClient(handler);
+        await Assert.ThrowsAsync<System.IO.IOException>(() => Create(client).GenerateStreamingAsync("System", "Question", [], _ => Task.CompletedTask));
+    }
+
+    [Fact]
+    public async Task RouterCanFinishWithStopWithoutDoneSentinel()
+    {
+        using var handler = new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
+            Content = new StringContent("data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n") }));
+        using var client = new HttpClient(handler);
+        Assert.Equal("Hello", await Create(client).GenerateStreamingAsync("System", "Question", [], _ => Task.CompletedTask));
+    }
+    [Fact]
     public async Task UsesConfiguredRouterEndpointModelAndBearerToken()
     {
         using var handler = new StubHandler(async (request, ct) =>
