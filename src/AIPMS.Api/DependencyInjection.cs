@@ -133,7 +133,12 @@ public static class DependencyInjection
         {
             // The iterative FluentValidation tree validator handles rubric descendants.
             options.ModelMetadataDetailsProviders.Add(new SuppressChildValidationMetadataProvider(typeof(RubricCriterionInput)));
-        }).AddJsonOptions(options => options.JsonSerializerOptions.MaxDepth = 2 * RubricHierarchy.MaxNodes + 16);
+        }).AddJsonOptions(options =>
+        {
+            options.JsonSerializerOptions.MaxDepth = 2 * RubricHierarchy.MaxNodes + 16;
+            options.JsonSerializerOptions.Converters.Add(new AIPMS.Application.Common.Serialization.UtcDateTimeJsonConverter());
+            options.JsonSerializerOptions.Converters.Add(new AIPMS.Application.Common.Serialization.NullableUtcDateTimeJsonConverter());
+        });
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {
