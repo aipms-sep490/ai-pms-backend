@@ -7,6 +7,24 @@ public partial class AipmsDbContext
 {
     private static void ConfigureAcademicKnowledge(ModelBuilder model)
     {
+        model.Entity<AssistantConversation>(e =>
+        {
+            e.ToTable("assistant_conversations"); e.HasKey(x => x.Id);
+            e.Property(x => x.Title).HasMaxLength(120).IsRequired();
+            e.Property(x => x.Scope).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Revision).IsConcurrencyToken();
+            e.HasIndex(x => new { x.ActorId, x.ProjectId, x.Id });
+            e.HasOne<AIPMS.Infrastructure.Persistence.Generated.Models.User>().WithMany().HasForeignKey(x => x.ActorId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<AIPMS.Infrastructure.Persistence.Generated.Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
+        });
+        model.Entity<AssistantConversationTurn>(e =>
+        {
+            e.ToTable("assistant_conversation_turns"); e.HasKey(x => x.Id);
+            e.Property(x => x.Query).HasMaxLength(2000).IsRequired();
+            e.HasIndex(x => new { x.ConversationId, x.Revision }).IsUnique();
+            e.HasOne<AssistantConversation>().WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<AcademicKnowledgeQueryRun>().WithMany().HasForeignKey(x => x.RunId).OnDelete(DeleteBehavior.NoAction);
+        });
         model.Entity<AcademicKnowledgeDocument>(e =>
         {
             e.ToTable("academic_knowledge_documents"); e.HasKey(x => x.Id);
@@ -47,7 +65,7 @@ public partial class AipmsDbContext
             e.HasOne<AIPMS.Infrastructure.Persistence.Generated.Models.User>().WithMany().HasForeignKey(x => x.ActorId).OnDelete(DeleteBehavior.NoAction);
         });
         // Database-first SQL uses snake_case; restrict this convention to these entities.
-        var knowledgeTypes = new[] { typeof(AcademicKnowledgeDocument), typeof(AcademicKnowledgeDocumentVersion),
+        var knowledgeTypes = new[] { typeof(AssistantConversation), typeof(AssistantConversationTurn), typeof(AcademicKnowledgeDocument), typeof(AcademicKnowledgeDocumentVersion),
             typeof(AcademicKnowledgeChunk), typeof(AcademicKnowledgeIndexJob), typeof(AcademicKnowledgeQueryRun), typeof(AcademicKnowledgePublication) };
         foreach (var type in knowledgeTypes)
         foreach (var property in model.Entity(type).Metadata.GetProperties())
