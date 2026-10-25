@@ -70,10 +70,12 @@ BEGIN TRY
     INSERT INTO dbo.departments (organization_id, code, name, description, is_active)
     VALUES
         (@org_id, N'IT', N'Information Technology', N'Academic unit for Information Technology programs, including Software Engineering, Artificial Intelligence, Applied Data Science, and Information Assurance.', 1),
-        (@org_id, N'BA', N'Business Administration', N'Academic unit for business and management programs that may participate in multidisciplinary university projects.', 1);
+        (@org_id, N'BA', N'Business Administration', N'Academic unit for business and management programs that may participate in multidisciplinary university projects.', 1),
+        (@org_id, N'DESIGN', N'Design', N'Academic unit for design and multimedia arts programs that participate in interdisciplinary university projects.', 1);
 
     DECLARE @it_dept_id BIGINT = (SELECT id FROM dbo.departments WHERE organization_id = @org_id AND code = N'IT');
     DECLARE @ba_dept_id BIGINT = (SELECT id FROM dbo.departments WHERE organization_id = @org_id AND code = N'BA');
+    DECLARE @design_dept_id BIGINT = (SELECT id FROM dbo.departments WHERE organization_id = @org_id AND code = N'DESIGN');
 
     INSERT INTO dbo.majors (department_id, code, name, description, is_active)
     VALUES
@@ -81,13 +83,15 @@ BEGIN TRY
         (@it_dept_id, N'AI',  N'Artificial Intelligence', N'Machine learning, natural language processing, recommendation systems, computer vision, and intelligent applications.', 1),
         (@it_dept_id, N'ADS', N'Applied Data Science', N'Data analytics, statistics, machine learning, visualization, big-data processing, and applied predictive modeling.', 1),
         (@it_dept_id, N'IA',  N'Information Assurance', N'Information security, secure systems, risk management, networks, and information assurance.', 1),
-        (@ba_dept_id, N'MKT', N'Marketing', N'Marketing strategy, customer insights, digital channels, communication, and data-informed business decision making.', 1);
+        (@ba_dept_id, N'MKT', N'Marketing', N'Marketing strategy, customer insights, digital channels, communication, and data-informed business decision making.', 1),
+        (@design_dept_id, N'GD', N'Graphic Design', N'Digital design, multimedia, UI/UX, and creative visual communication.', 1);
 
     DECLARE @major_se BIGINT = (SELECT id FROM dbo.majors WHERE department_id = @it_dept_id AND code = N'SE');
     DECLARE @major_ai BIGINT = (SELECT id FROM dbo.majors WHERE department_id = @it_dept_id AND code = N'AI');
     DECLARE @major_ads BIGINT = (SELECT id FROM dbo.majors WHERE department_id = @it_dept_id AND code = N'ADS');
     DECLARE @major_ia BIGINT = (SELECT id FROM dbo.majors WHERE department_id = @it_dept_id AND code = N'IA');
     DECLARE @major_mkt BIGINT = (SELECT id FROM dbo.majors WHERE department_id = @ba_dept_id AND code = N'MKT');
+    DECLARE @major_gd BIGINT = (SELECT id FROM dbo.majors WHERE department_id = @design_dept_id AND code = N'GD');
 
     INSERT INTO dbo.academic_semesters (organization_id, code, name, start_date, end_date, status)
     VALUES
@@ -124,7 +128,13 @@ BEGIN TRY
         (NULL,          @major_ai,  N'baopqde180903@fpt.edu.vn',      N'AQAAAAIAAYagAAAAEAs1KO2WlRZONEzZocgdrfN3HLkFjMK8Ghtodef0/bhtLXRgv4IGgLVoFygMGlib6w==', N'Phạm Quốc Bảo',      NULL, N'DE180903', NULL, N'Student', N'ACTIVE'),
         (NULL,          @major_mkt, N'linhlkde180904@fpt.edu.vn',     N'AQAAAAIAAYagAAAAED1VaHfGqkSUp8mtQ9pXA1L9prNp2dqDESMqQKcuCF9Qe1uqyogfb+HLHQObmDbcEA==', N'Lê Khánh Linh',      NULL, N'DE180904', NULL, N'Student', N'ACTIVE'),
         (NULL,          @major_ads, N'duyvade180905@fpt.edu.vn',      N'AQAAAAIAAYagAAAAENca+tf9wkmrgohuX+5JTctOWJT5EYgnPe0KAxzv6mOaRnqamOjT5C92jM/sVEDQGw==', N'Võ Anh Duy',         NULL, N'DE180905', NULL, N'Student', N'ACTIVE'),
-        (NULL,          @major_ia,  N'maintde180906@fpt.edu.vn',      N'AQAAAAIAAYagAAAAENY/4G+YA0IR+390JrbN4k+mNPCIZTejBYfSYIpc+eztqDqD0R11Jeafwf6h+NQi8A==', N'Ngô Thanh Mai',      NULL, N'DE180906', NULL, N'Student', N'ACTIVE');
+        (NULL,          @major_ia,  N'maintde180906@fpt.edu.vn',      N'AQAAAAIAAYagAAAAENY/4G+YA0IR+390JrbN4k+mNPCIZTejBYfSYIpc+eztqDqD0R11Jeafwf6h+NQi8A==', N'Ngô Thanh Mai',      NULL, N'DE180906', NULL, N'Student', N'ACTIVE'),
+        (@design_dept_id, NULL,     N'staff.design@fpt.edu.vn',       N'AQAAAAIAAYagAAAAECDlj2anj0PYyt+p+4Y/ZoHOJK1yaPX5R0QW/kB8Q+7+HZfcCfIn2WbJH4rtYP+2sg==', N'Trần Minh Tâm',       NULL, NULL,        N'FPTU-GD-AA01', N'Department Staff', N'ACTIVE'),
+        (@design_dept_id, NULL,     N'primary.design@fe.edu.vn',      N'AQAAAAIAAYagAAAAECDlj2anj0PYyt+p+4Y/ZoHOJK1yaPX5R0QW/kB8Q+7+HZfcCfIn2WbJH4rtYP+2sg==', N'Vũ Hoàng Anh',        NULL, NULL,        N'FPTU-GD-001',  N'Lecturer', N'ACTIVE'),
+        (@design_dept_id, NULL,     N'mentor.design@fe.edu.vn',       N'AQAAAAIAAYagAAAAECDlj2anj0PYyt+p+4Y/ZoHOJK1yaPX5R0QW/kB8Q+7+HZfcCfIn2WbJH4rtYP+2sg==', N'Đặng Thanh Thảo',     NULL, NULL,        N'FPTU-GD-002',  N'Lecturer', N'ACTIVE'),
+        (NULL,          @major_gd,  N'student.design1@fpt.edu.vn',    N'AQAAAAIAAYagAAAAECDlj2anj0PYyt+p+4Y/ZoHOJK1yaPX5R0QW/kB8Q+7+HZfcCfIn2WbJH4rtYP+2sg==', N'Nguyễn Thái Dương',   NULL, N'DE180920', NULL, N'Student', N'ACTIVE'),
+        (NULL,          @major_gd,  N'student.design2@fpt.edu.vn',    N'AQAAAAIAAYagAAAAECDlj2anj0PYyt+p+4Y/ZoHOJK1yaPX5R0QW/kB8Q+7+HZfcCfIn2WbJH4rtYP+2sg==', N'Lê Quỳnh Trang',      NULL, N'DE180921', NULL, N'Student', N'ACTIVE'),
+        (NULL,          @major_gd,  N'student.design3@fpt.edu.vn',    N'AQAAAAIAAYagAAAAECDlj2anj0PYyt+p+4Y/ZoHOJK1yaPX5R0QW/kB8Q+7+HZfcCfIn2WbJH4rtYP+2sg==', N'Hoàng Nhật Nam',      NULL, N'DE180922', NULL, N'Student', N'ACTIVE');
 
     DECLARE @staff_id BIGINT     = (SELECT id FROM dbo.users WHERE email = N'sep490.coordinator@fpt.edu.vn');
     DECLARE @lecturer1_id BIGINT = (SELECT id FROM dbo.users WHERE email = N'lecturer.se01@fe.edu.vn');
@@ -136,6 +146,12 @@ BEGIN TRY
     DECLARE @student4_id BIGINT  = (SELECT id FROM dbo.users WHERE email = N'linhlkde180904@fpt.edu.vn');
     DECLARE @student5_id BIGINT  = (SELECT id FROM dbo.users WHERE email = N'duyvade180905@fpt.edu.vn');
     DECLARE @student6_id BIGINT  = (SELECT id FROM dbo.users WHERE email = N'maintde180906@fpt.edu.vn');
+    DECLARE @staff_design_id BIGINT = (SELECT id FROM dbo.users WHERE email = N'staff.design@fpt.edu.vn');
+    DECLARE @lec_design1_id BIGINT  = (SELECT id FROM dbo.users WHERE email = N'primary.design@fe.edu.vn');
+    DECLARE @lec_design2_id BIGINT  = (SELECT id FROM dbo.users WHERE email = N'mentor.design@fe.edu.vn');
+    DECLARE @stu_design1_id BIGINT  = (SELECT id FROM dbo.users WHERE email = N'student.design1@fpt.edu.vn');
+    DECLARE @stu_design2_id BIGINT  = (SELECT id FROM dbo.users WHERE email = N'student.design2@fpt.edu.vn');
+    DECLARE @stu_design3_id BIGINT  = (SELECT id FROM dbo.users WHERE email = N'student.design3@fpt.edu.vn');
 
     DECLARE @role_staff BIGINT   = (SELECT id FROM dbo.roles WHERE code = N'DEPARTMENT_STAFF');
     DECLARE @role_lecturer BIGINT= (SELECT id FROM dbo.roles WHERE code = N'LECTURER');
@@ -152,7 +168,13 @@ BEGIN TRY
         (@student3_id, @role_student),
         (@student4_id, @role_student),
         (@student5_id, @role_student),
-        (@student6_id, @role_student);
+        (@student6_id, @role_student),
+        (@staff_design_id, @role_staff),
+        (@lec_design1_id, @role_lecturer),
+        (@lec_design2_id, @role_lecturer),
+        (@stu_design1_id, @role_student),
+        (@stu_design2_id, @role_student),
+        (@stu_design3_id, @role_student);
 
     /* =========================================================
        3. TEAM MANAGEMENT
