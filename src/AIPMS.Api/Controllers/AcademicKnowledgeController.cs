@@ -15,6 +15,8 @@ namespace AIPMS.Api.Controllers;
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class AcademicKnowledgeController(IAcademicKnowledgeService service, ILogger<AcademicKnowledgeController> logger, IRequestContext requestContext) : ControllerBase
 {
+    [HttpGet("assistant/review-rubrics")]
+    public Task<IReadOnlyList<AssistantRubricOption>> ReviewRubrics([FromQuery] long projectId, CancellationToken ct) => service.ReviewRubricsAsync(projectId, ct);
     [HttpPost("assistant/ask")]
     [EnableRateLimiting("ai-assistant")]
     [ProducesResponseType<AcademicAssistantResponseDto>(200)]
@@ -147,6 +149,8 @@ public sealed class AssistantFilesForm
     public int? ExpectedRevision { get; set; }
     public string? PageContext { get; set; }
     public string? DraftKind { get; set; }
+    public string? ToolMode { get; set; }
+    public long? RubricId { get; set; }
     public List<IFormFile> Files { get; set; } = [];
-    public AcademicAssistantAskRequest ToRequest() => new(Query, Scope, ProjectId, ConversationId, ExpectedRevision, PageContext, DraftKind);
+    public AcademicAssistantAskRequest ToRequest() => new(Query, Scope, ProjectId, ConversationId, ExpectedRevision, PageContext, DraftKind, ToolMode, RubricId);
 }

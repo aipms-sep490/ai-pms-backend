@@ -6,7 +6,9 @@ public sealed record KnowledgeChunkInput(string? Heading, int? PageNumber, strin
 public sealed record CreateKnowledgeDocumentRequest(string Title, string DocumentType, long? DepartmentId, long? AcademicSemesterId, long? ProjectPeriodId, string Version, string Content, string? SourceFileName, DateTime? EffectiveFrom, DateTime? EffectiveTo, IReadOnlyList<KnowledgeChunkInput>? Chunks);
 public sealed record CreateKnowledgeVersionRequest(string Version, string Content, string? SourceFileName, DateTime? EffectiveFrom, DateTime? EffectiveTo, IReadOnlyList<KnowledgeChunkInput>? Chunks);
 public sealed record AcademicAssistantAskRequest(string Query, string Scope = "ACADEMIC", long? ProjectId = null,
-    long? ConversationId = null, int? ExpectedRevision = null, string? PageContext = null, string? DraftKind = null);
+    long? ConversationId = null, int? ExpectedRevision = null, string? PageContext = null, string? DraftKind = null,
+    string? ToolMode = null, long? RubricId = null);
+public sealed record AssistantRubricOption(long Id, string Title, int Version, bool AssignedToProject);
 public sealed record CreateAssistantConversationRequest(long? ProjectId = null, string Scope = "ACADEMIC");
 public sealed record AssistantConversationDto(long Id, string Title, long? ProjectId, string Scope, int Revision, DateTime UpdatedAt);
 public sealed record AssistantTurnDto(long Id, string Query, AcademicAssistantResponseDto Response);
