@@ -4,6 +4,7 @@ namespace AIPMS.Application.Features.AcademicKnowledge.Abstractions;
 
 public interface IAcademicKnowledgeService
 {
+    Task<IReadOnlyList<AssistantRubricOption>> ReviewRubricsAsync(long projectId, CancellationToken ct);
     Task<PagedResult<KnowledgeDocumentDto>> ListAsync(long? departmentId, string? status, int page, int pageSize, CancellationToken ct);
     Task<KnowledgeDocumentDto> CreateAsync(CreateKnowledgeDocumentRequest request, CancellationToken ct);
     Task<KnowledgeVersionDto> AddVersionAsync(long documentId, CreateKnowledgeVersionRequest request, CancellationToken ct);

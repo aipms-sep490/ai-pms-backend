@@ -156,7 +156,7 @@ public sealed class AiContextRetriever(
             var now = DateTime.UtcNow;
             foreach (var t in allTasks)
             {
-                var isOverdue = t.DueAt.HasValue && t.DueAt.Value < now && !string.Equals(t.Status, "DONE", StringComparison.OrdinalIgnoreCase);
+                var isOverdue = t.DueAt.HasValue && t.DueAt.Value < now && t.Status is not ("DONE" or "CANCELLED");
                 var isBlocked = string.Equals(t.Status, "BLOCKED", StringComparison.OrdinalIgnoreCase);
                 var dueStr = t.DueAt?.ToString("yyyy-MM-dd HH:mm");
                 var excerpt = $"Status: {t.Status}, Priority: {t.Priority ?? "Normal"}, Overdue: {isOverdue}, Blocked: {isBlocked}" +

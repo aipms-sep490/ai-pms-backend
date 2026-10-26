@@ -26,6 +26,82 @@ public sealed class KnowledgeDatabaseFixture : IAsyncLifetime
 public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : IClassFixture<KnowledgeDatabaseFixture>
 {
     [Fact]
+    public async Task ReviewUsesOnlyPublishedOwnDepartmentAndSemesterAndRequiresBothSources()
+    {
+        await using var db = fixture.Context();
+        var (admin, student, department) = await Seed(db);
+        var semester = new AcademicSemester { OrganizationId = department.OrganizationId, Code = Guid.NewGuid().ToString("N"), Name = "Study tools", Status = "ACTIVE", StartDate = new(2026, 1, 1), EndDate = new(2026, 12, 31) };
+        var project = new Project { Code = Guid.NewGuid().ToString("N"), Title = "StudySpace", Status = "ACTIVE", CreatedBy = student.Id,
+            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "StudySpace", Status = "LOCKED", CreatedBy = student.Id, AcademicSemester = semester } };
+        db.Add(project); await db.SaveChangesAsync();
+        var other = new Department { OrganizationId = department.OrganizationId, Name = "Other", Code = "OTH" + Guid.NewGuid().ToString("N")[..8], IsActive = true };
+        db.Add(other); await db.SaveChangesAsync();
+        async Task<Rubric> Rubric(string name, long dep, string status)
+        {
+            var row = new Rubric { Name = name, Code = Guid.NewGuid().ToString("N"), CreatedBy = admin.Id, DepartmentId = dep, AcademicSemesterId = semester.Id, IsActive = true };
+            row.RubricCriteria.Add(new RubricCriterion { Criterion = new EvaluationCriterion { Code = Guid.NewGuid().ToString("N"), Name = "Kiểm thử", Description = "Có test bảo mật", IsActive = true }, WeightPercent = 100, MaxScore = 10, IsRequired = true });
+            db.Add(row); await db.SaveChangesAsync();
+            db.Add(new RubricVersion { RubricId = row.Id, RootRubricId = row.Id, VersionNumber = 2, Status = status }); await db.SaveChangesAsync(); return row;
+        }
+        var valid = await Rubric("Rubric IT", department.Id, "PUBLISHED");
+        var draft = await Rubric("Private draft", department.Id, "DRAFT");
+        var foreign = await Rubric("Other department", other.Id, "PUBLISHED");
+        var provider = new Provider("""{"answer":"Cần bổ sung test bảo mật [PROJECT-1], báo cáo chưa có minh chứng [FILE-1]","answerType":"GROUNDED","citationIds":["PROJECT-1","FILE-1"],"insufficientEvidence":false}""");
+        var service = Service(db, student, provider, context: new AllowedProject());
+        Assert.Equal(valid.Id, Assert.Single(await service.ReviewRubricsAsync(project.Id, default)).Id);
+        AssistantUpload[] files = [new("report.txt", System.Text.Encoding.UTF8.GetBytes("Đã triển khai đăng nhập. Chưa ghi nhận kiểm thử."))];
+        var request = new AcademicAssistantAskRequest("Nhận xét báo cáo", "COMBINED", project.Id, ToolMode: "REPORT_REVIEW", RubricId: valid.Id);
+        var before = await db.Evaluations.CountAsync();
+        var answer = await service.AskWithFilesAsync(request, files, default);
+        Assert.Equal("COMPLETED", answer.GenerationStatus);
+        Assert.Contains("v2", Assert.Single(answer.ProjectEvidence).Title);
+        Assert.Single(answer.Attachments!); Assert.Contains("không phải điểm", answer.LimitationNote);
+        await Assert.ThrowsAsync<NotFoundException>(() => service.AskWithFilesAsync(request with { RubricId = draft.Id }, files, default));
+        await Assert.ThrowsAsync<NotFoundException>(() => service.AskWithFilesAsync(request with { RubricId = foreign.Id }, files, default));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.AskWithFilesAsync(request, [], default));
+        var invalid = Service(db, student, new Provider("""{"answer":"Unsupported review","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false}"""), context: new AllowedProject());
+        Assert.Equal("FALLBACK", (await invalid.AskWithFilesAsync(request, files, default)).GenerationStatus);
+        foreach (var format in new[] { "docx", "xlsx", "pdf" })
+        {
+            Assert.NotEmpty((await service.ExportAsync(answer.RunId!.Value, format, default)).Content);
+            await Assert.ThrowsAsync<NotFoundException>(() => Service(db, admin).ExportAsync(answer.RunId.Value, format, default));
+        }
+        Assert.Equal(before, await db.Evaluations.CountAsync());
+        db.Set<RubricVersion>().Single(v => v.RubricId == valid.Id).Status = "RETIRED"; await db.SaveChangesAsync();
+        Assert.Empty(await service.ReviewRubricsAsync(project.Id, default));
+        var saved = await service.ExportAsync(answer.RunId!.Value, "txt", default);
+        Assert.Contains("v2", System.Text.Encoding.UTF8.GetString(saved.Content));
+    }
+
+    [Fact]
+    public async Task ProgressWorksWithoutProviderAndPersistsSnapshot()
+    {
+        await using var db = fixture.Context();
+        var (_, student, department) = await Seed(db);
+        var semester = new AcademicSemester { OrganizationId = department.OrganizationId, Code = Guid.NewGuid().ToString("N"), Name = "Progress test", Status = "ACTIVE", StartDate = new(2026, 1, 1), EndDate = new(2026, 12, 31) };
+        var project = new Project { Code = Guid.NewGuid().ToString("N"), Title = "StudySpace", Status = "ACTIVE", CreatedBy = student.Id,
+            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "StudySpace", Status = "LOCKED", CreatedBy = student.Id, AcademicSemester = semester } };
+        db.Add(project); await db.SaveChangesAsync();
+        var service = Service(db, student, context: new AllowedProject());
+        var result = await service.AskAsync(new("Tiến độ", "PROJECT", project.Id, ToolMode: "PROGRESS"), default);
+        Assert.Equal("COMPLETED", result.GenerationStatus);
+        Assert.Contains("3/30", result.Answer);
+        Assert.Contains("quá hạn", result.Answer);
+        Assert.Contains("Công việc cần sửa", System.Text.Encoding.UTF8.GetString((await service.ExportAsync(result.RunId!.Value, "txt", default)).Content));
+    }
+
+    private sealed class AllowedProject : IAiContextRetriever
+    {
+        public Task<ProjectBoundedContext> RetrieveProjectContextAsync(long id, string query, CancellationToken ct = default)
+        {
+            var payload = new ProjectEvidencePayload(id, "ACTIVE", 30, 3, true, [],
+                [new("TASK-1", 1, "Công việc cần sửa", "TODO", null, "2026-10-20", true, false, null)], [], [], null);
+            return Task.FromResult(new ProjectBoundedContext(id, "ACTIVE", [new("TASK", "TASK-1", "Công việc cần sửa", "2026-10-20", null, "Quá hạn")],
+                System.Text.Json.JsonSerializer.Serialize(payload), true, 1, 30, 3, true));
+        }
+        public Task<ReportBoundedContext> RetrieveReportContextAsync(long id, long report, CancellationToken ct = default) => throw new NotSupportedException();
+    }
+    [Fact]
     public async Task ConversationsPersistMemoryAndEnforceOwnershipRevisionAndDeletion()
     {
         await using var db = fixture.Context();
@@ -397,8 +473,8 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         Assert.True((await Service(db, student).AskAsync(new(word), default)).InsufficientEvidence);
     }
 
-    private AcademicKnowledgeService Service(AipmsDbContext db, User actor, IAiTextGenerationProvider? provider = null, IAuditTrail? audit = null) =>
-        new(db, new Current(actor), audit ?? new Audit(), provider ?? new Provider(null), new DeniedProject(), TimeProvider.System,
+    private AcademicKnowledgeService Service(AipmsDbContext db, User actor, IAiTextGenerationProvider? provider = null, IAuditTrail? audit = null, IAiContextRetriever? context = null) =>
+        new(db, new Current(actor), audit ?? new Audit(), provider ?? new Provider(null), context ?? new DeniedProject(), TimeProvider.System,
             new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["AiAssistant:KnowledgeEnabled"] = "true" }).Build());
     private static CreateKnowledgeDocumentRequest Request(string word, long? department) => new(word, "PROCESS", department, null, null, "v1", word + " Source content", null, null, null, null);
     private static async Task<(User, User, Department)> Seed(AipmsDbContext db)

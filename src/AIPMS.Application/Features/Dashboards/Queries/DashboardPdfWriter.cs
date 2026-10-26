@@ -3,14 +3,13 @@ using AIPMS.Application.Features.Dashboards.DTOs;
 using AIPMS.Application.Features.Dashboards.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
 using PdfSharp.Drawing;
-using PdfSharp.Fonts;
 using PdfSharp.Pdf;
 
 namespace AIPMS.Application.Features.Dashboards.Queries;
 
 internal static class DashboardPdfWriter
 {
-    static DashboardPdfWriter() => GlobalFontSettings.FontResolver = new PortfolioFontResolver();
+    static DashboardPdfWriter() => AIPMS.Application.Common.Documents.UnicodePdf.InitializeFonts();
 
     public static byte[] Write(IEnumerable<(DashboardProjectFacts Project, ProjectProgressAnalysisDto Analysis)> source)
     {
@@ -74,17 +73,4 @@ internal static class DashboardPdfWriter
         return output.ToArray();
     }
 
-    private sealed class PortfolioFontResolver : IFontResolver
-    {
-        public FontResolverInfo ResolveTypeface(string familyName, bool bold, bool italic) => new("DejaVuSans");
-        public byte[] GetFont(string faceName)
-        {
-            using var stream = typeof(DashboardPdfWriter).Assembly.GetManifestResourceStream(
-                "AIPMS.Application.Features.Dashboards.Fonts.DejaVuSans.ttf")
-                ?? throw new InvalidOperationException("The portfolio export font is missing.");
-            using var output = new MemoryStream();
-            stream.CopyTo(output);
-            return output.ToArray();
-        }
-    }
 }

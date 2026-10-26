@@ -69,6 +69,54 @@
         }
       }
     },
+    "/api/v1/academic/assistant/review-rubrics": {
+      "get": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssistantRubricOption"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssistantRubricOption"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssistantRubricOption"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/academic/assistant/ask": {
       "post": {
         "tags": [
@@ -152,6 +200,13 @@
                   "DraftKind": {
                     "type": "string"
                   },
+                  "ToolMode": {
+                    "type": "string"
+                  },
+                  "RubricId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "Files": {
                     "type": "array",
                     "items": {
@@ -181,6 +236,12 @@
                   "style": "form"
                 },
                 "DraftKind": {
+                  "style": "form"
+                },
+                "ToolMode": {
+                  "style": "form"
+                },
+                "RubricId": {
                   "style": "form"
                 },
                 "Files": {
@@ -469,6 +530,13 @@
                   "DraftKind": {
                     "type": "string"
                   },
+                  "ToolMode": {
+                    "type": "string"
+                  },
+                  "RubricId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "Files": {
                     "type": "array",
                     "items": {
@@ -498,6 +566,12 @@
                   "style": "form"
                 },
                 "DraftKind": {
+                  "style": "form"
+                },
+                "ToolMode": {
+                  "style": "form"
+                },
+                "RubricId": {
                   "style": "form"
                 },
                 "Files": {
@@ -54915,6 +54989,15 @@
           "draftKind": {
             "type": "string",
             "nullable": true
+          },
+          "toolMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "rubricId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -55798,6 +55881,27 @@
           "description": {
             "type": "string",
             "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantRubricOption": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "assignedToProject": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
