@@ -122,6 +122,7 @@ public sealed class SeedProjectVisualDemoTests(SupervisorDatabaseFixture databas
                 {
                     Project = project,
                     SupervisorProfileId = s.ProfileId,
+                    RequestedBy = leader.Id,
                     Status = "ACCEPTED",
                     AssignmentType = "PRIMARY",
                     RequestedAt = DateTime.UtcNow,
