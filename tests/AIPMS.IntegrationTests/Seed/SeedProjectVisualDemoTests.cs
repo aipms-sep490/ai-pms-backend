@@ -104,7 +104,7 @@ public sealed class SeedProjectVisualDemoTests(SupervisorDatabaseFixture databas
                 AcademicSemesterId = semester.Id,
                 Code = "SEP490-FA26-EXEC",
                 Name = "Execution Period",
-                PeriodType = "PROJECT_EXECUTION",
+                PeriodType = "EXECUTION",
                 Status = "ACTIVE",
                 StartAt = DateTime.UtcNow.AddDays(-10),
                 EndAt = DateTime.UtcNow.AddDays(80)

@@ -53,7 +53,7 @@ PRINT N'------------------------------------------------------------------------
 DECLARE @TeamId bigint = (SELECT team_id FROM dbo.projects WHERE id = @ProjectId);
 DECLARE @CreatedBy bigint = (SELECT created_by FROM dbo.projects WHERE id = @ProjectId);
 DECLARE @SemesterId bigint = (SELECT academic_semester_id FROM dbo.teams WHERE id = @TeamId);
-DECLARE @PeriodId bigint = (SELECT TOP 1 id FROM dbo.project_periods WHERE academic_semester_id = @SemesterId AND period_type = 'PROJECT_EXECUTION' ORDER BY id);
+DECLARE @PeriodId bigint = (SELECT TOP 1 id FROM dbo.project_periods WHERE academic_semester_id = @SemesterId AND period_type IN ('EXECUTION', 'PROJECT_EXECUTION') ORDER BY id);
 IF @PeriodId IS NULL
     SET @PeriodId = (SELECT TOP 1 id FROM dbo.project_periods WHERE code = N'SEP490-FA26-EXEC');
 IF @PeriodId IS NULL
