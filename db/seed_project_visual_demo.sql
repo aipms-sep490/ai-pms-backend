@@ -14,10 +14,11 @@
      9. Phản hồi của Giảng viên hướng dẫn (Supervisor Feedback)
     10. Thỏa ước làm việc nhóm (Team Working Agreement & Member Acceptances)
    
-   HƯỚNG DẪN SỬ DỤNG:
-     - Mặc định chạy cho nhóm 1: 'SEP490-FA26-AIPMS'
-     - Muốn chạy cho nhóm khác: Đổi giá trị biến @TargetProjectCode bên dưới.
-     - Script được thiết kế Idempotent (chạy nhiều lần an toàn, không sinh lỗi trùng lặp).
+   HƯỚNG DẪN SỬ DỤNG & CẢNH BÁO MÔI TRƯỜNG:
+     - CHỈ SỬ DỤNG TRÊN DATABASE DEMO / STAGING CÔ LẬP.
+     - TUYỆT ĐỐI KHÔNG CHẠY TRÊN DATABASE PRODUCTION / DÙNG CHUNG CỦA TRƯỜNG HOẶC ĐANG CÓ DỮ LIỆU THẬT CỦA CÁC NHÓM KHÁC.
+     - Yêu cầu đúng đồ án fixture mục tiêu (mặc định: 'SEP490-FA26-AIPMS'). Nếu không tìm thấy, script sẽ ROLLBACK và dừng an toàn ngay lập tức.
+     - Bảo toàn dữ liệu hiện có: Script chỉ tạo mới các thực thể chưa tồn tại; không ghi đè title dự án, không ép lifecycle ACTIVE và không ghi đè nội dung người dùng đã chỉnh sửa.
    ============================================================================================== */
 
 SET QUOTED_IDENTIFIER ON;
