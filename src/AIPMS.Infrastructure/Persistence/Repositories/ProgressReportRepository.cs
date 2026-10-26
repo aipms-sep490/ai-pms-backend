@@ -581,55 +581,67 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         var startUtc = periodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
         var endUtc = periodEnd.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc);
 
-        var tasks = await context.Tasks
+        // 1. Query completed tasks in period (evaluated in SQL with deterministic sorting and cap)
+        var completedTasksQuery = context.Tasks
             .AsNoTracking()
-            .Where(t => t.Milestone.ProjectId == projectId)
-            .Select(t => new
-            {
-                t.Id,
-                t.Title,
-                t.Status,
-                t.CompletedAt,
-                t.UpdatedAt,
-                t.DueAt
-            })
-            .ToListAsync(cancellationToken);
+            .Where(t => t.Milestone.ProjectId == projectId
+                && (t.Status == "DONE" || t.Status == "COMPLETED")
+                && ((t.CompletedAt.HasValue && t.CompletedAt.Value >= startUtc && t.CompletedAt.Value <= endUtc)
+                    || (!t.CompletedAt.HasValue && t.UpdatedAt >= startUtc && t.UpdatedAt <= endUtc)));
 
-        // 1. Done/Completed tasks in period with deterministic sorting
-        var completedTasks = tasks.Where(t =>
-            (t.Status == "DONE" || t.Status == "COMPLETED") &&
-            ((t.CompletedAt.HasValue && t.CompletedAt.Value >= startUtc && t.CompletedAt.Value <= endUtc)
-             || (!t.CompletedAt.HasValue && t.UpdatedAt >= startUtc && t.UpdatedAt <= endUtc)))
+        var completedTasksCount = await completedTasksQuery.CountAsync(cancellationToken);
+
+        var completedTasks = await completedTasksQuery
             .OrderByDescending(t => t.CompletedAt ?? t.UpdatedAt)
             .ThenByDescending(t => t.Id)
-            .ToList();
+            .Take(50)
+            .Select(t => new { t.Id, t.Title, t.Status })
+            .ToListAsync(cancellationToken);
 
-        // 2. In progress & blocked tasks with deterministic sorting
-        var inProgressTasks = tasks.Where(t => t.Status == "IN_PROGRESS")
+        // 2. Query in progress & blocked tasks (evaluated in SQL with deterministic sorting and cap)
+        var inProgressTasks = await context.Tasks
+            .AsNoTracking()
+            .Where(t => t.Milestone.ProjectId == projectId && t.Status == "IN_PROGRESS")
             .OrderBy(t => t.DueAt.HasValue ? 0 : 1)
             .ThenBy(t => t.DueAt)
             .ThenBy(t => t.Id)
-            .ToList();
+            .Take(50)
+            .Select(t => new { t.Id, t.Title, t.Status })
+            .ToListAsync(cancellationToken);
 
-        var blockedTasks = tasks.Where(t => t.Status == "BLOCKED")
+        var blockedTasks = await context.Tasks
+            .AsNoTracking()
+            .Where(t => t.Milestone.ProjectId == projectId && t.Status == "BLOCKED")
             .OrderBy(t => t.DueAt.HasValue ? 0 : 1)
             .ThenBy(t => t.DueAt)
             .ThenBy(t => t.Id)
-            .ToList();
+            .Take(50)
+            .Select(t => new { t.Id, t.Title, t.Status })
+            .ToListAsync(cancellationToken);
 
-        var nextTasks = tasks.Where(t => t.Status == "TODO" || t.Status == "IN_PROGRESS")
+        var nextTasks = await context.Tasks
+            .AsNoTracking()
+            .Where(t => t.Milestone.ProjectId == projectId && (t.Status == "TODO" || t.Status == "IN_PROGRESS"))
             .OrderBy(t => t.DueAt.HasValue ? 0 : 1)
             .ThenBy(t => t.DueAt)
             .ThenBy(t => t.Id)
             .Take(5)
-            .ToList();
+            .Select(t => new { t.Id, t.Title, t.Status })
+            .ToListAsync(cancellationToken);
 
-        // 3. Query meetings in period with deterministic sorting
-        var meetings = await context.Meetings
+        // 3. Query meetings in period (evaluated in SQL with deterministic sorting and cap)
+        var meetingsQuery = context.Meetings
             .AsNoTracking()
-            .Where(m => m.ProjectId == projectId && m.StartAt >= startUtc && m.StartAt <= endUtc)
+            .Where(m => m.ProjectId == projectId && m.StartAt >= startUtc && m.StartAt <= endUtc);
+
+        var completedMeetingsCount = await meetingsQuery
+            .Where(m => m.Status == "COMPLETED")
+            .CountAsync(cancellationToken);
+
+        var meetings = await meetingsQuery
             .OrderBy(m => m.StartAt)
             .ThenBy(m => m.Id)
+            .Take(50)
             .Select(m => new
             {
                 m.Id,
@@ -639,7 +651,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             })
             .ToListAsync(cancellationToken);
 
-        // 4. Query risk history in period (if any)
+        // 4. Query risk history in period (evaluated in SQL with deterministic sorting and cap)
         var risks = await context.Set<RiskHistory>()
             .AsNoTracking()
             .Where(r => r.ProjectId == projectId && r.RecordedAt >= startUtc && r.RecordedAt <= endUtc)
@@ -661,7 +673,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         {
             evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, t.Status));
         }
-        foreach (var m in meetings)
+        foreach (var m in meetings.Where(m => m.Status != "CANCELLED"))
         {
             evidenceList.Add(new ProgressReportPrefillEvidenceDto("MEETING", m.Id, m.Title, m.Status));
         }
@@ -692,9 +704,22 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             ? string.Join("\n", risks.Select(r => $"- {r.RiskLevel}: {r.OverdueTasks} quá hạn, {r.BlockedTasks} bị chặn (Điểm rủi ro: {r.RiskScore})"))
             : null;
 
-        string? summaryText = (completedTasks.Count > 0 || meetings.Count > 0)
-            ? $"Trong kỳ báo cáo, nhóm đã hoàn thành {completedTasks.Count} công việc và tổ chức {meetings.Count} cuộc họp."
-            : null;
+        var scheduledMeetingsCount = meetings.Count(m => m.Status == "SCHEDULED");
+
+        string? summaryText = null;
+        if (completedTasksCount > 0 || completedMeetingsCount > 0 || scheduledMeetingsCount > 0)
+        {
+            var summaryParts = new List<string>();
+            if (completedTasksCount > 0 || completedMeetingsCount > 0)
+            {
+                summaryParts.Add($"Trong kỳ báo cáo, nhóm đã hoàn thành {completedTasksCount} công việc và tổ chức {completedMeetingsCount} cuộc họp.");
+            }
+            if (scheduledMeetingsCount > 0)
+            {
+                summaryParts.Add($"Kế hoạch có {scheduledMeetingsCount} cuộc họp sắp tới.");
+            }
+            summaryText = string.Join(" ", summaryParts);
+        }
 
         var suggested = new ProgressReportSuggestedContentDto(
             CompletedWork: completedText,

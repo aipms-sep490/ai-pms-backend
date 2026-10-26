@@ -122,19 +122,38 @@ IF @SupervisorUserId IS NULL
 -- ==============================================================================================
 -- 1. CHUẨN HÓA TÊN TIẾNG VIỆT CÓ DẤU (UNICODE FULL NAMES)
 -- ==============================================================================================
-PRINT N'1. Chuẩn hóa tên hiển thị tiếng Việt có dấu cho người dùng...';
+PRINT N'1. Chuẩn hóa tên hiển thị tiếng Việt có dấu cho người dùng (bảo toàn thay đổi nếu đã được chỉnh sửa)...';
 
-UPDATE dbo.users SET full_name = N'Nguyễn Minh Khang' WHERE email = N'khangnmde180901@fpt.edu.vn';
-UPDATE dbo.users SET full_name = N'Trần Gia Hân' WHERE email = N'hantgde180902@fpt.edu.vn';
-UPDATE dbo.users SET full_name = N'Phạm Quốc Bảo' WHERE email = N'baopqde180903@fpt.edu.vn';
-UPDATE dbo.users SET full_name = N'Lê Khánh Linh' WHERE email = N'linhlkde180904@fpt.edu.vn';
-UPDATE dbo.users SET full_name = N'Võ Anh Duy' WHERE email = N'duyvade180905@fpt.edu.vn';
-UPDATE dbo.users SET full_name = N'Ngô Thanh Mai' WHERE email = N'maintde180906@fpt.edu.vn';
-UPDATE dbo.users SET full_name = N'Nguyễn Hoàng Minh' WHERE email = N'lecturer.se01@fe.edu.vn'; -- GVHD Chính
-UPDATE dbo.users SET full_name = N'Trần Thu Trang' WHERE email = N'lecturer.ai01@fe.edu.vn';    -- GVHD Phụ / Phản biện
-UPDATE dbo.users SET full_name = N'Phạm Đức Long' WHERE email = N'lecturer.ads01@fe.edu.vn';
-UPDATE dbo.users SET full_name = N'Đặng Tuấn Anh' WHERE email = N'aipms.admin@fpt.edu.vn';
-UPDATE dbo.users SET full_name = N'Lê Thu Hà' WHERE email = N'sep490.coordinator@fpt.edu.vn';
+-- [USER INTEGRITY GUARD]: Chỉ chuẩn hóa tên có dấu cho thành viên và GVHD của đồ án mục tiêu nếu chưa từng được chỉnh sửa (giữ nguyên nếu đã đổi tên)
+UPDATE u 
+SET u.full_name = v.default_name
+FROM dbo.users u
+JOIN (VALUES 
+    (N'khangnmde180901@fpt.edu.vn', N'Nguyễn Minh Khang'),
+    (N'hantgde180902@fpt.edu.vn',   N'Trần Gia Hân'),
+    (N'baopqde180903@fpt.edu.vn',   N'Phạm Quốc Bảo'),
+    (N'linhlkde180904@fpt.edu.vn',  N'Lê Khánh Linh'),
+    (N'duyvade180905@fpt.edu.vn',   N'Võ Anh Duy'),
+    (N'maintde180906@fpt.edu.vn',   N'Ngô Thanh Mai')
+) AS v(email, default_name) ON u.email = v.email
+WHERE u.id IN (SELECT user_id FROM @Members)
+  AND (u.full_name IS NULL 
+       OR u.full_name = N'' 
+       OR u.full_name = u.email 
+       OR u.full_name = LEFT(u.email, CHARINDEX('@', u.email) - 1));
+
+IF @SupervisorUserId IS NOT NULL
+BEGIN
+    UPDATE u
+    SET u.full_name = N'Nguyễn Hoàng Minh'
+    FROM dbo.users u
+    WHERE u.id = @SupervisorUserId
+      AND u.email = N'lecturer.se01@fe.edu.vn'
+      AND (u.full_name IS NULL 
+           OR u.full_name = N'' 
+           OR u.full_name = u.email 
+           OR u.full_name = LEFT(u.email, CHARINDEX('@', u.email) - 1));
+END
 
 -- [LIFECYCLE & CONTENT INTEGRITY GUARD]
 -- Chỉ bổ sung nội dung mô tả nếu đồ án chưa có nội dung; KHÔNG ghi đè title hoặc ép trạng thái ACTIVE nếu dự án đang ở vòng đời khác

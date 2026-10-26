@@ -624,8 +624,12 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         {
             await context.SaveChangesAsync(cancellationToken);
         }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ConflictException("The user account was modified by another operation. Please refresh and retry.");
+        }
         catch (DbUpdateException exception)
-            when (exception.InnerException is SqlException { Number: 2601 or 2627 or 547 })
+            when (exception.InnerException is SqlException { Number: 2601 or 2627 or 547 or 1205 or 1222 })
         {
             throw new ConflictException("The account security change conflicts with existing data.");
         }

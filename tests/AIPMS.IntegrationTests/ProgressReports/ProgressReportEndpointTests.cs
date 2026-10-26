@@ -613,7 +613,8 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
                 ConcurrencyToken = Guid.NewGuid()
             });
 
-            // Meeting inside period
+            // Meetings inside and outside period
+            // Completed inside period
             db.Meetings.Add(new M.Meeting
             {
                 ProjectId = s.ProjectId,
@@ -623,6 +624,45 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
                 CreatedBy = s.Accounts.Student,
                 CreatedAt = Now.AddDays(-5),
                 UpdatedAt = Now.AddDays(-4),
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Scheduled inside period (upcoming)
+            db.Meetings.Add(new M.Meeting
+            {
+                ProjectId = s.ProjectId,
+                Title = "Upcoming Team Sync",
+                StartAt = Now.AddDays(2),
+                Status = "SCHEDULED",
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now.AddDays(-1),
+                UpdatedAt = Now.AddDays(-1),
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Cancelled inside period
+            db.Meetings.Add(new M.Meeting
+            {
+                ProjectId = s.ProjectId,
+                Title = "Cancelled Ad-hoc Session",
+                StartAt = Now.AddDays(-2),
+                Status = "CANCELLED",
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now.AddDays(-3),
+                UpdatedAt = Now.AddDays(-2),
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Completed outside period
+            db.Meetings.Add(new M.Meeting
+            {
+                ProjectId = s.ProjectId,
+                Title = "Ancient Meeting",
+                StartAt = Now.AddDays(-25),
+                Status = "COMPLETED",
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now.AddDays(-26),
+                UpdatedAt = Now.AddDays(-25),
                 ConcurrencyToken = Guid.NewGuid()
             });
 
@@ -663,9 +703,14 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
 
         // Meeting aggregated into summary and evidence
         Assert.NotNull(prefill.Suggested.Summary);
-        Assert.Contains("1 cuộc họp", prefill.Suggested.Summary);
+        Assert.Contains("tổ chức 1 cuộc họp", prefill.Suggested.Summary);
+        Assert.DoesNotContain("tổ chức 2 cuộc họp", prefill.Suggested.Summary);
+        Assert.Contains("1 cuộc họp sắp tới", prefill.Suggested.Summary);
         Assert.Contains("1 công việc", prefill.Suggested.Summary);
         Assert.Contains(prefill.Evidence, e => e.Type == "MEETING" && e.Title == "Weekly Supervisor Check-in");
+        Assert.Contains(prefill.Evidence, e => e.Type == "MEETING" && e.Title == "Upcoming Team Sync");
+        Assert.DoesNotContain(prefill.Evidence, e => e.Type == "MEETING" && e.Title == "Cancelled Ad-hoc Session");
+        Assert.DoesNotContain(prefill.Evidence, e => e.Type == "MEETING" && e.Title == "Ancient Meeting");
 
         // Risk history aggregated into suggestions and evidence
         Assert.NotNull(prefill.Suggested.Risks);

@@ -114,7 +114,7 @@ public sealed class ExceptionHandlingMiddleware(
             StatusCodes.Status404NotFound,
             "The requested resource was not found.",
             "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.5"),
-        ConflictException => new(
+        ConflictException or Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException => new(
             StatusCodes.Status409Conflict,
             "The request conflicts with the current resource state.",
             "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.10"),
