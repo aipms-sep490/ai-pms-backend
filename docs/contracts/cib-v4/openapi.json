@@ -59595,8 +59595,8 @@
             "nullable": true
           },
           "weightPercent": {
-            "type": "integer",
-            "format": "int32"
+            "type": "number",
+            "format": "double"
           }
         },
         "additionalProperties": false

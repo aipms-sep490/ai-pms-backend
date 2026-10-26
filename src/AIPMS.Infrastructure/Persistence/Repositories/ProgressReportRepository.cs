@@ -10,6 +10,7 @@ using AIPMS.Application.Features.ProgressReports.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Mappers;
+using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Task = System.Threading.Tasks.Task;
@@ -594,28 +595,79 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             })
             .ToListAsync(cancellationToken);
 
+        // 1. Done/Completed tasks in period with deterministic sorting
         var completedTasks = tasks.Where(t =>
-            t.Status == "COMPLETED" &&
+            (t.Status == "DONE" || t.Status == "COMPLETED") &&
             ((t.CompletedAt.HasValue && t.CompletedAt.Value >= startUtc && t.CompletedAt.Value <= endUtc)
              || (!t.CompletedAt.HasValue && t.UpdatedAt >= startUtc && t.UpdatedAt <= endUtc)))
+            .OrderByDescending(t => t.CompletedAt ?? t.UpdatedAt)
+            .ThenByDescending(t => t.Id)
             .ToList();
 
-        var inProgressTasks = tasks.Where(t => t.Status == "IN_PROGRESS").ToList();
-        var blockedTasks = tasks.Where(t => t.Status == "BLOCKED").ToList();
-        var nextTasks = tasks.Where(t => t.Status == "TODO" || t.Status == "IN_PROGRESS").Take(5).ToList();
+        // 2. In progress & blocked tasks with deterministic sorting
+        var inProgressTasks = tasks.Where(t => t.Status == "IN_PROGRESS")
+            .OrderBy(t => t.DueAt.HasValue ? 0 : 1)
+            .ThenBy(t => t.DueAt)
+            .ThenBy(t => t.Id)
+            .ToList();
+
+        var blockedTasks = tasks.Where(t => t.Status == "BLOCKED")
+            .OrderBy(t => t.DueAt.HasValue ? 0 : 1)
+            .ThenBy(t => t.DueAt)
+            .ThenBy(t => t.Id)
+            .ToList();
+
+        var nextTasks = tasks.Where(t => t.Status == "TODO" || t.Status == "IN_PROGRESS")
+            .OrderBy(t => t.DueAt.HasValue ? 0 : 1)
+            .ThenBy(t => t.DueAt)
+            .ThenBy(t => t.Id)
+            .Take(5)
+            .ToList();
+
+        // 3. Query meetings in period with deterministic sorting
+        var meetings = await context.Meetings
+            .AsNoTracking()
+            .Where(m => m.ProjectId == projectId && m.StartAt >= startUtc && m.StartAt <= endUtc)
+            .OrderBy(m => m.StartAt)
+            .ThenBy(m => m.Id)
+            .Select(m => new
+            {
+                m.Id,
+                m.Title,
+                m.Status,
+                m.StartAt
+            })
+            .ToListAsync(cancellationToken);
+
+        // 4. Query risk history in period (if any)
+        var risks = await context.Set<RiskHistory>()
+            .AsNoTracking()
+            .Where(r => r.ProjectId == projectId && r.RecordedAt >= startUtc && r.RecordedAt <= endUtc)
+            .OrderByDescending(r => r.RecordedAt)
+            .ThenByDescending(r => r.Id)
+            .Take(5)
+            .ToListAsync(cancellationToken);
 
         var evidenceList = new List<ProgressReportPrefillEvidenceDto>();
         foreach (var t in completedTasks)
         {
-            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, "COMPLETED"));
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, t.Status));
         }
         foreach (var t in inProgressTasks)
         {
-            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, "IN_PROGRESS"));
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, t.Status));
         }
         foreach (var t in blockedTasks)
         {
-            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, "BLOCKED"));
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, t.Status));
+        }
+        foreach (var m in meetings)
+        {
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("MEETING", m.Id, m.Title, m.Status));
+        }
+        foreach (var r in risks)
+        {
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("RISK", r.Id, $"{r.RiskLevel} Risk ({r.RiskScore})", r.RiskLevel));
         }
 
         var insufficientData = evidenceList.Count == 0;
@@ -636,13 +688,21 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             ? string.Join("\n", nextTasks.Select(t => $"- {t.Title}"))
             : null;
 
+        string? risksText = risks.Count > 0
+            ? string.Join("\n", risks.Select(r => $"- {r.RiskLevel}: {r.OverdueTasks} quá hạn, {r.BlockedTasks} bị chặn (Điểm rủi ro: {r.RiskScore})"))
+            : null;
+
+        string? summaryText = (completedTasks.Count > 0 || meetings.Count > 0)
+            ? $"Trong kỳ báo cáo, nhóm đã hoàn thành {completedTasks.Count} công việc và tổ chức {meetings.Count} cuộc họp."
+            : null;
+
         var suggested = new ProgressReportSuggestedContentDto(
             CompletedWork: completedText,
             InProgressWork: inProgressText,
             Blockers: blockersText,
-            Risks: null,
+            Risks: risksText,
             NextActions: nextActionsText,
-            Summary: null);
+            Summary: summaryText);
 
         return new ProgressReportPrefillDto(
             progressReportPeriodId,

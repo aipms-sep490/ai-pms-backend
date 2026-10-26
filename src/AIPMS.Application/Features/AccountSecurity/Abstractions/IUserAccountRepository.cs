@@ -45,6 +45,7 @@ public interface IUserAccountRepository
         UpdateAccountData data,
         string? concurrencyToken,
         DateTime utcNow,
+        Func<AccountUser, Task>? onUpdatedAsync = null,
         CancellationToken cancellationToken = default);
 
     Task<AccountUser> UpdateProfileAsync(

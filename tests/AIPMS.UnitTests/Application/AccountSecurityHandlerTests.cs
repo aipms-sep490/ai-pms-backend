@@ -122,7 +122,7 @@ public sealed class AccountSecurityHandlerTests
         public Task<AccountUser> CreateUserAsync(CreateAccountData data, long actorUserId, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<AccountUser>> CreateUsersAsync(IReadOnlyCollection<CreateAccountData> accounts, long actorUserId, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> IdentityExistsExcludingUserAsync(long userId, string? studentCode, string? employeeCode, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AccountUser> UpdateAccountAsync(long userId, UpdateAccountData data, string? concurrencyToken, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AccountUser> UpdateAccountAsync(long userId, UpdateAccountData data, string? concurrencyToken, DateTime utcNow, Func<AccountUser, Task>? onUpdatedAsync = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AccountUser> UpdateProfileAsync(long userId, UpdateProfileData data, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> UserHasRoleAsync(long userId, string roleCode, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task AssignRoleAsync(long userId, long roleId, long actorUserId, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();

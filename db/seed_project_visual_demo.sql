@@ -34,20 +34,13 @@ DECLARE @TargetProjectCode nvarchar(50) = N'SEP490-FA26-AIPMS';
 
 BEGIN TRANSACTION;
 
--- Kiểm tra và tìm Project ID
+-- [SECURITY & DATA ISOLATION GUARD]
+-- Bắt buộc đúng mã fixture demo được chỉ định; tuyệt đối KHÔNG fallback sang đồ án khác để tránh ghi đè nhầm dữ liệu nghiệp vụ thật
 DECLARE @ProjectId bigint = (SELECT id FROM dbo.projects WHERE code = @TargetProjectCode);
 
 IF @ProjectId IS NULL
 BEGIN
-    -- Fallback về project đầu tiên nếu không tìm thấy đúng mã
-    SET @ProjectId = (SELECT TOP 1 id FROM dbo.projects ORDER BY id);
-    IF @ProjectId IS NOT NULL
-        SET @TargetProjectCode = (SELECT code FROM dbo.projects WHERE id = @ProjectId);
-END
-
-IF @ProjectId IS NULL
-BEGIN
-    RAISERROR(N'Không tìm thấy dự án nào trong hệ thống để thêm dữ liệu visual demo.', 16, 1);
+    RAISERROR(N'[SECURITY & ISOLATION CHECK]: Không tìm thấy đồ án fixture có mã "%s". Script dừng an toàn (ROLLBACK) và không thay đổi bất kỳ dữ liệu nào!', 16, 1, @TargetProjectCode);
     ROLLBACK TRANSACTION;
     RETURN;
 END
@@ -142,13 +135,12 @@ UPDATE dbo.users SET full_name = N'Phạm Đức Long' WHERE email = N'lecturer.
 UPDATE dbo.users SET full_name = N'Đặng Tuấn Anh' WHERE email = N'aipms.admin@fpt.edu.vn';
 UPDATE dbo.users SET full_name = N'Lê Thu Hà' WHERE email = N'sep490.coordinator@fpt.edu.vn';
 
--- Cập nhật tiêu đề dự án cho sắc nét
+-- [LIFECYCLE & CONTENT INTEGRITY GUARD]
+-- Chỉ bổ sung nội dung mô tả nếu đồ án chưa có nội dung; KHÔNG ghi đè title hoặc ép trạng thái ACTIVE nếu dự án đang ở vòng đời khác
 UPDATE dbo.projects 
-SET title = N'Hệ thống quản lý đồ án tốt nghiệp thông minh hỗ trợ AI (AI-PMS)',
-    description = N'Nền tảng tích hợp theo dõi tiến độ đồ án tốt nghiệp, phân tích mã nguồn tự động, hỗ trợ phân công nhiệm vụ và đánh giá năng lực liên ngành ứng dụng Trí tuệ Nhân tạo.',
-    problem_statement = N'Quy trình quản lý đồ án Capstone hiện nay thiếu công cụ theo dõi realtime, đánh giá chéo giữa các chuyên ngành còn rời rạc và việc phát hiện rủi ro chậm trễ còn mang tính thủ công.',
-    expected_output = N'Hệ thống Web App hoàn chỉnh gồm Portal Sinh viên, Giảng viên, Hội đồng bảo vệ, tích hợp Agentic AI phân tích tiến độ và cảnh báo nguy cơ trễ hạn.',
-    status = 'ACTIVE'
+SET description = ISNULL(NULLIF(description, N''), N'Nền tảng tích hợp theo dõi tiến độ đồ án tốt nghiệp, phân tích mã nguồn tự động, hỗ trợ phân công nhiệm vụ và đánh giá năng lực liên ngành ứng dụng Trí tuệ Nhân tạo.'),
+    problem_statement = ISNULL(NULLIF(problem_statement, N''), N'Quy trình quản lý đồ án Capstone hiện nay thiếu công cụ theo dõi realtime, đánh giá chéo giữa các chuyên ngành còn rời rạc và việc phát hiện rủi ro chậm trễ còn mang tính thủ công.'),
+    expected_output = ISNULL(NULLIF(expected_output, N''), N'Hệ thống Web App hoàn chỉnh gồm Portal Sinh viên, Giảng viên, Hội đồng bảo vệ, tích hợp Agentic AI phân tích tiến độ và cảnh báo nguy cơ trễ hạn.')
 WHERE id = @ProjectId;
 
 -- ==============================================================================================
@@ -912,34 +904,38 @@ DECLARE @AgreementJson nvarchar(max) = N'[
   }
 ]';
 
+-- [WORKING AGREEMENT GOVERNANCE & INTEGRITY GUARD]
+-- Rerun giữ nguyên nội dung, version và acceptance đã có; KHÔNG ghi đè cam kết đã công bố hoặc làm sống lại version superseded.
 IF @AgreementId IS NULL
 BEGIN
     INSERT INTO dbo.project_working_agreements (project_id, version, status, content_json, concurrency_token, created_by, created_at, published_at)
     VALUES (@ProjectId, 1, 'ACTIVE', @AgreementJson, NEWID(), @LeaderUserId, GETUTCDATE(), GETUTCDATE());
     SET @AgreementId = SCOPE_IDENTITY();
+
+    -- Chỉ tạo liên kết thành viên ban đầu khi tạo mới Working Agreement demo
+    INSERT INTO dbo.agreement_members (agreement_id, user_id, team_member_id, membership_joined_at, membership_generation, accepted_at)
+    SELECT @AgreementId, m.user_id, m.team_member_id, GETUTCDATE(), m.membership_generation, GETUTCDATE()
+    FROM @Members m
+    WHERE NOT EXISTS (
+        SELECT 1 FROM dbo.agreement_members am 
+        WHERE am.agreement_id = @AgreementId AND am.user_id = m.user_id
+    );
 END
 ELSE
 BEGIN
-    UPDATE dbo.project_working_agreements
-    SET status = 'ACTIVE',
-        content_json = @AgreementJson,
-        published_at = GETUTCDATE()
-    WHERE id = @AgreementId;
+    PRINT N'-> Working Agreement đã tồn tại: giữ nguyên cam kết/version/lịch sử xác nhận hiện có, không ghi đè.';
 END
 
--- Đảm bảo tất cả thành viên trong nhóm đã ký chấp thuận (agreement_members)
-INSERT INTO dbo.agreement_members (agreement_id, user_id, team_member_id, membership_joined_at, membership_generation, accepted_at)
-SELECT @AgreementId, m.user_id, m.team_member_id, GETUTCDATE(), m.membership_generation, GETUTCDATE()
-FROM @Members m
-WHERE NOT EXISTS (
-    SELECT 1 FROM dbo.agreement_members am 
-    WHERE am.agreement_id = @AgreementId AND am.user_id = m.user_id
-);
-
 -- ==============================================================================================
--- 10. FILE MINH CHỨNG MÔ PHỎNG (ATTACHED FILES)
+-- 10. FILE MINH CHỨNG MÔ PHỎNG (ATTACHED FILES - MOCK METADATA CHO UI/DEMO)
 -- ==============================================================================================
-PRINT N'10. Bổ sung các file đính kèm mô phỏng cho Deliverables...';
+-- LƯU Ý / GHI CHÚ QUAN TRỌNG:
+-- Các bản ghi file dưới đây là Metadata mô phỏng (Mock File Records) phục vụ hiển thị trực quan 
+-- trên giao diện (UI) danh sách deliverables, dung lượng và định dạng tập tin. 
+-- Script không chứa binary content thật trên S3/MinIO/Blob Storage. Để test tải file end-to-end,
+-- vui lòng sử dụng tính năng Upload File thực tế trên Web Portal hoặc dùng file test chuyên dụng.
+-- ==============================================================================================
+PRINT N'10. Bổ sung các file đính kèm mô phỏng cho Deliverables (mock metadata cho UI)...';
 
 IF @Deliv1_v2 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.files WHERE deliverable_version_id = @Deliv1_v2)
 BEGIN

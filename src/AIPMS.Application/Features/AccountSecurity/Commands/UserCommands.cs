@@ -294,33 +294,35 @@ public sealed class UpdateUserAccountCommandHandler(
             new UpdateAccountData(nextFullName, nextPhone, nextTitle, nextStudentCode, nextEmployeeCode),
             request.ConcurrencyToken,
             timeProvider.GetUtcNow().UtcDateTime,
-            cancellationToken);
-
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                accessService.ActorUserId,
-                "ACCOUNT_UPDATED",
-                "USER",
-                updated.Id,
-                new Dictionary<string, object?>
-                {
-                    ["previous"] = new Dictionary<string, object?>
-                    {
-                        ["fullName"] = user.FullName,
-                        ["phone"] = user.Phone,
-                        ["title"] = user.Title,
-                        ["studentCode"] = user.StudentCode,
-                        ["employeeCode"] = user.EmployeeCode
-                    },
-                    ["current"] = new Dictionary<string, object?>
-                    {
-                        ["fullName"] = updated.FullName,
-                        ["phone"] = updated.Phone,
-                        ["title"] = updated.Title,
-                        ["studentCode"] = updated.StudentCode,
-                        ["employeeCode"] = updated.EmployeeCode
-                    }
-                }),
+            async updatedUser =>
+            {
+                await auditTrail.RecordAsync(
+                    new AuditEntry(
+                        accessService.ActorUserId,
+                        "ACCOUNT_UPDATED",
+                        "USER",
+                        updatedUser.Id,
+                        new Dictionary<string, object?>
+                        {
+                            ["previous"] = new Dictionary<string, object?>
+                            {
+                                ["fullName"] = user.FullName,
+                                ["phone"] = user.Phone,
+                                ["title"] = user.Title,
+                                ["studentCode"] = user.StudentCode,
+                                ["employeeCode"] = user.EmployeeCode
+                            },
+                            ["current"] = new Dictionary<string, object?>
+                            {
+                                ["fullName"] = updatedUser.FullName,
+                                ["phone"] = updatedUser.Phone,
+                                ["title"] = updatedUser.Title,
+                                ["studentCode"] = updatedUser.StudentCode,
+                                ["employeeCode"] = updatedUser.EmployeeCode
+                            }
+                        }),
+                    cancellationToken);
+            },
             cancellationToken);
 
         return updated.ToDto();

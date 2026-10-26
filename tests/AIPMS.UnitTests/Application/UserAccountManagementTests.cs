@@ -218,6 +218,59 @@ public sealed class UserAccountManagementTests
         Assert.Contains(longPhone.Errors, static e => e.PropertyName == "Phone");
     }
 
+    [Fact]
+    public async Task UpdateUserAccount_WhenAuditFails_RollsBackChanges_AndThrows()
+    {
+        var existing = CreateUser(10, "old@aipms.test", "Old Name", "0123456789", "STU-001", null, "Old Title", "token-v1");
+        var repository = new InMemoryUserAccountRepository(existing);
+        var failingAudit = new FailingAuditTrail();
+        var handler = new UpdateUserAccountCommandHandler(
+            repository,
+            new AccountSecurityAccessService(new TestCurrentUser(1, AppRoles.Admin)),
+            failingAudit,
+            new FixedTimeProvider(FixedNow));
+
+        var command = new UpdateUserAccountCommand(
+            10,
+            "New Name Should Not Persist",
+            "0987654321",
+            "Lecturer",
+            "STU-002",
+            null,
+            "token-v1");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => handler.Handle(command, CancellationToken.None));
+
+        // Changes must not be persisted in repository (atomic rollback)
+        var persisted = await repository.GetUserAsync(10);
+        Assert.NotNull(persisted);
+        Assert.Equal("Old Name", persisted.FullName);
+        Assert.Equal("0123456789", persisted.Phone);
+        Assert.Equal("STU-001", persisted.StudentCode);
+    }
+
+    [Fact]
+    public async Task UpdateUserAccount_ConcurrentUpdates_OnlyOneSucceedsAndSecondThrowsConflict()
+    {
+        var existing = CreateUser(10, "concurrent@aipms.test", "Initial Name", "0123456789", "STU-001", null, "Title", "token-v1");
+        var repository = new InMemoryUserAccountRepository(existing);
+        var audit = new RecordingAuditTrail();
+        var handler = new UpdateUserAccountCommandHandler(
+            repository,
+            new AccountSecurityAccessService(new TestCurrentUser(1, AppRoles.Admin)),
+            audit,
+            new FixedTimeProvider(FixedNow));
+
+        var command1 = new UpdateUserAccountCommand(10, "Winner Name", "0123456789", "Title", "STU-001", null, "token-v1");
+        var command2 = new UpdateUserAccountCommand(10, "Loser Name", "0123456789", "Title", "STU-001", null, "token-v1");
+
+        var firstResult = await handler.Handle(command1, CancellationToken.None);
+        Assert.Equal("Winner Name", firstResult.FullName);
+
+        // Second command with stale token-v1 must throw ConflictException
+        await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(command2, CancellationToken.None));
+    }
+
     private static AccountUser CreateUser(
         long id,
         string email,
@@ -276,11 +329,12 @@ public sealed class UserAccountManagementTests
             return Task.FromResult(exists);
         }
 
-        public Task<AccountUser> UpdateAccountAsync(
+        public async Task<AccountUser> UpdateAccountAsync(
             long userId,
             UpdateAccountData data,
             string? concurrencyToken,
             DateTime utcNow,
+            Func<AccountUser, Task>? onUpdatedAsync = null,
             CancellationToken cancellationToken = default)
         {
             var user = _users[userId];
@@ -300,8 +354,13 @@ public sealed class UserAccountManagementTests
                 ConcurrencyToken = "token-next"
             };
 
+            if (onUpdatedAsync != null)
+            {
+                await onUpdatedAsync(updated);
+            }
+
             _users[userId] = updated;
-            return Task.FromResult(updated);
+            return updated;
         }
 
         public Task<AccountUser> SetStatusAsync(long userId, string status, DateTime utcNow, CancellationToken cancellationToken = default)
@@ -351,5 +410,11 @@ public sealed class UserAccountManagementTests
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    private sealed class FailingAuditTrail : IAuditTrail
+    {
+        public Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Simulated audit write failure for atomicity verification.");
     }
 }

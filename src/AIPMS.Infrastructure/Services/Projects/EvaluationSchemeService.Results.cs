@@ -167,9 +167,9 @@ internal sealed partial class EvaluationSchemeService
             var majorWeight = components.Where(c => c.Scope == "MAJOR_SPECIFIC" && c.MajorId == studentMajorId).Sum(c => c.StudentWeightPercent);
             var individualWeight = components.Where(c => c.Scope == "INDIVIDUAL" && c.MajorId == studentMajorId).Sum(c => c.StudentWeightPercent);
 
-            if (commonWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("COMMON", (int)commonWeight));
-            if (majorWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("MAJOR", (int)majorWeight));
-            if (individualWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("INDIVIDUAL", (int)individualWeight));
+            if (commonWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("COMMON", commonWeight));
+            if (majorWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("MAJOR", majorWeight));
+            if (individualWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("INDIVIDUAL", individualWeight));
         }
         else
         {
@@ -177,9 +177,9 @@ internal sealed partial class EvaluationSchemeService
             var majorWeight = components.Where(c => c.Scope == "MAJOR_SPECIFIC").Sum(c => c.ProjectWeightPercent);
             var individualWeight = components.Where(c => c.Scope == "INDIVIDUAL").Sum(c => c.ProjectWeightPercent);
 
-            if (commonWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("COMMON", (int)commonWeight));
-            if (majorWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("MAJOR", (int)majorWeight));
-            if (individualWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("INDIVIDUAL", (int)individualWeight));
+            if (commonWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("COMMON", commonWeight));
+            if (majorWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("MAJOR", majorWeight));
+            if (individualWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("INDIVIDUAL", individualWeight));
         }
         var formula = formulaComponents.Count > 0 ? new EvaluationFormulaDto(formulaComponents, null) : null;
 

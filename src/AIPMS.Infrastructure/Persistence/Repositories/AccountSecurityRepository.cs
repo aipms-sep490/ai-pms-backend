@@ -206,8 +206,13 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         UpdateAccountData data,
         string? concurrencyToken,
         DateTime utcNow,
+        Func<AccountUser, Task>? onUpdatedAsync = null,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = context.Database.IsRelational()
+            ? await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            : null;
+
         var user = await context.Users.SingleAsync(item => item.Id == userId, cancellationToken);
         if (!string.IsNullOrEmpty(concurrencyToken)
             && Convert.ToBase64String(user.RowVersion) != concurrencyToken)
@@ -222,7 +227,20 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         user.EmployeeCode = data.EmployeeCode;
         user.UpdatedAt = utcNow;
         await SaveChangesAsync(cancellationToken);
-        return (await GetUserAsync(userId, cancellationToken))!;
+
+        var updated = (await GetUserAsync(userId, cancellationToken))!;
+
+        if (onUpdatedAsync != null)
+        {
+            await onUpdatedAsync(updated);
+        }
+
+        if (transaction != null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        return updated;
     }
 
     public async Task<AccountUser> SetStatusAsync(
