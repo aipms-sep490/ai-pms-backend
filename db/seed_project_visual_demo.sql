@@ -41,9 +41,9 @@ DECLARE @ProjectId bigint = (SELECT id FROM dbo.projects WHERE code = @TargetPro
 
 IF @ProjectId IS NULL
 BEGIN
-    RAISERROR(N'[SECURITY & ISOLATION CHECK]: Không tìm thấy đồ án fixture có mã "%s". Script dừng an toàn (ROLLBACK) và không thay đổi bất kỳ dữ liệu nào!', 16, 1, @TargetProjectCode);
-    ROLLBACK TRANSACTION;
-    RETURN;
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    DECLARE @ErrMsg nvarchar(500) = N'[SECURITY & ISOLATION CHECK]: Không tìm thấy đồ án fixture có mã "' + @TargetProjectCode + N'". Script dừng an toàn (ROLLBACK) và không thay đổi bất kỳ dữ liệu nào!';
+    THROW 51000, @ErrMsg, 1;
 END
 
 PRINT N'--------------------------------------------------------------------------------------';

@@ -15,27 +15,44 @@ namespace AIPMS.IntegrationTests.Seed;
 
 public sealed class SeedProjectVisualDemoTests(SupervisorDatabaseFixture database) : IClassFixture<SupervisorDatabaseFixture>
 {
-    private static string GetSeedScriptSql()
+    private static string GetSeedScriptSql(string targetProjectCode = "SEP490-FA26-AIPMS")
     {
         var path = Path.Combine(SqlSchemaBootstrap.Root, "db", "seed_project_visual_demo.sql");
-        return System.IO.File.ReadAllText(path);
+        var sql = System.IO.File.ReadAllText(path);
+        if (targetProjectCode != "SEP490-FA26-AIPMS")
+        {
+            sql = sql.Replace("DECLARE @TargetProjectCode nvarchar(50) = N'SEP490-FA26-AIPMS';",
+                              $"DECLARE @TargetProjectCode nvarchar(50) = N'{targetProjectCode}';");
+        }
+        return sql;
     }
 
     [Fact]
     public async Task Seed_WhenProjectCodeDoesNotExist_FailsFastWithRollback_AndDoesNotMutateData()
     {
-        // On a fresh database where project 'SEP490-FA26-AIPMS' does not exist
+        const string nonExistentProjectCode = "NON-EXISTENT-CODE-PROJECT-99999";
+        var script = GetSeedScriptSql(nonExistentProjectCode);
+
+        int milestonesBefore;
+        await using (var db = database.CreateContext())
+        {
+            milestonesBefore = await db.Milestones.CountAsync();
+        }
+
         var ex = await Assert.ThrowsAsync<SqlException>(async () =>
         {
-            await SqlSchemaBootstrap.ExecuteAsync(database.ConnectionString, GetSeedScriptSql());
+            await SqlSchemaBootstrap.ExecuteAsync(database.ConnectionString, script);
         });
 
         Assert.Contains("[SECURITY & ISOLATION CHECK]", ex.Message);
+        Assert.Contains(nonExistentProjectCode, ex.Message);
 
-        // Verify zero milestones or deliverables were created
-        await using var db = database.CreateContext();
-        var milestonesCount = await db.Milestones.CountAsync();
-        Assert.Equal(0, milestonesCount);
+        // Verify zero milestones or deliverables were mutated/created
+        await using (var db = database.CreateContext())
+        {
+            var milestonesAfter = await db.Milestones.CountAsync();
+            Assert.Equal(milestonesBefore, milestonesAfter);
+        }
     }
 
     [Fact]
@@ -44,7 +61,8 @@ public sealed class SeedProjectVisualDemoTests(SupervisorDatabaseFixture databas
         var s = await database.SeedAsync();
         long projectId;
         long leaderUserId;
-        const string targetProjectCode = "SEP490-FA26-AIPMS";
+        var targetProjectCode = "SEP490-FA26-AIPMS-" + Guid.NewGuid().ToString("N")[..6];
+        var seedScript = GetSeedScriptSql(targetProjectCode);
 
         await using (var db = database.CreateContext())
         {
@@ -135,7 +153,7 @@ public sealed class SeedProjectVisualDemoTests(SupervisorDatabaseFixture databas
         }
 
         // 1. First Run: Seeds visual demo data
-        await SqlSchemaBootstrap.ExecuteAsync(database.ConnectionString, GetSeedScriptSql());
+        await SqlSchemaBootstrap.ExecuteAsync(database.ConnectionString, seedScript);
 
         await using (var db = database.CreateContext())
         {
@@ -167,7 +185,7 @@ public sealed class SeedProjectVisualDemoTests(SupervisorDatabaseFixture databas
         }
 
         // 3. Rerun Seed: Must preserve modified data without overwriting
-        await SqlSchemaBootstrap.ExecuteAsync(database.ConnectionString, GetSeedScriptSql());
+        await SqlSchemaBootstrap.ExecuteAsync(database.ConnectionString, seedScript);
 
         await using (var db = database.CreateContext())
         {
