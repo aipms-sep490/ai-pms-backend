@@ -41,6 +41,7 @@ public sealed class SeedProjectVisualDemoTests(SupervisorDatabaseFixture databas
     [Fact]
     public async Task Seed_Rerun_PreservesUserCustomizationsAndWorkingAgreement()
     {
+        var s = await database.SeedAsync();
         long projectId;
         long leaderUserId;
         const string targetProjectCode = "SEP490-FA26-AIPMS";
@@ -84,7 +85,7 @@ public sealed class SeedProjectVisualDemoTests(SupervisorDatabaseFixture databas
                 AcademicSemesterId = semester.Id,
                 CreatedBy = leader.Id,
                 Status = "ELIGIBLE",
-                TeamMembers = [new() { AcademicSemesterId = semester.Id, UserId = leader.Id, IsLeader = true }]
+                TeamMembers = [new() { AcademicSemesterId = semester.Id, UserId = leader.Id, IsLeader = true, MembershipGeneration = Guid.NewGuid() }]
             };
             db.Teams.Add(team);
 
@@ -109,6 +110,24 @@ public sealed class SeedProjectVisualDemoTests(SupervisorDatabaseFixture databas
                 EndAt = DateTime.UtcNow.AddDays(80)
             };
             db.ProjectPeriods.Add(period);
+
+            db.SupervisorAssignments.Add(new SupervisorAssignment
+            {
+                Project = project,
+                SupervisorProfileId = s.ProfileId,
+                IsPrimary = true,
+                AssignmentType = "PRIMARY",
+                AssignedAt = DateTime.UtcNow,
+                SupervisorRequest = new SupervisorRequest
+                {
+                    Project = project,
+                    SupervisorProfileId = s.ProfileId,
+                    Status = "ACCEPTED",
+                    AssignmentType = "PRIMARY",
+                    RequestedAt = DateTime.UtcNow,
+                    RespondedAt = DateTime.UtcNow
+                }
+            });
 
             await db.SaveChangesAsync();
             projectId = project.Id;

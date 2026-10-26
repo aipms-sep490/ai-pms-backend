@@ -533,7 +533,7 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
     {
         var s = await SeedAsync();
         var periodStart = DateOnly.FromDateTime(Now.AddDays(-7));
-        var periodEnd = DateOnly.FromDateTime(Now);
+        var periodEnd = DateOnly.FromDateTime(Now.AddDays(3));
         long cycleId;
 
         await using (var db = database.CreateContext())

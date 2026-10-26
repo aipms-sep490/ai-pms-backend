@@ -728,7 +728,7 @@ PRINT N'8. Thêm các nhận xét đánh giá của Giảng viên hướng dẫn
 
 -- Feedback cho Deliverable 1 v2 (Đề cương SRS)
 DECLARE @Deliv1_v2 bigint = (SELECT id FROM dbo.deliverable_versions WHERE deliverable_id = @Deliv1_Id AND version_number = 2);
-IF @Deliv1_v2 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.supervisor_feedback WHERE deliverable_version_id = @Deliv1_v2)
+IF @SupervisorAssignmentId IS NOT NULL AND @Deliv1_v2 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.supervisor_feedback WHERE deliverable_version_id = @Deliv1_v2)
 BEGIN
     INSERT INTO dbo.supervisor_feedback (project_id, supervisor_assignment_id, progress_report_id, deliverable_version_id, meeting_id, feedback_text, created_at, updated_at, gate_code)
     VALUES (@ProjectId, @SupervisorAssignmentId, NULL, @Deliv1_v2, NULL, 
@@ -738,7 +738,7 @@ END
 
 -- Feedback cho Deliverable 2 v1 (CSDL & Architecture)
 DECLARE @Deliv2_v1 bigint = (SELECT id FROM dbo.deliverable_versions WHERE deliverable_id = @Deliv2_Id AND version_number = 1);
-IF @Deliv2_v1 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.supervisor_feedback WHERE deliverable_version_id = @Deliv2_v1)
+IF @SupervisorAssignmentId IS NOT NULL AND @Deliv2_v1 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.supervisor_feedback WHERE deliverable_version_id = @Deliv2_v1)
 BEGIN
     INSERT INTO dbo.supervisor_feedback (project_id, supervisor_assignment_id, progress_report_id, deliverable_version_id, meeting_id, feedback_text, created_at, updated_at, gate_code)
     VALUES (@ProjectId, @SupervisorAssignmentId, NULL, @Deliv2_v1, NULL, 
@@ -747,7 +747,7 @@ BEGIN
 END
 
 -- Feedback cho Báo cáo tiến độ tuần 1
-IF @Rep1_Id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.supervisor_feedback WHERE progress_report_id = @Rep1_Id)
+IF @SupervisorAssignmentId IS NOT NULL AND @Rep1_Id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.supervisor_feedback WHERE progress_report_id = @Rep1_Id)
 BEGIN
     INSERT INTO dbo.supervisor_feedback (project_id, supervisor_assignment_id, progress_report_id, deliverable_version_id, meeting_id, feedback_text, created_at, updated_at, gate_code)
     VALUES (@ProjectId, @SupervisorAssignmentId, @Rep1_Id, NULL, NULL, 
@@ -756,7 +756,7 @@ BEGIN
 END
 
 -- Feedback cho Báo cáo tiến độ tuần 2
-IF @Rep2_Id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.supervisor_feedback WHERE progress_report_id = @Rep2_Id)
+IF @SupervisorAssignmentId IS NOT NULL AND @Rep2_Id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.supervisor_feedback WHERE progress_report_id = @Rep2_Id)
 BEGIN
     INSERT INTO dbo.supervisor_feedback (project_id, supervisor_assignment_id, progress_report_id, deliverable_version_id, meeting_id, feedback_text, created_at, updated_at, gate_code)
     VALUES (@ProjectId, @SupervisorAssignmentId, @Rep2_Id, NULL, NULL, 
