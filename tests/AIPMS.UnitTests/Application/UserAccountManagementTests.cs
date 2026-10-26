@@ -271,6 +271,54 @@ public sealed class UserAccountManagementTests
         await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(command2, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task UpdateUserAccount_SimultaneousParallelRequests_OnlyOneWinsAndOtherConflicts()
+    {
+        var existing = CreateUser(10, "simultaneous@aipms.test", "Initial Name", "0123456789", "STU-001", null, "Title", "token-v1");
+        var repository = new InMemoryUserAccountRepository(existing);
+        var audit = new RecordingAuditTrail();
+        var handler = new UpdateUserAccountCommandHandler(
+            repository,
+            new AccountSecurityAccessService(new TestCurrentUser(1, AppRoles.Admin)),
+            audit,
+            new FixedTimeProvider(FixedNow));
+
+        var command1 = new UpdateUserAccountCommand(10, "Parallel Winner A", "0123456789", "Title", "STU-001", null, "token-v1");
+        var command2 = new UpdateUserAccountCommand(10, "Parallel Winner B", "0123456789", "Title", "STU-001", null, "token-v1");
+
+        var tasks = new[]
+        {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await handler.Handle(command1, CancellationToken.None);
+                    return "SUCCESS";
+                }
+                catch (ConflictException)
+                {
+                    return "CONFLICT";
+                }
+            }),
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await handler.Handle(command2, CancellationToken.None);
+                    return "SUCCESS";
+                }
+                catch (ConflictException)
+                {
+                    return "CONFLICT";
+                }
+            })
+        };
+
+        var results = await Task.WhenAll(tasks);
+        Assert.Single(results, r => r == "SUCCESS");
+        Assert.Single(results, r => r == "CONFLICT");
+    }
+
     private static AccountUser CreateUser(
         long id,
         string email,
@@ -337,10 +385,14 @@ public sealed class UserAccountManagementTests
             Func<AccountUser, Task>? onUpdatedAsync = null,
             CancellationToken cancellationToken = default)
         {
-            var user = _users[userId];
-            if (!string.IsNullOrEmpty(concurrencyToken) && user.ConcurrencyToken != concurrencyToken)
+            AccountUser user;
+            lock (_users)
             {
-                throw new ConflictException("Concurrency token mismatch.");
+                user = _users[userId];
+                if (!string.IsNullOrEmpty(concurrencyToken) && user.ConcurrencyToken != concurrencyToken)
+                {
+                    throw new ConflictException("Concurrency token mismatch.");
+                }
             }
 
             var updated = user with
@@ -351,7 +403,7 @@ public sealed class UserAccountManagementTests
                 StudentCode = data.StudentCode,
                 EmployeeCode = data.EmployeeCode,
                 UpdatedAt = utcNow,
-                ConcurrencyToken = "token-next"
+                ConcurrencyToken = Guid.NewGuid().ToString("N")
             };
 
             if (onUpdatedAsync != null)
@@ -359,7 +411,15 @@ public sealed class UserAccountManagementTests
                 await onUpdatedAsync(updated);
             }
 
-            _users[userId] = updated;
+            lock (_users)
+            {
+                if (!string.IsNullOrEmpty(concurrencyToken) && _users[userId].ConcurrencyToken != concurrencyToken)
+                {
+                    throw new ConflictException("Concurrency token mismatch.");
+                }
+                _users[userId] = updated;
+            }
+
             return updated;
         }
 

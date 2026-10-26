@@ -160,14 +160,7 @@ BEGIN
             '2026-09-01', '2026-09-15', 'COMPLETED', 1, @LeaderUserId, GETUTCDATE(), GETUTCDATE(), NEWID());
     SET @M1_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.milestones 
-    SET title = N'Giai đoạn 1: Khảo sát & Đề cương dự án (Proposal & Requirements)',
-        description = N'Phân tích nghiệp vụ Capstone, khảo sát yêu cầu người dùng, hoàn thiện tài liệu Software Requirement Specification (SRS) và bảo vệ đề cương.',
-        status = 'COMPLETED', start_date = '2026-09-01', due_date = '2026-09-15', updated_at = GETUTCDATE()
-    WHERE id = @M1_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 SELECT @M2_Id = id FROM dbo.milestones WHERE project_id = @ProjectId AND sort_order = 2;
 IF @M2_Id IS NULL
@@ -178,14 +171,7 @@ BEGIN
             '2026-09-16', '2026-10-15', 'COMPLETED', 2, @LeaderUserId, GETUTCDATE(), GETUTCDATE(), NEWID());
     SET @M2_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.milestones 
-    SET title = N'Giai đoạn 2: Thiết kế kiến trúc & Core MVP (Architecture & Core MVP)',
-        description = N'Thiết kế CSDL quan hệ 3NF, kiến trúc phân tầng Clean Architecture, xây dựng API xác thực JWT, RBAC và khung giao diện chính.',
-        status = 'COMPLETED', start_date = '2026-09-16', due_date = '2026-10-15', updated_at = GETUTCDATE()
-    WHERE id = @M2_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 SELECT @M3_Id = id FROM dbo.milestones WHERE project_id = @ProjectId AND sort_order = 3;
 IF @M3_Id IS NULL
@@ -196,14 +182,7 @@ BEGIN
             '2026-10-16', '2026-11-30', 'IN_PROGRESS', 3, @LeaderUserId, GETUTCDATE(), GETUTCDATE(), NEWID());
     SET @M3_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.milestones 
-    SET title = N'Giai đoạn 3: Phát triển tính năng nâng cao & Tích hợp AI (Advanced Features & AI)',
-        description = N'Triển khai quản lý Sprint/Task, Báo cáo tiến độ tuần/tháng, Tích hợp module AI Rule-Based/LLM phân tích tiến độ, Họp trực tuyến LiveKit.',
-        status = 'IN_PROGRESS', start_date = '2026-10-16', due_date = '2026-11-30', updated_at = GETUTCDATE()
-    WHERE id = @M3_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 SELECT @M4_Id = id FROM dbo.milestones WHERE project_id = @ProjectId AND sort_order = 4;
 IF @M4_Id IS NULL
@@ -214,14 +193,7 @@ BEGIN
             '2026-12-01', '2026-12-31', 'PLANNED', 4, @LeaderUserId, GETUTCDATE(), GETUTCDATE(), NEWID());
     SET @M4_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.milestones 
-    SET title = N'Giai đoạn 4: Kiểm thử toàn diện, Đóng gói & Bảo vệ tốt nghiệp (Defense)',
-        description = N'Kiểm thử tự động End-to-End, hoàn thiện tài liệu đồ án kỹ thuật, đóng gói sản phẩm và thuyết trình trước Hội đồng chấm tốt nghiệp.',
-        status = 'PLANNED', start_date = '2026-12-01', due_date = '2026-12-31', updated_at = GETUTCDATE()
-    WHERE id = @M4_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- ==============================================================================================
 -- 3. CHU KỲ SPRINT (SPRINTS)
@@ -240,16 +212,7 @@ BEGIN
             NEWID(), @LeaderUserId, GETUTCDATE(), GETUTCDATE());
     SET @Sprint1_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.sprints 
-    SET name = N'Sprint 1 - Thiết kế CSDL & Xác thực Core',
-        status = 'COMPLETED',
-        start_at = '2026-09-16 00:00:00', end_at = '2026-10-05 23:59:59',
-        started_at = '2026-09-16 08:00:00', completed_at = '2026-10-05 17:30:00',
-        updated_at = GETUTCDATE()
-    WHERE id = @Sprint1_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- Sprint 2: ACTIVE (Từ 06/10/2026 đến 27/10/2026)
 SELECT @Sprint2_Id = id FROM dbo.sprints WHERE project_id = @ProjectId AND name LIKE N'Sprint 2%';
@@ -261,16 +224,7 @@ BEGIN
             NEWID(), @LeaderUserId, GETUTCDATE(), GETUTCDATE());
     SET @Sprint2_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.sprints 
-    SET name = N'Sprint 2 - Quản lý Nhiệm vụ, Báo cáo & Tích hợp AI',
-        status = 'ACTIVE',
-        start_at = '2026-10-06 00:00:00', end_at = '2026-10-27 23:59:59',
-        started_at = '2026-10-06 08:30:00', completed_at = NULL,
-        updated_at = GETUTCDATE()
-    WHERE id = @Sprint2_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- Sprint 3: PLANNED (Từ 28/10/2026 đến 20/11/2026)
 SELECT @Sprint3_Id = id FROM dbo.sprints WHERE project_id = @ProjectId AND name LIKE N'Sprint 3%';
@@ -282,16 +236,7 @@ BEGIN
             NEWID(), @LeaderUserId, GETUTCDATE(), GETUTCDATE());
     SET @Sprint3_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.sprints 
-    SET name = N'Sprint 3 - Tối ưu UI/UX, Đánh giá chéo & Nghiệm thu',
-        status = 'PLANNED',
-        start_at = '2026-10-28 00:00:00', end_at = '2026-11-20 23:59:59',
-        started_at = NULL, completed_at = NULL,
-        updated_at = GETUTCDATE()
-    WHERE id = @Sprint3_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- ==============================================================================================
 -- 4. NHIỆM VỤ KANBAN & STORY POINTS (TASKS & ASSIGNEES)
@@ -419,22 +364,7 @@ BEGIN
         VALUES (@curMId, @curTitle, @curDesc, @curStatus, @curPriority, @curPoints, @curSId, @curStart, @curDue, @curComp, @LeaderUserId, GETUTCDATE(), GETUTCDATE(), NEWID());
         SET @ExistingTaskId = SCOPE_IDENTITY();
     END
-    ELSE
-    BEGIN
-        UPDATE dbo.tasks
-        SET milestone_id = @curMId,
-            title = @curTitle,
-            description = @curDesc,
-            status = @curStatus,
-            priority = @curPriority,
-            story_points = @curPoints,
-            sprint_id = @curSId,
-            start_at = @curStart,
-            due_at = @curDue,
-            completed_at = @curComp,
-            updated_at = GETUTCDATE()
-        WHERE id = @ExistingTaskId;
-    END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
     -- Gán Assignees
     IF @curA1 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.task_assignees WHERE task_id = @ExistingTaskId AND user_id = @curA1)
@@ -470,13 +400,7 @@ BEGIN
             N'DOCUMENT', '2026-09-15 17:00:00', 'ACCEPTED', @LeaderUserId, GETUTCDATE(), GETUTCDATE(), 'COMMON');
     SET @Deliv1_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.deliverables
-    SET title = N'Đề cương chi tiết & Đặc tả yêu cầu phần mềm (SRS)',
-        status = 'ACCEPTED', milestone_id = @M1_Id, updated_at = GETUTCDATE()
-    WHERE id = @Deliv1_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- Versions cho Deliv 1 (v1 REJECTED, v2 ACCEPTED)
 IF NOT EXISTS (SELECT 1 FROM dbo.deliverable_versions WHERE deliverable_id = @Deliv1_Id AND version_number = 1)
@@ -501,13 +425,7 @@ BEGIN
             N'DESIGN_PACKAGE', '2026-10-15 17:00:00', 'ACCEPTED', @LeaderUserId, GETUTCDATE(), GETUTCDATE(), 'COMMON');
     SET @Deliv2_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.deliverables
-    SET title = N'Tài liệu Thiết kế Kiến trúc hệ thống, CSDL & API Specification',
-        status = 'ACCEPTED', milestone_id = @M2_Id, updated_at = GETUTCDATE()
-    WHERE id = @Deliv2_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 IF NOT EXISTS (SELECT 1 FROM dbo.deliverable_versions WHERE deliverable_id = @Deliv2_Id AND version_number = 1)
 BEGIN
@@ -525,13 +443,7 @@ BEGIN
             N'SOURCE_PACKAGE', '2026-11-28 17:00:00', 'SUBMITTED', @LeaderUserId, GETUTCDATE(), GETUTCDATE(), 'COMMON');
     SET @Deliv3_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.deliverables
-    SET title = N'Gói mã nguồn Core MVP & Bằng chứng kiểm thử tự động',
-        status = 'SUBMITTED', milestone_id = @M3_Id, updated_at = GETUTCDATE()
-    WHERE id = @Deliv3_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 IF NOT EXISTS (SELECT 1 FROM dbo.deliverable_versions WHERE deliverable_id = @Deliv3_Id AND version_number = 1)
 BEGIN
@@ -573,13 +485,7 @@ BEGIN
             'ONSITE', 'NONE', 'NONE', 1);
     SET @Mtg1_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.meetings
-    SET title = N'Họp khởi động dự án & Thống nhất đề cương với GVHD',
-        meeting_delivery_mode = 'ONSITE', video_channel = 'NONE', status = 'COMPLETED', updated_at = GETUTCDATE()
-    WHERE id = @Mtg1_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- Meeting 2: Review kiến trúc CSDL & RBAC (COMPLETED, REMOTE)
 SELECT TOP 1 @Mtg2_Id = id FROM dbo.meetings WHERE project_id = @ProjectId AND (CAST(start_at as date) = '2026-09-25' OR title LIKE N'%Database and Architecture%' OR title LIKE N'%Review%kiến trúc%');
@@ -596,13 +502,7 @@ BEGIN
             NULL, 'REMOTE', 'IN_APP_VIDEO', 'NONE', 1);
     SET @Mtg2_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.meetings
-    SET title = N'Review thiết kế kiến trúc CSDL & Luồng phân quyền RBAC',
-        meeting_delivery_mode = 'REMOTE', video_channel = 'IN_APP_VIDEO', status = 'COMPLETED', updated_at = GETUTCDATE()
-    WHERE id = @Mtg2_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- Meeting 3: Họp Sprint 2: Tiến độ AI & Tháo gỡ Blocker (COMPLETED, HYBRID)
 SELECT TOP 1 @Mtg3_Id = id FROM dbo.meetings WHERE project_id = @ProjectId AND (CAST(start_at as date) = '2026-10-18' OR title LIKE N'%M3 Weekly%' OR title LIKE N'%Sprint 2%');
@@ -620,13 +520,7 @@ BEGIN
             'HYBRID', 'IN_APP_VIDEO', 'NONE', 1);
     SET @Mtg3_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.meetings
-    SET title = N'Họp Sprint 2: Đánh giá tiến độ tích hợp AI & Tháo gỡ Blocker',
-        meeting_delivery_mode = 'HYBRID', video_channel = 'IN_APP_VIDEO', status = 'COMPLETED', updated_at = GETUTCDATE()
-    WHERE id = @Mtg3_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- Meeting 4: Kế hoạch chuẩn bị Review Gate 2 & Đánh giá chéo (SCHEDULED, HYBRID)
 SELECT TOP 1 @Mtg4_Id = id FROM dbo.meetings WHERE project_id = @ProjectId AND (CAST(start_at as date) = '2026-10-28' OR title LIKE N'%Final Submission Readiness%' OR title LIKE N'%Review Gate 2%');
@@ -641,13 +535,7 @@ BEGIN
             NULL, NULL, NULL, 'HYBRID', 'EXTERNAL_LINK', 'NONE', 0);
     SET @Mtg4_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.meetings
-    SET title = N'Kế hoạch chuẩn bị Review Gate 2 & Đánh giá chéo Peer Review',
-        meeting_delivery_mode = 'HYBRID', video_channel = 'EXTERNAL_LINK', status = 'SCHEDULED', updated_at = GETUTCDATE()
-    WHERE id = @Mtg4_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- Thêm người tham gia cuộc họp (Meeting Participants)
 DECLARE @AllMeetingIds TABLE (mtg_id bigint);
@@ -757,17 +645,7 @@ BEGIN
             'REVIEWED', '2026-09-07 16:30:00', GETUTCDATE(), GETUTCDATE(), NEWID(), @PeriodW1_Id, 0);
     SET @Rep1_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.progress_reports
-    SET progress_report_period_id = @PeriodW1_Id,
-        summary = N'Nhóm đã hoàn thành khảo sát quy trình Capstone thực tế và khởi tạo thiết kế ERD cơ sở dữ liệu trên SQL Server.',
-        completed_work = N'- Hoàn thành 100% tài liệu phỏng vấn quy trình nghiệp vụ.\n- Khởi tạo repo GitHub và cấu hình chuẩn coding convention.\n- Dự thảo sơ đồ ERD sơ bộ.',
-        planned_work = N'- Hoàn thiện chi tiết các bảng liên quan đến phân quyền và dự án.\n- Họp khởi động chính thức với GVHD.',
-        in_progress_work = N'Đang hoàn thiện sơ đồ quan hệ các bảng Milestone và Deliverables.',
-        status = 'REVIEWED'
-    WHERE id = @Rep1_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- Báo cáo 2: Tuần 2 (REVIEWED)
 DECLARE @Rep2_Id bigint = (SELECT id FROM dbo.progress_reports WHERE project_id = @ProjectId AND report_type = 'WEEKLY' AND period_start = '2026-09-08');
@@ -785,14 +663,7 @@ BEGIN
             'REVIEWED', '2026-09-14 15:00:00', GETUTCDATE(), GETUTCDATE(), NEWID(), @PeriodW2_Id, 0);
     SET @Rep2_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.progress_reports
-    SET progress_report_period_id = @PeriodW2_Id,
-        summary = N'Hoàn thiện toàn bộ đề cương chi tiết (Proposal v2) và bảo vệ thành công đề tài trước GVHD.',
-        status = 'REVIEWED'
-    WHERE id = @Rep2_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- Báo cáo 3: Tháng 9 (REVIEWED)
 DECLARE @Rep3_Id bigint = (SELECT id FROM dbo.progress_reports WHERE project_id = @ProjectId AND report_type = 'MONTHLY' AND period_start = '2026-09-01' AND period_end = '2026-09-30');
@@ -810,13 +681,7 @@ BEGIN
             'REVIEWED', '2026-09-30 18:00:00', GETUTCDATE(), GETUTCDATE(), NEWID(), @PeriodM1_Id, 0);
     SET @Rep3_Id = SCOPE_IDENTITY();
 END
-ELSE
-BEGIN
-    UPDATE dbo.progress_reports
-    SET progress_report_period_id = @PeriodM1_Id,
-        status = 'REVIEWED'
-    WHERE id = @Rep3_Id;
-END
+-- Giữ nguyên nếu đã tồn tại, không ghi đè khi rerun
 
 -- Báo cáo 4: Tuần 6 (Tháng 10 - SUBMITTED, Chờ GVHD xem xét)
 DECLARE @Rep4_Id bigint = (SELECT id FROM dbo.progress_reports WHERE project_id = @ProjectId AND report_type = 'WEEKLY' AND period_start = '2026-10-15');
