@@ -562,7 +562,7 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
             {
                 ProjectId = s.ProjectId,
                 Title = "Sprint 1 Milestone",
-                Status = "ACTIVE",
+                Status = "PLANNED",
                 SortOrder = 1,
                 ConcurrencyToken = Guid.NewGuid(),
                 CreatedBy = s.Accounts.Student,
