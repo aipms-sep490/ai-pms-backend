@@ -33,18 +33,17 @@ SET NOCOUNT ON;
 -- ==============================================================================================
 DECLARE @TargetProjectCode nvarchar(50) = N'SEP490-FA26-AIPMS';
 
-BEGIN TRANSACTION;
-
 -- [SECURITY & DATA ISOLATION GUARD]
 -- Bắt buộc đúng mã fixture demo được chỉ định; tuyệt đối KHÔNG fallback sang đồ án khác để tránh ghi đè nhầm dữ liệu nghiệp vụ thật
 DECLARE @ProjectId bigint = (SELECT id FROM dbo.projects WHERE code = @TargetProjectCode);
 
 IF @ProjectId IS NULL
 BEGIN
-    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
     DECLARE @ErrMsg nvarchar(500) = N'[SECURITY & ISOLATION CHECK]: Không tìm thấy đồ án fixture có mã "' + @TargetProjectCode + N'". Script dừng an toàn (ROLLBACK) và không thay đổi bất kỳ dữ liệu nào!';
     THROW 51000, @ErrMsg, 1;
 END
+
+BEGIN TRANSACTION;
 
 PRINT N'--------------------------------------------------------------------------------------';
 PRINT N'ĐANG BẮT ĐẦU SEED DỮ LIỆU TRỰC QUAN CHO DỰ ÁN: ' + @TargetProjectCode + N' (ID: ' + CAST(@ProjectId as nvarchar(10)) + N')';

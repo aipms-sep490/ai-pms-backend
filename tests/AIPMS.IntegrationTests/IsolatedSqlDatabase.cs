@@ -41,6 +41,7 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                     catch (SqlException) when (attempt < 9) { await Task.Delay(1000, ct); }
                 }
                 await using var command = connection.CreateCommand();
+                command.CommandTimeout = 180;
                 command.CommandText = $"CREATE DATABASE [{name}]";
                 await command.ExecuteNonQueryAsync(ct);
                 created = true;
@@ -80,6 +81,7 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
             await using var connection = new SqlConnection(masterConnection);
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
+            command.CommandTimeout = 180;
             command.CommandText = $"""
                 IF DB_ID(N'{name}') IS NOT NULL
                 BEGIN
