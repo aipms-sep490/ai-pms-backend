@@ -39,7 +39,12 @@ public static class UnicodePdf
                 while (elements.MoveNext())
                 {
                     var next = elements.GetTextElement();
-                    if (line.Length > 0 && canvas!.MeasureString(line + next, font).Width > 510) { Line(line); line = ""; }
+                    if (line.Length > 0 && canvas!.MeasureString(line + next, font).Width > 510)
+                    {
+                        var space = line.LastIndexOf(' ');
+                        if (space > 0) { Line(line[..space]); line = line[(space + 1)..]; }
+                        else { Line(line); line = ""; }
+                    }
                     line += next;
                 }
                 Line(line);
