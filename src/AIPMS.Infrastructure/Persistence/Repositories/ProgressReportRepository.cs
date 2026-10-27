@@ -10,6 +10,7 @@ using AIPMS.Application.Features.ProgressReports.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Mappers;
+using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Task = System.Threading.Tasks.Task;
@@ -568,4 +569,173 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
 
     private static bool IsUniqueConstraintViolation(DbUpdateException ex) =>
         ex.InnerException is SqlException { Number: 2601 or 2627 };
+
+    public async Task<ProgressReportPrefillDto> GetPrefillDataAsync(
+        long projectId,
+        long? progressReportPeriodId,
+        DateOnly periodStart,
+        DateOnly periodEnd,
+        string reportType,
+        CancellationToken cancellationToken)
+    {
+        var startUtc = periodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var endUtc = periodEnd.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc);
+
+        // 1. Query completed tasks in period (evaluated in SQL with deterministic sorting and cap)
+        var completedTasksQuery = context.Tasks
+            .AsNoTracking()
+            .Where(t => t.Milestone.ProjectId == projectId
+                && (t.Status == "DONE" || t.Status == "COMPLETED")
+                && ((t.CompletedAt.HasValue && t.CompletedAt.Value >= startUtc && t.CompletedAt.Value <= endUtc)
+                    || (!t.CompletedAt.HasValue && t.UpdatedAt >= startUtc && t.UpdatedAt <= endUtc)));
+
+        var completedTasksCount = await completedTasksQuery.CountAsync(cancellationToken);
+
+        var completedTasks = await completedTasksQuery
+            .OrderByDescending(t => t.CompletedAt ?? t.UpdatedAt)
+            .ThenByDescending(t => t.Id)
+            .Take(50)
+            .Select(t => new { t.Id, t.Title, t.Status })
+            .ToListAsync(cancellationToken);
+
+        // 2. Query in progress & blocked tasks (evaluated in SQL with deterministic sorting and cap)
+        var inProgressTasks = await context.Tasks
+            .AsNoTracking()
+            .Where(t => t.Milestone.ProjectId == projectId && t.Status == "IN_PROGRESS")
+            .OrderBy(t => t.DueAt.HasValue ? 0 : 1)
+            .ThenBy(t => t.DueAt)
+            .ThenBy(t => t.Id)
+            .Take(50)
+            .Select(t => new { t.Id, t.Title, t.Status })
+            .ToListAsync(cancellationToken);
+
+        var blockedTasks = await context.Tasks
+            .AsNoTracking()
+            .Where(t => t.Milestone.ProjectId == projectId && t.Status == "BLOCKED")
+            .OrderBy(t => t.DueAt.HasValue ? 0 : 1)
+            .ThenBy(t => t.DueAt)
+            .ThenBy(t => t.Id)
+            .Take(50)
+            .Select(t => new { t.Id, t.Title, t.Status })
+            .ToListAsync(cancellationToken);
+
+        var nextTasks = await context.Tasks
+            .AsNoTracking()
+            .Where(t => t.Milestone.ProjectId == projectId && (t.Status == "TODO" || t.Status == "IN_PROGRESS"))
+            .OrderBy(t => t.DueAt.HasValue ? 0 : 1)
+            .ThenBy(t => t.DueAt)
+            .ThenBy(t => t.Id)
+            .Take(5)
+            .Select(t => new { t.Id, t.Title, t.Status })
+            .ToListAsync(cancellationToken);
+
+        // 3. Query meetings in period (evaluated in SQL with deterministic sorting and cap)
+        var meetingsQuery = context.Meetings
+            .AsNoTracking()
+            .Where(m => m.ProjectId == projectId && m.StartAt >= startUtc && m.StartAt <= endUtc);
+
+        var completedMeetingsCount = await meetingsQuery
+            .Where(m => m.Status == "COMPLETED")
+            .CountAsync(cancellationToken);
+
+        var meetings = await meetingsQuery
+            .OrderBy(m => m.StartAt)
+            .ThenBy(m => m.Id)
+            .Take(50)
+            .Select(m => new
+            {
+                m.Id,
+                m.Title,
+                m.Status,
+                m.StartAt
+            })
+            .ToListAsync(cancellationToken);
+
+        // 4. Query risk history in period (evaluated in SQL with deterministic sorting and cap)
+        var risks = await context.Set<RiskHistory>()
+            .AsNoTracking()
+            .Where(r => r.ProjectId == projectId && r.RecordedAt >= startUtc && r.RecordedAt <= endUtc)
+            .OrderByDescending(r => r.RecordedAt)
+            .ThenByDescending(r => r.Id)
+            .Take(5)
+            .ToListAsync(cancellationToken);
+
+        var evidenceList = new List<ProgressReportPrefillEvidenceDto>();
+        foreach (var t in completedTasks)
+        {
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, t.Status));
+        }
+        foreach (var t in inProgressTasks)
+        {
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, t.Status));
+        }
+        foreach (var t in blockedTasks)
+        {
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("TASK", t.Id, t.Title, t.Status));
+        }
+        foreach (var m in meetings.Where(m => m.Status != "CANCELLED"))
+        {
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("MEETING", m.Id, m.Title, m.Status));
+        }
+        foreach (var r in risks)
+        {
+            evidenceList.Add(new ProgressReportPrefillEvidenceDto("RISK", r.Id, $"{r.RiskLevel} Risk ({r.RiskScore})", r.RiskLevel));
+        }
+
+        var insufficientData = evidenceList.Count == 0;
+
+        string? completedText = completedTasks.Count > 0
+            ? string.Join("\n", completedTasks.Select(t => $"- {t.Title}"))
+            : null;
+
+        string? inProgressText = inProgressTasks.Count > 0
+            ? string.Join("\n", inProgressTasks.Select(t => $"- {t.Title}"))
+            : null;
+
+        string? blockersText = blockedTasks.Count > 0
+            ? string.Join("\n", blockedTasks.Select(t => $"- {t.Title} (BLOCKED)"))
+            : null;
+
+        string? nextActionsText = nextTasks.Count > 0
+            ? string.Join("\n", nextTasks.Select(t => $"- {t.Title}"))
+            : null;
+
+        string? risksText = risks.Count > 0
+            ? string.Join("\n", risks.Select(r => $"- {r.RiskLevel}: {r.OverdueTasks} quá hạn, {r.BlockedTasks} bị chặn (Điểm rủi ro: {r.RiskScore})"))
+            : null;
+
+        var scheduledMeetingsCount = meetings.Count(m => m.Status == "SCHEDULED");
+
+        string? summaryText = null;
+        if (completedTasksCount > 0 || completedMeetingsCount > 0 || scheduledMeetingsCount > 0)
+        {
+            var summaryParts = new List<string>();
+            if (completedTasksCount > 0 || completedMeetingsCount > 0)
+            {
+                summaryParts.Add($"Trong kỳ báo cáo, nhóm đã hoàn thành {completedTasksCount} công việc và tổ chức {completedMeetingsCount} cuộc họp.");
+            }
+            if (scheduledMeetingsCount > 0)
+            {
+                summaryParts.Add($"Kế hoạch có {scheduledMeetingsCount} cuộc họp sắp tới.");
+            }
+            summaryText = string.Join(" ", summaryParts);
+        }
+
+        var suggested = new ProgressReportSuggestedContentDto(
+            CompletedWork: completedText,
+            InProgressWork: inProgressText,
+            Blockers: blockersText,
+            Risks: risksText,
+            NextActions: nextActionsText,
+            Summary: summaryText);
+
+        return new ProgressReportPrefillDto(
+            progressReportPeriodId,
+            reportType,
+            periodStart,
+            periodEnd,
+            suggested,
+            evidenceList,
+            insufficientData);
+    }
 }

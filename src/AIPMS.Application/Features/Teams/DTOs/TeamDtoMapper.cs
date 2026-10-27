@@ -24,5 +24,6 @@ internal static class TeamDtoMapper
     public static TeamInvitationDto ToDto(this TeamInvitationData invitation) =>
         new(invitation.Id, invitation.TeamId, invitation.InvitedUserId,
             invitation.InvitedBy, invitation.Status, invitation.Message,
-            invitation.ExpiresAt, invitation.RespondedAt, invitation.CreatedAt);
+            invitation.ExpiresAt, invitation.RespondedAt, invitation.CreatedAt,
+            invitation.TeamName, invitation.InvitedByName, invitation.InvitedUserName);
 }

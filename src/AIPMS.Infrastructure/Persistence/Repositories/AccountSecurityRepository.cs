@@ -77,6 +77,17 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
                 || (employeeCode != null && user.EmployeeCode == employeeCode),
             cancellationToken);
 
+    public Task<bool> IdentityExistsExcludingUserAsync(
+        long userId,
+        string? studentCode,
+        string? employeeCode,
+        CancellationToken cancellationToken = default) =>
+        context.Users.AsNoTracking().AnyAsync(
+            user => user.Id != userId
+                && ((studentCode != null && user.StudentCode == studentCode)
+                    || (employeeCode != null && user.EmployeeCode == employeeCode)),
+            cancellationToken);
+
     public async Task<AccountUser> CreateUserAsync(
         CreateAccountData data,
         long actorUserId,
@@ -188,6 +199,48 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         user.UpdatedAt = utcNow;
         await SaveChangesAsync(cancellationToken);
         return (await GetUserAsync(userId, cancellationToken))!;
+    }
+
+    public async Task<AccountUser> UpdateAccountAsync(
+        long userId,
+        UpdateAccountData data,
+        string? concurrencyToken,
+        DateTime utcNow,
+        Func<AccountUser, Task>? onUpdatedAsync = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = context.Database.IsRelational()
+            ? await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            : null;
+
+        var user = await context.Users.SingleAsync(item => item.Id == userId, cancellationToken);
+        if (!string.IsNullOrEmpty(concurrencyToken)
+            && Convert.ToBase64String(user.RowVersion) != concurrencyToken)
+        {
+            throw new ConflictException("The user account was modified by another operation. Please refresh and retry.");
+        }
+
+        user.FullName = data.FullName;
+        user.Phone = data.Phone;
+        user.Title = data.Title;
+        user.StudentCode = data.StudentCode;
+        user.EmployeeCode = data.EmployeeCode;
+        user.UpdatedAt = utcNow;
+        await SaveChangesAsync(cancellationToken);
+
+        var updated = (await GetUserAsync(userId, cancellationToken))!;
+
+        if (onUpdatedAsync != null)
+        {
+            await onUpdatedAsync(updated);
+        }
+
+        if (transaction != null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        return updated;
     }
 
     public async Task<AccountUser> SetStatusAsync(
@@ -571,8 +624,12 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         {
             await context.SaveChangesAsync(cancellationToken);
         }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ConflictException("The user account was modified by another operation. Please refresh and retry.");
+        }
         catch (DbUpdateException exception)
-            when (exception.InnerException is SqlException { Number: 2601 or 2627 or 547 })
+            when (exception.InnerException is SqlException { Number: 2601 or 2627 or 547 or 1205 or 1222 })
         {
             throw new ConflictException("The account security change conflicts with existing data.");
         }

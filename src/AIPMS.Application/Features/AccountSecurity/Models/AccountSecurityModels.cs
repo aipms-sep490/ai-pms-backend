@@ -34,6 +34,13 @@ public sealed record CreateAccountData(
     string? Title,
     IReadOnlyCollection<long> RoleIds, string? CurriculumCode = null);
 
+public sealed record UpdateAccountData(
+    string FullName,
+    string? Phone,
+    string? Title,
+    string? StudentCode,
+    string? EmployeeCode);
+
 public sealed record UpdateProfileData(
     string FullName,
     string? Phone,

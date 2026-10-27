@@ -276,6 +276,60 @@ public sealed class WorkflowContextTests(TeamDatabaseFixture database) : IClassF
         Allowed(actions.Actions, "send_supervisor_request", false, "SUPERVISOR_SELECTION_POLICY_UNAVAILABLE");
     }
 
+    [Fact]
+    public async Task Interdisciplinary_active_project_with_primary_can_request_discipline_mentors()
+    {
+        var s = await database.SeedAsync(); using var app = new TeamTestFactory(database, s);
+        using var leader = app.CreateAuthenticatedClient(s.Students[0]); using var member = app.CreateAuthenticatedClient(s.Students[1]);
+        var team = await CreateTeam(leader, s); await Join(leader, member, team.Id, s.Students[1]);
+        var project = await Body<ProjectDto>(await leader.PostAsJsonAsync("/api/v1/projects", new CreateProjectDraftRequest(
+            "Inter proposal", "Description", "Objectives", "Problem", "Output", [s.SeMajorId, s.IsMajorId], "Education", ["Dotnet"], ["Capstone"])));
+
+        await using (var db = database.CreateContext())
+        {
+            var deptId = await db.Users.Where(u => u.Id == s.Students[0]).Select(u => u.DepartmentId).SingleAsync();
+            var supUser = new User { Email = Guid.NewGuid().ToString("N") + "@sup.test", FullName = "Primary Supervisor", PasswordHash = "unused", Status = "ACTIVE", AcademicProfileStatus = "VERIFIED", DepartmentId = deptId };
+            var supProfile = new SupervisorProfile { User = supUser, IsAvailable = true, MaxActiveProjects = 5 };
+            db.AddRange(supUser, supProfile);
+            await db.SaveChangesAsync();
+
+            db.SupervisorAssignments.Add(new SupervisorAssignment
+            {
+                ProjectId = project.Id,
+                SupervisorProfileId = supProfile.Id,
+                IsPrimary = true,
+                AssignmentType = "PRIMARY",
+                AssignedBy = supUser.Id,
+                AssignedAt = TeamDatabaseFixture.Now,
+                SupervisorRequest = new SupervisorRequest { ProjectId = project.Id, SupervisorProfileId = supProfile.Id, RequestedBy = s.Students[0], Status = "ACCEPTED", AssignmentType = "PRIMARY", RequestedAt = TeamDatabaseFixture.Now, RespondedAt = TeamDatabaseFixture.Now }
+            });
+
+            var p = await db.Projects.FindAsync(project.Id);
+            p!.Status = "ACTIVE";
+
+            db.ProjectPeriods.Add(new ProjectPeriod
+            {
+                AcademicSemesterId = s.SemesterId,
+                Code = "SUP-MENTOR",
+                Name = "Supervisor selection",
+                PeriodType = "SUPERVISOR_SELECTION",
+                Status = "ACTIVE",
+                StartAt = TeamDatabaseFixture.Now.AddDays(-1),
+                EndAt = TeamDatabaseFixture.Now.AddDays(1),
+                MaxProjectsPerSupervisor = 3
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var url = $"/api/v1/projects/{project.Id}/actions";
+        var actions = await Body<ProjectWorkflowActionsDto>(await leader.GetAsync(url));
+        Allowed(actions.Actions, "view_supervisor_candidates", true);
+        Allowed(actions.Actions, "send_supervisor_request", true);
+        Assert.NotNull(actions.SupervisorSlots);
+        Assert.Contains(actions.SupervisorSlots, slot => slot.Slot == "PRIMARY" && slot.State == "CONFIRMED");
+        Assert.Contains(actions.SupervisorSlots, slot => slot.Slot == "DISCIPLINE_MENTOR" && slot.State == "OPEN");
+    }
+
     [Theory]
     [InlineData("/api/v1/auth/me/context?academicSemesterId=0")]
     [InlineData("/api/v1/teams/0/actions")]

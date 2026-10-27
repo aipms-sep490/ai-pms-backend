@@ -1,3 +1,5 @@
+using System.Net;
+using AIPMS.Api.Middleware;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
 using AIPMS.Api.Configuration;
@@ -23,6 +25,8 @@ public static class DependencyInjection
     public static IServiceCollection AddApi(this IServiceCollection services)
     {
         services.AddTrustedProxyHeaders();
+        services.AddOptions<RateLimitingSettings>()
+            .BindConfiguration(RateLimitingSettings.SectionName);
         services.AddOptions<ScheduledNotificationSettings>()
             .BindConfiguration(ScheduledNotificationSettings.SectionName)
             .ValidateDataAnnotations().ValidateOnStart();
@@ -32,8 +36,12 @@ public static class DependencyInjection
         services.AddOptions<MeetingReminderSettings>()
             .BindConfiguration(MeetingReminderSettings.SectionName)
             .ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<AIPMS.Application.Features.Projects.Models.RiskAlertSettings>()
+            .BindConfiguration(AIPMS.Application.Features.Projects.Models.RiskAlertSettings.SectionName)
+            .ValidateDataAnnotations().ValidateOnStart();
         services.AddHostedService<Services.MeetingReminderWorker>();
         services.AddHostedService<Services.ScheduledNotificationWorker>();
+        services.AddHostedService<Services.RiskAlertWorker>();
         services.AddHostedService<Services.NotificationEmailWorker>();
         services.AddHostedService<Services.PasswordRecoveryWorker>();
         services.AddHostedService<Services.GoogleChallengeCleanupWorker>();
@@ -133,7 +141,12 @@ public static class DependencyInjection
         {
             // The iterative FluentValidation tree validator handles rubric descendants.
             options.ModelMetadataDetailsProviders.Add(new SuppressChildValidationMetadataProvider(typeof(RubricCriterionInput)));
-        }).AddJsonOptions(options => options.JsonSerializerOptions.MaxDepth = 2 * RubricHierarchy.MaxNodes + 16);
+        }).AddJsonOptions(options =>
+        {
+            options.JsonSerializerOptions.MaxDepth = 2 * RubricHierarchy.MaxNodes + 16;
+            options.JsonSerializerOptions.Converters.Add(new AIPMS.Application.Common.Serialization.UtcDateTimeJsonConverter());
+            options.JsonSerializerOptions.Converters.Add(new AIPMS.Application.Common.Serialization.NullableUtcDateTimeJsonConverter());
+        });
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {
@@ -174,6 +187,31 @@ public static class DependencyInjection
         services.AddCors();
         services.AddRateLimiter(options =>
         {
+            // Keep an aggregate authentication quota per IP in addition to the
+            // email/IP partition below, so rotating fake emails cannot bypass it.
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+            {
+                if (!HttpMethods.IsPost(httpContext.Request.Method)
+                    || !httpContext.Request.Path.Equals("/api/v1/auth/login", StringComparison.OrdinalIgnoreCase))
+                    return RateLimitPartition.GetNoLimiter("non-auth");
+
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var settings = httpContext.RequestServices
+                    .GetService<IOptions<RateLimitingSettings>>()?.Value?.Authentication
+                    ?? new AuthenticationRateLimitSettings();
+                var isLoopback = httpContext.Connection.RemoteIpAddress is not null
+                    && IPAddress.IsLoopback(httpContext.Connection.RemoteIpAddress);
+
+                return RateLimitPartition.GetFixedWindowLimiter(
+                    $"auth-ip:{ip}",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = isLoopback ? settings.AggregateLoopbackPermitLimit : settings.AggregatePermitLimit,
+                        Window = TimeSpan.FromMinutes(Math.Max(1, settings.WindowMinutes)),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    });
+            });
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = async (context, cancellationToken) =>
             {
@@ -183,19 +221,55 @@ public static class DependencyInjection
                     statusCode: StatusCodes.Status429TooManyRequests,
                     title: isAuth ? "Too many authentication requests." : "Too many requests.",
                     detail: "Wait before retrying this operation.",
-                    instance: context.HttpContext.Request.Path)
+                    instance: context.HttpContext.Request.Path,
+                    extensions: new Dictionary<string, object?>
+                    {
+                        ["code"] = "RATE_LIMITED"
+                    })
                     .ExecuteAsync(context.HttpContext);
             };
             options.AddPolicy("authentication", httpContext =>
-                RateLimitPartition.GetFixedWindowLimiter(
-                    httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-                    static _ => new FixedWindowRateLimiterOptions
+            {
+                var settings = httpContext.RequestServices
+                    .GetService<IOptions<RateLimitingSettings>>()?.Value?.Authentication
+                    ?? new AuthenticationRateLimitSettings();
+
+                var remoteIp = httpContext.Connection.RemoteIpAddress;
+                var ipStr = remoteIp?.ToString() ?? "unknown";
+                var isLoopback = remoteIp != null && IPAddress.IsLoopback(remoteIp);
+
+                string partitionKey;
+                if (httpContext.Items.TryGetValue(AuthRateLimitingKeyMiddleware.AuthEmailItemKey, out var emailObj)
+                    && emailObj is string email && !string.IsNullOrWhiteSpace(email))
+                {
+                    partitionKey = $"email:{email}_{ipStr}";
+                }
+                else if (httpContext.User.Identity?.IsAuthenticated == true)
+                {
+                    var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                        ?? httpContext.User.FindFirst("sub")?.Value;
+                    partitionKey = !string.IsNullOrWhiteSpace(userId)
+                        ? $"user:{userId}_{ipStr}"
+                        : $"ip:{ipStr}";
+                }
+                else
+                {
+                    partitionKey = $"ip:{ipStr}";
+                }
+
+                var permitLimit = isLoopback ? settings.LoopbackPermitLimit : settings.PermitLimit;
+                var window = TimeSpan.FromMinutes(Math.Max(1, settings.WindowMinutes));
+
+                return RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey,
+                    _ => new FixedWindowRateLimiterOptions
                     {
-                        PermitLimit = 10,
-                        Window = TimeSpan.FromMinutes(1),
+                        PermitLimit = permitLimit,
+                        Window = window,
                         QueueLimit = 0,
                         AutoReplenishment = true
-                    }));
+                    });
+            });
             options.AddPolicy("ai-assistant", httpContext =>
             {
                 string partitionKey;

@@ -528,5 +528,195 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
         Assert.Equal("SUBMITTED", submitted!.Status);
     }
 
+    [Fact]
+    public async Task Prefill_includes_done_tasks_in_period_excludes_outside_period_and_aggregates_meetings_and_risks()
+    {
+        var s = await SeedAsync();
+        var periodStart = DateOnly.FromDateTime(Now.AddDays(-7));
+        var periodEnd = DateOnly.FromDateTime(Now.AddDays(3));
+        long cycleId;
+
+        await using (var db = database.CreateContext())
+        {
+            var semesterId = await db.Projects.Where(p => p.Id == s.ProjectId).Select(p => p.Team.AcademicSemesterId).SingleAsync();
+            var periodId = await db.ProjectPeriods.Where(p => p.AcademicSemesterId == semesterId && p.PeriodType == "EXECUTION").Select(p => p.Id).SingleAsync();
+            var cycle = new ProgressReportPeriod
+            {
+                ProjectId = s.ProjectId,
+                ProjectPeriodId = periodId,
+                ReportType = "WEEKLY",
+                PeriodStart = periodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                PeriodEnd = periodEnd.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc),
+                Deadline = DateTime.UtcNow.AddDays(30),
+                LatePolicy = "BLOCK",
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            db.ProgressReportPeriods.Add(cycle);
+            await db.SaveChangesAsync();
+            cycleId = cycle.Id;
+
+            var milestone = new M.Milestone
+            {
+                ProjectId = s.ProjectId,
+                Title = "Sprint 1 Milestone",
+                Status = "PLANNED",
+                SortOrder = 1,
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            db.Milestones.Add(milestone);
+            await db.SaveChangesAsync();
+
+            // Task DONE inside reporting window
+            db.Tasks.Add(new M.Task
+            {
+                MilestoneId = milestone.Id,
+                Title = "Database Migration Done",
+                Status = "DONE",
+                CompletedAt = Now.AddDays(-3),
+                UpdatedAt = Now.AddDays(-3),
+                DueAt = Now.AddDays(-2),
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now.AddDays(-6),
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Task DONE outside reporting window (too early)
+            db.Tasks.Add(new M.Task
+            {
+                MilestoneId = milestone.Id,
+                Title = "Ancient Task Outside Period",
+                Status = "DONE",
+                CompletedAt = Now.AddDays(-20),
+                UpdatedAt = Now.AddDays(-20),
+                DueAt = Now.AddDays(-19),
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now.AddDays(-25),
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Task IN_PROGRESS
+            db.Tasks.Add(new M.Task
+            {
+                MilestoneId = milestone.Id,
+                Title = "Implement API Controller",
+                Status = "IN_PROGRESS",
+                DueAt = Now.AddDays(2),
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now.AddDays(-2),
+                UpdatedAt = Now.AddDays(-1),
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Meetings inside and outside period
+            // Completed inside period
+            db.Meetings.Add(new M.Meeting
+            {
+                ProjectId = s.ProjectId,
+                Title = "Weekly Supervisor Check-in",
+                StartAt = Now.AddDays(-4),
+                Status = "COMPLETED",
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now.AddDays(-5),
+                UpdatedAt = Now.AddDays(-4),
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Scheduled inside period (upcoming)
+            db.Meetings.Add(new M.Meeting
+            {
+                ProjectId = s.ProjectId,
+                Title = "Upcoming Team Sync",
+                StartAt = Now.AddDays(2),
+                Status = "SCHEDULED",
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now.AddDays(-1),
+                UpdatedAt = Now.AddDays(-1),
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Cancelled inside period
+            db.Meetings.Add(new M.Meeting
+            {
+                ProjectId = s.ProjectId,
+                Title = "Cancelled Ad-hoc Session",
+                StartAt = Now.AddDays(-2),
+                Status = "CANCELLED",
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now.AddDays(-3),
+                UpdatedAt = Now.AddDays(-2),
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Completed outside period
+            db.Meetings.Add(new M.Meeting
+            {
+                ProjectId = s.ProjectId,
+                Title = "Ancient Meeting",
+                StartAt = Now.AddDays(-25),
+                Status = "COMPLETED",
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now.AddDays(-26),
+                UpdatedAt = Now.AddDays(-25),
+                ConcurrencyToken = Guid.NewGuid()
+            });
+
+            // Risk history inside period
+            db.Set<RiskHistory>().Add(new RiskHistory
+            {
+                ProjectId = s.ProjectId,
+                RiskLevel = "MEDIUM",
+                RiskScore = 4.2m,
+                OverdueTasks = 1,
+                BlockedTasks = 0,
+                UnassignedTasks = 0,
+                ProgressPercentage = 50m,
+                RecordedAt = Now.AddDays(-2)
+            });
+
+            await db.SaveChangesAsync();
+        }
+
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student);
+
+        var response = await leaderClient.GetAsync($"/api/v1/projects/{s.ProjectId}/progress-reports/prefill?progressReportPeriodId={cycleId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var prefill = await response.Content.ReadFromJsonAsync<ProgressReportPrefillDto>();
+        Assert.NotNull(prefill);
+        Assert.False(prefill.InsufficientData);
+
+        // Completed tasks check: Includes DONE task in period, excludes task outside period
+        Assert.NotNull(prefill.Suggested.CompletedWork);
+        Assert.Contains("Database Migration Done", prefill.Suggested.CompletedWork);
+        Assert.DoesNotContain("Ancient Task Outside Period", prefill.Suggested.CompletedWork);
+
+        // In progress task check
+        Assert.NotNull(prefill.Suggested.InProgressWork);
+        Assert.Contains("Implement API Controller", prefill.Suggested.InProgressWork);
+
+        // Meeting aggregated into summary and evidence
+        Assert.NotNull(prefill.Suggested.Summary);
+        Assert.Contains("tổ chức 1 cuộc họp", prefill.Suggested.Summary);
+        Assert.DoesNotContain("tổ chức 2 cuộc họp", prefill.Suggested.Summary);
+        Assert.Contains("1 cuộc họp sắp tới", prefill.Suggested.Summary);
+        Assert.Contains("1 công việc", prefill.Suggested.Summary);
+        Assert.Contains(prefill.Evidence, e => e.Type == "MEETING" && e.Title == "Weekly Supervisor Check-in");
+        Assert.Contains(prefill.Evidence, e => e.Type == "MEETING" && e.Title == "Upcoming Team Sync");
+        Assert.DoesNotContain(prefill.Evidence, e => e.Type == "MEETING" && e.Title == "Cancelled Ad-hoc Session");
+        Assert.DoesNotContain(prefill.Evidence, e => e.Type == "MEETING" && e.Title == "Ancient Meeting");
+
+        // Risk history aggregated into suggestions and evidence
+        Assert.NotNull(prefill.Suggested.Risks);
+        Assert.Contains("MEDIUM", prefill.Suggested.Risks);
+        Assert.Contains(prefill.Evidence, e => e.Type == "RISK");
+    }
+
     #endregion
 }

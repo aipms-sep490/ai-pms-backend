@@ -130,4 +130,20 @@ public interface IProgressReportRepository
     Task<bool> IsActiveTeamMemberAsync(long projectId, long userId, CancellationToken cancellationToken);
 
     Task<long?> GetActiveSupervisorAssignmentIdAsync(long projectId, long supervisorUserId, CancellationToken cancellationToken);
+
+    Task<ProgressReportPrefillDto> GetPrefillDataAsync(
+        long projectId,
+        long? progressReportPeriodId,
+        DateOnly periodStart,
+        DateOnly periodEnd,
+        string reportType,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(new ProgressReportPrefillDto(
+            progressReportPeriodId,
+            reportType,
+            periodStart,
+            periodEnd,
+            new ProgressReportSuggestedContentDto(null, null, null, null, null, null),
+            Array.Empty<ProgressReportPrefillEvidenceDto>(),
+            true));
 }

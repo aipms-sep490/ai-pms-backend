@@ -111,7 +111,7 @@ internal sealed partial class IndustryService
             await db.SaveChangesAsync(ct);
             await audit.RecordAsync(new(user.Id, "INDUSTRY_GOOGLE_ENROLLED", "INDUSTRY_INVITATION", invite.Id,
                 new Dictionary<string, object?> { ["mailboxProof"] = "INVITATION", ["provider"] = "GOOGLE" }), ct);
-            return new LoginResponse(token.Token, "Bearer", token.ExpiresAtUtc, refresh.Value, expires, new AuthUserDto(user.Id, user.Email, user.FullName, []));
+            return new LoginResponse(token.Token, "Bearer", token.ExpiresAtUtc, refresh.Value, expires, new AuthUserDto(user.Id, user.Email, user.FullName, [], user.Title, user.Phone));
         }, ct);
     }
 }

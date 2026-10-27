@@ -153,17 +153,22 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
         // Keep a small compatibility window for projects that were approved
         // before D18 assignments were collected. A missing primary may still
         // be requested on ACTIVE; accepting it leaves the project ACTIVE.
-        var validPrimaryStatus = project.Status is "DRAFT" or "REVISION_REQUIRED" or "APPROVED" or "ACTIVE"
-            || (accepting && project.Status == "SUPERVISOR_PENDING");
-        var validMentorStatus = project.Status is "DRAFT" or "REVISION_REQUIRED" or "ACTIVE";
-        if (((primary && !validPrimaryStatus) || (!primary && !validMentorStatus))
-            || (primary && project.HasActiveAssignment) || !project.HasActiveSemester || project.DepartmentIds.Count == 0)
-            throw new ConflictException("The project is not eligible for supervisor selection.");
-        if (!primary && (majorId is null || project.RequiredMajorIds is null || !project.RequiredMajorIds.Contains(majorId.Value)))
-            throw new ConflictException("The discipline mentor major must be required by the project.");
-        if (!primary && (project.OccupiedMentorMajors?.Contains(majorId!.Value) == true
-                || (project.Status == "ACTIVE" && !project.HasActiveAssignment)))
-            throw new ConflictException("The mentor slot is occupied or the project has no primary supervisor.");
+        if (primary)
+        {
+            if (!SupervisorSelectionEligibility.CanRequestPrimary(project.Status, project.HasActiveAssignment, accepting)
+                || !project.HasActiveSemester || project.DepartmentIds.Count == 0)
+                throw new ConflictException("The project is not eligible for supervisor selection.");
+        }
+        else
+        {
+            if (!project.HasActiveSemester || project.DepartmentIds.Count == 0
+                || project.Status is not ("DRAFT" or "REVISION_REQUIRED" or "ACTIVE"))
+                throw new ConflictException("The project is not eligible for supervisor selection.");
+            if (majorId is null || project.RequiredMajorIds is null || !project.RequiredMajorIds.Contains(majorId.Value))
+                throw new ConflictException("The discipline mentor major must be required by the project.");
+            if (!SupervisorSelectionEligibility.CanRequestMentor(project.Status, project.HasActiveAssignment, project.RequiredMajorIds, project.OccupiedMentorMajors, majorId))
+                throw new ConflictException("The mentor slot is occupied or the project has no primary supervisor.");
+        }
         var policies = await candidates.GetSelectionPoliciesAsync(project.AcademicSemesterId, now, ct, !primary);
         if (policies.Count != 1 || policies[0].MaxProjectsPerSupervisor is not > 0)
             throw new ConflictException("One active supervisor-selection period with a configured quota is required.");

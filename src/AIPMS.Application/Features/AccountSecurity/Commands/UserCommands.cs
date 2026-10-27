@@ -240,6 +240,101 @@ public sealed class UpdateMyProfileCommandHandler(
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
+public sealed record UpdateUserAccountCommand(
+    long UserId,
+    string? FullName,
+    string? Phone,
+    string? Title,
+    string? StudentCode,
+    string? EmployeeCode,
+    string? ConcurrencyToken) : IRequest<UserAccountDto>;
+
+public sealed class UpdateUserAccountCommandHandler(
+    IUserAccountRepository userRepository,
+    AccountSecurityAccessService accessService,
+    IAuditTrail auditTrail,
+    TimeProvider timeProvider) : IRequestHandler<UpdateUserAccountCommand, UserAccountDto>
+{
+    public async Task<UserAccountDto> Handle(
+        UpdateUserAccountCommand request,
+        CancellationToken cancellationToken)
+    {
+        accessService.EnsureAdministrator();
+        var user = await userRepository.GetUserAsync(request.UserId, cancellationToken)
+            ?? throw new NotFoundException("User", request.UserId);
+
+        if (!string.IsNullOrEmpty(request.ConcurrencyToken)
+            && !string.Equals(user.ConcurrencyToken, request.ConcurrencyToken, StringComparison.Ordinal))
+        {
+            throw new ConflictException("The user account was modified by another administrator.");
+        }
+
+        var nextFullName = string.IsNullOrWhiteSpace(request.FullName) ? user.FullName : request.FullName.Trim();
+        var nextPhone = request.Phone is null ? user.Phone : NormalizeOptional(request.Phone);
+        var nextTitle = request.Title is null ? user.Title : NormalizeOptional(request.Title);
+        var nextStudentCode = request.StudentCode is null ? user.StudentCode : NormalizeCode(request.StudentCode);
+        var nextEmployeeCode = request.EmployeeCode is null ? user.EmployeeCode : NormalizeCode(request.EmployeeCode);
+
+        var studentCodeChanged = !string.Equals(user.StudentCode, nextStudentCode, StringComparison.OrdinalIgnoreCase);
+        var employeeCodeChanged = !string.Equals(user.EmployeeCode, nextEmployeeCode, StringComparison.OrdinalIgnoreCase);
+        if ((studentCodeChanged && nextStudentCode is not null) || (employeeCodeChanged && nextEmployeeCode is not null))
+        {
+            if (await userRepository.IdentityExistsExcludingUserAsync(
+                request.UserId,
+                studentCodeChanged ? nextStudentCode : null,
+                employeeCodeChanged ? nextEmployeeCode : null,
+                cancellationToken))
+            {
+                throw new ConflictException("Student code or employee code already exists for another account.");
+            }
+        }
+
+        var updated = await userRepository.UpdateAccountAsync(
+            request.UserId,
+            new UpdateAccountData(nextFullName, nextPhone, nextTitle, nextStudentCode, nextEmployeeCode),
+            request.ConcurrencyToken,
+            timeProvider.GetUtcNow().UtcDateTime,
+            async updatedUser =>
+            {
+                await auditTrail.RecordAsync(
+                    new AuditEntry(
+                        accessService.ActorUserId,
+                        "ACCOUNT_UPDATED",
+                        "USER",
+                        updatedUser.Id,
+                        new Dictionary<string, object?>
+                        {
+                            ["previous"] = new Dictionary<string, object?>
+                            {
+                                ["fullName"] = user.FullName,
+                                ["phone"] = user.Phone,
+                                ["title"] = user.Title,
+                                ["studentCode"] = user.StudentCode,
+                                ["employeeCode"] = user.EmployeeCode
+                            },
+                            ["current"] = new Dictionary<string, object?>
+                            {
+                                ["fullName"] = updatedUser.FullName,
+                                ["phone"] = updatedUser.Phone,
+                                ["title"] = updatedUser.Title,
+                                ["studentCode"] = updatedUser.StudentCode,
+                                ["employeeCode"] = updatedUser.EmployeeCode
+                            }
+                        }),
+                    cancellationToken);
+            },
+            cancellationToken);
+
+        return updated.ToDto();
+    }
+
+    private static string? NormalizeCode(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
+
+    private static string? NormalizeOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
 public sealed record SetUserStatusCommand(long UserId, string Status)
     : IRequest<UserAccountDto>;
 

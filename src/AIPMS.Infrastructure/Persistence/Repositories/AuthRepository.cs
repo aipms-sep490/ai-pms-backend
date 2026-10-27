@@ -315,7 +315,9 @@ internal sealed class AuthRepository(AipmsDbContext context, IOptions<PasswordRe
                 .ToArray(),
             user.AccessFailedCount,
             user.LockoutEndAt,
-            user.PasswordChangedAt);
+            user.PasswordChangedAt,
+            user.Title,
+            user.Phone);
 
     private static RefreshTokenEntity ToEntity(
         long userId,

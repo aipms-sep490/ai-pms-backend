@@ -159,6 +159,30 @@ internal sealed partial class EvaluationSchemeService
         var majorScores = componentResults.Where(c => c.Scope == "MAJOR_SPECIFIC").GroupBy(c => c.MajorId!.Value)
             .OrderBy(g => g.Key).Select(g => new ResultMajorScoreDto(g.Key, g.All(c => c.Score.HasValue)
                 ? g.Sum(c => c.Score!.Value * c.WeightPercent) / g.Sum(c => c.WeightPercent) : null)).ToArray();
+        var formulaComponents = new List<EvaluationFormulaComponentDto>();
+        if (studentId.HasValue && target is not null)
+        {
+            var studentMajorId = target.MajorId;
+            var commonWeight = components.Where(c => c.Scope == "COMMON").Sum(c => c.StudentWeightPercent);
+            var majorWeight = components.Where(c => c.Scope == "MAJOR_SPECIFIC" && c.MajorId == studentMajorId).Sum(c => c.StudentWeightPercent);
+            var individualWeight = components.Where(c => c.Scope == "INDIVIDUAL" && c.MajorId == studentMajorId).Sum(c => c.StudentWeightPercent);
+
+            if (commonWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("COMMON", commonWeight));
+            if (majorWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("MAJOR", majorWeight));
+            if (individualWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("INDIVIDUAL", individualWeight));
+        }
+        else
+        {
+            var commonWeight = components.Where(c => c.Scope == "COMMON").Sum(c => c.ProjectWeightPercent);
+            var majorWeight = components.Where(c => c.Scope == "MAJOR_SPECIFIC").Sum(c => c.ProjectWeightPercent);
+            var individualWeight = components.Where(c => c.Scope == "INDIVIDUAL").Sum(c => c.ProjectWeightPercent);
+
+            if (commonWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("COMMON", commonWeight));
+            if (majorWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("MAJOR", majorWeight));
+            if (individualWeight > 0) formulaComponents.Add(new EvaluationFormulaComponentDto("INDIVIDUAL", individualWeight));
+        }
+        var formula = formulaComponents.Count > 0 ? new EvaluationFormulaDto(formulaComponents, null) : null;
+
         var breakdown = calculation is null ? ResultSnapshotReader.Legacy(scheme.CalculationRule)
             : new ResultBreakdownDto(scheme.Name, scheme.Version, calculation.CalculationVersion, false, calculation.IsDemo,
                 calculation.ApprovalStatus, final.HasValue ? "READY" : "PENDING", rawTotal,
@@ -167,7 +191,7 @@ internal sealed partial class EvaluationSchemeService
                     ? calculation.Formula == "DEMO_50_30_20" ? majorScores.Average(m => m.Score!.Value)
                         : componentResults.Where(c => c.Scope == "MAJOR_SPECIFIC").Sum(c => c.Score!.Value * c.WeightPercent)
                             / componentResults.Where(c => c.Scope == "MAJOR_SPECIFIC").Sum(c => c.WeightPercent) : null,
-                majorScores, componentResults);
+                majorScores, componentResults, formula);
         var inputs = JsonSerializer.Serialize(new { SnapshotVersion = 2, Breakdown = breakdown, Scheme = Map(scheme), scheme.RegistrationSnapshotJson, Target = target,
             Policy = frozenPolicy is null ? null : new { frozenPolicy.Id, frozenPolicy.Version, frozenPolicy.Status, frozenPolicy.SnapshotJson },
             PackageId = package.Id, project.Status, Contributions = contributions, Evaluations = frozen, Blockers = blockers });
