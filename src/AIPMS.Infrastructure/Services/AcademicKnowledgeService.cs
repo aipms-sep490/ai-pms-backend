@@ -310,8 +310,10 @@ internal sealed partial class AcademicKnowledgeService(
                 toolMode = request.ToolMode, rubricId = request.RubricId,
                 attachments = attachments.Select(a => new { a.Name, a.MediaType, a.Checksum, a.Text }) }),
             ResultJson = JsonSerializer.Serialize(response), StartedAt = started, CompletedAt = completed };
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        // Recheck access after generation and use revision CAS to serialize completed turns.
+        // Recheck access before opening the persistence transaction. The project
+        // context reader owns a short read transaction of its own; calling it
+        // after this transaction starts would make SQL Server reject the nested
+        // transaction and turn a valid preview into a stream error.
         var latestActor = await ActiveUserAsync(ct);
         if (latestActor.DepartmentId != actor.DepartmentId) throw new ForbiddenException("Academic scope changed while answering.");
         if (request.ProjectId.HasValue) await projectContext.RetrieveProjectContextAsync(request.ProjectId.Value, query, ct);
@@ -320,6 +322,9 @@ internal sealed partial class AcademicKnowledgeService(
             var latest = await ReviewEvidenceAsync(request.ProjectId!.Value, request.RubricId!.Value, actor.DepartmentId, ct);
             if (!latest.SequenceEqual(retrievedProjectEvidence)) throw new ConflictException("Rubric đã thay đổi trong lúc nhận xét. Vui lòng thử lại.");
         }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        // Use revision CAS inside the transaction to serialize completed turns.
         if (conversation != null)
         {
             var changed = await db.Set<AssistantConversation>().Where(x => x.Id == conversation.Id && x.Revision == request.ExpectedRevision && x.DeletedAt == null && x.DepartmentId == actor.DepartmentId)
