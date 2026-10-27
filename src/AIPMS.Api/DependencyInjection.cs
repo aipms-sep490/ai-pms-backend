@@ -187,6 +187,31 @@ public static class DependencyInjection
         services.AddCors();
         services.AddRateLimiter(options =>
         {
+            // Keep an aggregate authentication quota per IP in addition to the
+            // email/IP partition below, so rotating fake emails cannot bypass it.
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+            {
+                if (!HttpMethods.IsPost(httpContext.Request.Method)
+                    || !httpContext.Request.Path.Equals("/api/v1/auth/login", StringComparison.OrdinalIgnoreCase))
+                    return RateLimitPartition.GetNoLimiter("non-auth");
+
+                var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var settings = httpContext.RequestServices
+                    .GetService<IOptions<RateLimitingSettings>>()?.Value?.Authentication
+                    ?? new AuthenticationRateLimitSettings();
+                var isLoopback = httpContext.Connection.RemoteIpAddress is not null
+                    && IPAddress.IsLoopback(httpContext.Connection.RemoteIpAddress);
+
+                return RateLimitPartition.GetFixedWindowLimiter(
+                    $"auth-ip:{ip}",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = isLoopback ? settings.AggregateLoopbackPermitLimit : settings.AggregatePermitLimit,
+                        Window = TimeSpan.FromMinutes(Math.Max(1, settings.WindowMinutes)),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    });
+            });
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = async (context, cancellationToken) =>
             {

@@ -1,4 +1,4 @@
-﻿SET QUOTED_IDENTIFIER ON;
+SET QUOTED_IDENTIFIER ON;
 SET XACT_ABORT ON;
 BEGIN TRANSACTION;
 
@@ -15,7 +15,7 @@ END;
 IF NOT EXISTS (SELECT 1 FROM dbo.departments WHERE code = N'DESIGN')
 BEGIN
     INSERT INTO dbo.departments (organization_id, code, name, description, is_active)
-    VALUES (@org_id, N'DESIGN', N'Bá»™ mÃ´n Thiáº¿t káº¿ Äá»“ há»a (Design)', N'Khoa Thiáº¿t káº¿ Äá»“ há»a vÃ  Má»¹ thuáº­t Äa phÆ°Æ¡ng tiá»‡n', 1);
+    VALUES (@org_id, N'DESIGN', N'Bộ môn Thiết kế Đồ họa (Design)', N'Khoa Thiết kế Đồ họa và Mỹ thuật Đa phương tiện', 1);
 END;
 
 DECLARE @design_dept_id BIGINT = (SELECT id FROM dbo.departments WHERE code = N'DESIGN');
@@ -24,7 +24,7 @@ DECLARE @design_dept_id BIGINT = (SELECT id FROM dbo.departments WHERE code = N'
 IF NOT EXISTS (SELECT 1 FROM dbo.majors WHERE department_id = @design_dept_id AND code = N'GD')
 BEGIN
     INSERT INTO dbo.majors (department_id, code, name, description, is_active)
-    VALUES (@design_dept_id, N'GD', N'Thiáº¿t káº¿ Ä‘á»“ há»a (Graphic Design)', N'ChuyÃªn ngÃ nh Thiáº¿t káº¿ Ä‘á»“ há»a vÃ  Má»¹ thuáº­t sá»‘', 1);
+    VALUES (@design_dept_id, N'GD', N'Thiết kế đồ họa (Graphic Design)', N'Chuyên ngành Thiết kế đồ họa và Mỹ thuật số', 1);
 END;
 
 DECLARE @major_gd BIGINT = (SELECT id FROM dbo.majors WHERE department_id = @design_dept_id AND code = N'GD');
@@ -40,7 +40,7 @@ DECLARE @pwd_hash NVARCHAR(255) = N'AQAAAAIAAYagAAAAECDlj2anj0PYyt+p+4Y/ZoHOJK1y
 IF NOT EXISTS (SELECT 1 FROM dbo.users WHERE email = N'staff.design@fpt.edu.vn')
 BEGIN
     INSERT INTO dbo.users (department_id, major_id, email, password_hash, full_name, phone, student_code, employee_code, title, status, academic_profile_status)
-    VALUES (@design_dept_id, NULL, N'staff.design@fpt.edu.vn', @pwd_hash, N'Tráº§n Minh TÃ¢m', N'0905123801', NULL, N'FPTU-GD-AA01', N'Department Staff', N'ACTIVE', N'VERIFIED');
+        VALUES (@design_dept_id, NULL, N'staff.design@fpt.edu.vn', @pwd_hash, N'Trần Minh Tâm', N'0905123801', NULL, N'FPTU-GD-AA01', N'Department Staff', N'ACTIVE', N'VERIFIED');
 END;
 DECLARE @staff_user_id BIGINT = (SELECT id FROM dbo.users WHERE email = N'staff.design@fpt.edu.vn');
 IF NOT EXISTS (SELECT 1 FROM dbo.user_roles WHERE user_id = @staff_user_id AND role_id = @role_staff)
@@ -52,7 +52,7 @@ END;
 IF NOT EXISTS (SELECT 1 FROM dbo.users WHERE email = N'primary.design@fe.edu.vn')
 BEGIN
     INSERT INTO dbo.users (department_id, major_id, email, password_hash, full_name, phone, student_code, employee_code, title, status, academic_profile_status)
-    VALUES (@design_dept_id, NULL, N'primary.design@fe.edu.vn', @pwd_hash, N'VÅ© HoÃ ng Anh', N'0905123802', NULL, N'FPTU-GD-001', N'Lecturer', N'ACTIVE', N'VERIFIED');
+        VALUES (@design_dept_id, NULL, N'primary.design@fe.edu.vn', @pwd_hash, N'Vũ Hoàng Anh', N'0905123802', NULL, N'FPTU-GD-001', N'Lecturer', N'ACTIVE', N'VERIFIED');
 END;
 DECLARE @lec1_id BIGINT = (SELECT id FROM dbo.users WHERE email = N'primary.design@fe.edu.vn');
 IF NOT EXISTS (SELECT 1 FROM dbo.user_roles WHERE user_id = @lec1_id AND role_id = @role_lecturer)
@@ -68,7 +68,7 @@ END;
 IF NOT EXISTS (SELECT 1 FROM dbo.users WHERE email = N'mentor.design@fe.edu.vn')
 BEGIN
     INSERT INTO dbo.users (department_id, major_id, email, password_hash, full_name, phone, student_code, employee_code, title, status, academic_profile_status)
-    VALUES (@design_dept_id, NULL, N'mentor.design@fe.edu.vn', @pwd_hash, N'Äáº·ng Thanh Tháº£o', N'0905123803', NULL, N'FPTU-GD-002', N'Lecturer', N'ACTIVE', N'VERIFIED');
+        VALUES (@design_dept_id, NULL, N'mentor.design@fe.edu.vn', @pwd_hash, N'Đặng Thanh Thảo', N'0905123803', NULL, N'FPTU-GD-002', N'Lecturer', N'ACTIVE', N'VERIFIED');
 END;
 DECLARE @lec2_id BIGINT = (SELECT id FROM dbo.users WHERE email = N'mentor.design@fe.edu.vn');
 IF NOT EXISTS (SELECT 1 FROM dbo.user_roles WHERE user_id = @lec2_id AND role_id = @role_lecturer)
@@ -85,7 +85,7 @@ END;
 IF NOT EXISTS (SELECT 1 FROM dbo.users WHERE email = N'student.design1@fpt.edu.vn')
 BEGIN
     INSERT INTO dbo.users (department_id, major_id, email, password_hash, full_name, phone, student_code, employee_code, title, status, academic_profile_status)
-    VALUES (NULL, @major_gd, N'student.design1@fpt.edu.vn', @pwd_hash, N'Nguyá»…n ThÃ¡i DÆ°Æ¡ng', N'0905123811', N'DE180920', NULL, N'Student', N'ACTIVE', N'VERIFIED');
+        VALUES (@design_dept_id, @major_gd, N'student.design1@fpt.edu.vn', @pwd_hash, N'Nguyễn Thái Dương', N'0905123811', N'DE180920', NULL, N'Student', N'ACTIVE', N'VERIFIED');
 END;
 DECLARE @stu1_id BIGINT = (SELECT id FROM dbo.users WHERE email = N'student.design1@fpt.edu.vn');
 IF NOT EXISTS (SELECT 1 FROM dbo.user_roles WHERE user_id = @stu1_id AND role_id = @role_student)
@@ -96,7 +96,7 @@ END;
 IF NOT EXISTS (SELECT 1 FROM dbo.users WHERE email = N'student.design2@fpt.edu.vn')
 BEGIN
     INSERT INTO dbo.users (department_id, major_id, email, password_hash, full_name, phone, student_code, employee_code, title, status, academic_profile_status)
-    VALUES (NULL, @major_gd, N'student.design2@fpt.edu.vn', @pwd_hash, N'LÃª Quá»³nh Trang', N'0905123812', N'DE180921', NULL, N'Student', N'ACTIVE', N'VERIFIED');
+        VALUES (@design_dept_id, @major_gd, N'student.design2@fpt.edu.vn', @pwd_hash, N'Lê Quỳnh Trang', N'0905123812', N'DE180921', NULL, N'Student', N'ACTIVE', N'VERIFIED');
 END;
 DECLARE @stu2_id BIGINT = (SELECT id FROM dbo.users WHERE email = N'student.design2@fpt.edu.vn');
 IF NOT EXISTS (SELECT 1 FROM dbo.user_roles WHERE user_id = @stu2_id AND role_id = @role_student)
@@ -107,7 +107,7 @@ END;
 IF NOT EXISTS (SELECT 1 FROM dbo.users WHERE email = N'student.design3@fpt.edu.vn')
 BEGIN
     INSERT INTO dbo.users (department_id, major_id, email, password_hash, full_name, phone, student_code, employee_code, title, status, academic_profile_status)
-    VALUES (NULL, @major_gd, N'student.design3@fpt.edu.vn', @pwd_hash, N'HoÃ ng Nháº­t Nam', N'0905123813', N'DE180922', NULL, N'Student', N'ACTIVE', N'VERIFIED');
+        VALUES (@design_dept_id, @major_gd, N'student.design3@fpt.edu.vn', @pwd_hash, N'Hoàng Nhật Nam', N'0905123813', N'DE180922', NULL, N'Student', N'ACTIVE', N'VERIFIED');
 END;
 DECLARE @stu3_id BIGINT = (SELECT id FROM dbo.users WHERE email = N'student.design3@fpt.edu.vn');
 IF NOT EXISTS (SELECT 1 FROM dbo.user_roles WHERE user_id = @stu3_id AND role_id = @role_student)
@@ -115,5 +115,13 @@ BEGIN
     INSERT INTO dbo.user_roles (user_id, role_id) VALUES (@stu3_id, @role_student);
 END;
 
+-- Repair existing demo rows created by older versions of this script.
+UPDATE dbo.users SET department_id = @design_dept_id, major_id = @major_gd,
+    full_name = CASE email
+        WHEN N'student.design1@fpt.edu.vn' THEN N'Nguyễn Thái Dương'
+        WHEN N'student.design2@fpt.edu.vn' THEN N'Lê Quỳnh Trang'
+        WHEN N'student.design3@fpt.edu.vn' THEN N'Hoàng Nhật Nam'
+        ELSE full_name END
+WHERE email IN (N'student.design1@fpt.edu.vn', N'student.design2@fpt.edu.vn', N'student.design3@fpt.edu.vn');
 COMMIT TRANSACTION;
 

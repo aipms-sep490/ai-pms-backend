@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Features.Auth.Abstractions;
@@ -35,6 +36,21 @@ public sealed class AuthRateLimitingTests : IClassFixture<AuthRateLimitingTests.
 
             Assert.NotEqual(HttpStatusCode.TooManyRequests, response.StatusCode);
         }
+
+    }
+
+    [Theory]
+    [InlineData("{\"email\":123,\"password\":\"InvalidPassword@123\"}")]
+    [InlineData("[]")]
+    [InlineData("null")]
+    public async Task Login_WithInvalidJsonShape_ReturnsBadRequest(string json)
+    {
+        using var client = _factory.CreateClient();
+        using var response = await client.PostAsync(
+            "/api/v1/auth/login",
+            new StringContent(json, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -102,7 +118,9 @@ public sealed class AuthRateLimitingTests : IClassFixture<AuthRateLimitingTests.
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["RateLimiting:Authentication:PermitLimit"] = "3",
-                    ["RateLimiting:Authentication:LoopbackPermitLimit"] = "3",
+                    ["RateLimiting:Authentication:LoopbackPermitLimit"] = "300",
+                    ["RateLimiting:Authentication:AggregatePermitLimit"] = "300",
+                    ["RateLimiting:Authentication:AggregateLoopbackPermitLimit"] = "300",
                     ["RateLimiting:Authentication:WindowMinutes"] = "1"
                 });
             });

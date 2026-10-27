@@ -21,7 +21,9 @@ public sealed class AuthRateLimitingKeyMiddleware(RequestDelegate next)
                 try
                 {
                     using var doc = JsonDocument.Parse(body);
-                    if (doc.RootElement.TryGetProperty("email", out var emailProp))
+                    if (doc.RootElement.ValueKind == JsonValueKind.Object
+                        && doc.RootElement.TryGetProperty("email", out var emailProp)
+                        && emailProp.ValueKind == JsonValueKind.String)
                     {
                         var email = emailProp.GetString();
                         if (!string.IsNullOrWhiteSpace(email))
