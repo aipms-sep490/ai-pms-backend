@@ -1,4 +1,4 @@
-﻿/* ==============================================================================================
+/* ==============================================================================================
    SCRIPT: seed_single_major_active_project.sql
    MỤC ĐÍCH: Khởi tạo nhóm đồ án đang trong quá trình thực hiện (ACTIVE) theo luồng ĐƠN NGÀNH (Single-Major)
    CHUYÊN NGÀNH: Kỹ thuật Phần mềm (Software Engineering - SE)
@@ -64,13 +64,23 @@ IF @OrgId IS NULL SET @OrgId = (SELECT TOP 1 id FROM dbo.organizations ORDER BY 
 DECLARE @DeptItId bigint = (SELECT TOP 1 id FROM dbo.departments WHERE code = N'IT');
 DECLARE @MajorSeId bigint = (SELECT TOP 1 id FROM dbo.majors WHERE code = N'SE');
 
-DECLARE @SemesterId bigint = (SELECT TOP 1 id FROM dbo.academic_semesters WHERE code = N'FA26');
-IF @SemesterId IS NULL SET @SemesterId = 1;
+-- Tự động ưu tiên học kỳ đang ACTIVE (ví dụ DST-20261024 trên web deploy, hoặc FA26)
+DECLARE @SemesterId bigint = (
+    SELECT TOP 1 id FROM dbo.academic_semesters 
+    WHERE status = N'ACTIVE' 
+    ORDER BY id DESC
+);
+IF @SemesterId IS NULL
+    SET @SemesterId = (SELECT TOP 1 id FROM dbo.academic_semesters WHERE code = N'FA26');
+IF @SemesterId IS NULL 
+    SET @SemesterId = 1;
 
 DECLARE @ExecutionPeriodId bigint = (
     SELECT TOP 1 id FROM dbo.project_periods 
     WHERE academic_semester_id = @SemesterId AND period_type = N'EXECUTION'
 );
+IF @ExecutionPeriodId IS NULL
+    SET @ExecutionPeriodId = (SELECT TOP 1 id FROM dbo.project_periods WHERE academic_semester_id = @SemesterId AND code LIKE N'%EXEC%');
 IF @ExecutionPeriodId IS NULL
     SET @ExecutionPeriodId = (SELECT TOP 1 id FROM dbo.project_periods WHERE code = N'SEP490-FA26-EXEC');
 IF @ExecutionPeriodId IS NULL
