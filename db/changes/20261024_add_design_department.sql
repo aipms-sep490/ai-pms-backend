@@ -1,4 +1,4 @@
-SET QUOTED_IDENTIFIER ON;
+﻿SET QUOTED_IDENTIFIER ON;
 SET XACT_ABORT ON;
 BEGIN TRANSACTION;
 
@@ -18,6 +18,8 @@ BEGIN
     VALUES (@org_id, N'DESIGN', N'Bộ môn Thiết kế Đồ họa (Design)', N'Khoa Thiết kế Đồ họa và Mỹ thuật Đa phương tiện', 1);
 END;
 
+UPDATE dbo.departments SET name = N'Bộ môn Thiết kế Đồ họa (Design)', description = N'Khoa Thiết kế Đồ họa và Mỹ thuật Đa phương tiện' WHERE code = N'DESIGN';
+
 DECLARE @design_dept_id BIGINT = (SELECT id FROM dbo.departments WHERE code = N'DESIGN');
 
 -- 3. Add Major GD (Graphic Design) if not exists
@@ -26,6 +28,8 @@ BEGIN
     INSERT INTO dbo.majors (department_id, code, name, description, is_active)
     VALUES (@design_dept_id, N'GD', N'Thiết kế đồ họa (Graphic Design)', N'Chuyên ngành Thiết kế đồ họa và Mỹ thuật số', 1);
 END;
+
+UPDATE dbo.majors SET name = N'Thiết kế đồ họa (Graphic Design)', description = N'Chuyên ngành Thiết kế đồ họa và Mỹ thuật số' WHERE department_id = @design_dept_id AND code = N'GD';
 
 DECLARE @major_gd BIGINT = (SELECT id FROM dbo.majors WHERE department_id = @design_dept_id AND code = N'GD');
 
