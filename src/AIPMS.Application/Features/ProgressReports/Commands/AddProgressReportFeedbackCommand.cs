@@ -42,7 +42,7 @@ public sealed class AddProgressReportFeedbackCommandHandler(
 
         var status = await repository.GetStatusAsync(command.Id, cancellationToken);
         if (status == "DRAFT")
-            throw new ConflictException("Cannot provide feedback on a draft progress report.");
+            throw new ConflictException("Cannot provide feedback on a draft progress report.", WorkflowErrorCodes.ReportFeedbackOnDraftNotAllowed);
 
         var now = clock.GetUtcNow().UtcDateTime;
         var feedback = await repository.AddFeedbackAsync(

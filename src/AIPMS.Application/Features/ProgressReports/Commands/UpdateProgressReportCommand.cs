@@ -43,7 +43,7 @@ public sealed class UpdateProgressReportCommandHandler(
 
         var status = await repository.GetStatusAsync(command.Id, cancellationToken);
         if (status != "DRAFT")
-            throw new ConflictException("Submitted or reviewed progress reports cannot be modified.");
+            throw new ConflictException("Submitted or reviewed progress reports cannot be modified.", WorkflowErrorCodes.ReportNotEditable);
 
         var now = clock.GetUtcNow().UtcDateTime;
         var result = await repository.UpdateAsync(
