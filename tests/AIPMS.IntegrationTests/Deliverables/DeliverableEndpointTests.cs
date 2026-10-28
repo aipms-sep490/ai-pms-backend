@@ -137,13 +137,13 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
     }
 
     [Theory]
-    [InlineData("deadline")]
-    [InlineData("period")]
-    [InlineData("archived")]
-    [InlineData("completed")]
-    [InlineData("membership")]
-    [InlineData("role")]
-    public async Task Submission_rechecks_persisted_prerequisites(string change)
+    [InlineData("deadline", "DELIVERABLE_DEADLINE_PASSED")]
+    [InlineData("period", "EXECUTION_WINDOW_REQUIRED")]
+    [InlineData("archived", "PROJECT_NOT_ACTIVE")]
+    [InlineData("completed", "PROJECT_NOT_ACTIVE")]
+    [InlineData("membership", null)]
+    [InlineData("role", null)]
+    public async Task Submission_rechecks_persisted_prerequisites(string change, string? expectedCode)
     {
         var s = await Seed();
         using var app = new Factory(database);
@@ -165,7 +165,33 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
         }
         var response = await Submit(leader, d.Id);
         Assert.Equal(change is "membership" or "role" ? HttpStatusCode.Forbidden : HttpStatusCode.Conflict, response.StatusCode);
+        if (expectedCode is not null)
+        {
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(expectedCode, json.RootElement.GetProperty("code").GetString());
+        }
         Assert.Empty(app.Storage.Objects);
+    }
+
+    [Fact]
+    public async Task Submission_without_active_execution_window_returns_conflict_with_execution_window_required_code()
+    {
+        var s = await Seed();
+        using var app = new Factory(database);
+        using var leader = app.CreateAuthenticatedClient(s.Accounts.Student);
+        var d = await Body<DeliverableDto>(await Create(leader, s.ProjectId));
+        await using (var db = database.CreateContext())
+        {
+            var period = await db.ProjectPeriods.FindAsync(s.PeriodId);
+            period!.Status = "CLOSED";
+            await db.SaveChangesAsync();
+        }
+
+        var response = await Submit(leader, d.Id);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("EXECUTION_WINDOW_REQUIRED", json.RootElement.GetProperty("code").GetString());
+        Assert.Equal("One active execution window in the current semester is required.", json.RootElement.GetProperty("detail").GetString());
     }
 
     [Fact]

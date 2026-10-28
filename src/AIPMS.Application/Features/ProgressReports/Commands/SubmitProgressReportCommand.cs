@@ -43,7 +43,7 @@ public sealed class SubmitProgressReportCommandHandler(
 
         var status = await repository.GetStatusAsync(command.Id, cancellationToken);
         if (status != "DRAFT")
-            throw new ConflictException("Progress report is already submitted.");
+            throw new ConflictException("Progress report is already submitted.", WorkflowErrorCodes.ReportAlreadySubmitted);
 
         var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         var result = await repository.SubmitAsync(

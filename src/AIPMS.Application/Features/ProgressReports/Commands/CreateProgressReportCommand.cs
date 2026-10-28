@@ -41,7 +41,7 @@ public sealed class CreateProgressReportCommandHandler(
             throw new ForbiddenException("Only active team members can create progress report drafts.");
 
         if (command.Request.ProgressReportPeriodId.HasValue && await repository.ExistsForPeriodIdAsync(command.Request.ProgressReportPeriodId.Value, null, cancellationToken))
-            throw new ConflictException("A progress report for this reporting cycle already exists.");
+            throw new ConflictException("A progress report for this reporting cycle already exists.", WorkflowErrorCodes.ReportAlreadyExistsForCycle);
 
         // P1-4: Validate report matches cycle header — prevents attaching a weekly report to a monthly cycle.
         if (command.Request.ProgressReportPeriodId.HasValue)
@@ -76,7 +76,7 @@ public sealed class CreateProgressReportCommandHandler(
         }
 
         if (await repository.ExistsForPeriodAsync(projectId, command.Request.ReportType ?? "", command.Request.PeriodStart, command.Request.PeriodEnd, null, cancellationToken))
-            throw new ConflictException("A progress report for this project, type, and period already exists.");
+            throw new ConflictException("A progress report for this project, type, and period already exists.", WorkflowErrorCodes.ReportAlreadyExistsForPeriod);
 
         var now = clock.GetUtcNow().UtcDateTime;
         var result = await repository.CreateAsync(
