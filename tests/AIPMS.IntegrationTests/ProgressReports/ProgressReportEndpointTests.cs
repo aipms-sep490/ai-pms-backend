@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
+using System.Text.Json;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.ProgressReports.DTOs;
@@ -256,11 +257,16 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
             Assert.Equal(s.Accounts.Lecturer, Assert.Single(notification.NotificationRecipients).UserId);
             Assert.True(await verify.Set<NotificationEmailDelivery>().AnyAsync(d => d.NotificationRecipientId == notification.NotificationRecipients.Single().Id));
         }
-        Assert.Equal(HttpStatusCode.Conflict, (await leaderClient.PostAsync($"/api/v1/progress-reports/{created.Id}/submit", null)).StatusCode);
+        var blockedSubmit = await leaderClient.PostAsync($"/api/v1/progress-reports/{created.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.Conflict, blockedSubmit.StatusCode);
+        using (var json = JsonDocument.Parse(await blockedSubmit.Content.ReadAsStringAsync()))
+            Assert.Equal("REPORT_ALREADY_SUBMITTED", json.RootElement.GetProperty("code").GetString());
 
         // 5. Subsequent update attempt on submitted report -> 409 Conflict (Immutability enforced!)
         var postSubmitUpdate = await leaderClient.PutAsJsonAsync($"/api/v1/progress-reports/{created.Id}", updateRequest);
         Assert.Equal(HttpStatusCode.Conflict, postSubmitUpdate.StatusCode);
+        using (var json = JsonDocument.Parse(await postSubmitUpdate.Content.ReadAsStringAsync()))
+            Assert.Equal("REPORT_NOT_EDITABLE", json.RootElement.GetProperty("code").GetString());
 
         // 6. Assigned supervisor provides feedback -> 201 Created
         var feedbackRequest = new AddProgressReportFeedbackRequest("Good progress, keep it up.");

@@ -48,18 +48,18 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
 
     private static void RequireMutable(DeliverableProject project)
     {
-        if (project.Status != "ACTIVE") throw new ConflictException("Project mutations require ACTIVE status.");
+        if (project.Status != "ACTIVE") throw new ConflictException("Project mutations require ACTIVE status.", WorkflowErrorCodes.ProjectNotActive);
     }
 
     private async Task RequireSubmissionWindowAsync(DeliverableProject project, DeliverableDto deliverable, CancellationToken ct)
     {
         RequireMutable(project);
-        if (deliverable.Status is "ACCEPTED" or "CLOSED") throw new ConflictException("The deliverable is locked.");
+        if (deliverable.Status is "ACCEPTED" or "CLOSED") throw new ConflictException("The deliverable is locked.", WorkflowErrorCodes.DeliverableLocked);
         var now = Now;
         if (deliverable.DueAt.HasValue && now >= deliverable.DueAt.Value)
-            throw new ConflictException("The deliverable deadline has passed.");
+            throw new ConflictException("The deliverable deadline has passed.", WorkflowErrorCodes.DeliverableDeadlinePassed);
         if (!await repository.HasExecutionWindowAsync(project.SemesterId, now, ct))
-            throw new ConflictException("One active execution window in the current semester is required.");
+            throw new ConflictException("One active execution window in the current semester is required.", WorkflowErrorCodes.ExecutionWindowRequired);
     }
 
     public async Task<DeliverableDto> GetAsync(long id, CancellationToken ct)
@@ -86,9 +86,9 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
             var project = await ProjectAsync(actor, actualProjectId, token);
             RequireMutable(project);
             RequirePlanner(actor, project);
-            if (before?.Status is "ACCEPTED" or "CLOSED") throw new ConflictException("The deliverable is locked.");
+            if (before?.Status is "ACCEPTED" or "CLOSED") throw new ConflictException("The deliverable is locked.", WorkflowErrorCodes.DeliverableLocked);
             if (data.MilestoneId.HasValue && !await repository.MilestoneBelongsAsync(data.MilestoneId.Value, actualProjectId, token))
-                throw new ConflictException("The milestone must belong to this project.");
+                throw new ConflictException("The milestone must belong to this project.", WorkflowErrorCodes.MilestoneNotInProject);
             var after = await repository.SaveAsync(id, actualProjectId, data, actor.UserId, Now, token);
             await AuditAsync(actor.UserId, before is null ? "DELIVERABLE_CREATED" : "DELIVERABLE_UPDATED", "DELIVERABLE", after.Id, before, after, token);
             return after;
@@ -103,7 +103,7 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
         RequireMutable(project);
         RequirePlanner(actor, project);
         if (before.LatestVersion > 0 || before.Status is not ("DRAFT" or "OPEN"))
-            throw new ConflictException("Deliverables with submitted history cannot be deleted.");
+            throw new ConflictException("Deliverables with submitted history cannot be deleted.", WorkflowErrorCodes.DeliverableHasSubmittedHistory);
         await repository.DeleteAsync(id, token);
         await AuditAsync(actor.UserId, "DELIVERABLE_DELETED", "DELIVERABLE", id, before, null, token);
         return true;
@@ -138,7 +138,7 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
             item = await ItemAsync(id, token);
             var project = await ProjectAsync(actor, item.ProjectId, token);
             if (!IsStudent(actor, project)) throw new ForbiddenException("Only active student team members can submit a deliverable version.");
-            if (item.LatestVersion != expectedVersion) throw new ConflictException("The latest version changed. Reload before submitting.");
+            if (item.LatestVersion != expectedVersion) throw new ConflictException("The latest version changed. Reload before submitting.", WorkflowErrorCodes.StaleLatestVersion);
             await RequireSubmissionWindowAsync(project, item, token);
             var newKey = Guid.NewGuid().ToString("N");
             using var content = new MemoryStream(file.Bytes, writable: false);
@@ -164,7 +164,7 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
             if (!IsSupervisor(actor, project)) throw new ForbiddenException("Only the assigned supervisor can review this version.");
             item = await ItemAsync(item.Id, token);
             if (version.Status != "SUBMITTED" || item.Status is "ACCEPTED" or "CLOSED" || version.VersionNumber != item.LatestVersion)
-                throw new ConflictException("Only the latest pending version can be reviewed.");
+                throw new ConflictException("Only the latest pending version can be reviewed.", WorkflowErrorCodes.NotLatestPendingVersion);
             var result = await repository.ReviewAsync(versionId, project.AssignmentId!.Value, actor.UserId, decision, feedback.Trim(), Now, token);
             await AuditAsync(actor.UserId, "DELIVERABLE_VERSION_REVIEWED", "DELIVERABLE_VERSION", versionId,
                 new { version.Status }, new { Status = decision, Feedback = result }, token);
