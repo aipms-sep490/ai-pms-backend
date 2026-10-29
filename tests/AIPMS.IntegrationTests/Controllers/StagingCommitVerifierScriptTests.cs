@@ -89,15 +89,15 @@ public sealed class StagingCommitVerifierScriptTests
         Func<string, Task> testAction)
     {
         var port = GetFreePort();
-        var prefix = $"http://localhost:{port}/";
         using var listener = new HttpListener();
-        listener.Prefixes.Add(prefix);
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Prefixes.Add($"http://localhost:{port}/");
         listener.Start();
 
         var cts = new CancellationTokenSource();
         var serverTask = Task.Run(async () =>
         {
-            while (!cts.Token.IsCancellationRequested)
+            while (!cts.Token.IsCancellationRequested && listener.IsListening)
             {
                 HttpListenerContext ctx;
                 try
@@ -108,6 +108,7 @@ public sealed class StagingCommitVerifierScriptTests
                 catch (ObjectDisposedException) { break; }
                 catch (Exception) when (!cts.Token.IsCancellationRequested)
                 {
+                    if (!listener.IsListening) break;
                     try { await Task.Delay(20, cts.Token); } catch { break; }
                     continue;
                 }
@@ -128,12 +129,13 @@ public sealed class StagingCommitVerifierScriptTests
 
         try
         {
-            await testAction($"http://localhost:{port}");
+            await testAction($"http://127.0.0.1:{port}");
         }
         finally
         {
             cts.Cancel();
-            listener.Stop();
+            try { listener.Stop(); } catch { }
+            try { listener.Close(); } catch { }
             try { await serverTask; } catch { }
         }
     }
@@ -239,7 +241,7 @@ public sealed class StagingCommitVerifierScriptTests
     public async Task Case07_ConnectionTimeout_FailsWithExit1()
     {
         var freePort = GetFreePort(); // No server running
-        var (exitCode, output) = await RunScriptAsync($"http://localhost:{freePort}", ValidSha1, timeoutSec: 2, retries: 1);
+        var (exitCode, output) = await RunScriptAsync($"http://127.0.0.1:{freePort}", ValidSha1, timeoutSec: 2, retries: 1);
         Assert.Equal(1, exitCode);
         Assert.Contains("Could not establish connection", output);
     }
@@ -299,13 +301,12 @@ public sealed class StagingCommitVerifierScriptTests
             ctx =>
             {
                 Interlocked.Increment(ref attempts);
-                ctx.Response.Abort(); // Force connection drop
-                return Task.CompletedTask;
+                return WriteJsonResponseAsync(ctx.Response, 503, "{\"status\":\"error\",\"message\":\"Service Temporarily Unavailable\"}");
             },
             async url =>
             {
                 var (exitCode, output) = await RunScriptAsync(url, ValidSha1, timeoutSec: 2, retries: 3, delaySec: 1);
-                Assert.Equal(1, exitCode);
+                Assert.Equal(2, exitCode);
                 Assert.True(attempts >= 2, $"Expected at least 2 attempts, got {attempts}");
                 Assert.Contains("Attempt 3 of 3", output);
             });

@@ -101,11 +101,24 @@ while ($attempt -lt $Retries) {
         $httpResponse = $client.GetAsync($SystemEndpoint).GetAwaiter().GetResult()
         $statusCode = [int]$httpResponse.StatusCode
         $rawContent = $httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+
+        # Retry on transient server errors (500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout, 408 Request Timeout, 429 Too Many Requests)
+        if ($statusCode -in @(408, 429, 500, 502, 503, 504) -and $attempt -lt $Retries) {
+            Write-Warn "Attempt $attempt received transient HTTP $statusCode. Retrying..."
+            Write-Host "  Waiting $RetryDelaySeconds seconds before retry..." -ForegroundColor DarkGray
+            Start-Sleep -Seconds $RetryDelaySeconds
+            continue
+        }
+
         break
     }
     catch {
         $ex = $_
         Write-Warn "Attempt $attempt failed: $($ex.Exception.Message)"
+        try { $client.Dispose() } catch { }
+        $handler = New-Object System.Net.Http.HttpClientHandler
+        $client = New-Object System.Net.Http.HttpClient($handler)
+        $client.Timeout = [System.TimeSpan]::FromSeconds($TimeoutSeconds)
         if ($attempt -lt $Retries) {
             Write-Host "  Waiting $RetryDelaySeconds seconds before retry..." -ForegroundColor DarkGray
             Start-Sleep -Seconds $RetryDelaySeconds
