@@ -354,6 +354,62 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     [Theory]
     [InlineData("GENERAL", false)]
     [InlineData("INSUFFICIENT_EVIDENCE", true)]
+    public async Task ProjectContextIsNotShownForFailedOrGeneralAnswers(string kind, bool insufficient)
+    {
+        await using var db = fixture.Context();
+        var (admin, student, department) = await Seed(db);
+        var semester = new AcademicSemester
+        {
+            OrganizationId = department.OrganizationId,
+            Code = Guid.NewGuid().ToString("N"),
+            Name = "Project Context Test",
+            Status = "ACTIVE",
+            StartDate = new(2026, 1, 1),
+            EndDate = new(2026, 12, 31)
+        };
+        db.AcademicSemesters.Add(semester);
+        await db.SaveChangesAsync();
+
+        var project = new Project
+        {
+            Code = Guid.NewGuid().ToString("N"),
+            Title = "StudySpace",
+            Status = "ACTIVE",
+            CreatedBy = student.Id,
+            Team = new Team
+            {
+                Code = Guid.NewGuid().ToString("N"),
+                Name = "StudySpace",
+                Status = "LOCKED",
+                CreatedBy = student.Id,
+                AcademicSemesterId = semester.Id,
+                AcademicSemester = semester
+            }
+        };
+        db.Projects.Add(project);
+        await db.SaveChangesAsync();
+
+        var word = "rubric" + Guid.NewGuid().ToString("N");
+        var output = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            answer = "General explanation or missing official evidence",
+            answerType = kind,
+            citationIds = Array.Empty<string>(),
+            insufficientEvidence = insufficient
+        });
+
+        var service = Service(db, student, new Provider(output), context: new AllowedProject());
+        var response = await service.AskAsync(new(word, "COMBINED", project.Id), default);
+
+        Assert.Equal(kind, response.AnswerType);
+        Assert.Equal(insufficient, response.InsufficientEvidence);
+        Assert.Empty(response.Citations);
+        Assert.Empty(response.ProjectEvidence);
+    }
+
+    [Theory]
+    [InlineData("GENERAL", false)]
+    [InlineData("INSUFFICIENT_EVIDENCE", true)]
     public async Task UnusedRetrievedSourcesRemainInHistoryButAreNotShown(string kind, bool insufficient)
     {
         await using var db = fixture.Context();
@@ -419,6 +475,7 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         Assert.Empty(invalidJsonResult.Citations);
         Assert.Contains("câu trả lời hợp lệ", invalidJsonResult.Answer);
 
+        db.ChangeTracker.Clear();
         var connectionFailureResult = await Service(db, student, new FailingProvider()).AskAsync(new("Hello"), default);
         Assert.Equal("FALLBACK", connectionFailureResult.GenerationStatus);
         Assert.Empty(connectionFailureResult.Citations);

@@ -99,13 +99,30 @@ public sealed class StagingCommitVerifierScriptTests
         {
             while (!cts.Token.IsCancellationRequested)
             {
+                HttpListenerContext ctx;
                 try
                 {
-                    var ctx = await listener.GetContextAsync();
-                    await handler(ctx);
+                    ctx = await listener.GetContextAsync();
                 }
                 catch (HttpListenerException) when (cts.Token.IsCancellationRequested) { break; }
                 catch (ObjectDisposedException) { break; }
+                catch (Exception) when (!cts.Token.IsCancellationRequested)
+                {
+                    try { await Task.Delay(20, cts.Token); } catch { break; }
+                    continue;
+                }
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await handler(ctx);
+                    }
+                    catch
+                    {
+                        // Ignore handler exceptions (e.g. client disconnect / abort)
+                    }
+                });
             }
         });
 
@@ -281,7 +298,7 @@ public sealed class StagingCommitVerifierScriptTests
         await RunWithMockServerAsync(
             ctx =>
             {
-                attempts++;
+                Interlocked.Increment(ref attempts);
                 ctx.Response.Abort(); // Force connection drop
                 return Task.CompletedTask;
             },
