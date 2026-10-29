@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$ConnectionString = $env:AIPMS_TEST_SQL_CONNECTION,
     [Parameter(Mandatory = $true)][string]$DatabaseName
@@ -68,16 +68,28 @@ DECLARE @mentorProfile bigint=(SELECT id FROM dbo.supervisor_profiles WHERE user
 IF @singleProject IS NULL OR @interProject IS NULL OR @singleTeam IS NULL OR @interTeam IS NULL THROW 51000,'Base E2E projects are missing.',1;
 
 DECLARE @singleToken uniqueidentifier=NEWID(), @interToken uniqueidentifier=NEWID();
+DECLARE @sLd nvarchar(20) = CONVERT(nvarchar(20), @leadDept);
+DECLARE @sOd nvarchar(20) = CONVERT(nvarchar(20), @otherDept);
+DECLARE @sSm nvarchar(20) = CONVERT(nvarchar(20), @singleMajor);
+DECLARE @sIm nvarchar(20) = CONVERT(nvarchar(20), @interMajor);
+DECLARE @sSl nvarchar(20) = CONVERT(nvarchar(20), @singleLeader);
+DECLARE @sSmemb nvarchar(20) = CONVERT(nvarchar(20), @singleMember);
+DECLARE @sSt nvarchar(20) = CONVERT(nvarchar(20), @singleThird);
+DECLARE @sIl nvarchar(20) = CONVERT(nvarchar(20), @interLeader);
+DECLARE @sImemb nvarchar(20) = CONVERT(nvarchar(20), @interMember);
+DECLARE @sIt nvarchar(20) = CONVERT(nvarchar(20), @interThird);
+DECLARE @sOrg nvarchar(20) = CONVERT(nvarchar(20), @org);
+
 DECLARE @singleJson nvarchar(max)=N'{
-  "Scope":{"ProjectMode":"SINGLE_MAJOR","PrimaryMajorId":1,"LeadDepartmentId":1,"Requirements":[{"MajorId":1,"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"}],"ConcurrencyToken":"'+CONVERT(nvarchar(36),@singleToken)+'"},
-  "Policy":{"MinMembers":3,"MaxMembers":5,"MinDistinctMajors":1,"Version":"E2E-2026"},"OrganizationId":1,"WindowStartAt":"2026-01-01T00:00:00Z","WindowEndAt":"2026-12-31T23:59:59Z",
-  "Members":[{"UserId":10,"FullName":"E2E Single Leader","MajorId":1,"IsLeader":true},{"UserId":11,"FullName":"E2E Single Member","MajorId":1,"IsLeader":false},{"UserId":12,"FullName":"E2E Single Third","MajorId":1,"IsLeader":false}],
-  "DepartmentIds":[1],"PolicyVersion":1,"AllowedProjectModes":"SINGLE_MAJOR,INTERDISCIPLINARY","AllowedProposalSources":"PUBLISHED_TOPIC,STUDENT_PROPOSAL","ProposalSource":"STUDENT_PROPOSAL","MajorDepartmentIds":{"1":1},"ProjectRequirements":[{"MajorId":1,"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"}],"TeamResponsibilities":[]}' ;
+  "Scope":{"ProjectMode":"SINGLE_MAJOR","PrimaryMajorId":'+@sSm+',"LeadDepartmentId":'+@sLd+',"Requirements":[{"MajorId":'+@sSm+',"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"}],"ConcurrencyToken":"'+CONVERT(nvarchar(36),@singleToken)+'"},
+  "Policy":{"MinMembers":3,"MaxMembers":5,"MinDistinctMajors":1,"Version":"E2E-2026"},"OrganizationId":'+@sOrg+',"WindowStartAt":"2026-01-01T00:00:00Z","WindowEndAt":"2026-12-31T23:59:59Z",
+  "Members":[{"UserId":'+@sSl+',"FullName":"E2E Single Leader","MajorId":'+@sSm+',"IsLeader":true},{"UserId":'+@sSmemb+',"FullName":"E2E Single Member","MajorId":'+@sSm+',"IsLeader":false},{"UserId":'+@sSt+',"FullName":"E2E Single Third","MajorId":'+@sSm+',"IsLeader":false}],
+  "DepartmentIds":['+@sLd+'],"PolicyVersion":1,"AllowedProjectModes":"SINGLE_MAJOR,INTERDISCIPLINARY","AllowedProposalSources":"PUBLISHED_TOPIC,STUDENT_PROPOSAL","ProposalSource":"STUDENT_PROPOSAL","MajorDepartmentIds":{"'+@sSm+'":'+@sLd+'},"ProjectRequirements":[{"MajorId":'+@sSm+',"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"}],"TeamResponsibilities":[]}' ;
 DECLARE @interJson nvarchar(max)=N'{
-  "Scope":{"ProjectMode":"INTERDISCIPLINARY","PrimaryMajorId":null,"LeadDepartmentId":1,"Requirements":[{"MajorId":1,"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"},{"MajorId":2,"MinMembers":1,"MaxMembers":5,"Responsibility":"Data science"}],"ConcurrencyToken":"'+CONVERT(nvarchar(36),@interToken)+'"},
-  "Policy":{"MinMembers":3,"MaxMembers":5,"MinDistinctMajors":2,"Version":"E2E-2026"},"OrganizationId":1,"WindowStartAt":"2026-01-01T00:00:00Z","WindowEndAt":"2026-12-31T23:59:59Z",
-  "Members":[{"UserId":14,"FullName":"E2E Student Leader","MajorId":1,"IsLeader":true},{"UserId":15,"FullName":"E2E Student Member","MajorId":2,"IsLeader":false},{"UserId":13,"FullName":"E2E Inter Third","MajorId":1,"IsLeader":false}],
-  "DepartmentIds":[1,2],"PolicyVersion":1,"AllowedProjectModes":"SINGLE_MAJOR,INTERDISCIPLINARY","AllowedProposalSources":"PUBLISHED_TOPIC,STUDENT_PROPOSAL","ProposalSource":"STUDENT_PROPOSAL","MajorDepartmentIds":{"1":1,"2":2},"ProjectRequirements":[{"MajorId":1,"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"},{"MajorId":2,"MinMembers":1,"MaxMembers":5,"Responsibility":"Data science"}],"TeamResponsibilities":[]}' ;
+  "Scope":{"ProjectMode":"INTERDISCIPLINARY","PrimaryMajorId":null,"LeadDepartmentId":'+@sLd+',"Requirements":[{"MajorId":'+@sSm+',"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"},{"MajorId":'+@sIm+',"MinMembers":1,"MaxMembers":5,"Responsibility":"Data science"}],"ConcurrencyToken":"'+CONVERT(nvarchar(36),@interToken)+'"},
+  "Policy":{"MinMembers":3,"MaxMembers":5,"MinDistinctMajors":2,"Version":"E2E-2026"},"OrganizationId":'+@sOrg+',"WindowStartAt":"2026-01-01T00:00:00Z","WindowEndAt":"2026-12-31T23:59:59Z",
+  "Members":[{"UserId":'+@sIl+',"FullName":"E2E Student Leader","MajorId":'+@sSm+',"IsLeader":true},{"UserId":'+@sImemb+',"FullName":"E2E Student Member","MajorId":'+@sIm+',"IsLeader":false},{"UserId":'+@sIt+',"FullName":"E2E Inter Third","MajorId":'+@sSm+',"IsLeader":false}],
+  "DepartmentIds":['+@sLd+','+@sOd+'],"PolicyVersion":1,"AllowedProjectModes":"SINGLE_MAJOR,INTERDISCIPLINARY","AllowedProposalSources":"PUBLISHED_TOPIC,STUDENT_PROPOSAL","ProposalSource":"STUDENT_PROPOSAL","MajorDepartmentIds":{"'+@sSm+'":'+@sLd+',"'+@sIm+'":'+@sOd+'},"ProjectRequirements":[{"MajorId":'+@sSm+',"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"},{"MajorId":'+@sIm+',"MinMembers":1,"MaxMembers":5,"Responsibility":"Data science"}],"TeamResponsibilities":[]}' ;
 
 INSERT dbo.project_registration_snapshots(project_id,project_period_id,lead_department_id,submitted_by,submitted_at,snapshot_json)
 SELECT @singleProject,@evalPeriod,@leadDept,@singleLeader,@now,@singleJson
@@ -206,6 +218,56 @@ DECLARE @v5Milestone bigint=(SELECT TOP(1) id FROM dbo.milestones WHERE project_
 IF @v5Milestone IS NULL BEGIN INSERT dbo.milestones(project_id,title,description,start_date,due_date,status,sort_order,created_by,created_at,updated_at) VALUES(@v5Project,N'Cross department integration',N'V5 IT + Marketing + Design milestone',CONVERT(date,@now),DATEADD(day,14,CONVERT(date,@now)),N'IN_PROGRESS',1,@v5Leader,@now,@now); SET @v5Milestone=SCOPE_IDENTITY(); END;
 INSERT dbo.tasks(milestone_id,title,description,status,priority,start_at,due_at,created_by,created_at,updated_at,story_points)
 SELECT @v5Milestone,N'Integrate three discipline evidence',N'V5 demo task',N'IN_PROGRESS',N'HIGH',@now,DATEADD(day,7,@now),@v5Leader,@now,@now,8 WHERE NOT EXISTS (SELECT 1 FROM dbo.tasks WHERE milestone_id=@v5Milestone AND title=N'Integrate three discipline evidence');
+DECLARE @rubric bigint=(SELECT id FROM dbo.rubrics WHERE code=N'E2E-RUBRIC');
+IF @rubric IS NULL
+BEGIN
+    INSERT dbo.evaluation_criteria(code,name,is_active)
+    VALUES (N'E2E-CRIT-PROGRESS',N'Tiến độ và thực thi',1),
+           (N'E2E-CRIT-QUALITY',N'Chất lượng bàn giao',1);
+    DECLARE @crit1 bigint=(SELECT id FROM dbo.evaluation_criteria WHERE code=N'E2E-CRIT-PROGRESS');
+    DECLARE @crit2 bigint=(SELECT id FROM dbo.evaluation_criteria WHERE code=N'E2E-CRIT-QUALITY');
+    INSERT dbo.rubrics(department_id,academic_semester_id,code,name,description,is_active,created_by)
+    VALUES (@leadDept,@semester,N'E2E-RUBRIC',N'Rubric đánh giá tuần và bảo vệ E2E',N'Barem tiêu chuẩn kiểm thử tự động',1,@staffCs);
+    SET @rubric=SCOPE_IDENTITY();
+    INSERT dbo.rubric_versions(rubric_id,root_rubric_id,version_number,status,concurrency_token)
+    VALUES (@rubric,@rubric,1,'PUBLISHED',NEWID());
+    INSERT dbo.rubric_criteria(rubric_id,criterion_id,weight_percent,max_score,sort_order,is_required)
+    VALUES (@rubric,@crit1,50.00,10.00,1,1),(@rubric,@crit2,50.00,10.00,2,1);
+END;
+
+    -- Evaluator profile and expertise for defense committees
+    DECLARE @evaluatorUser bigint=(SELECT id FROM dbo.users WHERE email=N'evaluator@e2e.invalid');
+    IF NOT EXISTS (SELECT 1 FROM dbo.supervisor_profiles WHERE user_id=@evaluatorUser)
+    BEGIN
+        INSERT dbo.supervisor_profiles(user_id,is_available,created_at,updated_at) VALUES(@evaluatorUser,1,@now,@now);
+    END
+    ELSE
+    BEGIN
+        UPDATE dbo.supervisor_profiles SET is_available=1 WHERE user_id=@evaluatorUser;
+    END;
+    DECLARE @evaluatorProfile bigint=(SELECT id FROM dbo.supervisor_profiles WHERE user_id=@evaluatorUser);
+    IF NOT EXISTS (SELECT 1 FROM dbo.supervisor_expertise WHERE supervisor_profile_id=@evaluatorProfile AND expertise_name=N'E2E-SE')
+    BEGIN
+        INSERT dbo.supervisor_expertise(supervisor_profile_id,expertise_name,created_at,updated_at)
+        VALUES (@evaluatorProfile,N'E2E-SE',@now,@now);
+    END;
+
+    -- Industry expert user & profile
+    DECLARE @expertUser bigint=(SELECT id FROM dbo.users WHERE email=N'expert.advisor@e2e.invalid');
+    IF @expertUser IS NULL
+    BEGIN
+        INSERT dbo.users(department_id,major_id,email,password_hash,full_name,employee_code,status,academic_profile_status)
+        VALUES (NULL,NULL,N'expert.advisor@e2e.invalid',N'hash',N'E2E Industry Advisor',N'EXP-001',N'ACTIVE',N'VERIFIED');
+        SET @expertUser=SCOPE_IDENTITY();
+    END;
+    IF NOT EXISTS (SELECT 1 FROM dbo.industry_experts WHERE user_id=@expertUser)
+    BEGIN
+        INSERT dbo.industry_experts(user_id,organization,created_at,created_by,enrolled_at)
+        VALUES (@expertUser,N'Tech Innovations Corp',@now,@staffCs,@now);
+    END;
+
+    -- Extend E2E-EVAL period so deadlines can be flexibly scheduled in tests
+    UPDATE dbo.project_periods SET end_at='2026-12-31 23:59:59', status=N'ACTIVE' WHERE id=@evalPeriod;
 COMMIT TRANSACTION;
 '@
     Write-Output "Prepared v5 demo data in $DatabaseName."
