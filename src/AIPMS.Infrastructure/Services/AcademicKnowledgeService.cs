@@ -293,6 +293,21 @@ internal sealed partial class AcademicKnowledgeService(
                 }
             }
         }
+        // Retrieved project context is not a relevant answer by itself. Only a
+        // validated model citation or the explicit progress tool may expose it.
+        if (status == "FALLBACK")
+        {
+            projectEvidence = [];
+            if (citations.Length > 0)
+            {
+                var currentQuestionSources = await RetrieveCitationsAsync(query, actor.DepartmentId, request.ProjectId, ct);
+                citations = citations.Where(currentQuestionSources.Contains).ToArray();
+            }
+            answer = citations.Length > 0
+                ? BuildFallback(citations, [])
+                : "Mình chưa nhận được câu trả lời hợp lệ từ mô hình AI. Bạn thử lại nhé."
+                    + (request.ProjectId.HasValue ? " Để xem công việc và mốc của đồ án, chọn Tiến độ & deadline." : "");
+        }
         var completed = clock.GetUtcNow().UtcDateTime;
         var demo = citations.Any(c => c.DocumentType == "DEMO");
         var limitation = demo ? "Nguồn DEMO chỉ phục vụ kiểm thử; không phải quyết định hay quy định học vụ đã được phê duyệt." :
