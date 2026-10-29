@@ -4,14 +4,15 @@
 
 .DESCRIPTION
     Queries the /api/v1/system endpoint on a target staging host, validates the response
-    schema, checks that commitSha is a valid Git commit SHA (rejecting unpropagated versions
-    like "1.0.0"), and verifies that it matches the expected Git commit SHA.
+    schema, checks that commitSha is a valid 40-character hexadecimal Git SHA (rejecting
+    unpropagated versions like "1.0.0" and prefix matches), and strictly verifies that it
+    matches the expected full 40-character Git commit SHA.
 
 .PARAMETER ApiUrl
     Base URL of the AI-PMS API (default: https://api-staging.khaidz.com).
 
 .PARAMETER ExpectedCommitSha
-    The full or abbreviated Git commit SHA expected to be deployed.
+    The full 40-character hexadecimal Git commit SHA expected to be deployed.
 
 .PARAMETER TimeoutSeconds
     HTTP request timeout in seconds (default: 15).
@@ -26,7 +27,7 @@
     .\scripts\verify-staging-commit.ps1 -ExpectedCommitSha "3f71a30f1f03027be203025e17b2a6908d0ef84b"
 
 .EXAMPLE
-    .\scripts\verify-staging-commit.ps1 -ApiUrl "https://api-staging.khaidz.com" -ExpectedCommitSha "3f71a30"
+    .\scripts\verify-staging-commit.ps1 -ApiUrl "https://api-staging.khaidz.com" -ExpectedCommitSha "3f71a30f1f03027be203025e17b2a6908d0ef84b"
 #>
 
 [CmdletBinding()]
@@ -77,12 +78,17 @@ Write-Host " Target Endpoint: $SystemEndpoint" -ForegroundColor DarkGray
 Write-Host " Expected SHA:    $ExpectedCommitSha" -ForegroundColor DarkGray
 Write-Host "==========================================================" -ForegroundColor DarkGray
 
+# Validate Expected SHA format upfront (strict 40 hex characters)
+if ($ExpectedCommitSha -notmatch '^[0-9a-fA-F]{40}$') {
+    Write-Fail "Parameter -ExpectedCommitSha ('$ExpectedCommitSha') must be a full 40-character hexadecimal Git SHA."
+    exit 9
+}
+
 $attempt = 0
-$response = $null
 $statusCode = 0
 $rawContent = ""
 
-# Configure modern HttpClient
+# Configure modern HttpClient compatible with PowerShell 5.1 and PowerShell 7
 Add-Type -AssemblyName System.Net.Http
 $handler = New-Object System.Net.Http.HttpClientHandler
 $client = New-Object System.Net.Http.HttpClient($handler)
@@ -115,7 +121,10 @@ if ($statusCode -eq 0 -or [string]::IsNullOrWhiteSpace($rawContent)) {
 # 1. Verify HTTP 200
 if ($statusCode -ne 200) {
     Write-Fail "Expected HTTP 200 OK, got HTTP $statusCode."
-    Write-Host "Response body:`n$rawContent" -ForegroundColor DarkGray
+    if ($rawContent -match 'Cloudflare|Error 1033|tunnel') {
+        Write-Warn "Detected Cloudflare Gateway / Tunnel error page in response."
+    }
+    Write-Host "Response body snippet:`n$(if ($rawContent.Length -gt 500) { $rawContent.Substring(0, 500) + '...' } else { $rawContent })" -ForegroundColor DarkGray
     exit 2
 }
 Write-Pass "HTTP 200 OK received from $SystemEndpoint."
@@ -126,24 +135,35 @@ try {
     $json = $rawContent | ConvertFrom-Json
 }
 catch {
-    Write-Fail "Response content is not valid JSON."
-    Write-Host "Raw content:`n$rawContent" -ForegroundColor DarkGray
+    Write-Fail "Response content is not valid JSON (e.g. HTML or plain text)."
+    if ($rawContent -match '<html|<!DOCTYPE') {
+        Write-Warn "Response appears to be an HTML error page."
+    }
     exit 3
 }
 
-# 3. Check status == "ok"
+# 3. Check status property existence and value
+if ($null -eq $json.status) {
+    Write-Fail "Required property 'status' is missing from the JSON response."
+    exit 4
+}
+
 if ($json.status -ne "ok") {
     Write-Fail "System status is '$($json.status)', expected 'ok'."
     exit 4
 }
-Write-Pass "System status is '$($json.status)'."
+Write-Pass "System status is 'ok'."
 
 # 4. Validate commitSha presence and Git SHA format
+if ($null -eq $json.commitSha) {
+    Write-Fail "Required property 'commitSha' is missing or null in the JSON response."
+    exit 5
+}
+
 $actualSha = "$($json.commitSha)".Trim()
 
 if ([string]::IsNullOrWhiteSpace($actualSha)) {
-    Write-Fail "Field 'commitSha' is missing or empty in system response."
-    Write-Host "Payload: $($rawContent)" -ForegroundColor DarkGray
+    Write-Fail "Field 'commitSha' is empty or whitespace."
     exit 5
 }
 
@@ -155,29 +175,18 @@ if ($actualSha -match '^\d+\.\d+\.\d+') {
     exit 6
 }
 
-# Check valid hexadecimal Git SHA (7 to 40 hex characters)
-if ($actualSha -notmatch '^[0-9a-fA-F]{7,40}$') {
-    Write-Fail "Field 'commitSha' ('$actualSha') is not a valid Git SHA (expected 7-40 hexadecimal characters)."
+# Check strict 40-character hexadecimal Git SHA format (prefix matches rejected for official acceptance)
+if ($actualSha -notmatch '^[0-9a-fA-F]{40}$') {
+    Write-Fail "Field 'commitSha' ('$actualSha') is not a full 40-character hexadecimal Git SHA (length: $($actualSha.Length))."
     exit 7
 }
-Write-Pass "Commit SHA format is valid hexadecimal: $actualSha"
+Write-Pass "Commit SHA format is a full 40-character hexadecimal Git SHA: $actualSha"
 
-# 5. Compare with expected SHA
+# 5. Strict comparison with expected SHA (full 40-character match, case-insensitive)
 $expectedNormalized = $ExpectedCommitSha.ToLowerInvariant()
 $actualNormalized = $actualSha.ToLowerInvariant()
 
-$isMatch = $false
-if ($actualNormalized -eq $expectedNormalized) {
-    $isMatch = $true
-}
-elseif ($expectedNormalized.Length -lt $actualNormalized.Length -and $actualNormalized.StartsWith($expectedNormalized)) {
-    $isMatch = $true
-}
-elseif ($actualNormalized.Length -lt $expectedNormalized.Length -and $expectedNormalized.StartsWith($actualNormalized)) {
-    $isMatch = $true
-}
-
-if (-not $isMatch) {
+if ($actualNormalized -ne $expectedNormalized) {
     Write-Fail "SHA MISMATCH!"
     Write-Host "  Expected SHA: $ExpectedCommitSha" -ForegroundColor Red
     Write-Host "  Actual SHA:   $actualSha" -ForegroundColor Red
