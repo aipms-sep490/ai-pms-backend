@@ -90,6 +90,28 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         Assert.Contains("Công việc cần sửa", System.Text.Encoding.UTF8.GetString((await service.ExportAsync(result.RunId!.Value, "txt", default)).Content));
     }
 
+    [Theory]
+    [InlineData("not json", "FALLBACK")]
+    [InlineData("{\"answer\":\"Xin chào!\",\"answerType\":\"GENERAL\",\"citationIds\":[],\"insufficientEvidence\":false}", "COMPLETED")]
+    public async Task ProjectContextIsNotShownForFailedOrGeneralAnswers(string output, string expectedStatus)
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var project = new Project { Code = Guid.NewGuid().ToString("N"), Title = "StudySpace", Status = "ACTIVE", CreatedBy = student.Id,
+            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "StudySpace", Status = "LOCKED", CreatedBy = student.Id } };
+        db.Add(project); await db.SaveChangesAsync();
+        var service = Service(db, student, new Provider(output), context: new AllowedProject());
+        var response = await service.AskAsync(new("Xin chào", "COMBINED", project.Id), default);
+        Assert.Equal(expectedStatus, response.GenerationStatus);
+        Assert.Empty(response.ProjectEvidence);
+        Assert.Empty(response.Citations);
+        Assert.DoesNotContain("Công việc cần sửa", response.Answer);
+        var saved = await db.AcademicKnowledgeQueryRuns.FindAsync(response.RunId);
+        using var evidence = System.Text.Json.JsonDocument.Parse(saved!.EvidenceJson);
+        Assert.Single(evidence.RootElement.GetProperty("projectEvidence").EnumerateArray());
+        Assert.DoesNotContain("Công việc cần sửa", System.Text.Encoding.UTF8.GetString((await service.ExportAsync(response.RunId!.Value, "txt", default)).Content));
+    }
+
     private sealed class AllowedProject : IAiContextRetriever
     {
         public Task<ProjectBoundedContext> RetrieveProjectContextAsync(long id, string query, CancellationToken ct = default)
