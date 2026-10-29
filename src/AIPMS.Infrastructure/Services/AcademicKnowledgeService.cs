@@ -288,7 +288,7 @@ internal sealed partial class AcademicKnowledgeService(
                 if (!hasEvidence || attachments.Count > 0)
                 {
                     status = answerType = "FALLBACK";
-                    answer = "Mình chưa kết nối được với mô hình AI lúc này. Bạn thử lại sau nhé.";
+                    answer = "Mình chưa nhận được câu trả lời hợp lệ hoặc không thể kết nối với mô hình AI lúc này. Bạn thử lại sau nhé.";
                     citations = []; projectEvidence = [];
                 }
             }

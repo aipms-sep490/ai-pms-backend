@@ -20,24 +20,68 @@ public sealed class StagingCommitVerifierScriptTests
         return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
+    private static string ResolvePowerShellExecutable()
+    {
+        string[] candidates = OperatingSystem.IsWindows()
+            ? ["powershell.exe", "pwsh.exe", "pwsh"]
+            : ["pwsh", "powershell"];
+
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        var paths = pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var candidate in candidates)
+        {
+            foreach (var path in paths)
+            {
+                try
+                {
+                    var full = Path.Combine(path, candidate);
+                    if (File.Exists(full))
+                    {
+                        return full;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        return candidates[0];
+    }
+
     private static async Task<(int ExitCode, string Output)> RunScriptAsync(string apiUrl, string expectedSha, int timeoutSec = 5, int retries = 1, int delaySec = 1)
     {
+        var exe = ResolvePowerShellExecutable();
+        var execPolicyArg = OperatingSystem.IsWindows() ? "-ExecutionPolicy Bypass " : "";
         var psi = new ProcessStartInfo
         {
-            FileName = "powershell.exe",
-            Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{ScriptPath}\" -ApiUrl \"{apiUrl}\" -ExpectedCommitSha \"{expectedSha}\" -TimeoutSeconds {timeoutSec} -Retries {retries} -RetryDelaySeconds {delaySec}",
+            FileName = exe,
+            Arguments = $"-NoProfile {execPolicyArg}-File \"{ScriptPath}\" -ApiUrl \"{apiUrl}\" -ExpectedCommitSha \"{expectedSha}\" -TimeoutSeconds {timeoutSec} -Retries {retries} -RetryDelaySeconds {delaySec}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
 
-        using var process = Process.Start(psi)!;
-        var output = await process.StandardOutput.ReadToEndAsync();
-        var error = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
+        Process process;
+        try
+        {
+            process = Process.Start(psi) ?? throw new InvalidOperationException($"Process.Start returned null for '{exe}'.");
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Failed to start PowerShell executable '{exe}' on platform '{Environment.OSVersion.Platform}'. " +
+                $"Ensure PowerShell (powershell.exe on Windows, pwsh on Linux/macOS) is installed and available in PATH.", ex);
+        }
 
-        return (process.ExitCode, output + "\n" + error);
+        using (process)
+        {
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            return (process.ExitCode, output + "\n" + error);
+        }
     }
 
     private static async Task RunWithMockServerAsync(
