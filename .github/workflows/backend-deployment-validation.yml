@@ -2,15 +2,27 @@ name: Backend Deployment & Rollback Validation
 
 on:
   workflow_dispatch:
-  pull_request:
+  push:
+    branches:
+      - review/aipms-final-integration-acceptance
+      - chore/staging-tooling-and-verification
     paths:
       - 'Dockerfile'
       - 'deploy/**'
+      - 'scripts/verify-staging-commit.ps1'
       - '.github/workflows/backend-deployment-validation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-validation-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate-deployment-and-rollback:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -35,20 +47,42 @@ jobs:
           mkdir -p /tmp/aipms-ci-test/files /tmp/aipms-ci-test/keys /tmp/aipms-ci-test/evidence
           docker network create aipms-ci-test-net
           
-          # Minimal standalone configuration for container health check
+          # Standalone configuration satisfying ASP.NET Core ValidateOnStart() options
           cat << 'EOF' > /tmp/aipms-ci-test/appsettings.Staging.json
           {
             "Logging": { "LogLevel": { "Default": "Information" } },
             "AllowedHosts": "*",
-            "CorsSettings": { "AllowedOrigins": ["http://localhost:5173", "http://127.0.0.1:5088"] }
+            "ConnectionStrings": {
+              "DefaultConnection": "Server=localhost;Database=master;User Id=sa;Password=DummyTestPassword#2026;TrustServerCertificate=True;Encrypt=False;"
+            },
+            "Cors": {
+              "AllowedOrigins": ["http://localhost:5173", "http://127.0.0.1:5088"]
+            },
+            "Jwt": {
+              "Issuer": "AI-PMS-CI",
+              "Audience": "AI-PMS-CI.Client",
+              "SigningKey": "CI_DEPLOY_TEST_SECRET_KEY_MUST_BE_AT_LEAST_32_CHARS_LONG",
+              "AccessTokenMinutes": 60
+            },
+            "Email": {
+              "PasswordResetUrl": "https://localhost:5088/reset-password",
+              "FromEmail": "noreply@aipms.local"
+            },
+            "WeeklyAssessment": {
+              "TimeZoneId": "UTC"
+            }
           }
           EOF
 
       - name: Phase A - Build and deploy Version A
         run: |
           COMMIT_SHA_A=$(git rev-parse HEAD)
-          echo "Building Version A with COMMIT_SHA=$COMMIT_SHA_A"
-          docker build --build-arg COMMIT_SHA="$COMMIT_SHA_A" -t aipms-api:version-a .
+          echo "Building Version A with real source COMMIT_SHA=$COMMIT_SHA_A"
+          docker build \
+            --build-arg COMMIT_SHA="$COMMIT_SHA_A" \
+            --label "provenance.version=A" \
+            --label "provenance.commit=$COMMIT_SHA_A" \
+            -t aipms-api:version-a .
           
           # Start isolated container Version A
           docker run -d \
@@ -70,10 +104,11 @@ jobs:
             sleep 1
           done
           
-          # Capture Image ID of Version A
+          # Capture and verify Image ID of Version A
           IMAGE_ID_A=$(docker inspect --format '{{.Image}}' aipms-api-test)
           echo "IMAGE_ID_A=$IMAGE_ID_A" >> "$GITHUB_ENV"
           echo "COMMIT_SHA_A=$COMMIT_SHA_A" >> "$GITHUB_ENV"
+          echo "Version A running Image ID: $IMAGE_ID_A"
           
           # Verify Version A with verify-staging-commit.ps1
           pwsh ./scripts/verify-staging-commit.ps1 -ApiUrl http://127.0.0.1:5088 -ExpectedCommitSha "$COMMIT_SHA_A"
@@ -83,9 +118,13 @@ jobs:
 
       - name: Phase B - Build and deploy Version B (Simulated Upgrade)
         run: |
-          COMMIT_SHA_B="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          COMMIT_SHA_B="b1b2b3b4b5b6b7b8b9b0a1a2a3a4a5a6a7a8a9a0"
           echo "Building Version B with COMMIT_SHA=$COMMIT_SHA_B"
-          docker build --build-arg COMMIT_SHA="$COMMIT_SHA_B" -t aipms-api:version-b .
+          docker build \
+            --build-arg COMMIT_SHA="$COMMIT_SHA_B" \
+            --label "provenance.version=B" \
+            --label "provenance.commit=$COMMIT_SHA_B" \
+            -t aipms-api:version-b .
           
           # Stop Version A container and launch Version B
           docker stop aipms-api-test && docker rm aipms-api-test
@@ -110,10 +149,11 @@ jobs:
           
           IMAGE_ID_B=$(docker inspect --format '{{.Image}}' aipms-api-test)
           echo "IMAGE_ID_B=$IMAGE_ID_B" >> "$GITHUB_ENV"
+          echo "Version B running Image ID: $IMAGE_ID_B"
           
-          # Verify Image IDs differ
+          # Assert Image IDs genuinely differ between A and B
           if [ "$IMAGE_ID_A" == "$IMAGE_ID_B" ]; then
-            echo "ERROR: Image ID A and B must differ!"
+            echo "ERROR: Image ID A ($IMAGE_ID_A) and Image ID B ($IMAGE_ID_B) must differ!"
             exit 1
           fi
           

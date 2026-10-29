@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COMPOSE_FILE="$SCRIPT_DIR/compose.yaml"
+COMPOSE_FILE="${AIPMS_COMPOSE_FILE:-$SCRIPT_DIR/compose.yaml}"
 ENV_FILE="$SCRIPT_DIR/.env"
 
 # Color helpers
@@ -23,12 +23,38 @@ fail() { echo -e "  ${RED}[FAIL]${NC} $1"; }
 warn() { echo -e "  ${YELLOW}[WARN]${NC} $1"; }
 info() { echo -e "${CYAN}[INFO]${NC} $1"; }
 
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [BACKUP_IMAGE_REF_OR_ID]
+
+Executes a verified rollback of the AI-PMS API container to a preserved backup image.
+
+Arguments:
+  BACKUP_IMAGE_REF_OR_ID   Docker image tag or raw image ID/digest to restore
+                           (default: aipms-api:staging-backup)
+
+Options:
+  -h, --help               Show this help message.
+
+Environment:
+  AIPMS_COMPOSE_FILE       Path to compose file (default: deploy/wsl/compose.yaml)
+  AIPMS_IMAGE_TAG          Image tag in compose (default: local)
+
+EOF
+    exit 0
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+fi
+
 TARGET_BACKUP_REF="${1:-aipms-api:staging-backup}"
 
 echo "=========================================================="
 echo " AI-PMS True Rollback Execution"
 echo " Time: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo " Target Backup Reference: $TARGET_BACKUP_REF"
+echo " Compose File:            $COMPOSE_FILE"
 echo "=========================================================="
 
 cd "$REPO_ROOT"
