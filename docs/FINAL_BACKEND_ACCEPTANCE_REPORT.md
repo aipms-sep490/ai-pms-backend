@@ -61,23 +61,23 @@ Toàn bộ **14/14 module học vụ v5** (UC-135 đến UC-148) đã hoàn thi�
 ## C. CAM KẾT & XÁC MINH COMMIT_SHA
 
 1. **Trạng thái Kỹ thuật**:
-   - Backend Code: **`BE COMMIT_SHA IMPLEMENTATION DONE`**.
+   - Backend Code & Configuration: **`BE COMMIT_SHA CODE/CONFIG DONE`** (`SystemController.cs`, `Dockerfile` ARG/ENV, `compose.yaml`, `.env.example` nạp biến môi trường và fallback đầy đủ; 10/10 test `SystemEndpointTests` PASS).
    - Môi trường chạy thực tế Local: **`LOCAL RUNTIME VERIFIED`** (Được inject và đọc chuẩn xác qua biến môi trường `COMMIT_SHA`).
-   - Docker Verification: **`PENDING STAGING DEPLOYMENT`** (Máy trạm Windows không cài Docker engine; Docker daemon chạy trên WSL của Khải).
-   - Staging Deployment: **`STAGING DEPLOYMENT PENDING`** (Endpoint staging hiện trả `"1.0.0"` do container đang chạy được build thiếu build-arg `COMMIT_SHA`).
+   - Môi trường Docker Cục bộ: **`NOT APPLICABLE ON WINDOWS HOST`** (Máy trạm Windows không cài đặt Docker CLI/daemon; Docker chỉ chạy trên WSL của Khải. Không tự nhận Docker PASS trên local).
+   - Staging Runtime Deployment: **`STAGING DEPLOYMENT PENDING (OPERATIONAL TASK)`** (Container staging hiện tại trả `"1.0.0"` do image cũ được build thiếu đối số `COMMIT_SHA`. Đây là bước vận hành riêng sau khi code được Khải build/deploy).
 2. **Quy trình Triển khai cho Khải trên WSL (`khaine161`)**:
    Khải chạy các lệnh sau trên terminal WSL:
 
    ```bash
-   # Bước 1: Kéo đúng target commit của PR #139
+   # Bước 1: Kéo đúng target branch của PR #139
    cd ~/aipms/ai-pms-backend
    git fetch origin review/aipms-final-integration-acceptance
    git checkout review/aipms-final-integration-acceptance
    git pull origin review/aipms-final-integration-acceptance
-   git rev-parse HEAD # Bắt buộc phải là: 3f71a30f1f03027be203025e17b2a6908d0ef84b
+   export COMMIT_SHA=$(git rev-parse HEAD)
+   echo "Triển khai target commit SHA: $COMMIT_SHA"
 
    # Bước 2: Build lại image và up container với COMMIT_SHA
-   export COMMIT_SHA=$(git rev-parse HEAD)
    docker compose -f deploy/wsl/compose.yaml build --build-arg COMMIT_SHA=$COMMIT_SHA api
    docker compose -f deploy/wsl/compose.yaml up -d api
 
@@ -85,9 +85,23 @@ Toàn bộ **14/14 module học vụ v5** (UC-135 đến UC-148) đã hoàn thi�
    curl -s https://api-staging.khaidz.com/api/v1/system | jq .
    ```
 
-   **Lệnh Rollback an toàn (nếu cần):**
+   **Quy trình Rollback an toàn (nếu deploy mới phát sinh lỗi):**
    ```bash
-   docker compose -f deploy/wsl/compose.yaml restart api
+   # Cách 1 (Khuyên dùng): Tag backup image trước khi build mới
+   # Trước khi build, lưu lại image đang chạy:
+   docker tag aipms-api:staging aipms-api:staging-backup
+
+   # Nếu build mới lỗi hoặc container mới gặp sự cố, rollback ngay về image backup:
+   docker tag aipms-api:staging-backup aipms-api:staging
+   docker compose -f deploy/wsl/compose.yaml up -d --no-build api
+
+   # Cách 2: Revert code về commit ổn định trước đó (ví dụ develop) và build lại
+   cd ~/aipms/ai-pms-backend
+   git checkout develop
+   git pull origin develop
+   export COMMIT_SHA=$(git rev-parse HEAD)
+   docker compose -f deploy/wsl/compose.yaml build --build-arg COMMIT_SHA=$COMMIT_SHA api
+   docker compose -f deploy/wsl/compose.yaml up -d api
    ```
 
 ---
@@ -143,16 +157,24 @@ Toàn bộ **14/14 module học vụ v5** (UC-135 đến UC-148) đã hoàn thi�
 ## E. BÀN GIAO TRẠNG THÁI GIT (GIT HANDOFF)
 
 1. **Nhánh làm việc**: `review/aipms-final-integration-acceptance`.
-2. **PR Đang Tồn Tại**: **PR #139** (Base: `develop`, Remote HEAD: `3f71a30f1f03027be203025e17b2a6908d0ef84b`).
-3. **Files Changed/Untracked**:
-   - `modified: scripts/prepare-v5-demo.ps1` (Đã chuẩn hóa biến động, sẵn sàng đưa vào commit nếu được User cho phép).
-   - `untracked: docs/FINAL_BACKEND_ACCEPTANCE_REPORT.md` (Tài liệu nghiệm thu chính thức).
-   - `untracked: docs/FINAL_STAGING_ACCEPTANCE_REPORT.md` (Tài liệu nghiệm thu staging trước đó).
-4. **Nguyên tắc an toàn**:
-   - **Chưa có local commit nào được tạo thêm mà chưa có lệnh trực tiếp**. Remote branch và PR #139 vẫn giữ nguyên HEAD tại `3f71a30`.
-   - Khi Quản lý Dự án cho phép, tôi có thể tạo một local commit sạch:
-     `chore(scripts): stabilize demo database preparation and add final backend acceptance documentation`
-     và chờ lệnh push tiếp theo.
+2. **PR Đang Tồn Tại**: **PR #139** (Base: `develop`).
+   - **Remote Tracking**: `origin/review/aipms-final-integration-acceptance`.
+   - **Remote HEAD Commit**: `3f71a30f1f03027be203025e17b2a6908d0ef84b`.
+   - **Bằng chứng CI**: 2.583 tests PASS 100% trên GitHub Actions với commit `3f71a30` (1.237 Unit Tests + 1.346 Integration Tests).
+   - **Phạm vi file trên PR #139**: Đúng 19 files lõi hợp nhất từ PR #136, PR #138 và bổ sung commit `3f71a30` (BE-07 D18 preapproval lifecycle tests, SystemController COMMIT_SHA, Dockerfile build args).
+3. **Trạng thái Git Local**:
+   - **Local HEAD Commit**: `f114aad1f82eef9e586898416e92f658c93fd995` (`chore(scripts): stabilize demo database preparation and add final backend acceptance documentation`).
+   - Nhánh local đang ahead remote `origin/review/aipms-final-integration-acceptance` đúng **1 commit** (`f114aad`), **CHƯA PUSH**.
+   - Nội dung commit `f114aad`: Gồm [`scripts/prepare-v5-demo.ps1`](file:///D:/AI_PMS/ai-pms-backend/scripts/prepare-v5-demo.ps1) và [`docs/FINAL_BACKEND_ACCEPTANCE_REPORT.md`](file:///D:/AI_PMS/ai-pms-backend/docs/FINAL_BACKEND_ACCEPTANCE_REPORT.md).
+4. **Kiểm tra và Khuyến nghị về Commit `f114aad` & `prepare-v5-demo.ps1`**:
+   - `scripts/prepare-v5-demo.ps1` là script tiện ích chuẩn bị dữ liệu demo/fixtures cho môi trường dev/demo cục bộ, không chạy trên CI và không nằm trong container runtime Production/Staging.
+   - Nếu push `f114aad` lên PR #139, GitHub Actions sẽ kích hoạt build lại CI và làm tăng số file diff của PR #139 từ 19 file lên 21 file với các thay đổi demo ngoài phạm vi chính sách học vụ.
+   - **Khuyến nghị chính thức**: **KHÔNG PUSH commit `f114aad` vào PR #139**. Hãy để Khải review và merge PR #139 trực tiếp từ Remote HEAD `3f71a30` (nơi đã có đầy đủ 19 files production code và CI xanh 100%). Commit `f114aad` được giữ an toàn ở local làm công cụ hỗ trợ demo hoặc tách thành PR riêng về tooling/scripts sau này.
+5. **Nguyên tắc An toàn Tuân thủ**:
+   - Không tự tạo PR mới (kể cả Draft).
+   - Không push lên bất kỳ branch nào.
+   - Không merge vào `develop` hoặc `main`.
+   - Không sửa Frontend repository.
 
 ---
 
