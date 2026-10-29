@@ -16,18 +16,22 @@ public sealed class SystemController : ControllerBase
     public ActionResult<SystemInfoResponse> Get() =>
         Ok(new SystemInfoResponse("AI-PMS API", "v1", "ok", CachedCommitSha));
 
-    private static string? ResolveCommitSha()
+    public static string? ResolveCommitSha(Func<string, string?>? getEnv = null, Assembly? assembly = null)
     {
-        var envSha = Environment.GetEnvironmentVariable("COMMIT_SHA")
-            ?? Environment.GetEnvironmentVariable("GIT_COMMIT_SHA")
-            ?? Environment.GetEnvironmentVariable("APP_COMMIT_SHA");
+        getEnv ??= Environment.GetEnvironmentVariable;
+
+        var envSha = FirstNonWhiteSpace(
+            getEnv("COMMIT_SHA"),
+            getEnv("GIT_COMMIT_SHA"),
+            getEnv("APP_COMMIT_SHA"));
 
         if (!string.IsNullOrWhiteSpace(envSha))
         {
             return envSha.Trim();
         }
 
-        var infoVer = typeof(SystemController).Assembly
+        var targetAssembly = assembly ?? typeof(SystemController).Assembly;
+        var infoVer = targetAssembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion;
 
@@ -41,6 +45,15 @@ public sealed class SystemController : ControllerBase
             return infoVer.Trim();
         }
 
+        return null;
+    }
+
+    private static string? FirstNonWhiteSpace(params string?[] values)
+    {
+        foreach (var val in values)
+        {
+            if (!string.IsNullOrWhiteSpace(val)) return val;
+        }
         return null;
     }
 }

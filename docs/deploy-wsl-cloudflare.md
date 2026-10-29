@@ -91,13 +91,26 @@ a new independent key ring cannot decrypt another instance's queued payloads.
 ## 4. Build and start only AI-PMS
 
 ```bash
-docker-compose --env-file deploy/wsl/.env -f deploy/wsl/compose.yaml build api
-docker-compose --env-file deploy/wsl/.env -f deploy/wsl/compose.yaml up -d --no-deps api
+# Capture the commit being deployed
+export COMMIT_SHA=$(git rev-parse HEAD)
+
+# Build with commit SHA build-arg
+docker-compose --env-file deploy/wsl/.env -f deploy/wsl/compose.yaml build --build-arg COMMIT_SHA=$COMMIT_SHA api
+
+# Start container with COMMIT_SHA environment variable
+COMMIT_SHA=$COMMIT_SHA docker-compose --env-file deploy/wsl/.env -f deploy/wsl/compose.yaml up -d --no-deps api
 docker-compose --env-file deploy/wsl/.env -f deploy/wsl/compose.yaml ps
+
+# Local verification (loopback inside WSL)
 curl --fail http://127.0.0.1:5088/api/v1/system
 ```
 
-Expected: `{"name":"AI-PMS API","version":"v1","status":"ok"}`.
+Expected: `{"name":"AI-PMS API","version":"v1","status":"ok","commitSha":"<COMMIT_SHA>"}`.
+And verify the public staging endpoint via Cloudflare tunnel:
+```bash
+curl -s https://api-staging.khaidz.com/api/v1/system | jq .
+```
+Verify that `"commitSha"` matches `git rev-parse HEAD` exactly.
 This is liveness only, not database readiness. Then verify existing-account
 login and an authorized read against `AI_PMS`; avoid destructive test suites
 against this shared database. Use the local Swagger UI:

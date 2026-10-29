@@ -7,10 +7,13 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-}
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Staging
       ASPNETCORE_HTTP_PORTS: "8080"
+      COMMIT_SHA: ${COMMIT_SHA:-}
     ports:
       - "127.0.0.1:5088:8080"
     volumes:
