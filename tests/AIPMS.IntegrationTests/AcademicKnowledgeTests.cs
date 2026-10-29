@@ -414,10 +414,15 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     {
         await using var db = fixture.Context();
         var (_, student, _) = await Seed(db);
-        var result = await Service(db, student, new Provider("not json")).AskAsync(new("Hello"), default);
-        Assert.Equal("FALLBACK", result.GenerationStatus);
-        Assert.Empty(result.Citations);
-        Assert.True(result.Answer.Contains("hợp lệ") || result.Answer.Contains("kết nối"));
+        var invalidJsonResult = await Service(db, student, new Provider("not json")).AskAsync(new("Hello"), default);
+        Assert.Equal("FALLBACK", invalidJsonResult.GenerationStatus);
+        Assert.Empty(invalidJsonResult.Citations);
+        Assert.Contains("câu trả lời hợp lệ", invalidJsonResult.Answer);
+
+        var connectionFailureResult = await Service(db, student, new FailingProvider()).AskAsync(new("Hello"), default);
+        Assert.Equal("FALLBACK", connectionFailureResult.GenerationStatus);
+        Assert.Empty(connectionFailureResult.Citations);
+        Assert.Contains("kết nối", connectionFailureResult.Answer);
     }
 
     [Fact]
@@ -514,6 +519,13 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
             LastPrompt = userPrompt;
             return Task.FromResult(output ?? "");
         }
+    }
+    private sealed class FailingProvider : IAiTextGenerationProvider
+    {
+        public string ModelVersion => "TEST_REMOTE";
+        public string ConfigurationVersion => "test";
+        public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken ct = default) =>
+            throw new HttpRequestException("Simulated connection failure to AI provider");
     }
     private sealed class DeniedProject : IAiContextRetriever
     {
