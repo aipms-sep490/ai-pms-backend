@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Storage;
 using AIPMS.Application.Common.Models;
@@ -78,7 +79,10 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
         var metadataText = await (await leader.GetAsync($"/api/v1/files/{file.Id}")).Content.ReadAsStringAsync();
         Assert.DoesNotContain("storagePath", metadataText);
         Assert.DoesNotContain("storageKey", metadataText);
-        Assert.Equal(HttpStatusCode.Conflict, (await Submit(leader, d.Id)).StatusCode);
+        var staleSubmit = await Submit(leader, d.Id);
+        Assert.Equal(HttpStatusCode.Conflict, staleSubmit.StatusCode);
+        using (var json = JsonDocument.Parse(await staleSubmit.Content.ReadAsStringAsync()))
+            Assert.Equal("STALE_LATEST_VERSION", json.RootElement.GetProperty("code").GetString());
         Assert.Equal(HttpStatusCode.Conflict, (await leader.DeleteAsync($"/api/v1/files/{file.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await leader.DeleteAsync($"/api/v1/deliverables/{d.Id}")).StatusCode);
         var rejected = await Body<DeliverableFeedbackDto>(await lecturer.PostAsJsonAsync($"/api/v1/deliverable-versions/{v1.Id}/review", new ReviewDeliverableRequest("REJECTED", " Please revise ")));
@@ -86,8 +90,14 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
         var v2 = await Body<DeliverableVersionDto>(await Submit(leader, d.Id, 1));
         Assert.Equal(2, v2.VersionNumber);
         await Body<DeliverableFeedbackDto>(await lecturer.PostAsJsonAsync($"/api/v1/deliverable-versions/{v2.Id}/review", new ReviewDeliverableRequest("ACCEPTED", "Good")));
-        Assert.Equal(HttpStatusCode.Conflict, (await Submit(leader, d.Id, 2)).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, (await leader.PutAsJsonAsync($"/api/v1/deliverables/{d.Id}", Data())).StatusCode);
+        var lockedSubmit = await Submit(leader, d.Id, 2);
+        Assert.Equal(HttpStatusCode.Conflict, lockedSubmit.StatusCode);
+        using (var json = JsonDocument.Parse(await lockedSubmit.Content.ReadAsStringAsync()))
+            Assert.Equal("DELIVERABLE_LOCKED", json.RootElement.GetProperty("code").GetString());
+        var lockedPut = await leader.PutAsJsonAsync($"/api/v1/deliverables/{d.Id}", Data());
+        Assert.Equal(HttpStatusCode.Conflict, lockedPut.StatusCode);
+        using (var json = JsonDocument.Parse(await lockedPut.Content.ReadAsStringAsync()))
+            Assert.Equal("DELIVERABLE_LOCKED", json.RootElement.GetProperty("code").GetString());
         var versions = await Body<PagedResult<DeliverableVersionDto>>(await leader.GetAsync($"/api/v1/deliverables/{d.Id}/versions?pageSize=1&page=2"));
         Assert.Equal(2, versions.TotalCount);
         Assert.Equal(v1.Id, Assert.Single(versions.Items).Id);
@@ -127,13 +137,13 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
     }
 
     [Theory]
-    [InlineData("deadline")]
-    [InlineData("period")]
-    [InlineData("archived")]
-    [InlineData("completed")]
-    [InlineData("membership")]
-    [InlineData("role")]
-    public async Task Submission_rechecks_persisted_prerequisites(string change)
+    [InlineData("deadline", "DELIVERABLE_DEADLINE_PASSED")]
+    [InlineData("period", "EXECUTION_WINDOW_REQUIRED")]
+    [InlineData("archived", "PROJECT_NOT_ACTIVE")]
+    [InlineData("completed", "PROJECT_NOT_ACTIVE")]
+    [InlineData("membership", null)]
+    [InlineData("role", null)]
+    public async Task Submission_rechecks_persisted_prerequisites(string change, string? expectedCode)
     {
         var s = await Seed();
         using var app = new Factory(database);
@@ -155,7 +165,33 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
         }
         var response = await Submit(leader, d.Id);
         Assert.Equal(change is "membership" or "role" ? HttpStatusCode.Forbidden : HttpStatusCode.Conflict, response.StatusCode);
+        if (expectedCode is not null)
+        {
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(expectedCode, json.RootElement.GetProperty("code").GetString());
+        }
         Assert.Empty(app.Storage.Objects);
+    }
+
+    [Fact]
+    public async Task Submission_without_active_execution_window_returns_conflict_with_execution_window_required_code()
+    {
+        var s = await Seed();
+        using var app = new Factory(database);
+        using var leader = app.CreateAuthenticatedClient(s.Accounts.Student);
+        var d = await Body<DeliverableDto>(await Create(leader, s.ProjectId));
+        await using (var db = database.CreateContext())
+        {
+            var period = await db.ProjectPeriods.FindAsync(s.PeriodId);
+            period!.Status = "CLOSED";
+            await db.SaveChangesAsync();
+        }
+
+        var response = await Submit(leader, d.Id);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("EXECUTION_WINDOW_REQUIRED", json.RootElement.GetProperty("code").GetString());
+        Assert.Equal("One active execution window in the current semester is required.", json.RootElement.GetProperty("detail").GetString());
     }
 
     [Fact]

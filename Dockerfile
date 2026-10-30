@@ -13,6 +13,8 @@ RUN groupmod --gid 1000 app && usermod --uid 1000 --gid 1000 app \
     && chown -R app:app /var/lib/aipms /var/log/aipms /home/app
 WORKDIR /app
 COPY --from=build /publish/ ./
+ARG COMMIT_SHA=""
+ENV COMMIT_SHA=${COMMIT_SHA}
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
 USER app

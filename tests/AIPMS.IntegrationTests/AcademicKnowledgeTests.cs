@@ -31,8 +31,10 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         await using var db = fixture.Context();
         var (admin, student, department) = await Seed(db);
         var semester = new AcademicSemester { OrganizationId = department.OrganizationId, Code = Guid.NewGuid().ToString("N"), Name = "Study tools", Status = "ACTIVE", StartDate = new(2026, 1, 1), EndDate = new(2026, 12, 31) };
+        db.AcademicSemesters.Add(semester);
+        await db.SaveChangesAsync();
         var project = new Project { Code = Guid.NewGuid().ToString("N"), Title = "StudySpace", Status = "ACTIVE", CreatedBy = student.Id,
-            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "StudySpace", Status = "LOCKED", CreatedBy = student.Id, AcademicSemester = semester } };
+            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "StudySpace", Status = "LOCKED", CreatedBy = student.Id, AcademicSemesterId = semester.Id, AcademicSemester = semester } };
         db.Add(project); await db.SaveChangesAsync();
         var other = new Department { OrganizationId = department.OrganizationId, Name = "Other", Code = "OTH" + Guid.NewGuid().ToString("N")[..8], IsActive = true };
         db.Add(other); await db.SaveChangesAsync();
@@ -79,8 +81,10 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         await using var db = fixture.Context();
         var (_, student, department) = await Seed(db);
         var semester = new AcademicSemester { OrganizationId = department.OrganizationId, Code = Guid.NewGuid().ToString("N"), Name = "Progress test", Status = "ACTIVE", StartDate = new(2026, 1, 1), EndDate = new(2026, 12, 31) };
+        db.AcademicSemesters.Add(semester);
+        await db.SaveChangesAsync();
         var project = new Project { Code = Guid.NewGuid().ToString("N"), Title = "StudySpace", Status = "ACTIVE", CreatedBy = student.Id,
-            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "StudySpace", Status = "LOCKED", CreatedBy = student.Id, AcademicSemester = semester } };
+            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "StudySpace", Status = "LOCKED", CreatedBy = student.Id, AcademicSemesterId = semester.Id, AcademicSemester = semester } };
         db.Add(project); await db.SaveChangesAsync();
         var service = Service(db, student, context: new AllowedProject());
         var result = await service.AskAsync(new("Tiến độ", "PROJECT", project.Id, ToolMode: "PROGRESS"), default);
@@ -96,9 +100,12 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     public async Task ProjectContextIsNotShownForFailedOrGeneralAnswers(string output, string expectedStatus)
     {
         await using var db = fixture.Context();
-        var (_, student, _) = await Seed(db);
+        var (_, student, department) = await Seed(db);
+        var semester = new AcademicSemester { OrganizationId = department.OrganizationId, Code = Guid.NewGuid().ToString("N"), Name = "Project context", Status = "ACTIVE", StartDate = new(2026, 1, 1), EndDate = new(2026, 12, 31) };
+        db.AcademicSemesters.Add(semester);
+        await db.SaveChangesAsync();
         var project = new Project { Code = Guid.NewGuid().ToString("N"), Title = "StudySpace", Status = "ACTIVE", CreatedBy = student.Id,
-            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "StudySpace", Status = "LOCKED", CreatedBy = student.Id } };
+            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "StudySpace", Status = "LOCKED", CreatedBy = student.Id, AcademicSemesterId = semester.Id, AcademicSemester = semester } };
         db.Add(project); await db.SaveChangesAsync();
         var service = Service(db, student, new Provider(output), context: new AllowedProject());
         var response = await service.AskAsync(new("Xin chào", "COMBINED", project.Id), default);
@@ -432,10 +439,16 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     {
         await using var db = fixture.Context();
         var (_, student, _) = await Seed(db);
-        var result = await Service(db, student, new Provider("not json")).AskAsync(new("Hello"), default);
-        Assert.Equal("FALLBACK", result.GenerationStatus);
-        Assert.Empty(result.Citations);
-        Assert.Contains("kết nối", result.Answer);
+        var invalidJsonResult = await Service(db, student, new Provider("not json")).AskAsync(new("Hello"), default);
+        Assert.Equal("FALLBACK", invalidJsonResult.GenerationStatus);
+        Assert.Empty(invalidJsonResult.Citations);
+        Assert.Contains("câu trả lời hợp lệ", invalidJsonResult.Answer);
+
+        db.ChangeTracker.Clear();
+        var connectionFailureResult = await Service(db, student, new FailingProvider()).AskAsync(new("Hello"), default);
+        Assert.Equal("FALLBACK", connectionFailureResult.GenerationStatus);
+        Assert.Empty(connectionFailureResult.Citations);
+        Assert.Contains("kết nối", connectionFailureResult.Answer);
     }
 
     [Fact]
@@ -532,6 +545,13 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
             LastPrompt = userPrompt;
             return Task.FromResult(output ?? "");
         }
+    }
+    private sealed class FailingProvider : IAiTextGenerationProvider
+    {
+        public string ModelVersion => "TEST_REMOTE";
+        public string ConfigurationVersion => "test";
+        public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken ct = default) =>
+            throw new HttpRequestException("Simulated connection failure to AI provider");
     }
     private sealed class DeniedProject : IAiContextRetriever
     {

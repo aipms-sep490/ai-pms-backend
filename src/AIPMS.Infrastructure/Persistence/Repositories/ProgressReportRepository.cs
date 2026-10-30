@@ -193,7 +193,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
                 });
 
             if (await ExistsForPeriodIdAsync(progressReportPeriodId.Value, null, cancellationToken))
-                throw new ConflictException("A progress report has already been created for this reporting cycle.");
+                throw new ConflictException("A progress report has already been created for this reporting cycle.", WorkflowErrorCodes.ReportAlreadyExistsForCycle);
         }
 
         var entity = new ProgressReport
@@ -225,7 +225,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         }
         catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
-            throw new ConflictException("A progress report for this project, type, and period already exists.");
+            throw new ConflictException("A progress report for this project, type, and period already exists.", WorkflowErrorCodes.ReportAlreadyExistsForPeriod);
         }
 
         var result = (await GetByIdAsync(entity.Id, cancellationToken))!;
@@ -281,7 +281,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             throw new NotFoundException("ProgressReport", id);
 
         if (entity.Status != "DRAFT")
-            throw new ConflictException("Submitted or reviewed progress reports cannot be modified.");
+            throw new ConflictException("Submitted or reviewed progress reports cannot be modified.", WorkflowErrorCodes.ReportNotEditable);
 
         if (progressReportPeriodId.HasValue && progressReportPeriodId.Value != entity.ProgressReportPeriodId)
         {
@@ -315,7 +315,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
                 });
 
             if (await ExistsForPeriodIdAsync(progressReportPeriodId.Value, id, cancellationToken))
-                throw new ConflictException("A progress report has already been created for this reporting cycle.");
+                throw new ConflictException("A progress report has already been created for this reporting cycle.", WorkflowErrorCodes.ReportAlreadyExistsForCycle);
 
             entity.ProgressReportPeriodId = progressReportPeriodId.Value;
         }
@@ -374,10 +374,10 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             throw new NotFoundException("ProgressReport", id);
 
         if (entity.Status != "DRAFT")
-            throw new ConflictException("Progress report is already submitted.");
+            throw new ConflictException("Progress report is already submitted.", WorkflowErrorCodes.ReportAlreadySubmitted);
 
         if (!entity.ProgressReportPeriodId.HasValue)
-            throw new ConflictException("Progress report must be linked to a reporting cycle before submission.");
+            throw new ConflictException("Progress report must be linked to a reporting cycle before submission.", WorkflowErrorCodes.ReportCycleRequired);
 
         var cycle = await context.ProgressReportPeriods
             .FromSqlInterpolated($"SELECT * FROM dbo.progress_report_periods WITH (UPDLOCK, HOLDLOCK) WHERE id = {entity.ProgressReportPeriodId.Value}")
@@ -391,7 +391,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         {
             if (string.Equals(cycle.LatePolicy, "BLOCK", StringComparison.OrdinalIgnoreCase))
             {
-                throw new ConflictException("Submission deadline has passed for this reporting cycle.");
+                throw new ConflictException("Submission deadline has passed for this reporting cycle.", WorkflowErrorCodes.ReportDeadlinePassed);
             }
             entity.IsLate = true;
         }
@@ -472,7 +472,7 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             throw new NotFoundException("ProgressReport", reportId);
 
         if (report.Status == "DRAFT")
-            throw new ConflictException("Cannot provide feedback on a draft progress report.");
+            throw new ConflictException("Cannot provide feedback on a draft progress report.", WorkflowErrorCodes.ReportFeedbackOnDraftNotAllowed);
 
         var feedback = new SupervisorFeedback
         {

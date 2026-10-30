@@ -288,7 +288,9 @@ internal sealed partial class AcademicKnowledgeService(
                 if (!hasEvidence || attachments.Count > 0)
                 {
                     status = answerType = "FALLBACK";
-                    answer = "Mình chưa kết nối được với mô hình AI lúc này. Bạn thử lại sau nhé.";
+                    answer = ex is JsonException
+                        ? "Mình chưa nhận được câu trả lời hợp lệ từ mô hình AI lúc này. Bạn thử lại sau nhé."
+                        : "Mình chưa kết nối được với mô hình AI lúc này. Bạn thử lại sau nhé.";
                     citations = []; projectEvidence = [];
                 }
             }
@@ -303,10 +305,17 @@ internal sealed partial class AcademicKnowledgeService(
                 var currentQuestionSources = await RetrieveCitationsAsync(query, actor.DepartmentId, request.ProjectId, ct);
                 citations = citations.Where(currentQuestionSources.Contains).ToArray();
             }
-            answer = citations.Length > 0
-                ? BuildFallback(citations, [])
-                : "Mình chưa nhận được câu trả lời hợp lệ từ mô hình AI. Bạn thử lại nhé."
+            if (citations.Length > 0)
+            {
+                answer = BuildFallback(citations, []);
+            }
+            else
+            {
+                answer = (answer.Contains("kết nối")
+                    ? "Mình chưa kết nối được với mô hình AI lúc này. Bạn thử lại sau nhé."
+                    : "Mình chưa nhận được câu trả lời hợp lệ từ mô hình AI. Bạn thử lại nhé.")
                     + (request.ProjectId.HasValue ? " Để xem công việc và mốc của đồ án, chọn Tiến độ & deadline." : "");
+            }
         }
         var completed = clock.GetUtcNow().UtcDateTime;
         var demo = citations.Any(c => c.DocumentType == "DEMO");

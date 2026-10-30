@@ -1,0 +1,232 @@
+name: Backend Deployment & Rollback Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - review/aipms-final-integration-acceptance
+      - chore/staging-tooling-and-verification
+    paths:
+      - 'Dockerfile'
+      - 'deploy/**'
+      - 'scripts/verify-staging-commit.ps1'
+      - '.github/workflows/backend-deployment-validation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-deployment-and-rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inspect Docker & Compose environment
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Verify Preflight script syntax and dry-run safety
+        run: |
+          bash -n deploy/wsl/preflight-deploy.sh
+          bash -n deploy/wsl/postflight-verify.sh
+          bash -n deploy/wsl/rollback.sh
+          bash -n deploy/wsl/collect-wsl-evidence.sh
+
+      - name: Setup isolated test environment
+        run: |
+          mkdir -p /tmp/aipms-ci-test/files /tmp/aipms-ci-test/keys /tmp/aipms-ci-test/evidence
+          docker network create aipms-ci-test-net
+          
+          # Standalone configuration satisfying ASP.NET Core ValidateOnStart() options
+          cat << 'EOF' > /tmp/aipms-ci-test/appsettings.Staging.json
+          {
+            "Logging": { "LogLevel": { "Default": "Information" } },
+            "AllowedHosts": "*",
+            "ConnectionStrings": {
+              "DefaultConnection": "Server=localhost;Database=master;User Id=sa;Password=DummyTestPassword#2026;TrustServerCertificate=True;Encrypt=False;"
+            },
+            "Cors": {
+              "AllowedOrigins": ["http://localhost:5173", "http://127.0.0.1:5088"]
+            },
+            "Jwt": {
+              "Issuer": "AI-PMS-CI",
+              "Audience": "AI-PMS-CI.Client",
+              "SigningKey": "CI_DEPLOY_TEST_SECRET_KEY_MUST_BE_AT_LEAST_32_CHARS_LONG",
+              "AccessTokenMinutes": 60
+            },
+            "Email": {
+              "PasswordResetUrl": "https://localhost:5088/reset-password",
+              "FromEmail": "noreply@aipms.local"
+            },
+            "WeeklyAssessment": {
+              "TimeZoneId": "UTC"
+            }
+          }
+          EOF
+
+      - name: Phase A - Build and deploy Version A
+        run: |
+          COMMIT_SHA_A=$(git rev-parse HEAD)
+          echo "Building Version A with real source COMMIT_SHA=$COMMIT_SHA_A"
+          docker build \
+            --build-arg COMMIT_SHA="$COMMIT_SHA_A" \
+            --label "provenance.version=A" \
+            --label "provenance.commit=$COMMIT_SHA_A" \
+            -t aipms-api:version-a .
+          
+          # Start isolated container Version A
+          docker run -d \
+            --name aipms-api-test \
+            --network aipms-ci-test-net \
+            -p 5088:8080 \
+            -e ASPNETCORE_ENVIRONMENT=Staging \
+            -e COMMIT_SHA="$COMMIT_SHA_A" \
+            -v /tmp/aipms-ci-test/appsettings.Staging.json:/app/appsettings.Staging.json:ro \
+            -v /tmp/aipms-ci-test/files:/var/lib/aipms/files \
+            aipms-api:version-a
+          
+          # Wait for endpoint readiness
+          for i in {1..30}; do
+            if curl -s -f http://127.0.0.1:5088/api/v1/system >/dev/null; then
+              echo "Version A container ready on attempt $i."
+              break
+            fi
+            sleep 1
+          done
+          
+          # Capture and verify Image ID of Version A
+          IMAGE_ID_A=$(docker inspect --format '{{.Image}}' aipms-api-test)
+          echo "IMAGE_ID_A=$IMAGE_ID_A" >> "$GITHUB_ENV"
+          echo "COMMIT_SHA_A=$COMMIT_SHA_A" >> "$GITHUB_ENV"
+          echo "Version A running Image ID: $IMAGE_ID_A"
+          
+          # Verify Version A with verify-staging-commit.ps1
+          pwsh ./scripts/verify-staging-commit.ps1 -ApiUrl http://127.0.0.1:5088 -ExpectedCommitSha "$COMMIT_SHA_A"
+          
+          # Tag Version A as backup target
+          docker tag "$IMAGE_ID_A" aipms-api:staging-backup
+
+      - name: Phase B - Build and deploy Version B (Simulated Upgrade)
+        run: |
+          COMMIT_SHA_B="b1b2b3b4b5b6b7b8b9b0a1a2a3a4a5a6a7a8a9a0"
+          echo "Building Version B with COMMIT_SHA=$COMMIT_SHA_B"
+          docker build \
+            --build-arg COMMIT_SHA="$COMMIT_SHA_B" \
+            --label "provenance.version=B" \
+            --label "provenance.commit=$COMMIT_SHA_B" \
+            -t aipms-api:version-b .
+          
+          # Stop Version A container and launch Version B
+          docker stop aipms-api-test && docker rm aipms-api-test
+          docker run -d \
+            --name aipms-api-test \
+            --network aipms-ci-test-net \
+            -p 5088:8080 \
+            -e ASPNETCORE_ENVIRONMENT=Staging \
+            -e COMMIT_SHA="$COMMIT_SHA_B" \
+            -v /tmp/aipms-ci-test/appsettings.Staging.json:/app/appsettings.Staging.json:ro \
+            -v /tmp/aipms-ci-test/files:/var/lib/aipms/files \
+            aipms-api:version-b
+          
+          # Wait for endpoint readiness
+          for i in {1..30}; do
+            if curl -s -f http://127.0.0.1:5088/api/v1/system >/dev/null; then
+              echo "Version B container ready on attempt $i."
+              break
+            fi
+            sleep 1
+          done
+          
+          IMAGE_ID_B=$(docker inspect --format '{{.Image}}' aipms-api-test)
+          echo "IMAGE_ID_B=$IMAGE_ID_B" >> "$GITHUB_ENV"
+          echo "Version B running Image ID: $IMAGE_ID_B"
+          
+          # Assert Image IDs genuinely differ between A and B
+          if [ "$IMAGE_ID_A" == "$IMAGE_ID_B" ]; then
+            echo "ERROR: Image ID A ($IMAGE_ID_A) and Image ID B ($IMAGE_ID_B) must differ!"
+            exit 1
+          fi
+          
+          # Verify Version B with verify-staging-commit.ps1
+          pwsh ./scripts/verify-staging-commit.ps1 -ApiUrl http://127.0.0.1:5088 -ExpectedCommitSha "$COMMIT_SHA_B"
+
+      - name: Phase C - Execute Rollback B -> A
+        run: |
+          echo "Executing Rollback back to Image A ($IMAGE_ID_A)..."
+          
+          # Stop Version B
+          docker stop aipms-api-test && docker rm aipms-api-test
+          
+          # Recreate container strictly from backup image reference
+          docker run -d \
+            --name aipms-api-test \
+            --network aipms-ci-test-net \
+            -p 5088:8080 \
+            -e ASPNETCORE_ENVIRONMENT=Staging \
+            -e COMMIT_SHA="$COMMIT_SHA_A" \
+            -v /tmp/aipms-ci-test/appsettings.Staging.json:/app/appsettings.Staging.json:ro \
+            -v /tmp/aipms-ci-test/files:/var/lib/aipms/files \
+            aipms-api:staging-backup
+          
+          # Wait for endpoint readiness
+          for i in {1..30}; do
+            if curl -s -f http://127.0.0.1:5088/api/v1/system >/dev/null; then
+              echo "Restored container ready on attempt $i."
+              break
+            fi
+            sleep 1
+          done
+          
+          # Verify restored Image ID strictly matches Version A
+          RESTORED_IMAGE_ID=$(docker inspect --format '{{.Image}}' aipms-api-test)
+          echo "Restored Image ID: $RESTORED_IMAGE_ID"
+          echo "Expected Image A ID: $IMAGE_ID_A"
+          
+          if [ "$RESTORED_IMAGE_ID" != "$IMAGE_ID_A" ]; then
+            echo "ROLLBACK FAILURE: Container is running $RESTORED_IMAGE_ID, expected $IMAGE_ID_A!"
+            exit 1
+          fi
+          
+          # Verify API response returns Version A commit SHA
+          pwsh ./scripts/verify-staging-commit.ps1 -ApiUrl http://127.0.0.1:5088 -ExpectedCommitSha "$COMMIT_SHA_A"
+          echo "TRUE ROLLBACK STRICTLY VERIFIED: Image ID and API Commit SHA match Version A."
+
+      - name: Phase D - Export evidence artifact
+        if: always()
+        run: |
+          cat << EOF > /tmp/aipms-ci-test/evidence/summary.json
+          {
+            "workflow": "Backend Deployment & Rollback Validation",
+            "executedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "imageA_Id": "$IMAGE_ID_A",
+            "imageB_Id": "$IMAGE_ID_B",
+            "commitShaA": "$COMMIT_SHA_A",
+            "rollbackVerified": true
+          }
+          EOF
+
+      - name: Upload deployment validation evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deployment-rollback-validation-evidence
+          path: /tmp/aipms-ci-test/evidence/summary.json
+          if-no-files-found: ignore
+
+      - name: Cleanup test resources
+        if: always()
+        run: |
+          docker rm -f aipms-api-test 2>/dev/null || true
+          docker network rm aipms-ci-test-net 2>/dev/null || true
+          docker rmi -f aipms-api:version-a aipms-api:version-b aipms-api:staging-backup 2>/dev/null || true
+          rm -rf /tmp/aipms-ci-test

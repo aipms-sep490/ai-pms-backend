@@ -41,18 +41,19 @@ public sealed class DeliverableHandlerTests
     }
 
     [Theory]
-    [InlineData("staleVersion")]
-    [InlineData("closed")]
-    [InlineData("deadline")]
-    [InlineData("noPeriod")]
-    public async Task Invalid_submission_cannot_write_file_or_audit(string reason)
+    [InlineData("staleVersion", WorkflowErrorCodes.StaleLatestVersion)]
+    [InlineData("closed", WorkflowErrorCodes.DeliverableLocked)]
+    [InlineData("deadline", WorkflowErrorCodes.DeliverableDeadlinePassed)]
+    [InlineData("noPeriod", WorkflowErrorCodes.ExecutionWindowRequired)]
+    public async Task Invalid_submission_cannot_write_file_or_audit(string reason, string expectedCode)
     {
         var f = new Fixture();
         if (reason == "staleVersion") f.Repository.Item = f.Repository.Item with { LatestVersion = 3 };
         if (reason == "closed") f.Repository.Item = f.Repository.Item with { Status = "CLOSED" };
         if (reason == "deadline") f.Repository.Item = f.Repository.Item with { DueAt = DateTime.UnixEpoch };
         if (reason == "noPeriod") f.Repository.HasWindow = false;
-        await Assert.ThrowsAsync<ConflictException>(() => f.Submit());
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => f.Submit());
+        Assert.Equal(expectedCode, ex.Code);
         Assert.Equal(0, f.Storage.Writes);
         Assert.Empty(f.Audit.Entries);
     }
