@@ -44,7 +44,7 @@ internal sealed partial class ResultAppealService(AipmsDbContext db, IEvaluation
         var actor = await transactions.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
         var project = await transactions.GetProjectAsync(projectId, ct) ?? throw new NotFoundException("Project", projectId);
         if (!project.ActiveScope || project.ScopeProvenance != "FROZEN_REGISTRATION_SNAPSHOT")
-            throw new ConflictException("Frozen academic scope required.", "ACADEMIC_SCOPE_UNKNOWN");
+            throw new ConflictException("Frozen academic scope required.", WorkflowErrorCodes.AcademicScopeUnknown);
         var student = await db.Set<StudentResult>().AnyAsync(r => r.ProjectId == projectId && r.StudentId == Actor, ct)
             && await db.UserRoles.AnyAsync(r => r.UserId == Actor && r.Role.Code == "STUDENT", ct);
         var primary = await db.SupervisorAssignments.AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null && a.IsPrimary

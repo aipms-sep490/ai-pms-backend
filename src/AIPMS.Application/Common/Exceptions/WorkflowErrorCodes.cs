@@ -11,6 +11,9 @@ public static class WorkflowErrorCodes
     public const string FinalizedAssignment = "FINALIZED_ASSIGNMENT";
     public const string ArchiveNotAllowed = "ARCHIVE_NOT_ALLOWED";
 
+    // Academic Scope
+    public const string AcademicScopeUnknown = "ACADEMIC_SCOPE_UNKNOWN";
+
     // Deliverables
     public const string ExecutionWindowRequired = "EXECUTION_WINDOW_REQUIRED";
     public const string ProjectNotActive = "PROJECT_NOT_ACTIVE";

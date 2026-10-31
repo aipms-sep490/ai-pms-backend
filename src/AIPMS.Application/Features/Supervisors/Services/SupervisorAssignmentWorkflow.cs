@@ -61,7 +61,7 @@ public sealed class SupervisorAssignmentWorkflow(ISupervisorAssignmentRepository
                     && await repository.IsAssignmentDepartmentAsync(before.Id, departmentId, token));
             if (!permitted) throw new ForbiddenException("You cannot end this supervisor assignment.");
             if (before.EndedAt.HasValue) return await WithCapabilitiesAsync(actor, before, token);
-            if (!before.HasKnownAcademicScope) throw new ConflictException("ACADEMIC_SCOPE_UNKNOWN");
+            if (!before.HasKnownAcademicScope) throw new ConflictException("Academic scope is not frozen.", WorkflowErrorCodes.AcademicScopeUnknown);
             if (before.ProjectStatus != "ACTIVE")
                 throw new ConflictException("Only assignments on ACTIVE projects can be ended. Completed and archived projects are read-only.");
             var now = clock.GetUtcNow().UtcDateTime;

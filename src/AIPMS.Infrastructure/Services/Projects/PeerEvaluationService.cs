@@ -40,7 +40,7 @@ internal sealed class PeerEvaluationService(AipmsDbContext db, IEvaluationDraftR
         var staff = AcademicAuthority.HasScope(actor, project);
         if (!student && !primary.HasValue && !staff) throw new ForbiddenException("Peer evaluations require membership, Primary assignment or frozen department scope.");
         if (!project.ActiveScope || project.ScopeProvenance != "FROZEN_REGISTRATION_SNAPSHOT")
-            throw new ConflictException("Peer evaluations require frozen academic scope.", "ACADEMIC_SCOPE_UNKNOWN");
+            throw new ConflictException("Peer evaluations require frozen academic scope.", WorkflowErrorCodes.AcademicScopeUnknown);
         return new(project, student, primary, AcademicAuthority.IsLead(actor, project), staff ? actor.DepartmentId : null);
     }
     private static bool Writable(Access access) => access.Project.Status is "ACTIVE" or "FINAL_SUBMISSION";

@@ -243,7 +243,7 @@ public sealed partial class ProjectRepository
         var snapshot = await LatestRegistrationAsync(project.Id, ct)
             ?? throw new ConflictException("This proposal must be submitted with a current academic scope snapshot.");
         var evidence = Services.Projects.ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson)
-            ?? throw new ConflictException("ACADEMIC_SCOPE_UNKNOWN");
+            ?? throw new ConflictException("Academic scope is not frozen.", WorkflowErrorCodes.AcademicScopeUnknown);
         if (departmentId != evidence.Scope.LeadDepartmentId)
             throw new ForbiddenException("Only the lead department can change the proposal review state; participating departments record their own decision.");
         if (newStatus == "APPROVED" && evidence.Scope.ProjectMode == "INTERDISCIPLINARY"
@@ -261,7 +261,7 @@ public sealed partial class ProjectRepository
         var snapshot = await LatestRegistrationAsync(projectId, ct);
         if (snapshot is null || snapshot.Id != request.SnapshotId) throw new ConflictException("The submission has changed. Review the latest snapshot.");
         if (Services.Projects.ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson) is null)
-            throw new ConflictException("ACADEMIC_SCOPE_UNKNOWN");
+            throw new ConflictException("Academic scope is not frozen.", WorkflowErrorCodes.AcademicScopeUnknown);
         var departmentId = await RequireAcademicReviewerAsync(actorId, ct);
         var decision = snapshot.Decisions.SingleOrDefault(d => d.DepartmentId == departmentId)
             ?? throw new ForbiddenException("Your department is not a required reviewer for this submission.");

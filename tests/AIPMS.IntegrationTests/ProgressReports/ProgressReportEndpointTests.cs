@@ -725,4 +725,259 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
     }
 
     #endregion
+
+    #region Specific 409 Conflict Error Code Contract Tests
+
+    [Fact]
+    public async Task Submit_DraftWithoutReportingCycle_Returns409Conflict_WithReportCycleRequired()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student);
+
+        var periodStart = DateOnly.FromDateTime(Now.AddDays(-7));
+        var periodEnd = DateOnly.FromDateTime(Now);
+
+        var createRequest = new CreateProgressReportRequest(
+            "WEEKLY",
+            periodStart,
+            periodEnd,
+            "Draft without cycle",
+            "Completed work",
+            "Planned work",
+            "No blockers",
+            ProgressReportPeriodId: null,
+            InProgressWork: "Ongoing",
+            Blockers: "None",
+            Risks: "None",
+            NextActions: "Next actions");
+
+        var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var created = await createResponse.Content.ReadFromJsonAsync<ProgressReportDto>();
+        Assert.NotNull(created);
+        Assert.Null(created.ProgressReportPeriodId);
+
+        var submitResponse = await leaderClient.PostAsync($"/api/v1/progress-reports/{created.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.Conflict, submitResponse.StatusCode);
+        using var json = JsonDocument.Parse(await submitResponse.Content.ReadAsStringAsync());
+        Assert.Equal("REPORT_CYCLE_REQUIRED", json.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Submit_AfterReportingCycleDeadline_WhenLatePolicyBlock_Returns409Conflict_WithReportDeadlinePassed()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student);
+
+        var periodStart = DateOnly.FromDateTime(Now.AddDays(-14));
+        var periodEnd = DateOnly.FromDateTime(Now.AddDays(-7));
+        long expiredCycleId;
+
+        await using (var db = database.CreateContext())
+        {
+            var projectPeriod = await db.ProjectPeriods.FirstAsync();
+            var expiredCycle = new ProgressReportPeriod
+            {
+                ProjectId = s.ProjectId,
+                ProjectPeriodId = projectPeriod.Id,
+                ReportType = "WEEKLY",
+                PeriodStart = periodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                PeriodEnd = periodEnd.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                Deadline = DateTime.UtcNow.AddDays(-1),
+                LatePolicy = "BLOCK",
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            db.ProgressReportPeriods.Add(expiredCycle);
+            await db.SaveChangesAsync();
+            expiredCycleId = expiredCycle.Id;
+        }
+
+        var createRequest = new CreateProgressReportRequest(
+            "WEEKLY",
+            periodStart,
+            periodEnd,
+            "Draft for expired cycle",
+            "Completed work",
+            "Planned work",
+            "No blockers",
+            ProgressReportPeriodId: expiredCycleId,
+            InProgressWork: "Ongoing",
+            Blockers: "None",
+            Risks: "None",
+            NextActions: "Next actions");
+
+        var createResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", createRequest);
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var created = await createResponse.Content.ReadFromJsonAsync<ProgressReportDto>();
+        Assert.NotNull(created);
+
+        var submitResponse = await leaderClient.PostAsync($"/api/v1/progress-reports/{created.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.Conflict, submitResponse.StatusCode);
+        using var json = JsonDocument.Parse(await submitResponse.Content.ReadAsStringAsync());
+        Assert.Equal("REPORT_DEADLINE_PASSED", json.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Create_DuplicateReportForSameReportingCycle_Returns409Conflict_WithReportAlreadyExistsForCycle()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student);
+
+        var periodStart = DateOnly.FromDateTime(Now.AddDays(-7));
+        var periodEnd = DateOnly.FromDateTime(Now);
+        long cycleId;
+
+        await using (var db = database.CreateContext())
+        {
+            var projectPeriod = await db.ProjectPeriods.FirstAsync();
+            var cycle = new ProgressReportPeriod
+            {
+                ProjectId = s.ProjectId,
+                ProjectPeriodId = projectPeriod.Id,
+                ReportType = "WEEKLY",
+                PeriodStart = periodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                PeriodEnd = periodEnd.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                Deadline = DateTime.UtcNow.AddDays(14),
+                LatePolicy = "BLOCK",
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = s.Accounts.Student,
+                CreatedAt = Now,
+                UpdatedAt = Now
+            };
+            db.ProgressReportPeriods.Add(cycle);
+            await db.SaveChangesAsync();
+            cycleId = cycle.Id;
+        }
+
+        var firstRequest = new CreateProgressReportRequest(
+            "WEEKLY",
+            periodStart,
+            periodEnd,
+            "First report for cycle",
+            "Completed work",
+            "Planned work",
+            "No blockers",
+            ProgressReportPeriodId: cycleId,
+            InProgressWork: "Ongoing",
+            Blockers: "None",
+            Risks: "None",
+            NextActions: "Next actions");
+
+        var firstResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", firstRequest);
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+        var duplicateRequest = new CreateProgressReportRequest(
+            "WEEKLY",
+            periodStart,
+            periodEnd,
+            "Duplicate report for cycle",
+            "Completed work 2",
+            "Planned work 2",
+            "No blockers",
+            ProgressReportPeriodId: cycleId,
+            InProgressWork: "Ongoing",
+            Blockers: "None",
+            Risks: "None",
+            NextActions: "Next actions");
+
+        var duplicateResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", duplicateRequest);
+        Assert.Equal(HttpStatusCode.Conflict, duplicateResponse.StatusCode);
+        using var json = JsonDocument.Parse(await duplicateResponse.Content.ReadAsStringAsync());
+        Assert.Equal("REPORT_ALREADY_EXISTS_FOR_CYCLE", json.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Create_DuplicateReportForSamePeriodWithoutCycle_Returns409Conflict_WithReportAlreadyExistsForPeriod()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student);
+
+        var periodStart = DateOnly.FromDateTime(Now.AddDays(-21));
+        var periodEnd = DateOnly.FromDateTime(Now.AddDays(-14));
+
+        var firstRequest = new CreateProgressReportRequest(
+            "WEEKLY",
+            periodStart,
+            periodEnd,
+            "First report for period",
+            "Completed work",
+            "Planned work",
+            "No blockers",
+            ProgressReportPeriodId: null,
+            InProgressWork: "Ongoing",
+            Blockers: "None",
+            Risks: "None",
+            NextActions: "Next actions");
+
+        var firstResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", firstRequest);
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+        var duplicateRequest = new CreateProgressReportRequest(
+            "WEEKLY",
+            periodStart,
+            periodEnd,
+            "Second report for same period",
+            "Completed work 2",
+            "Planned work 2",
+            "No blockers",
+            ProgressReportPeriodId: null,
+            InProgressWork: "Ongoing",
+            Blockers: "None",
+            Risks: "None",
+            NextActions: "Next actions");
+
+        var duplicateResponse = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", duplicateRequest);
+        Assert.Equal(HttpStatusCode.Conflict, duplicateResponse.StatusCode);
+        using var json = JsonDocument.Parse(await duplicateResponse.Content.ReadAsStringAsync());
+        Assert.Equal("REPORT_ALREADY_EXISTS_FOR_PERIOD", json.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task AddFeedback_OnDraftProgressReport_Returns409Conflict_WithReportFeedbackOnDraftNotAllowed()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var supervisorClient = app.CreateAuthenticatedClient(s.Accounts.Lecturer);
+
+        long draftReportId;
+        await using (var db = database.CreateContext())
+        {
+            var draft = new M.ProgressReport
+            {
+                ProjectId = s.ProjectId,
+                SubmittedBy = s.Accounts.Student,
+                ReportType = "WEEKLY",
+                PeriodStart = DateOnly.FromDateTime(Now.AddDays(-7)),
+                PeriodEnd = DateOnly.FromDateTime(Now),
+                Summary = "Draft for supervisor feedback guard",
+                CompletedWork = "Completed",
+                InProgressWork = "Ongoing",
+                Blockers = "None",
+                Risks = "None",
+                NextActions = "Next",
+                Status = "DRAFT",
+                CreatedAt = Now,
+                UpdatedAt = Now,
+                ConcurrencyToken = Guid.NewGuid()
+            };
+            db.ProgressReports.Add(draft);
+            await db.SaveChangesAsync();
+            draftReportId = draft.Id;
+        }
+
+        var feedbackRequest = new AddProgressReportFeedbackRequest("Premature supervisor feedback");
+        var feedbackResponse = await supervisorClient.PostAsJsonAsync($"/api/v1/progress-reports/{draftReportId}/feedback", feedbackRequest);
+        Assert.Equal(HttpStatusCode.Conflict, feedbackResponse.StatusCode);
+        using var json = JsonDocument.Parse(await feedbackResponse.Content.ReadAsStringAsync());
+        Assert.Equal("REPORT_FEEDBACK_ON_DRAFT_NOT_ALLOWED", json.RootElement.GetProperty("code").GetString());
+    }
+
+    #endregion
 }

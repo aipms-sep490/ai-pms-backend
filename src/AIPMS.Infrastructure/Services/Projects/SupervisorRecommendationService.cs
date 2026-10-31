@@ -42,7 +42,7 @@ internal sealed class SupervisorRecommendationService(AipmsDbContext db, Supervi
         var actor = await access.EnsureCanReadAsync(ct);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: true);
         if (scope.Provenance != "FROZEN_REGISTRATION_SNAPSHOT")
-            throw new ConflictException("Frozen academic scope is required.", "ACADEMIC_SCOPE_UNKNOWN");
+            throw new ConflictException("Frozen academic scope is required.", WorkflowErrorCodes.AcademicScopeUnknown);
         var assignments = await db.SupervisorAssignments.AsNoTracking().Where(a => a.ProjectId == projectId
             && a.EndedAt == null && a.SupervisorProfile.UserId == actor.UserId)
             .Select(a => new { a.IsPrimary, a.AssignmentType, a.MajorId }).ToArrayAsync(ct);

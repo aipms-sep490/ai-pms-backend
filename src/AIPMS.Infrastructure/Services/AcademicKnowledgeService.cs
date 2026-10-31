@@ -170,6 +170,7 @@ internal sealed partial class AcademicKnowledgeService(
         AssistantDraftDto? draft = null;
         var answer = "Chưa có đủ nguồn phù hợp để trả lời. Hãy liên hệ Khoa để xác nhận quy định, thời hạn hoặc tiêu chí áp dụng.";
         var hasEvidence = citations.Length > 0 || projectEvidence.Length > 0;
+        var isConnectionFailure = false;
         // Preserve retrieved evidence in the audit snapshot, but display only cited sources.
         var retrievedCitations = citations;
         var retrievedProjectEvidence = projectEvidence;
@@ -285,12 +286,13 @@ internal sealed partial class AcademicKnowledgeService(
             {
                 logger?.LogWarning("Assistant generation fallback: {FailureType}; {FailureLocation}", ex.GetType().Name, ex.StackTrace);
                 draft = null;
+                isConnectionFailure = ex is not JsonException;
                 if (!hasEvidence || attachments.Count > 0)
                 {
                     status = answerType = "FALLBACK";
-                    answer = ex is JsonException
-                        ? "Mình chưa nhận được câu trả lời hợp lệ từ mô hình AI lúc này. Bạn thử lại sau nhé."
-                        : "Mình chưa kết nối được với mô hình AI lúc này. Bạn thử lại sau nhé.";
+                    answer = isConnectionFailure
+                        ? "Mình chưa kết nối được với mô hình AI lúc này. Bạn thử lại sau nhé."
+                        : "Mình chưa nhận được câu trả lời hợp lệ từ mô hình AI lúc này. Bạn thử lại sau nhé.";
                     citations = []; projectEvidence = [];
                 }
             }
@@ -311,7 +313,7 @@ internal sealed partial class AcademicKnowledgeService(
             }
             else
             {
-                answer = (answer.Contains("kết nối")
+                answer = (isConnectionFailure
                     ? "Mình chưa kết nối được với mô hình AI lúc này. Bạn thử lại sau nhé."
                     : "Mình chưa nhận được câu trả lời hợp lệ từ mô hình AI. Bạn thử lại nhé.")
                     + (request.ProjectId.HasValue ? " Để xem công việc và mốc của đồ án, chọn Tiến độ & deadline." : "");
