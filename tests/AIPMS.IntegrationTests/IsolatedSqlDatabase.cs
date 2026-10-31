@@ -79,7 +79,11 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                 SqlConnection.ClearPool(ownedPool);
             }
             await using var connection = new SqlConnection(masterConnection);
-            await connection.OpenAsync();
+            for (var attempt = 0; ; attempt++)
+            {
+                try { await connection.OpenAsync(); break; }
+                catch (SqlException) when (attempt < 4) { await Task.Delay(500); }
+            }
             await using var command = connection.CreateCommand();
             command.CommandTimeout = 180;
             command.CommandText = $"""
