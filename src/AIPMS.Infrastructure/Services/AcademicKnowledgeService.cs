@@ -1,3 +1,6 @@
+using System.IO;
+using System.Net.Http;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -286,7 +289,7 @@ internal sealed partial class AcademicKnowledgeService(
             {
                 logger?.LogWarning("Assistant generation fallback: {FailureType}; {FailureLocation}", ex.GetType().Name, ex.StackTrace);
                 draft = null;
-                isConnectionFailure = ex is not JsonException;
+                isConnectionFailure = ex is HttpRequestException or TimeoutException or IOException or SocketException or OperationCanceledException;
                 if (!hasEvidence || attachments.Count > 0)
                 {
                     status = answerType = "FALLBACK";

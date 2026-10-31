@@ -452,6 +452,50 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     }
 
     [Fact]
+    public async Task FallbackWithEvidenceContainingConnectKeyword_DoesNotTriggerNetworkErrorMessageAndDoesNotLeakEvidence()
+    {
+        await using var db = fixture.Context();
+        var (_, student, department) = await Seed(db);
+        var semester = new AcademicSemester { OrganizationId = department.OrganizationId, Code = Guid.NewGuid().ToString("N"), Name = "Connect test", Status = "ACTIVE", StartDate = new(2026, 1, 1), EndDate = new(2026, 12, 31) };
+        db.AcademicSemesters.Add(semester);
+        await db.SaveChangesAsync();
+        var project = new Project { Code = Guid.NewGuid().ToString("N"), Title = "ConnectSpace", Status = "ACTIVE", CreatedBy = student.Id,
+            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "ConnectSpace", Status = "LOCKED", CreatedBy = student.Id, AcademicSemesterId = semester.Id, AcademicSemester = semester } };
+        db.Add(project); await db.SaveChangesAsync();
+
+        var retriever = new ConnectKeywordProjectContextRetriever();
+
+        // 1. Invalid JSON output from provider ("not json")
+        var invalidJsonService = Service(db, student, new Provider("not json"), context: retriever);
+        var invalidJsonResponse = await invalidJsonService.AskAsync(new("Xin chào", "COMBINED", project.Id), default);
+        Assert.Equal("FALLBACK", invalidJsonResponse.GenerationStatus);
+        Assert.Empty(invalidJsonResponse.ProjectEvidence);
+        Assert.Empty(invalidJsonResponse.Citations);
+        Assert.Contains("câu trả lời hợp lệ", invalidJsonResponse.Answer);
+        Assert.DoesNotContain("kết nối được với mô hình AI", invalidJsonResponse.Answer);
+        Assert.DoesNotContain("kết nối doanh nghiệp", invalidJsonResponse.Answer);
+
+        // 2. Valid JSON but missing required properties (KeyNotFoundException)
+        var invalidSchemaService = Service(db, student, new Provider("""{"unexpected":"payload"}"""), context: retriever);
+        var invalidSchemaResponse = await invalidSchemaService.AskAsync(new("Xin chào", "COMBINED", project.Id), default);
+        Assert.Equal("FALLBACK", invalidSchemaResponse.GenerationStatus);
+        Assert.Empty(invalidSchemaResponse.ProjectEvidence);
+        Assert.Empty(invalidSchemaResponse.Citations);
+        Assert.Contains("câu trả lời hợp lệ", invalidSchemaResponse.Answer);
+        Assert.DoesNotContain("kết nối được với mô hình AI", invalidSchemaResponse.Answer);
+        Assert.DoesNotContain("kết nối doanh nghiệp", invalidSchemaResponse.Answer);
+
+        // 3. True network transport failure (HttpRequestException)
+        var connectionFailService = Service(db, student, new FailingProvider(), context: retriever);
+        var connectionFailResponse = await connectionFailService.AskAsync(new("Xin chào", "COMBINED", project.Id), default);
+        Assert.Equal("FALLBACK", connectionFailResponse.GenerationStatus);
+        Assert.Empty(connectionFailResponse.ProjectEvidence);
+        Assert.Empty(connectionFailResponse.Citations);
+        Assert.Contains("kết nối được với mô hình AI", connectionFailResponse.Answer);
+        Assert.DoesNotContain("kết nối doanh nghiệp", connectionFailResponse.Answer);
+    }
+
+    [Fact]
     public async Task UploadAnswersAreLabelledAndExportIsOwnerOnly()
     {
         await using var db = fixture.Context();
@@ -552,6 +596,17 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         public string ConfigurationVersion => "test";
         public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken ct = default) =>
             throw new HttpRequestException("Simulated connection failure to AI provider");
+    }
+    private sealed class ConnectKeywordProjectContextRetriever : IAiContextRetriever
+    {
+        public Task<ProjectBoundedContext> RetrieveProjectContextAsync(long id, string query, CancellationToken ct = default)
+        {
+            var payload = new ProjectEvidencePayload(id, "ACTIVE", 30, 3, true, [],
+                [new("TASK-1", 1, "Công việc kết nối doanh nghiệp", "TODO", null, "2026-10-20", true, false, null)], [], [], null);
+            return Task.FromResult(new ProjectBoundedContext(id, "ACTIVE", [new("TASK", "TASK-1", "Công việc kết nối doanh nghiệp", "2026-10-20", null, "Quá hạn")],
+                System.Text.Json.JsonSerializer.Serialize(payload), true, 1, 30, 3, true));
+        }
+        public Task<ReportBoundedContext> RetrieveReportContextAsync(long id, long report, CancellationToken ct = default) => throw new NotSupportedException();
     }
     private sealed class DeniedProject : IAiContextRetriever
     {

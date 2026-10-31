@@ -193,4 +193,27 @@ public sealed partial class SupervisorRequestEndpointTests
         var filtered = await Body<SupervisorRecommendationPreview>(await leader.GetAsync(url + "?pageSize=1"));
         Assert.Equal(1, filtered.Candidates.TotalCount); Assert.Equal(other, Assert.Single(filtered.Candidates.Items).Candidate.Id);
     }
+
+    [Fact]
+    public async Task Recommendations_without_frozen_academic_scope_returns_409_with_AcademicScopeUnknown()
+    {
+        var s = await database.SeedAsync();
+        var p = await SeedProject(s);
+        using var app = new SupervisorFactory(database, clock: new Clock());
+        EnableRecommendations(app);
+        using var leader = app.CreateAuthenticatedClient(p.LeaderId);
+        var url = Recommendations(p.Id);
+
+        var getResponse = await leader.GetAsync(url);
+        Assert.Equal(HttpStatusCode.Conflict, getResponse.StatusCode);
+        var getJson = await getResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonDocument>();
+        Assert.NotNull(getJson);
+        Assert.Equal("ACADEMIC_SCOPE_UNKNOWN", getJson.RootElement.GetProperty("code").GetString());
+
+        var postResponse = await leader.PostAsJsonAsync(url, new SupervisorRecommendationRequest());
+        Assert.Equal(HttpStatusCode.Conflict, postResponse.StatusCode);
+        var postJson = await postResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonDocument>();
+        Assert.NotNull(postJson);
+        Assert.Equal("ACADEMIC_SCOPE_UNKNOWN", postJson.RootElement.GetProperty("code").GetString());
+    }
 }

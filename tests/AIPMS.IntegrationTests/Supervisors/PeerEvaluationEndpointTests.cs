@@ -147,4 +147,21 @@ public sealed partial class SupervisorRequestEndpointTests
         Assert.Equal(HttpStatusCode.Conflict, (await primary.PostAsJsonAsync(url + $"/rounds/{round.Id}/close", new PeerTokenRequest(round.ConcurrencyToken))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await leader.GetAsync(url + $"/mine?roundId={round.Id}")).StatusCode);
     }
+
+    [Fact]
+    public async Task Peer_without_frozen_academic_scope_returns_409_with_AcademicScopeUnknown()
+    {
+        var s = await database.SeedAsync();
+        var p = await SeedProject(s);
+        using var app = new SupervisorFactory(database, clock: new Clock());
+        EnablePeer(app);
+        using var leader = app.CreateAuthenticatedClient(p.LeaderId);
+        var url = Peer(p.Id);
+
+        var response = await leader.GetAsync(url + "/mine");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var json = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonDocument>();
+        Assert.NotNull(json);
+        Assert.Equal("ACADEMIC_SCOPE_UNKNOWN", json.RootElement.GetProperty("code").GetString());
+    }
 }
