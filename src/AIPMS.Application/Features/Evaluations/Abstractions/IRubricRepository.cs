@@ -21,4 +21,9 @@ public interface IRubricRepository
     Task<RubricRecord> SetStatusAsync(long id, string status, DateTime now, CancellationToken ct);
     Task DeleteAsync(long id, CancellationToken ct);
     Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken ct);
+    Task<long?> GetMajorDepartmentIdAsync(long majorId, CancellationToken ct);
+    Task<RubricApprovalRecord?> GetLatestApprovalAsync(long rubricId, CancellationToken ct);
+    Task SubmitForApprovalAsync(long rubricId, long actorId, DateTime now, CancellationToken ct);
+    Task ApproveAsync(long rubricId, long approvalId, long actorId, string? approvalReference, DateTime now, CancellationToken ct);
+    Task RejectAsync(long rubricId, long approvalId, long actorId, string reason, DateTime now, CancellationToken ct);
 }

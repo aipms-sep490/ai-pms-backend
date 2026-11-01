@@ -10,6 +10,9 @@ public sealed record PublishRubricCommand(long Id, string ConcurrencyToken) : IR
 public sealed record RetireRubricCommand(long Id, string ConcurrencyToken) : IRequest<RubricDto>;
 public sealed record CreateRubricVersionCommand(long Id, CreateRubricVersionRequest Input) : IRequest<RubricDto>;
 public sealed record DeleteRubricCommand(long Id, string ConcurrencyToken) : IRequest;
+public sealed record SubmitRubricForApprovalCommand(long Id, SubmitRubricForApprovalRequest Input) : IRequest<RubricDto>;
+public sealed record ApproveRubricCommand(long Id, ApproveRubricRequest Input) : IRequest<RubricDto>;
+public sealed record RejectRubricCommand(long Id, RejectRubricRequest Input) : IRequest<RubricDto>;
 
 public sealed class CreateRubricCommandHandler(RubricWorkflow workflow) : IRequestHandler<CreateRubricCommand, RubricDto>
 {
@@ -34,4 +37,16 @@ public sealed class CreateRubricVersionCommandHandler(RubricWorkflow workflow) :
 public sealed class DeleteRubricCommandHandler(RubricWorkflow workflow) : IRequestHandler<DeleteRubricCommand>
 {
     public async Task Handle(DeleteRubricCommand r, CancellationToken ct) => await workflow.Delete(r.Id, r.ConcurrencyToken, ct);
+}
+public sealed class SubmitRubricForApprovalCommandHandler(RubricWorkflow workflow) : IRequestHandler<SubmitRubricForApprovalCommand, RubricDto>
+{
+    public Task<RubricDto> Handle(SubmitRubricForApprovalCommand r, CancellationToken ct) => workflow.SubmitForApproval(r.Id, r.Input, ct);
+}
+public sealed class ApproveRubricCommandHandler(RubricWorkflow workflow) : IRequestHandler<ApproveRubricCommand, RubricDto>
+{
+    public Task<RubricDto> Handle(ApproveRubricCommand r, CancellationToken ct) => workflow.Approve(r.Id, r.Input, ct);
+}
+public sealed class RejectRubricCommandHandler(RubricWorkflow workflow) : IRequestHandler<RejectRubricCommand, RubricDto>
+{
+    public Task<RubricDto> Handle(RejectRubricCommand r, CancellationToken ct) => workflow.Reject(r.Id, r.Input, ct);
 }

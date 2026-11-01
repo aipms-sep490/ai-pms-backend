@@ -24,10 +24,11 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
                 u.Id, u.DepartmentId,
                 Admin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"),
                 Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"),
+                OrganizationId = u.Department != null ? (long?)u.Department.OrganizationId : null,
                 ActiveScope = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
             }).SingleOrDefaultAsync(ct);
         if (user is null || (!user.Admin && (!user.Staff || !user.ActiveScope))) return null;
-        return new(user.Id, user.Admin, user.DepartmentId);
+        return new(user.Id, user.Admin, user.DepartmentId, user.OrganizationId);
     }
 
     public async Task<RubricScope?> GetScopeAsync(long departmentId, long semesterId, CancellationToken ct) =>
@@ -38,10 +39,19 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
                    && department.OrganizationId == semester.OrganizationId
                select new RubricScope(department.Id, department.OrganizationId, semester.Status)).SingleOrDefaultAsync(ct);
 
-    private IQueryable<M.Rubric> Visible(RubricActor actor) => context.Rubrics.AsNoTracking()
-        .Where(r => actor.IsAdmin || (r.DepartmentId == actor.DepartmentId
-            && r.Department != null && r.Department.IsActive && r.Department.Organization.IsActive
-            && r.AcademicSemester != null && r.AcademicSemester.OrganizationId == r.Department.OrganizationId));
+    private IQueryable<M.Rubric> Visible(RubricActor actor)
+    {
+        if (actor.IsAdmin) return context.Rubrics.AsNoTracking();
+        if (!actor.DepartmentId.HasValue) return context.Rubrics.AsNoTracking().Where(r => false);
+        var deptId = actor.DepartmentId.Value;
+        return context.Rubrics.AsNoTracking().Where(r =>
+            r.Department != null && r.Department.IsActive && r.Department.Organization.IsActive
+            && r.AcademicSemester != null && r.AcademicSemester.OrganizationId == r.Department.OrganizationId
+            && (
+                r.DepartmentId == deptId
+                || (r.ProjectMode == "INTERDISCIPLINARY" && r.Department.Organization.Departments.Any(d => d.Id == deptId && d.IsActive))
+            ));
+    }
 
     public Task<PagedResult<RubricRecord>> ListAsync(RubricActor actor, RubricFilter filter, CancellationToken ct) => Transaction(async () =>
     {
@@ -272,10 +282,81 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
     {
         if (await context.Set<RubricVersion>().AnyAsync(v => v.RootRubricId == id && v.RubricId != id, ct))
             throw new ConflictException("A rubric that anchors other versions cannot be deleted.");
+        var approvals = await context.RubricApprovals.Where(a => a.RubricId == id).ToListAsync(ct);
+        context.RubricApprovals.RemoveRange(approvals);
         await RemoveCriteria(id, ct);
         context.Set<RubricVersion>().Remove(await context.Set<RubricVersion>().SingleAsync(v => v.RubricId == id, ct));
         await context.SaveChangesAsync(ct);
         context.Rubrics.Remove(await context.Rubrics.SingleAsync(r => r.Id == id, ct));
+        await context.SaveChangesAsync(ct);
+    }
+
+    public async Task<long?> GetMajorDepartmentIdAsync(long majorId, CancellationToken ct) =>
+        await context.Majors.AsNoTracking().Where(m => m.Id == majorId).Select(m => (long?)m.DepartmentId).SingleOrDefaultAsync(ct);
+
+    public async Task<RubricApprovalRecord?> GetLatestApprovalAsync(long rubricId, CancellationToken ct)
+    {
+        var row = await context.RubricApprovals.AsNoTracking()
+            .Where(a => a.RubricId == rubricId)
+            .OrderByDescending(a => a.Id)
+            .FirstOrDefaultAsync(ct);
+        if (row is null) return null;
+        return new RubricApprovalRecord(row.Id, row.RubricId, row.SubmittedBy, row.SubmittedAt,
+            row.DecidedBy, row.DecidedAt, row.Decision, row.Reason);
+    }
+
+    public async Task SubmitForApprovalAsync(long rubricId, long actorId, DateTime now, CancellationToken ct)
+    {
+        var version = await context.Set<RubricVersion>().SingleAsync(v => v.RubricId == rubricId, ct);
+        version.Status = RubricStatuses.PendingApproval;
+        version.ConcurrencyToken = Guid.NewGuid();
+        context.RubricApprovals.Add(new RubricApproval
+        {
+            RubricId = rubricId,
+            SubmittedBy = actorId,
+            SubmittedAt = now
+        });
+        await context.SaveChangesAsync(ct);
+    }
+
+    public async Task ApproveAsync(long rubricId, long approvalId, long actorId, string? approvalReference, DateTime now, CancellationToken ct)
+    {
+        var approval = await context.RubricApprovals.SingleAsync(a => a.Id == approvalId && a.RubricId == rubricId, ct);
+        approval.DecidedBy = actorId;
+        approval.DecidedAt = now;
+        approval.Decision = "APPROVED";
+
+        var rubric = await context.Rubrics.SingleAsync(r => r.Id == rubricId, ct);
+        rubric.IsActive = true;
+        rubric.UpdatedAt = now;
+        if (!string.IsNullOrWhiteSpace(approvalReference))
+        {
+            rubric.ApprovalReference = approvalReference.Trim();
+        }
+
+        var version = await context.Set<RubricVersion>().SingleAsync(v => v.RubricId == rubricId, ct);
+        version.Status = RubricStatuses.Published;
+        version.ConcurrencyToken = Guid.NewGuid();
+
+        await context.SaveChangesAsync(ct);
+    }
+
+    public async Task RejectAsync(long rubricId, long approvalId, long actorId, string reason, DateTime now, CancellationToken ct)
+    {
+        var approval = await context.RubricApprovals.SingleAsync(a => a.Id == approvalId && a.RubricId == rubricId, ct);
+        approval.DecidedBy = actorId;
+        approval.DecidedAt = now;
+        approval.Decision = "REJECTED";
+        approval.Reason = reason;
+
+        var rubric = await context.Rubrics.SingleAsync(r => r.Id == rubricId, ct);
+        rubric.IsActive = false;
+        rubric.UpdatedAt = now;
+
+        var version = await context.Set<RubricVersion>().SingleAsync(v => v.RubricId == rubricId, ct);
+        version.Status = RubricStatuses.Draft;
+        version.ConcurrencyToken = Guid.NewGuid();
+
         await context.SaveChangesAsync(ct);
     }
 
@@ -284,6 +365,11 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
 
     private async Task<T> Transaction<T>(Func<Task<T>> action, System.Data.IsolationLevel isolation, CancellationToken ct)
     {
+        if (context.Database.CurrentTransaction is not null)
+        {
+            return await action();
+        }
+
         await using var transaction = await context.Database.BeginTransactionAsync(isolation, ct);
         try
         {

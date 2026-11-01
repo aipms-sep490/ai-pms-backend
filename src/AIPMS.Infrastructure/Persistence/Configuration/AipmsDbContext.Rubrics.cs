@@ -7,6 +7,7 @@ namespace AIPMS.Infrastructure.Persistence.Generated;
 public partial class AipmsDbContext
 {
     public virtual DbSet<RubricCriterionLevel> RubricCriterionLevels { get; set; } = null!;
+    public virtual DbSet<RubricApproval> RubricApprovals { get; set; } = null!;
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
@@ -52,7 +53,7 @@ public partial class AipmsDbContext
         {
             entity.ToTable("rubric_versions", table =>
             {
-                table.HasCheckConstraint("ck_rubric_versions_status", "[status] IN ('DRAFT','PUBLISHED','RETIRED')");
+                table.HasCheckConstraint("ck_rubric_versions_status", "[status] IN ('DRAFT','PENDING_APPROVAL','PUBLISHED','RETIRED')");
                 table.HasCheckConstraint("ck_rubric_versions_number", "[version_number] > 0");
             });
             entity.HasKey(x => x.RubricId).HasName("pk_rubric_versions");
@@ -113,6 +114,29 @@ public partial class AipmsDbContext
             entity.Property(x => x.UpdatedAt).HasPrecision(0).HasDefaultValueSql("(sysutcdatetime())").HasColumnName("updated_at");
             entity.HasIndex(x => new { x.RubricCriterionId, x.LevelOrder }).IsUnique().HasDatabaseName("uq_rubric_criterion_levels_order");
             entity.HasOne(x => x.RubricCriterion).WithMany(x => x.Levels).HasForeignKey(x => x.RubricCriterionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RubricApproval>(entity =>
+        {
+            entity.ToTable("rubric_approvals", table =>
+            {
+                table.HasCheckConstraint("ck_rubric_approvals_decision", "[decision] IS NULL OR [decision] IN ('APPROVED','REJECTED')");
+                table.HasCheckConstraint("ck_rubric_approvals_decided", "([decided_by] IS NULL AND [decided_at] IS NULL) OR ([decided_by] IS NOT NULL AND [decided_at] IS NOT NULL)");
+                table.HasCheckConstraint("ck_rubric_approvals_four_eyes", "[decided_by] IS NULL OR [decided_by] <> [submitted_by]");
+            });
+            entity.HasKey(x => x.Id).HasName("pk_rubric_approvals");
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.RubricId).HasColumnName("rubric_id");
+            entity.Property(x => x.SubmittedBy).HasColumnName("submitted_by");
+            entity.Property(x => x.SubmittedAt).HasPrecision(0).HasDefaultValueSql("(sysutcdatetime())").HasColumnName("submitted_at");
+            entity.Property(x => x.DecidedBy).HasColumnName("decided_by");
+            entity.Property(x => x.DecidedAt).HasPrecision(0).HasColumnName("decided_at");
+            entity.Property(x => x.Decision).HasColumnName("decision").HasMaxLength(16);
+            entity.Property(x => x.Reason).HasColumnName("reason").HasMaxLength(1000);
+            entity.HasIndex(x => x.RubricId).HasDatabaseName("ix_rubric_approvals_rubric");
+            entity.HasOne(x => x.Rubric).WithMany().HasForeignKey(x => x.RubricId).OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne(x => x.Submitter).WithMany().HasForeignKey(x => x.SubmittedBy).OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne(x => x.Decider).WithMany().HasForeignKey(x => x.DecidedBy).OnDelete(DeleteBehavior.NoAction);
         });
     }
 }

@@ -48,6 +48,21 @@ public sealed class RubricsController(ISender sender) : ControllerBase
     public async Task<ActionResult<RubricDto>> Update(long id, UpdateRubricRequest request, CancellationToken ct) =>
         Ok(await sender.Send(new UpdateRubricCommand(id, request), ct));
 
+    [HttpPost("{id:long}/submit-for-approval")]
+    [ProducesResponseType<RubricDto>(200)]
+    public async Task<ActionResult<RubricDto>> SubmitForApproval(long id, SubmitRubricForApprovalRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new SubmitRubricForApprovalCommand(id, request), ct));
+
+    [HttpPost("{id:long}/approve")]
+    [ProducesResponseType<RubricDto>(200)]
+    public async Task<ActionResult<RubricDto>> Approve(long id, ApproveRubricRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new ApproveRubricCommand(id, request), ct));
+
+    [HttpPost("{id:long}/reject")]
+    [ProducesResponseType<RubricDto>(200)]
+    public async Task<ActionResult<RubricDto>> Reject(long id, RejectRubricRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new RejectRubricCommand(id, request), ct));
+
     [HttpPost("{id:long}/publish")]
     [ProducesResponseType<RubricDto>(200)]
     public async Task<ActionResult<RubricDto>> Publish(long id, ChangeRubricStatusRequest request, CancellationToken ct) =>

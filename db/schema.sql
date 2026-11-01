@@ -1430,6 +1430,34 @@ BEGIN CATCH
 END CATCH;
 GO
 
+-- Bootstrap source: 20261030_add_rubric_approvals.sql
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+IF OBJECT_ID(N'dbo.rubric_approvals', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.rubric_approvals (
+        id            BIGINT IDENTITY(1,1) NOT NULL,
+        rubric_id     BIGINT NOT NULL,
+        submitted_by  BIGINT NOT NULL,
+        submitted_at  DATETIME2(0) NOT NULL CONSTRAINT df_rubric_approvals_submitted_at DEFAULT (SYSUTCDATETIME()),
+        decided_by    BIGINT NULL,
+        decided_at    DATETIME2(0) NULL,
+        decision      NVARCHAR(16) NULL,
+        reason        NVARCHAR(1000) NULL,
+        CONSTRAINT pk_rubric_approvals PRIMARY KEY (id),
+        CONSTRAINT ck_rubric_approvals_decision CHECK (decision IS NULL OR decision IN ('APPROVED','REJECTED')),
+        CONSTRAINT ck_rubric_approvals_decided CHECK ((decided_by IS NULL AND decided_at IS NULL) OR (decided_by IS NOT NULL AND decided_at IS NOT NULL)),
+        CONSTRAINT ck_rubric_approvals_four_eyes CHECK (decided_by IS NULL OR decided_by <> submitted_by),
+        CONSTRAINT fk_rubric_approvals_rubric FOREIGN KEY (rubric_id) REFERENCES dbo.rubrics(id),
+        CONSTRAINT fk_rubric_approvals_submitter FOREIGN KEY (submitted_by) REFERENCES dbo.users(id),
+        CONSTRAINT fk_rubric_approvals_decider FOREIGN KEY (decided_by) REFERENCES dbo.users(id)
+    );
+    CREATE INDEX ix_rubric_approvals_rubric ON dbo.rubric_approvals(rubric_id);
+END;
+COMMIT;
+GO
+
 /* Additive governance foundation for the v3 baseline. Safe to run repeatedly. */
 SET XACT_ABORT ON;
 BEGIN TRANSACTION;
@@ -1748,7 +1776,7 @@ BEGIN TRY
             CONSTRAINT fk_rubric_versions_rubric FOREIGN KEY (rubric_id) REFERENCES dbo.rubrics(id),
             CONSTRAINT fk_rubric_versions_root FOREIGN KEY (root_rubric_id) REFERENCES dbo.rubrics(id),
             CONSTRAINT uq_rubric_versions_family_number UNIQUE (root_rubric_id, version_number),
-            CONSTRAINT ck_rubric_versions_status CHECK (status IN ('DRAFT','PUBLISHED','RETIRED')),
+            CONSTRAINT ck_rubric_versions_status CHECK (status IN ('DRAFT','PENDING_APPROVAL','PUBLISHED','RETIRED')),
             CONSTRAINT ck_rubric_versions_number CHECK (version_number > 0)
         );
     END;

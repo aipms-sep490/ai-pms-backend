@@ -6,12 +6,15 @@ namespace AIPMS.Application.Features.Evaluations.Models;
 public static class RubricStatuses
 {
     public const string Draft = "DRAFT";
+    public const string PendingApproval = "PENDING_APPROVAL";
     public const string Published = "PUBLISHED";
     public const string Retired = "RETIRED";
 }
 
-public sealed record RubricActor(long UserId, bool IsAdmin, long? DepartmentId);
+public sealed record RubricActor(long UserId, bool IsAdmin, long? DepartmentId, long? OrganizationId = null);
 public sealed record RubricScope(long DepartmentId, long OrganizationId, string SemesterStatus);
+public sealed record RubricApprovalRecord(long Id, long RubricId, long SubmittedBy, DateTime SubmittedAt,
+    long? DecidedBy, DateTime? DecidedAt, string? Decision, string? Reason);
 
 public sealed record RubricCriterionLevelInput(int LevelOrder, string Label, string Descriptor,
     decimal? ScoreFrom, decimal? ScoreTo);
