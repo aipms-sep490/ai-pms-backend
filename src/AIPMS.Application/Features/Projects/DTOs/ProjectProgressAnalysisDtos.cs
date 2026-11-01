@@ -26,8 +26,14 @@ public sealed record ProjectProgressAnalysisDto(
     public IReadOnlyList<long> MajorIds { get; init; } = [];
     public IReadOnlyList<string> UnavailableMetrics { get; init; } = [];
     public string Trend => TrendStatus;
+    public string? Summary { get; init; }
+    public string GenerationStatus { get; init; } = "COMPLETED";
+    public IReadOnlyList<ProgressRiskSignalDto> Signals { get; init; } = [];
+    public IReadOnlyList<AIPMS.Application.Features.AiAssistant.Models.EvidenceReferenceDto> ProjectEvidence { get; init; } = [];
     public IReadOnlyList<RiskFactorDto> Reasons => Factors;
 }
+
+public sealed record ProgressRiskSignalDto(string Code, string Severity, int Count, string Description);
 
 public sealed record ProgressSummaryDto(
     int? TotalMilestones,

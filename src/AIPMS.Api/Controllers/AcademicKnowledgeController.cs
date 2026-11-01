@@ -17,6 +17,23 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
 {
     [HttpGet("assistant/review-rubrics")]
     public Task<IReadOnlyList<AssistantRubricOption>> ReviewRubrics([FromQuery] long projectId, CancellationToken ct) => service.ReviewRubricsAsync(projectId, ct);
+    [HttpPost("/api/v1/projects/{projectId:long}/ai/deliverables/{deliverableVersionId:long}/review")]
+    [EnableRateLimiting("ai-assistant")]
+    public Task<DeliverableReviewResponseDto> ReviewDeliverable(long projectId, long deliverableVersionId, DeliverableReviewRequest request,
+        [FromServices] IDeliverableReviewService reviews, CancellationToken ct) => reviews.ReviewAsync(projectId, deliverableVersionId, request, ct);
+
+    [HttpGet("/api/v1/projects/{projectId:long}/ai/deliverables/{deliverableVersionId:long}/review-options")]
+    public Task<DeliverableReviewOptions> ReviewOptions(long projectId, long deliverableVersionId,
+        [FromServices] IDeliverableReviewService reviews, CancellationToken ct) => reviews.OptionsAsync(projectId, deliverableVersionId, ct);
+
+    [HttpGet("/api/v1/projects/{projectId:long}/ai/deliverable-reviews")]
+    public Task<PagedResult<DeliverableReviewResponseDto>> ReviewHistory(long projectId,
+        [FromServices] IDeliverableReviewService reviews, CancellationToken ct, long? deliverableVersionId = null, int page = 1, int pageSize = 20) =>
+        reviews.ListAsync(projectId, deliverableVersionId, page, pageSize, ct);
+
+    [HttpGet("/api/v1/projects/{projectId:long}/ai/deliverable-reviews/{runId:long}")]
+    public Task<DeliverableReviewResponseDto> ReviewRun(long projectId, long runId,
+        [FromServices] IDeliverableReviewService reviews, CancellationToken ct) => reviews.GetAsync(projectId, runId, ct);
     [HttpPost("assistant/ask")]
     [EnableRateLimiting("ai-assistant")]
     [ProducesResponseType<AcademicAssistantResponseDto>(200)]

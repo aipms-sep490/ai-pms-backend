@@ -9,11 +9,13 @@ using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.Projects.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed class ScopedProgressAnalysisService(AipmsDbContext db, AiActorScope access,
-    IProgressAnalysisService calculator, IAiRunStore runs, AiEvidenceCapture capture, TimeProvider clock)
+    IProgressAnalysisService calculator, IAiRunStore runs, AiEvidenceCapture capture, TimeProvider clock,
+    IConfiguration configuration, IAiTextGenerationProvider provider)
     : IScopedProgressAnalysisService
 {
     private const int SourceLimit = 2000;
@@ -81,9 +83,13 @@ internal sealed class ScopedProgressAnalysisService(AipmsDbContext db, AiActorSc
                     result = result with { ContextScope = "PROJECT_WITH_INVITED_MEETINGS",
                         Limitations = (result.Limitations ?? "") + " Meeting metrics include only meetings the actor is invited to." };
                 }
+                if (configuration.GetValue<bool>("AiAssistant:ProgressRiskEnabled"))
+                    result = await ProgressRiskEnricher.Enrich(db, access, scope, result, capture, now, ct);
                 result = result with { RunId = runId };
                 await tx.CommitAsync(ct);
             }
+            if (record && configuration.GetValue<bool>("AiAssistant:ProgressRiskEnabled"))
+                result = await ProgressRiskExplanation.Explain(result, provider, configuration, ct);
             if (runId.HasValue) await runs.CompleteProgressAsync(runId.Value, result, ct);
             return result;
         }

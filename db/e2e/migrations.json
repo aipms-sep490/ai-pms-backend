@@ -62,5 +62,6 @@
   "20261022_add_notification_realtime.sql",
   "20261023_add_academic_knowledge.sql",
   "20261025_add_assistant_conversations.sql",
-  "20261025_add_risk_history.sql"
+  "20261025_add_risk_history.sql",
+  "20261101_add_ai_deliverable_review.sql"
 ]

@@ -23,6 +23,7 @@ public partial class AipmsDbContext
         ConfigureMeetingCollaboration(modelBuilder);
         ConfigureSprints(modelBuilder);
         ConfigureAiRuns(modelBuilder);
+        ConfigureAiDeliverableReview(modelBuilder);
         ConfigureProjectRequirements(modelBuilder);
         ConfigureDisciplineEvidence(modelBuilder);
         ConfigureExecutionConcurrency(modelBuilder);
