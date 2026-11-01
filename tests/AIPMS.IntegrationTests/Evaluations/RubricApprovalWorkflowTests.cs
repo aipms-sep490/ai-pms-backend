@@ -486,27 +486,50 @@ public sealed class RubricApprovalWorkflowTests(RubricDatabaseFixture database) 
     }
 
     [Fact]
-    public async Task NewRubric_WithLevels_EvenIfScopeNull_CallingDirectPublish_Returns409()
+    public async Task ScopedRubric_WithProjectMode_EvenIfScopeNull_CallingDirectPublish_Returns409()
     {
         var s = await database.Seed();
         using var app = new RubricFactory(database);
         using var client = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
 
-        var criteriaWithLevels = new RubricCriterionInput[]
-        {
-            new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }
-        };
-
         var code = $"R_EVADE_{Guid.NewGuid():N}"[..20];
-        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Evade Attempt", null, criteriaWithLevels)
+        await using var db = database.CreateContext();
+        var rubric = new M.Rubric
         {
-            EvaluationScope = null
+            DepartmentId = s.Users.DepartmentId,
+            AcademicSemesterId = s.SemesterId,
+            Code = code,
+            Name = "Evade Scope Rubric",
+            IsActive = false,
+            ProjectMode = "INTERDISCIPLINARY",
+            EvaluationScope = null,
+            CreatedBy = s.Users.Staff,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            RubricCriteria = [
+                new() {
+                    Criterion = new() { Code = Guid.NewGuid().ToString("N"), Name = "C1", IsActive = true },
+                    WeightPercent = 100m, MaxScore = 10m, SortOrder = 0, IsRequired = true
+                }
+            ]
         };
-        var createRes = await client.PostAsJsonAsync("/api/v1/rubrics", createReq);
-        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+        db.Rubrics.Add(rubric);
+        await db.SaveChangesAsync();
+        db.Set<RubricVersion>().Add(new RubricVersion
+        {
+            RubricId = rubric.Id,
+            RootRubricId = rubric.Id,
+            VersionNumber = 1,
+            Status = RubricStatuses.Draft,
+            ConcurrencyToken = Guid.NewGuid()
+        });
+        await db.SaveChangesAsync();
 
-        var pubRes = await client.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/publish",
-            new ChangeRubricStatusRequest(created.ConcurrencyToken));
+        var getRes = await client.GetAsync($"/api/v1/rubrics/{rubric.Id}");
+        var dto = (await getRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var pubRes = await client.PostAsJsonAsync($"/api/v1/rubrics/{rubric.Id}/publish",
+            new ChangeRubricStatusRequest(dto.ConcurrencyToken));
         Assert.Equal(HttpStatusCode.Conflict, pubRes.StatusCode);
         var body = await pubRes.Content.ReadAsStringAsync();
         Assert.Contains("RUBRIC_REQUIRES_APPROVAL_FLOW", body);

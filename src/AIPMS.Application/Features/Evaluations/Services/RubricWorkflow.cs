@@ -187,7 +187,7 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         await Scope(actor, rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct);
         if (publish)
         {
-            if (rubric.EvaluationScope is not null || rubric.ProjectMode is not null || rubric.EvaluationStage is not null || rubric.MajorId is not null || rubric.Criteria.Any(c => c.Levels.Count > 0))
+            if (rubric.EvaluationScope is not null || rubric.ProjectMode is not null || rubric.EvaluationStage is not null || rubric.MajorId is not null)
                 throw new ConflictException("Direct publish is not allowed for scoped rubrics. Use the approval workflow instead.", "RUBRIC_REQUIRES_APPROVAL_FLOW");
             RubricRules.EnsureEditable(rubric);
             RubricRules.EnsurePublishable(rubric.Criteria, options.RequiredLevelCount);
