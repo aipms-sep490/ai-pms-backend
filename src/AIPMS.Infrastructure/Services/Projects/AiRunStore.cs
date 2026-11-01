@@ -19,7 +19,7 @@ internal sealed class AiRunStore(AipmsDbContext db, AiActorScope access, ICurren
 {
     public async Task<long> BeginAsync(long projectId, string kind, long? reportId, CancellationToken ct)
     {
-        if (kind is not ("PROJECT_ASK" or "REPORT_SUMMARY" or "PROGRESS_ANALYSIS")) throw new ArgumentException("Unknown AI run kind.");
+        if (kind is not ("PROJECT_ASK" or "REPORT_SUMMARY" or "PROGRESS_ANALYSIS" or "DELIVERABLE_REVIEW")) throw new ArgumentException("Unknown AI run kind.");
         var scope = await access.Read(projectId, ct);
         if (reportId.HasValue && (!scope.Whole || !await db.ProgressReports.AnyAsync(r => r.Id == reportId && r.ProjectId == projectId, ct)))
             throw new NotFoundException("Report", reportId);
@@ -50,7 +50,7 @@ internal sealed class AiRunStore(AipmsDbContext db, AiActorScope access, ICurren
                 throw new ForbiddenException("AI evidence scope changed during generation.");
         }
         run.Status = error is not null ? "FAILED" : progress is not null
-            ? progress.DataStatus == "SUFFICIENT" ? "COMPLETED" : "INSUFFICIENT_EVIDENCE"
+            ? progress.DataStatus != "SUFFICIENT" ? "INSUFFICIENT_EVIDENCE" : progress.GenerationStatus == "FALLBACK" ? "FALLBACK" : "COMPLETED"
             : answer?.GenerationStatus ?? report?.GenerationStatus ?? "FAILED";
         run.ErrorCode = error ?? (run.Status == "FALLBACK" ? "AI_PROVIDER_FALLBACK" : run.Status == "INSUFFICIENT_EVIDENCE" ? "AI_INSUFFICIENT_EVIDENCE" : null);
         run.ResultJson = error is not null ? null : progress is not null ? JsonSerializer.Serialize(progress)
@@ -100,9 +100,11 @@ internal sealed class AiRunStore(AipmsDbContext db, AiActorScope access, ICurren
         var visible = evidence.All(e => allowed.Contains(e.SourceId));
         var progress = visible && row.Kind == "PROGRESS_ANALYSIS" && row.ResultJson is not null
             ? JsonSerializer.Deserialize<ProjectProgressAnalysisDto>(row.ResultJson) : null;
+        var review = visible && row.Kind == "DELIVERABLE_REVIEW" && row.ResultJson is not null
+            ? JsonSerializer.Deserialize<AIPMS.Application.Features.AcademicKnowledge.DeliverableReviewResponseDto>(row.ResultJson) : null;
         return new(row.Id, row.ProjectId, row.Kind, row.Status, row.ModelVersion, row.ConfigVersion,
             DateTime.SpecifyKind(row.StartedAt, DateTimeKind.Utc), row.CompletedAt.HasValue ? DateTime.SpecifyKind(row.CompletedAt.Value, DateTimeKind.Utc) : null,
-            visible ? row.ErrorCode : "AI_HISTORY_SCOPE_CHANGED", visible ? evidence : [], visible ? answer : null, visible ? report : null, progress);
+            visible ? row.ErrorCode : "AI_HISTORY_SCOPE_CHANGED", visible ? evidence : [], visible ? answer : null, visible ? report : null, progress, review);
     }
     private async Task<bool> EvidenceVisible(AiScope scope, IReadOnlyList<EvidenceReferenceDto> evidence, CancellationToken ct)
     {
@@ -115,8 +117,16 @@ internal sealed class AiRunStore(AipmsDbContext db, AiActorScope access, ICurren
             .Select(e => long.TryParse(e.SourceId[prefix.Length..], out var id) ? id : 0).Where(id => id > 0).Distinct().ToArray();
         var tasks = Ids("TASK", "TASK-");
         var allowed = (await access.Tasks(scope).Where(t => tasks.Contains(t.Id)).Select(t => t.Id).ToArrayAsync(ct)).Select(id => $"TASK-{id}").ToHashSet();
+        var versions = Ids("DELIVERABLE_VERSION", "DV-");
+        allowed.UnionWith((await DeliverableReviewAccess.VisibleVersions(db, scope).Where(v => versions.Contains(v.Id)).Select(v => v.Id).ToArrayAsync(ct)).Select(id => $"DV-{id}"));
+        var deliverables = Ids("DELIVERABLE", "D-");
+        allowed.UnionWith((await db.Deliverables.Where(d => d.ProjectId == scope.ProjectId && deliverables.Contains(d.Id) &&
+            (scope.Whole || (d.TargetMajorId.HasValue && scope.Majors.Contains(d.TargetMajorId.Value))))
+            .Select(d => d.Id).ToArrayAsync(ct)).Select(id => $"D-{id}"));
         if (scope.Whole)
         {
+            var sprints = Ids("SPRINT", "SPRINT-");
+            allowed.UnionWith((await db.Set<Sprint>().Where(s => s.ProjectId == scope.ProjectId && sprints.Contains(s.Id)).Select(s => s.Id).ToArrayAsync(ct)).Select(id => $"SPRINT-{id}"));
             var milestones = Ids("MILESTONE", "MS-"); var reports = Ids("PROGRESS_REPORT", "PR-"); var meetings = Ids("MEETING", "MTG-");
             allowed.UnionWith((await db.Milestones.Where(m => m.ProjectId == scope.ProjectId && milestones.Contains(m.Id)).Select(m => m.Id).ToArrayAsync(ct)).Select(id => $"MS-{id}"));
             allowed.UnionWith((await db.ProgressReports.Where(r => r.ProjectId == scope.ProjectId && reports.Contains(r.Id)).Select(r => r.Id).ToArrayAsync(ct)).Select(id => $"PR-{id}"));

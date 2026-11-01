@@ -9,6 +9,17 @@ public sealed record AcademicAssistantAskRequest(string Query, string Scope = "A
     long? ConversationId = null, int? ExpectedRevision = null, string? PageContext = null, string? DraftKind = null,
     string? ToolMode = null, long? RubricId = null);
 public sealed record AssistantRubricOption(long Id, string Title, int Version, bool AssignedToProject);
+public sealed record DeliverableReviewRequest(long RubricId, long? ChecklistId = null, string Scope = "MAJOR_SPECIFIC");
+public sealed record DeliverableReviewCriterionDto(long CriterionId, string CriterionName, string Status,
+    IReadOnlyList<string> Findings, IReadOnlyList<string> MissingEvidence, IReadOnlyList<string> Suggestions);
+public sealed record DeliverableReviewCitationDto(string Title, string Version, string Section);
+public sealed record DeliverableChecklistOption(long Id, string Title, int Version);
+public sealed record DeliverableReviewOptions(string Scope, IReadOnlyList<AssistantRubricOption> Rubrics, IReadOnlyList<DeliverableChecklistOption> Checklists);
+public sealed record DeliverableReviewResponseDto(long RunId, long ProjectId, long DeliverableVersionId,
+    string Status, string Readiness, int ReadinessPercent, string Summary,
+    IReadOnlyList<DeliverableReviewCriterionDto> Criteria,
+    IReadOnlyList<DeliverableReviewCitationDto> Citations, bool InsufficientEvidence,
+    string? LimitationNote, string GenerationStatus);
 public sealed record CreateAssistantConversationRequest(long? ProjectId = null, string Scope = "ACADEMIC");
 public sealed record AssistantConversationDto(long Id, string Title, long? ProjectId, string Scope, int Revision, DateTime UpdatedAt);
 public sealed record AssistantTurnDto(long Id, string Query, AcademicAssistantResponseDto Response);

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.AiAssistant.DTOs;
+using AIPMS.Application.Features.AiAssistant.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.IntegrationTests.Evaluations;
@@ -77,6 +78,26 @@ public sealed class ScopedProgressAnalysisTests(EvaluationDraftDatabaseFixture d
         await using var db = database.CreateContext();
         Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == "AI_RUN_COMPLETED" && a.EntityId == result.RunId.ToString()));
         Assert.Single(await db.Set<AiRun>().Where(r => r.ProjectId == x.Scenario.ProjectId).ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task Progress_risk_flag_adds_typed_signals_and_fallback_explanation_without_mutation()
+    {
+        var x = await Seed(); using var app = new RiskFactory(database);
+        using var leader = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
+        await using var beforeDb = database.CreateContext();
+        var evaluationCount = await beforeDb.Evaluations.CountAsync();
+        var result = await Body<ProjectProgressAnalysisDto>(await leader.PostAsync(Root(x.Scenario.ProjectId) + "/ai/progress-analysis", null));
+        Assert.Equal("SUFFICIENT", result.DataStatus);
+        Assert.NotNull(result.RiskScore);
+        Assert.Contains(result.Signals, signal => signal.Code == "OVERDUE_TASKS");
+        Assert.NotEmpty(result.ProjectEvidence);
+        Assert.Equal("FALLBACK", result.GenerationStatus);
+        Assert.NotNull(result.RunId);
+        await using var db = database.CreateContext();
+        var run = await db.Set<AiRun>().SingleAsync(r => r.Id == result.RunId);
+        Assert.Equal(result.GenerationStatus == "FALLBACK" ? "FALLBACK" : "COMPLETED", run.Status);
+        Assert.Equal(evaluationCount, await db.Evaluations.CountAsync());
     }
 
     [Fact]
@@ -178,6 +199,19 @@ public sealed class ScopedProgressAnalysisTests(EvaluationDraftDatabaseFixture d
             base.ConfigureWebHost(builder);
             builder.ConfigureServices(s => { s.RemoveAll<IAuditTrail>(); s.AddSingleton<IAuditTrail, FailedAudit>(); });
         }
+    }
+    private sealed class RiskFactory(EvaluationDraftDatabaseFixture database) : EvaluationFactory(database, progressRiskEnabled: true)
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.ConfigureServices(s => { s.RemoveAll<IAiTextGenerationProvider>(); s.AddSingleton<IAiTextGenerationProvider, OfflineProvider>(); });
+        }
+    }
+    private sealed class OfflineProvider : IAiTextGenerationProvider
+    {
+        public string ModelVersion => "GROUNDED_LOCAL_TEST";
+        public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default) => throw new InvalidOperationException();
     }
     private sealed class FailedAudit : IAuditTrail
     {

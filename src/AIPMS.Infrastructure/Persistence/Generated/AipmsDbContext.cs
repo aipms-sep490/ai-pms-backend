@@ -111,6 +111,10 @@ public partial class AipmsDbContext : DbContext
     public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AcademicKnowledgeChunk> AcademicKnowledgeChunks { get; set; }
     public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AcademicKnowledgeIndexJob> AcademicKnowledgeIndexJobs { get; set; }
     public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AcademicKnowledgeQueryRun> AcademicKnowledgeQueryRuns { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AiDeliverableReviewRun> AiDeliverableReviewRuns { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AiDeliverableReviewCriterion> AiDeliverableReviewCriteria { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AiDeliverableReviewFinding> AiDeliverableReviewFindings { get; set; }
+    public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.AiDeliverableReviewCitation> AiDeliverableReviewCitations { get; set; }
 
     public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.ReviewGateTemplate> ReviewGateTemplates { get; set; }
     public virtual DbSet<AIPMS.Infrastructure.Persistence.Models.ReviewGateDefinition> ReviewGateDefinitions { get; set; }
