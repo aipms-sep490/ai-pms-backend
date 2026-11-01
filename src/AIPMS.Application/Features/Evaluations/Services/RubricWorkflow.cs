@@ -110,8 +110,8 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         RubricRules.EnsureCurrent(rubric, input.ConcurrencyToken);
         if (rubric.Status != RubricStatuses.Draft)
             throw new ConflictException("Only draft rubrics can be submitted for approval.");
-        if (rubric.DepartmentId is null || rubric.AcademicSemesterId is null)
-            throw new ConflictException("Legacy unscoped rubrics cannot be submitted for approval.");
+        if (rubric.DepartmentId is null || rubric.AcademicSemesterId is null || string.IsNullOrWhiteSpace(rubric.EvaluationScope))
+            throw new ConflictException("Legacy unscoped rubrics cannot be submitted for approval.", "RUBRIC_SCOPE_REQUIRED");
         await Scope(actor, rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct);
         RubricRules.EnsureValidHierarchy(RubricHierarchy.ToInputs(rubric.Criteria));
         RubricRules.EnsurePublishable(rubric.Criteria, options.RequiredLevelCount, requireLevels: true);
@@ -187,7 +187,7 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         await Scope(actor, rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct);
         if (publish)
         {
-            if (rubric.EvaluationScope is not null)
+            if (rubric.EvaluationScope is not null || rubric.ProjectMode is not null || rubric.EvaluationStage is not null || rubric.MajorId is not null || rubric.Criteria.Any(c => c.Levels.Count > 0))
                 throw new ConflictException("Direct publish is not allowed for scoped rubrics. Use the approval workflow instead.", "RUBRIC_REQUIRES_APPROVAL_FLOW");
             RubricRules.EnsureEditable(rubric);
             RubricRules.EnsurePublishable(rubric.Criteria, options.RequiredLevelCount);

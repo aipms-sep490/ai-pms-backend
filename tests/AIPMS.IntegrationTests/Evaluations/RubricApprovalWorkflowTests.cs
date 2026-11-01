@@ -484,4 +484,55 @@ public sealed class RubricApprovalWorkflowTests(RubricDatabaseFixture database) 
         Assert.Equal("PUBLISHED", published.Status);
         Assert.True(published.IsActive);
     }
+
+    [Fact]
+    public async Task NewRubric_WithLevels_EvenIfScopeNull_CallingDirectPublish_Returns409()
+    {
+        var s = await database.Seed();
+        using var app = new RubricFactory(database);
+        using var client = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+
+        var criteriaWithLevels = new RubricCriterionInput[]
+        {
+            new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }
+        };
+
+        var code = $"R_EVADE_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Evade Attempt", null, criteriaWithLevels)
+        {
+            EvaluationScope = null
+        };
+        var createRes = await client.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var pubRes = await client.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/publish",
+            new ChangeRubricStatusRequest(created.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Conflict, pubRes.StatusCode);
+        var body = await pubRes.Content.ReadAsStringAsync();
+        Assert.Contains("RUBRIC_REQUIRES_APPROVAL_FLOW", body);
+    }
+
+    [Fact]
+    public async Task CreateRubric_WithProjectModeOrStage_WithoutScope_Returns422_RubricScopeRequired()
+    {
+        var s = await database.Seed();
+        using var app = new RubricFactory(database);
+        using var client = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+
+        var criteria = new RubricCriterionInput[]
+        {
+            new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = [] }
+        };
+
+        var code = $"R_EVADE2_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Scope Missing", null, criteria)
+        {
+            ProjectMode = "INTERDISCIPLINARY",
+            EvaluationScope = null
+        };
+        var createRes = await client.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, createRes.StatusCode);
+        var body = await createRes.Content.ReadAsStringAsync();
+        Assert.Contains("RUBRIC_SCOPE_REQUIRED", body);
+    }
 }

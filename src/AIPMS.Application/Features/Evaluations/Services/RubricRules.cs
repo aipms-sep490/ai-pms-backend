@@ -15,6 +15,9 @@ public static class RubricRules
 
     public static void ValidateScope(string? scope, long? majorId, string? projectMode, string? stage, DateOnly? effectiveFrom, DateOnly? effectiveTo)
     {
+        if ((projectMode is not null || stage is not null || majorId.HasValue) && string.IsNullOrWhiteSpace(scope))
+            throw new DomainException("Evaluation scope is required when specifying project mode, evaluation stage, or major.", "RUBRIC_SCOPE_REQUIRED");
+
         if (scope == "COMMON" && majorId.HasValue)
             throw new DomainException("A common rubric cannot be scoped to a specific major.", "RUBRIC_COMMON_HAS_MAJOR");
 
