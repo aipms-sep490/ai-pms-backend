@@ -5,12 +5,15 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
+using Microsoft.Extensions.Options;
 
 namespace AIPMS.Application.Features.Evaluations.Services;
 
 public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser currentUser,
-    IAuditTrail audit, TimeProvider clock)
+    IAuditTrail audit, TimeProvider clock, IOptions<RubricOptions>? rubricOptions = null)
 {
+    private readonly RubricOptions options = rubricOptions?.Value ?? new RubricOptions();
+
     private async Task<RubricActor> Actor(CancellationToken ct)
     {
         if (!currentUser.IsAuthenticated || currentUser.UserId is null) throw new UnauthorizedException();
@@ -50,6 +53,7 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
     {
         var actor = await Actor(ct);
         await Scope(actor, input.DepartmentId, input.AcademicSemesterId, ct);
+        RubricRules.EnsureValidHierarchy(input.Criteria);
         var rubric = await repository.CreateAsync(input.DepartmentId, input.AcademicSemesterId,
             input.Code.Trim().ToUpperInvariant(), input.Name.Trim(), input.Description?.Trim(), input.Criteria,
             actor.UserId, clock.GetUtcNow().UtcDateTime, null, ct);
@@ -63,6 +67,7 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         var rubric = await Load(id, actor, true, ct);
         RubricRules.EnsureCurrent(rubric, input.ConcurrencyToken);
         RubricRules.EnsureEditable(rubric);
+        RubricRules.EnsureValidHierarchy(input.Criteria);
         await Scope(actor, rubric.DepartmentId!.Value, rubric.AcademicSemesterId!.Value, ct);
         var updated = await repository.UpdateAsync(id, input.Name.Trim(), input.Description?.Trim(),
             input.Criteria, clock.GetUtcNow().UtcDateTime, ct);
@@ -81,7 +86,7 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         if (publish)
         {
             RubricRules.EnsureEditable(rubric);
-            RubricRules.EnsurePublishable(rubric.Criteria);
+            RubricRules.EnsurePublishable(rubric.Criteria, options.RequiredLevelCount);
         }
         else if (rubric.Status != RubricStatuses.Published)
             throw new ConflictException("Only published rubrics can be retired.");

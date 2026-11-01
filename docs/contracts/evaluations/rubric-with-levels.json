@@ -1,0 +1,110 @@
+{
+  "id": 101,
+  "departmentId": 1,
+  "academicSemesterId": 2,
+  "code": "R_SE_DEF_FA26",
+  "name": "Software Engineering Defense Evaluation Rubric",
+  "description": "4-level quality criteria for SE final defense",
+  "status": "PUBLISHED",
+  "isActive": true,
+  "rootRubricId": 101,
+  "version": 1,
+  "concurrencyToken": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "canEdit": false,
+  "createdAt": "2026-10-30T08:00:00Z",
+  "updatedAt": "2026-10-30T08:00:00Z",
+  "criteria": [
+    {
+      "id": 1001,
+      "criterionId": 501,
+      "criterionCode": "RC_ARCH_DESIGN",
+      "name": "Architecture & System Design",
+      "description": "Quality and modularity of the system architecture",
+      "learningOutcome": "PLO-1: Ability to architect scalable and modular software solutions",
+      "evidenceGuidance": "Inspect C4 diagrams, ADR records, and module boundaries in repo",
+      "weightPercent": 50.0,
+      "effectiveWeightPercent": 50.0,
+      "maxScore": 10.0,
+      "sortOrder": 0,
+      "isRequired": true,
+      "parentId": null,
+      "levels": [
+        {
+          "levelOrder": 1,
+          "label": "Poor",
+          "descriptor": "No clear architectural pattern or excessive coupling between components.",
+          "scoreFrom": 0.0,
+          "scoreTo": 4.99
+        },
+        {
+          "levelOrder": 2,
+          "label": "Satisfactory",
+          "descriptor": "Basic layered architecture with documented components but minor boundary leaks.",
+          "scoreFrom": 5.0,
+          "scoreTo": 6.99
+        },
+        {
+          "levelOrder": 3,
+          "label": "Good",
+          "descriptor": "Clean modular architecture with well-defined contracts and architectural decision records.",
+          "scoreFrom": 7.0,
+          "scoreTo": 8.49
+        },
+        {
+          "levelOrder": 4,
+          "label": "Excellent",
+          "descriptor": "Exemplary Clean Architecture with comprehensive ADRs, automated boundary enforcement, and trade-off analysis.",
+          "scoreFrom": 8.5,
+          "scoreTo": 10.0
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": 1002,
+      "criterionId": 502,
+      "criterionCode": "RC_TEST_VERIF",
+      "name": "Testing & Verification",
+      "description": "Verification of core features through automated and acceptance tests",
+      "learningOutcome": "PLO-2: Ability to apply testing techniques ensuring software reliability",
+      "evidenceGuidance": "Inspect unit and integration test suites and CI pipeline execution logs",
+      "weightPercent": 50.0,
+      "effectiveWeightPercent": 50.0,
+      "maxScore": 10.0,
+      "sortOrder": 1,
+      "isRequired": true,
+      "parentId": null,
+      "levels": [
+        {
+          "levelOrder": 1,
+          "label": "Poor",
+          "descriptor": "Little to no automated testing; core workflows unverified.",
+          "scoreFrom": 0.0,
+          "scoreTo": 4.99
+        },
+        {
+          "levelOrder": 2,
+          "label": "Satisfactory",
+          "descriptor": "Basic unit tests for critical paths; coverage below 60%.",
+          "scoreFrom": 5.0,
+          "scoreTo": 6.99
+        },
+        {
+          "levelOrder": 3,
+          "label": "Good",
+          "descriptor": "Comprehensive unit and integration test suite covering standard and failure flows.",
+          "scoreFrom": 7.0,
+          "scoreTo": 8.49
+        },
+        {
+          "levelOrder": 4,
+          "label": "Excellent",
+          "descriptor": "Full test pyramid with high coverage, property/boundary tests, and zero flaky tests in CI.",
+          "scoreFrom": 8.5,
+          "scoreTo": 10.0
+        }
+      ],
+      "children": []
+    }
+  ]
+}

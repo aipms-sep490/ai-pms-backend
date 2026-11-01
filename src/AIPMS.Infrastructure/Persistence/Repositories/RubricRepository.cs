@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Evaluations.Abstractions;
+using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.Evaluations.Services;
 using AIPMS.Infrastructure.Persistence.Generated;
@@ -52,7 +53,8 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
             query = query.Where(r => context.Set<RubricVersion>().Any(v => v.RubricId == r.Id && v.Status == filter.Status));
         var count = await query.LongCountAsync(ct);
         var rows = await query.OrderByDescending(r => r.Id).Skip((filter.Page - 1) * filter.PageSize).Take(filter.PageSize)
-            .Include(r => r.RubricCriteria).ThenInclude(c => c.Criterion).ToListAsync(ct);
+            .Include(r => r.RubricCriteria).ThenInclude(c => c.Criterion)
+            .Include(r => r.RubricCriteria).ThenInclude(c => c.Levels).ToListAsync(ct);
         var ids = rows.Select(r => r.Id).ToArray();
         var versions = await context.Set<RubricVersion>().AsNoTracking().Where(v => ids.Contains(v.RubricId)).ToDictionaryAsync(v => v.RubricId, ct);
         var referenced = await context.Rubrics.Where(r => ids.Contains(r.Id) &&
@@ -89,7 +91,10 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
 
     private async Task<RubricRecord> Read(long id, CancellationToken ct)
     {
-        var row = await context.Rubrics.AsNoTracking().Include(r => r.RubricCriteria).ThenInclude(c => c.Criterion).SingleAsync(r => r.Id == id, ct);
+        var row = await context.Rubrics.AsNoTracking()
+            .Include(r => r.RubricCriteria).ThenInclude(c => c.Criterion)
+            .Include(r => r.RubricCriteria).ThenInclude(c => c.Levels)
+            .SingleAsync(r => r.Id == id, ct);
         var version = await context.Set<RubricVersion>().AsNoTracking().SingleOrDefaultAsync(v => v.RubricId == id, ct);
         var referenced = await context.Rubrics.Where(r => r.Id == id).AnyAsync(r => r.Evaluations.Any()
             || r.ProjectPeriods.Any() || r.RubricCriteria.Any(c => c.EvaluationDetails.Any()), ct);
@@ -102,7 +107,16 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
         v?.RootRubricId ?? r.Id, v?.VersionNumber ?? 1, v?.ConcurrencyToken.ToString("N") ?? "", referenced,
         r.CreatedAt, r.UpdatedAt, r.RubricCriteria.OrderBy(c => c.SortOrder).ThenBy(c => c.Id)
             .Select(c => new RubricCriterionRecord(c.Id, c.CriterionId, c.Criterion.Name, c.Criterion.Description,
-                c.WeightPercent, c.MaxScore, c.SortOrder, c.IsRequired) { ParentId = c.ParentId }).ToArray());
+                c.WeightPercent, c.MaxScore, c.SortOrder, c.IsRequired)
+            {
+                ParentId = c.ParentId,
+                CriterionCode = c.Criterion.Code,
+                LearningOutcome = c.LearningOutcome,
+                EvidenceGuidance = c.EvidenceGuidance,
+                Levels = c.Levels.OrderBy(l => l.LevelOrder)
+                    .Select(l => new RubricCriterionLevelDto(l.LevelOrder, l.Label, l.Descriptor, l.ScoreFrom, l.ScoreTo))
+                    .ToArray()
+            }).ToArray());
 
     public async Task<RubricRecord> CreateAsync(long departmentId, long semesterId, string code, string name,
         string? description, IReadOnlyList<RubricCriterionInput> criteria, long actorId, DateTime now,
@@ -133,11 +147,35 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
             var c = item.Input;
             var row = new M.RubricCriterion
             {
-                Parent = item.Parent, WeightPercent = c.WeightPercent, MaxScore = c.MaxScore, SortOrder = c.SortOrder,
-                IsRequired = c.IsRequired, CreatedAt = now, UpdatedAt = now,
+                Parent = item.Parent,
+                WeightPercent = c.WeightPercent,
+                MaxScore = c.MaxScore,
+                SortOrder = c.SortOrder,
+                IsRequired = c.IsRequired,
+                LearningOutcome = c.LearningOutcome?.Trim(),
+                EvidenceGuidance = c.EvidenceGuidance?.Trim(),
+                CreatedAt = now,
+                UpdatedAt = now,
                 // Own definitions for every version, including every descendant.
-                Criterion = new M.EvaluationCriterion { Code = "RC_" + Guid.NewGuid().ToString("N"),
-                    Name = c.Name.Trim(), Description = c.Description?.Trim(), IsActive = true, CreatedAt = now, UpdatedAt = now }
+                Criterion = new M.EvaluationCriterion
+                {
+                    Code = "RC_" + Guid.NewGuid().ToString("N"),
+                    Name = c.Name.Trim(),
+                    Description = c.Description?.Trim(),
+                    IsActive = true,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                },
+                Levels = c.Levels.Select(l => new RubricCriterionLevel
+                {
+                    LevelOrder = l.LevelOrder,
+                    Label = l.Label.Trim(),
+                    Descriptor = l.Descriptor.Trim(),
+                    ScoreFrom = l.ScoreFrom,
+                    ScoreTo = l.ScoreTo,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                }).ToList()
             };
             result.Add(row);
             foreach (var child in c.Children) pending.Enqueue((child, row));

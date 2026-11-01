@@ -1,3 +1,5 @@
+using AIPMS.Application.Features.Evaluations.DTOs;
+
 namespace AIPMS.Application.Features.Evaluations.Models;
 
 public static class RubricStatuses
@@ -9,20 +11,34 @@ public static class RubricStatuses
 
 public sealed record RubricActor(long UserId, bool IsAdmin, long? DepartmentId);
 public sealed record RubricScope(long DepartmentId, long OrganizationId, string SemesterStatus);
+
+public sealed record RubricCriterionLevelInput(int LevelOrder, string Label, string Descriptor,
+    decimal? ScoreFrom, decimal? ScoreTo);
+
 public sealed record RubricCriterionInput(string Name, string? Description, decimal WeightPercent,
     decimal? MaxScore, int SortOrder, bool IsRequired)
 {
+    public string? LearningOutcome { get; init; }
+    public string? EvidenceGuidance { get; init; }
+    public IReadOnlyList<RubricCriterionLevelInput> Levels { get; init; } = [];
     public IReadOnlyList<RubricCriterionInput> Children { get; init; } = [];
 }
+
 public sealed record RubricCriterionRecord(long Id, long CriterionId, string Name, string? Description,
     decimal WeightPercent, decimal? MaxScore, int SortOrder, bool IsRequired)
 {
     public long? ParentId { get; init; }
     public decimal EffectiveWeightPercent { get; init; }
+    public string? CriterionCode { get; init; }
+    public string? LearningOutcome { get; init; }
+    public string? EvidenceGuidance { get; init; }
+    public IReadOnlyList<RubricCriterionLevelDto> Levels { get; init; } = [];
 }
+
 public sealed record RubricRecord(long Id, long? DepartmentId, long? AcademicSemesterId,
     string Code, string Name, string? Description, string Status, long RootRubricId, int Version,
     string ConcurrencyToken, bool IsReferenced, DateTime CreatedAt, DateTime UpdatedAt,
     IReadOnlyList<RubricCriterionRecord> Criteria);
+
 public sealed record RubricFilter(long? DepartmentId, long? AcademicSemesterId, string? Status,
     string? Search, int Page, int PageSize);

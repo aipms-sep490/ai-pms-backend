@@ -1100,6 +1100,8 @@ CREATE TABLE dbo.rubric_criteria (
     max_score       DECIMAL(8,2) NULL,
     sort_order      INT NOT NULL CONSTRAINT df_rubric_criteria_sort_order DEFAULT (0),
     is_required     BIT NOT NULL CONSTRAINT df_rubric_criteria_is_required DEFAULT (1),
+    learning_outcome NVARCHAR(500) NULL,
+    evidence_guidance NVARCHAR(1000) NULL,
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_rubric_criteria_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_rubric_criteria_updated_at DEFAULT (SYSUTCDATETIME()),
     CONSTRAINT pk_rubric_criteria PRIMARY KEY (id),
@@ -1115,6 +1117,28 @@ CREATE TABLE dbo.rubric_criteria (
     CONSTRAINT fk_rubric_criteria_criterion FOREIGN KEY (criterion_id)
         REFERENCES dbo.evaluation_criteria(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
+GO
+
+CREATE TABLE dbo.rubric_criterion_levels (
+    id                  BIGINT IDENTITY(1,1) NOT NULL,
+    rubric_criterion_id BIGINT NOT NULL,
+    level_order         INT NOT NULL,
+    label               NVARCHAR(100) NOT NULL,
+    descriptor          NVARCHAR(1000) NOT NULL,
+    score_from          DECIMAL(8,2) NULL,
+    score_to            DECIMAL(8,2) NULL,
+    created_at          DATETIME2(0) NOT NULL CONSTRAINT df_rubric_criterion_levels_created_at DEFAULT (SYSUTCDATETIME()),
+    updated_at          DATETIME2(0) NOT NULL CONSTRAINT df_rubric_criterion_levels_updated_at DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT pk_rubric_criterion_levels PRIMARY KEY (id),
+    CONSTRAINT uq_rubric_criterion_levels_order UNIQUE (rubric_criterion_id, level_order),
+    CONSTRAINT ck_rubric_criterion_levels_order CHECK (level_order > 0),
+    CONSTRAINT ck_rubric_criterion_levels_band CHECK (score_from IS NULL OR score_to IS NULL OR score_from <= score_to),
+    CONSTRAINT fk_rubric_criterion_levels_criterion FOREIGN KEY (rubric_criterion_id)
+        REFERENCES dbo.rubric_criteria(id) ON DELETE CASCADE ON UPDATE NO ACTION
+);
+GO
+
+CREATE INDEX ix_rubric_criterion_levels_criterion ON dbo.rubric_criterion_levels(rubric_criterion_id, level_order);
 GO
 
 CREATE TABLE dbo.evaluations (
