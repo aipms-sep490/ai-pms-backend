@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -133,7 +133,34 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
                          join p in db.ProjectPeriods.AsNoTracking() on a.ProjectPeriodId equals p.Id
                          where a.Id == id
                          select new { Assignment = a, DueAt = (DateTime?)p.EndAt }).SingleOrDefaultAsync(ct);
-        return row is null ? null : Map(row.Assignment, row.DueAt);
+        if (row is null) return null;
+
+        var component = row.Assignment.ComponentId.HasValue
+            ? await db.Set<EvaluationSchemeComponent>().AsNoTracking().FirstOrDefaultAsync(c => c.Id == row.Assignment.ComponentId.Value, ct)
+            : null;
+
+        var scheme = component is not null
+            ? await db.Set<EvaluationScheme>().AsNoTracking().FirstOrDefaultAsync(s => s.Id == component.SchemeId, ct)
+            : (row.Assignment.ProjectId != 0
+                ? await db.Set<EvaluationScheme>().AsNoTracking().Where(s => s.ProjectId == row.Assignment.ProjectId && s.ProjectPeriodId == row.Assignment.ProjectPeriodId && s.Status == "PUBLISHED").FirstOrDefaultAsync(ct)
+                : null);
+
+        var policy = scheme?.GovernanceJson is not null
+            ? JsonSerializer.Deserialize<SchemePolicyInput>(scheme.GovernanceJson)
+            : null;
+
+        var stage = row.Assignment.Stage ?? component?.Stage;
+        var componentStudentWeightPercent = component?.StudentWeightPercent;
+        var schemeIsDemo = policy?.IsDemo ?? (scheme is not null ? true : (bool?)null);
+        var schemeApprovalStatus = policy?.ApprovalStatus ?? (scheme is not null ? "DEMO" : null);
+
+        return Map(row.Assignment, row.DueAt) with
+        {
+            Stage = stage,
+            ComponentStudentWeightPercent = componentStudentWeightPercent,
+            SchemeApprovalStatus = schemeApprovalStatus,
+            SchemeIsDemo = schemeIsDemo
+        };
     }
 
     public async Task<EvaluationAssignmentRecord> AssignAsync(long projectId, long evaluatorId, long periodId,
@@ -199,12 +226,23 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         var majorIds = rows.Select(a => a.MajorId).Distinct().ToArray();
         var studentIds = rows.Select(a => a.StudentId).Distinct().ToArray();
         var projects = await db.Projects.Where(p => projectIds.Contains(p.Id)).Select(p => new { p.Id, p.Title }).ToDictionaryAsync(p => p.Id, p => p.Title, ct);
-        var components = await db.Set<EvaluationSchemeComponent>().Where(c => componentIds.Contains(c.Id)).Select(c => new { c.Id, c.Name }).ToDictionaryAsync(c => c.Id, c => c.Name, ct);
+        var components = await db.Set<EvaluationSchemeComponent>().Where(c => componentIds.Contains(c.Id)).Select(c => new { c.Id, c.Name, c.Stage, c.StudentWeightPercent }).ToDictionaryAsync(c => c.Id, ct);
         var rubrics = await db.Rubrics.Where(r => rubricIds.Contains(r.Id)).Select(r => new { r.Id, r.Name }).ToDictionaryAsync(r => r.Id, r => r.Name, ct);
         var majors = await db.Majors.Where(m => majorIds.Contains(m.Id)).Select(m => new { m.Id, m.Name }).ToDictionaryAsync(m => m.Id, m => m.Name, ct);
         var students = await db.Users.Where(u => studentIds.Contains(u.Id)).Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
         var dueAt = await db.ProjectPeriods.AsNoTracking().Where(p => periodIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => (DateTime?)p.EndAt, ct);
-        return new(rows.Select(a => Map(a, dueAt.GetValueOrDefault(a.ProjectPeriodId)) with { ProjectTitle = projects.GetValueOrDefault(a.ProjectId), ComponentName = components.GetValueOrDefault(a.ComponentId ?? 0), RubricName = rubrics.GetValueOrDefault(a.RubricId), MajorName = majors.GetValueOrDefault(a.MajorId ?? 0), StudentName = students.GetValueOrDefault(a.StudentId ?? 0) }).ToArray(), page, pageSize, total);
+        return new(rows.Select(a => {
+            var comp = a.ComponentId.HasValue && components.TryGetValue(a.ComponentId.Value, out var c) ? c : null;
+            return Map(a, dueAt.GetValueOrDefault(a.ProjectPeriodId)) with {
+                ProjectTitle = projects.GetValueOrDefault(a.ProjectId),
+                ComponentName = comp?.Name,
+                RubricName = rubrics.GetValueOrDefault(a.RubricId),
+                MajorName = majors.GetValueOrDefault(a.MajorId ?? 0),
+                StudentName = students.GetValueOrDefault(a.StudentId ?? 0),
+                Stage = a.Stage ?? comp?.Stage,
+                ComponentStudentWeightPercent = comp?.StudentWeightPercent
+            };
+        }).ToArray(), page, pageSize, total);
     }
 
     public async Task<EvaluationDraftRecord?> GetDraftAsync(long id, CancellationToken ct)
@@ -228,21 +266,66 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         if (row.ProjectId != assignment.ProjectId || row.EvaluatorId != assignment.EvaluatorId || row.RubricId != assignment.RubricId
             || row.EvaluationType != assignment.EvaluationType || state.CalculationRule != "WEIGHTED_10_AWAY_FROM_ZERO_2DP_V1")
             throw new ConflictException("Evaluation metadata does not match its protected assignment.");
-        var criteria = await db.RubricCriteria.AsNoTracking().Include(c => c.Criterion).Where(c => c.RubricId == row.RubricId)
+        var criteria = await db.RubricCriteria.AsNoTracking()
+            .Include(c => c.Criterion)
+            .Include(c => c.Levels)
+            .Where(c => c.RubricId == row.RubricId)
             .OrderBy(c => c.SortOrder).ThenBy(c => c.Id).ToListAsync(ct);
         var rubricCriteria = criteria.Select(c => new RubricCriterionRecord(c.Id, c.CriterionId,
             c.Criterion.Name, c.Criterion.Description, c.WeightPercent, c.MaxScore, c.SortOrder, c.IsRequired)
-            { ParentId = c.ParentId }).ToArray();
+            {
+                ParentId = c.ParentId,
+                CriterionCode = c.Criterion.Code,
+                LearningOutcome = c.LearningOutcome,
+                EvidenceGuidance = c.EvidenceGuidance,
+                Levels = (c.Levels ?? [])
+                    .OrderBy(l => l.LevelOrder)
+                    .Select(l => new RubricCriterionLevelDto(l.LevelOrder, l.Label, l.Descriptor, l.ScoreFrom, l.ScoreTo))
+                    .ToArray()
+            }).ToArray();
         RubricRules.EnsurePublishable(rubricCriteria);
         var leaves = RubricHierarchy.Leaves(rubricCriteria);
         if (row.EvaluationDetails.Any(d => leaves.All(c => c.Id != d.RubricCriterionId)))
             throw new ConflictException("Evaluation contains a score outside its protected rubric.");
         var details = row.EvaluationDetails.ToDictionary(d => d.RubricCriterionId);
+
+        var component = assignment.ComponentId.HasValue
+            ? await db.Set<EvaluationSchemeComponent>().AsNoTracking().FirstOrDefaultAsync(c => c.Id == assignment.ComponentId.Value, ct)
+            : null;
+
+        var scheme = component is not null
+            ? await db.Set<EvaluationScheme>().AsNoTracking().FirstOrDefaultAsync(s => s.Id == component.SchemeId, ct)
+            : (assignment.ProjectId != 0
+                ? await db.Set<EvaluationScheme>().AsNoTracking().Where(s => s.ProjectId == assignment.ProjectId && s.ProjectPeriodId == assignment.ProjectPeriodId && s.Status == "PUBLISHED").FirstOrDefaultAsync(ct)
+                : null);
+
+        var policy = scheme?.GovernanceJson is not null
+            ? JsonSerializer.Deserialize<SchemePolicyInput>(scheme.GovernanceJson)
+            : null;
+
+        var stage = assignment.Stage ?? component?.Stage;
+        var componentStudentWeightPercent = component?.StudentWeightPercent;
+        var schemeIsDemo = policy?.IsDemo ?? (scheme is not null ? true : (bool?)null);
+        var schemeApprovalStatus = policy?.ApprovalStatus ?? (scheme is not null ? "DEMO" : null);
+
         return new(row.Id, state.AssignmentId, row.ProjectId, row.EvaluatorId, row.RubricId, row.Rubric.Name,
             rubricVersion.RootRubricId, rubricVersion.VersionNumber, row.EvaluationType,
             row.Status, row.Comments, row.TotalScore, state.ConcurrencyToken.ToString("N"), row.CreatedAt, row.UpdatedAt,
             leaves.Select(c => new EvaluationScoreRecord(c.Id, c.Name, c.Description, c.EffectiveWeightPercent, c.MaxScore!.Value,
-                c.SortOrder, c.IsRequired, details.GetValueOrDefault(c.Id)?.Score, details.GetValueOrDefault(c.Id)?.Comments)).ToArray());
+                c.SortOrder, c.IsRequired, details.GetValueOrDefault(c.Id)?.Score, details.GetValueOrDefault(c.Id)?.Comments)
+            {
+                CriterionCode = c.CriterionCode,
+                Levels = c.Levels,
+                LearningOutcome = c.LearningOutcome,
+                EvidenceGuidance = c.EvidenceGuidance,
+                EffectiveWeightPercent = c.EffectiveWeightPercent
+            }).ToArray())
+        {
+            Stage = stage,
+            ComponentStudentWeightPercent = componentStudentWeightPercent,
+            SchemeApprovalStatus = schemeApprovalStatus,
+            SchemeIsDemo = schemeIsDemo
+        };
     }
 
     public async Task<EvaluationDraftRecord?> FindDraftAsync(long assignmentId, CancellationToken ct)

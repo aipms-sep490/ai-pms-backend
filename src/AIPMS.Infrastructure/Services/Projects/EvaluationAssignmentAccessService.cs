@@ -11,6 +11,7 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Deliverables.DTOs;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.DTOs;
+using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.Evaluations.Services;
 using AIPMS.Application.Features.FinalSubmissions.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
@@ -69,16 +70,80 @@ internal sealed class EvaluationAssignmentAccessService(
     {
         var (row, canScore) = await Load(assignmentId, ct);
         var dueAt = await db.ProjectPeriods.AsNoTracking().Where(p => p.Id == row.ProjectPeriodId).Select(p => (DateTime?)p.EndAt).SingleOrDefaultAsync(ct);
+
+        var component = row.ComponentId.HasValue
+            ? await db.Set<EvaluationSchemeComponent>().AsNoTracking().SingleOrDefaultAsync(c => c.Id == row.ComponentId.Value, ct)
+            : null;
+
+        var scheme = component is not null
+            ? await db.Set<EvaluationScheme>().AsNoTracking().SingleOrDefaultAsync(s => s.Id == component.SchemeId, ct)
+            : (row.PolicyVersionId.HasValue
+                ? await db.Set<EvaluationScheme>().AsNoTracking().Where(s => s.ProjectId == row.ProjectId && s.ProjectPeriodId == row.ProjectPeriodId && s.Status == "PUBLISHED").FirstOrDefaultAsync(ct)
+                : null);
+
+        var policy = scheme?.GovernanceJson is not null
+            ? JsonSerializer.Deserialize<SchemePolicyInput>(scheme.GovernanceJson)
+            : null;
+
+        var stage = row.Stage ?? component?.Stage;
+        var componentStudentWeightPercent = component?.StudentWeightPercent;
+        var schemeIsDemo = policy?.IsDemo ?? (scheme is not null ? true : (bool?)null);
+        var schemeApprovalStatus = policy?.ApprovalStatus ?? (scheme is not null ? "DEMO" : null);
+
         var dto = new EvaluationAssignmentDto(row.Id, row.ProjectId, row.EvaluatorId, row.RubricId, row.ProjectPeriodId, row.DepartmentId,
-            row.EvaluationType, row.Status, row.AssignedBy, row.AssignedAt, row.RevokedAt, row.ConcurrencyToken.ToString("N"), row.Scope, row.MajorId, row.StudentId, row.ComponentId, row.PolicyVersionId, row.Stage, row.ColdPackageId);
-        dto = dto with { DueAt = dueAt.HasValue ? DateTime.SpecifyKind(dueAt.Value, DateTimeKind.Utc) : null };
+            row.EvaluationType, row.Status, row.AssignedBy, row.AssignedAt, row.RevokedAt, row.ConcurrencyToken.ToString("N"), row.Scope, row.MajorId, row.StudentId, row.ComponentId, row.PolicyVersionId,
+            stage, row.ColdPackageId, null, null, null, null, null,
+            dueAt.HasValue ? DateTime.SpecifyKind(dueAt.Value, DateTimeKind.Utc) : null,
+            componentStudentWeightPercent, schemeApprovalStatus, schemeIsDemo);
+
         dto = dto with {
             ProjectTitle = await db.Projects.Where(p => p.Id == row.ProjectId).Select(p => p.Title).SingleOrDefaultAsync(ct),
-            ComponentName = await db.Set<EvaluationSchemeComponent>().Where(c => c.Id == row.ComponentId).Select(c => c.Name).SingleOrDefaultAsync(ct),
+            ComponentName = component?.Name ?? await db.Set<EvaluationSchemeComponent>().Where(c => c.Id == row.ComponentId).Select(c => c.Name).SingleOrDefaultAsync(ct),
             RubricName = await db.Rubrics.Where(r => r.Id == row.RubricId).Select(r => r.Name).SingleOrDefaultAsync(ct),
             MajorName = await db.Majors.Where(m => m.Id == row.MajorId).Select(m => m.Name).SingleOrDefaultAsync(ct),
             StudentName = await db.Users.Where(u => u.Id == row.StudentId).Select(u => u.FullName).SingleOrDefaultAsync(ct)
         };
+
+        var criteria = await db.RubricCriteria.AsNoTracking()
+            .Include(c => c.Criterion)
+            .Include(c => c.Levels)
+            .Where(c => c.RubricId == row.RubricId)
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.Id)
+            .ToListAsync(ct);
+
+        var rubricCriteria = criteria.Select(c => new RubricCriterionRecord(
+            c.Id, c.CriterionId, c.Criterion.Name, c.Criterion.Description,
+            c.WeightPercent, c.MaxScore, c.SortOrder, c.IsRequired)
+        {
+            ParentId = c.ParentId,
+            CriterionCode = c.Criterion.Code,
+            LearningOutcome = c.LearningOutcome,
+            EvidenceGuidance = c.EvidenceGuidance,
+            Levels = (c.Levels ?? [])
+                .OrderBy(l => l.LevelOrder)
+                .Select(l => new RubricCriterionLevelDto(l.LevelOrder, l.Label, l.Descriptor, l.ScoreFrom, l.ScoreTo))
+                .ToArray()
+        }).ToArray();
+
+        var weighted = RubricHierarchy.WithEffectiveWeights(rubricCriteria);
+        var parentIds = criteria.Where(c => c.ParentId.HasValue).Select(c => c.ParentId!.Value).ToHashSet();
+        var leaves = weighted.Where(c => !parentIds.Contains(c.Id)).ToArray();
+
+        var items = leaves.Select(c => new EvaluationAssignmentItemDto(
+            c.Id,
+            c.Name,
+            c.Description,
+            c.WeightPercent,
+            c.EffectiveWeightPercent,
+            c.MaxScore ?? 0m,
+            c.SortOrder,
+            c.IsRequired,
+            c.CriterionCode,
+            c.LearningOutcome,
+            c.EvidenceGuidance,
+            c.Levels
+        )).ToArray();
+
         var legacy = row.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL");
         string? reason = legacy ? "LEGACY_SCOPE_UNKNOWN" : null;
         if (canScore && !legacy)
@@ -91,7 +156,7 @@ internal sealed class EvaluationAssignmentAccessService(
                 catch (ConflictException) { canScore = false; reason = "EVALUATION_EVIDENCE_OR_SCHEME_CHANGED"; }
             }
         }
-        return new(dto, canScore && !legacy, legacy, reason);
+        return new(dto, canScore && !legacy, legacy, reason, stage, componentStudentWeightPercent, schemeApprovalStatus, schemeIsDemo, items);
     }
 
     private async Task<(FinalSubmission? Final, IReadOnlyList<InternalEvidenceItem> AllItems, IReadOnlyList<InternalEvidenceItem> ScopedItems)> ResolveEvidenceItemsAsync(EvaluationAssignment row, CancellationToken ct)

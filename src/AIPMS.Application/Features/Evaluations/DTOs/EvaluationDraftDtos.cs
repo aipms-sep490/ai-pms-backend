@@ -7,19 +7,31 @@ public sealed record AssignEvaluatorRequest(long EvaluatorId, long ProjectPeriod
 public sealed record RevokeEvaluatorRequest(string ConcurrencyToken, string Reason);
 public sealed record SaveEvaluationDraftRequest(string ConcurrencyToken, string? Comments,
     IReadOnlyList<EvaluationScoreInput> Scores);
+
 public sealed record EvaluationAssignmentDto(long Id, long ProjectId, long EvaluatorId, long RubricId,
     long ProjectPeriodId, long DepartmentId, string EvaluationType, string Status, long AssignedBy,
     DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken, string Scope = "UNKNOWN",
     long? MajorId = null, long? StudentId = null, long? ComponentId = null, long? PolicyVersionId = null,
     string? Stage = null, long? ColdPackageId = null, string? ProjectTitle = null, string? ComponentName = null, string? RubricName = null, string? MajorName = null, string? StudentName = null,
-    DateTime? DueAt = null);
+    DateTime? DueAt = null,
+    decimal? ComponentStudentWeightPercent = null,
+    string? SchemeApprovalStatus = null,
+    bool? SchemeIsDemo = null);
+
 public sealed record EvaluationScoreDto(long RubricCriterionId, string Name, string? Description, decimal WeightPercent,
-    decimal MaxScore, int SortOrder, bool IsRequired, decimal? Score, string? Comments);
+    decimal MaxScore, int SortOrder, bool IsRequired, decimal? Score, string? Comments,
+    string? CriterionCode = null,
+    IReadOnlyList<RubricCriterionLevelDto>? Levels = null,
+    string? LearningOutcome = null,
+    string? EvidenceGuidance = null,
+    decimal? EffectiveWeightPercent = null);
+
 public sealed record EvaluationDraftDto(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
     long RubricId, string RubricName, long RootRubricId, int RubricVersion, string EvaluationType, string Status, string? Comments, decimal? TotalScore,
     decimal ScoreScale, string CalculationRule, IReadOnlyList<long> MissingCriterionIds,
     IReadOnlyList<long> MissingRequiredCriterionIds, string ConcurrencyToken, DateTime CreatedAt,
-    DateTime UpdatedAt, IReadOnlyList<EvaluationScoreDto> Scores, EvaluationFinalizationDto? Finalization = null);
+    DateTime UpdatedAt, IReadOnlyList<EvaluationScoreDto> Scores, EvaluationFinalizationDto? Finalization = null,
+    string? Stage = null, decimal? ComponentStudentWeightPercent = null, string? SchemeApprovalStatus = null, bool? SchemeIsDemo = null);
 
 public sealed record EvaluationEvidenceDto(long FinalSubmissionId, long ProjectPeriodId, DateTime SubmittedAt,
     int ArtifactCount, int FileCount, IReadOnlyList<long> DeliverableVersionIds,
@@ -32,7 +44,8 @@ public static class EvaluationDraftDtoMapper
         a.ProjectId, a.EvaluatorId, a.RubricId, a.PeriodId, a.DepartmentId, a.EvaluationType,
         a.Status, a.AssignedBy, Utc(a.AssignedAt), a.RevokedAt.HasValue ? Utc(a.RevokedAt.Value) : null,
         a.ConcurrencyToken, a.Scope, a.MajorId, a.StudentId, a.ComponentId, a.PolicyVersionId, a.Stage, a.ColdPackageId, a.ProjectTitle, a.ComponentName, a.RubricName, a.MajorName, a.StudentName,
-        a.DueAt.HasValue ? Utc(a.DueAt.Value) : null);
+        a.DueAt.HasValue ? Utc(a.DueAt.Value) : null,
+        a.ComponentStudentWeightPercent, a.SchemeApprovalStatus, a.SchemeIsDemo);
 
     public static EvaluationDraftDto ToDto(this EvaluationDraftRecord e) => new(e.Id, e.AssignmentId,
         e.ProjectId, e.EvaluatorId, e.RubricId, e.RubricName, e.RootRubricId, e.RubricVersion, e.EvaluationType, e.Status, e.Comments, e.TotalScore,
@@ -41,12 +54,14 @@ public static class EvaluationDraftDtoMapper
         e.Scores.Where(c => c.IsRequired && !c.Score.HasValue).Select(c => c.RubricCriterionId).ToArray(),
         e.ConcurrencyToken, Utc(e.CreatedAt), Utc(e.UpdatedAt),
         e.Scores.Select(c => new EvaluationScoreDto(c.RubricCriterionId, c.Name, c.Description, c.WeightPercent,
-            c.MaxScore, c.SortOrder, c.IsRequired, c.Score, c.Comments)).ToArray(),
+            c.MaxScore, c.SortOrder, c.IsRequired, c.Score, c.Comments,
+            c.CriterionCode, c.Levels, c.LearningOutcome, c.EvidenceGuidance, c.EffectiveWeightPercent ?? c.WeightPercent)).ToArray(),
         e.Finalization is null ? null : new(e.Finalization.FinalizedBy, Utc(e.Finalization.FinalizedAt),
             new(e.Finalization.Evidence.FinalSubmissionId, e.Finalization.Evidence.ProjectPeriodId,
                 Utc(e.Finalization.Evidence.SubmittedAt), e.Finalization.Evidence.ArtifactCount,
                 e.Finalization.Evidence.FileCount, e.Finalization.Evidence.DeliverableVersionIds,
-                e.Finalization.Evidence.Stage, e.Finalization.Evidence.ColdPackageId, e.Finalization.Evidence.ColdSubmissionIds)));
+                e.Finalization.Evidence.Stage, e.Finalization.Evidence.ColdPackageId, e.Finalization.Evidence.ColdSubmissionIds)),
+        e.Stage, e.ComponentStudentWeightPercent, e.SchemeApprovalStatus, e.SchemeIsDemo);
 
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
 }

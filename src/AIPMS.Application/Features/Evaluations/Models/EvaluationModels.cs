@@ -1,8 +1,17 @@
 namespace AIPMS.Application.Features.Evaluations.Models;
 
 public sealed record EvaluationScoreInput(long RubricCriterionId, decimal? Score, string? Comments);
+
 public sealed record EvaluationScoreRecord(long RubricCriterionId, string Name, string? Description, decimal WeightPercent,
-    decimal MaxScore, int SortOrder, bool IsRequired, decimal? Score, string? Comments);
+    decimal MaxScore, int SortOrder, bool IsRequired, decimal? Score, string? Comments)
+{
+    public string? CriterionCode { get; init; }
+    public IReadOnlyList<AIPMS.Application.Features.Evaluations.DTOs.RubricCriterionLevelDto> Levels { get; init; } = [];
+    public string? LearningOutcome { get; init; }
+    public string? EvidenceGuidance { get; init; }
+    public decimal? EffectiveWeightPercent { get; init; }
+}
+
 public sealed record EvaluationPreview(decimal? Total, IReadOnlyList<long> MissingCriterionIds,
     IReadOnlyList<long> MissingRequiredCriterionIds);
 public sealed record EvaluationActor(long Id, long? DepartmentId, bool IsAdmin, bool IsStaff, bool IsLecturer);
@@ -14,11 +23,21 @@ public sealed record EvaluationAssignmentRecord(long Id, long ProjectId, long Ev
     DateTime AssignedAt, DateTime? RevokedAt, string ConcurrencyToken, string Scope = "UNKNOWN",
     long? MajorId = null, long? StudentId = null, long? ComponentId = null, long? PolicyVersionId = null,
     string? Stage = null, long? ColdPackageId = null, string? ProjectTitle = null, string? ComponentName = null, string? RubricName = null, string? MajorName = null, string? StudentName = null,
-    DateTime? DueAt = null);
+    DateTime? DueAt = null,
+    decimal? ComponentStudentWeightPercent = null,
+    string? SchemeApprovalStatus = null,
+    bool? SchemeIsDemo = null);
+
 public sealed record EvaluationDraftRecord(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
     long RubricId, string RubricName, long RootRubricId, int RubricVersion, string EvaluationType, string Status, string? Comments, decimal? TotalScore,
     string ConcurrencyToken, DateTime CreatedAt, DateTime UpdatedAt, IReadOnlyList<EvaluationScoreRecord> Scores,
-    EvaluationFinalizationRecord? Finalization = null);
+    EvaluationFinalizationRecord? Finalization = null)
+{
+    public string? Stage { get; init; }
+    public decimal? ComponentStudentWeightPercent { get; init; }
+    public string? SchemeApprovalStatus { get; init; }
+    public bool? SchemeIsDemo { get; init; }
+}
 
 public sealed record EvaluationEvidenceRecord(long FinalSubmissionId, long ProjectPeriodId, DateTime SubmittedAt,
     int ArtifactCount, int FileCount, IReadOnlyList<long> DeliverableVersionIds,
