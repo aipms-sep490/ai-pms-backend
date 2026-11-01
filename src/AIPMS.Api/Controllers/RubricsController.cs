@@ -24,8 +24,11 @@ public sealed class RubricsController(ISender sender) : ControllerBase
     public async Task<ActionResult<PagedResult<RubricDto>>> List([FromQuery] long? departmentId = null,
         [FromQuery] long? academicSemesterId = null, [FromQuery] string? status = null,
         [FromQuery] string? search = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] long? majorId = null, [FromQuery] string? projectMode = null,
+        [FromQuery] string? evaluationStage = null, [FromQuery] string? evaluationScope = null,
         CancellationToken ct = default) => Ok(await sender.Send(
-            new GetRubricsQuery(departmentId, academicSemesterId, status, search, page, pageSize), ct));
+            new GetRubricsQuery(departmentId, academicSemesterId, status, search, page, pageSize,
+                majorId, projectMode, evaluationStage, evaluationScope), ct));
 
     [HttpGet("{id:long}")]
     [ProducesResponseType<RubricDto>(200)]

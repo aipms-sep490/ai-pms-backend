@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
@@ -47,6 +48,10 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
         var query = Visible(actor);
         if (filter.DepartmentId.HasValue) query = query.Where(r => r.DepartmentId == filter.DepartmentId);
         if (filter.AcademicSemesterId.HasValue) query = query.Where(r => r.AcademicSemesterId == filter.AcademicSemesterId);
+        if (filter.MajorId.HasValue) query = query.Where(r => r.MajorId == filter.MajorId);
+        if (!string.IsNullOrWhiteSpace(filter.ProjectMode)) query = query.Where(r => r.ProjectMode == filter.ProjectMode);
+        if (!string.IsNullOrWhiteSpace(filter.EvaluationStage)) query = query.Where(r => r.EvaluationStage == filter.EvaluationStage);
+        if (!string.IsNullOrWhiteSpace(filter.EvaluationScope)) query = query.Where(r => r.EvaluationScope == filter.EvaluationScope);
         if (!string.IsNullOrWhiteSpace(filter.Search)) query = query.Where(r => r.Code.Contains(filter.Search) || r.Name.Contains(filter.Search));
         if (filter.Status is not null)
             query = query.Where(r => context.Set<RubricVersion>().Any(v => v.RubricId == r.Id && v.Status == filter.Status));
@@ -102,23 +107,56 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
         v?.RootRubricId ?? r.Id, v?.VersionNumber ?? 1, v?.ConcurrencyToken.ToString("N") ?? "", referenced,
         r.CreatedAt, r.UpdatedAt, r.RubricCriteria.OrderBy(c => c.SortOrder).ThenBy(c => c.Id)
             .Select(c => new RubricCriterionRecord(c.Id, c.CriterionId, c.Criterion.Name, c.Criterion.Description,
-                c.WeightPercent, c.MaxScore, c.SortOrder, c.IsRequired) { ParentId = c.ParentId }).ToArray());
+                c.WeightPercent, c.MaxScore, c.SortOrder, c.IsRequired) { ParentId = c.ParentId }).ToArray())
+    {
+        MajorId = r.MajorId,
+        ProjectMode = r.ProjectMode,
+        EvaluationStage = r.EvaluationStage,
+        EvaluationScope = r.EvaluationScope,
+        EffectiveFrom = r.EffectiveFrom,
+        EffectiveTo = r.EffectiveTo,
+        ApprovalReference = r.ApprovalReference
+    };
 
     public async Task<RubricRecord> CreateAsync(long departmentId, long semesterId, string code, string name,
         string? description, IReadOnlyList<RubricCriterionInput> criteria, long actorId, DateTime now,
-        long? sourceId, CancellationToken ct)
+        long? sourceId, long? majorId, string? projectMode, string? evaluationStage, string? evaluationScope,
+        DateOnly? effectiveFrom, DateOnly? effectiveTo, CancellationToken ct)
     {
         var source = sourceId.HasValue
             ? await context.Set<RubricVersion>().SingleAsync(v => v.RubricId == sourceId.Value, ct) : null;
         var versionNumber = source is null ? 1 : 1 + await context.Set<RubricVersion>()
             .Where(v => v.RootRubricId == source.RootRubricId).MaxAsync(v => v.VersionNumber, ct);
-        var row = new M.Rubric { DepartmentId = departmentId, AcademicSemesterId = semesterId,
-            Code = code, Name = name, Description = description, IsActive = false, CreatedBy = actorId,
-            CreatedAt = now, UpdatedAt = now, RubricCriteria = Criteria(criteria, now) };
+        var row = new M.Rubric
+        {
+            DepartmentId = departmentId,
+            AcademicSemesterId = semesterId,
+            Code = code,
+            Name = name,
+            Description = description,
+            MajorId = majorId,
+            ProjectMode = projectMode,
+            EvaluationStage = evaluationStage,
+            EvaluationScope = evaluationScope,
+            EffectiveFrom = effectiveFrom,
+            EffectiveTo = effectiveTo,
+            ApprovalReference = null,
+            IsActive = false,
+            CreatedBy = actorId,
+            CreatedAt = now,
+            UpdatedAt = now,
+            RubricCriteria = Criteria(criteria, now)
+        };
         context.Rubrics.Add(row);
         await context.SaveChangesAsync(ct);
-        context.Set<RubricVersion>().Add(new RubricVersion { RubricId = row.Id, RootRubricId = source?.RootRubricId ?? row.Id,
-            VersionNumber = versionNumber, Status = RubricStatuses.Draft, ConcurrencyToken = Guid.NewGuid() });
+        context.Set<RubricVersion>().Add(new RubricVersion
+        {
+            RubricId = row.Id,
+            RootRubricId = source?.RootRubricId ?? row.Id,
+            VersionNumber = versionNumber,
+            Status = RubricStatuses.Draft,
+            ConcurrencyToken = Guid.NewGuid()
+        });
         await context.SaveChangesAsync(ct);
         return await Read(row.Id, ct);
     }
@@ -158,12 +196,20 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
     }
 
     public async Task<RubricRecord> UpdateAsync(long id, string name, string? description,
-        IReadOnlyList<RubricCriterionInput> criteria, DateTime now, CancellationToken ct)
+        IReadOnlyList<RubricCriterionInput> criteria, DateTime now,
+        long? majorId, string? projectMode, string? evaluationStage, string? evaluationScope,
+        DateOnly? effectiveFrom, DateOnly? effectiveTo, CancellationToken ct)
     {
         await RemoveCriteria(id, ct);
         var row = await context.Rubrics.SingleAsync(r => r.Id == id, ct);
         row.Name = name;
         row.Description = description;
+        row.MajorId = majorId;
+        row.ProjectMode = projectMode;
+        row.EvaluationStage = evaluationStage;
+        row.EvaluationScope = evaluationScope;
+        row.EffectiveFrom = effectiveFrom;
+        row.EffectiveTo = effectiveTo;
         row.UpdatedAt = now;
         row.RubricCriteria = Criteria(criteria, now);
         var version = await context.Set<RubricVersion>().SingleAsync(v => v.RubricId == id, ct);

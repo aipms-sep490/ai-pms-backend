@@ -42,7 +42,7 @@ public partial class AipmsDbContext
         ConfigurePasswordRecovery(modelBuilder);
         ConfigureExternalLogins(modelBuilder);
         ConfigureStudentQualifications(modelBuilder);
-ConfigureReportingCycles(modelBuilder);
+        ConfigureReportingCycles(modelBuilder);
         ConfigureTeamEligibilitySnapshots(modelBuilder);
         ConfigureAcademicKnowledge(modelBuilder);
         ConfigureRiskHistory(modelBuilder);
@@ -63,6 +63,19 @@ ConfigureReportingCycles(modelBuilder);
             entity.HasOne<Rubric>().WithMany().HasForeignKey(x => x.RubricId).OnDelete(DeleteBehavior.NoAction);
             entity.HasOne<Rubric>().WithMany().HasForeignKey(x => x.RootRubricId).OnDelete(DeleteBehavior.NoAction);
         });
+
+        modelBuilder.Entity<Rubric>(entity =>
+        {
+            entity.Property(e => e.MajorId).HasColumnName("major_id");
+            entity.Property(e => e.ProjectMode).HasMaxLength(32).HasColumnName("project_mode");
+            entity.Property(e => e.EvaluationStage).HasMaxLength(32).HasColumnName("evaluation_stage");
+            entity.Property(e => e.EvaluationScope).HasMaxLength(32).HasColumnName("evaluation_scope");
+            entity.Property(e => e.EffectiveFrom).HasColumnName("effective_from");
+            entity.Property(e => e.EffectiveTo).HasColumnName("effective_to");
+            entity.Property(e => e.ApprovalReference).HasMaxLength(1000).HasColumnName("approval_reference");
+            entity.HasOne(e => e.Major).WithMany().HasForeignKey(e => e.MajorId).OnDelete(DeleteBehavior.NoAction);
+            entity.HasIndex(e => new { e.AcademicSemesterId, e.ProjectMode, e.EvaluationStage, e.EvaluationScope, e.MajorId })
+                .HasDatabaseName("ix_rubrics_scope");
+        });
     }
 }
-

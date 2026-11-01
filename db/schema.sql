@@ -1075,16 +1075,33 @@ CREATE TABLE dbo.rubrics (
     created_by           BIGINT NOT NULL,
     created_at           DATETIME2(0) NOT NULL CONSTRAINT df_rubrics_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at           DATETIME2(0) NOT NULL CONSTRAINT df_rubrics_updated_at DEFAULT (SYSUTCDATETIME()),
+    major_id             BIGINT NULL,
+    project_mode         NVARCHAR(32) NULL,
+    evaluation_stage     NVARCHAR(32) NULL,
+    evaluation_scope     NVARCHAR(32) NULL,
+    effective_from       DATE NULL,
+    effective_to         DATE NULL,
+    approval_reference   NVARCHAR(1000) NULL,
     CONSTRAINT pk_rubrics PRIMARY KEY (id),
     CONSTRAINT uq_rubrics_code UNIQUE (code),
     CONSTRAINT ck_rubrics_scope CHECK (department_id IS NOT NULL OR academic_semester_id IS NOT NULL),
+    CONSTRAINT ck_rubrics_project_mode CHECK (project_mode IS NULL OR project_mode IN ('SINGLE_MAJOR','INTERDISCIPLINARY')),
+    CONSTRAINT ck_rubrics_evaluation_stage CHECK (evaluation_stage IS NULL OR evaluation_stage IN ('ON_GOING','COLD','DEFENSE')),
+    CONSTRAINT ck_rubrics_evaluation_scope CHECK (evaluation_scope IS NULL OR evaluation_scope IN ('COMMON','MAJOR_SPECIFIC','INDIVIDUAL')),
+    CONSTRAINT ck_rubrics_scope_major CHECK (evaluation_scope IS NULL OR evaluation_scope <> 'COMMON' OR major_id IS NULL),
+    CONSTRAINT ck_rubrics_effective_range CHECK (effective_from IS NULL OR effective_to IS NULL OR effective_from <= effective_to),
     CONSTRAINT fk_rubrics_department FOREIGN KEY (department_id)
         REFERENCES dbo.departments(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_rubrics_semester FOREIGN KEY (academic_semester_id)
         REFERENCES dbo.academic_semesters(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_rubrics_created_by FOREIGN KEY (created_by)
-        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_rubrics_major FOREIGN KEY (major_id)
+        REFERENCES dbo.majors(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
+GO
+
+CREATE INDEX ix_rubrics_scope ON dbo.rubrics(academic_semester_id, project_mode, evaluation_stage, evaluation_scope, major_id);
 GO
 
 ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_rubric

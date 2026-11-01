@@ -1,3 +1,4 @@
+using System;
 using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.Evaluations.Services;
 
@@ -13,11 +14,36 @@ public sealed record RubricCriterionDto(long Id, long CriterionId, string Name, 
 public sealed record RubricDto(long Id, long? DepartmentId, long? AcademicSemesterId, string Code,
     string Name, string? Description, string Status, bool IsActive, long RootRubricId, int Version,
     string ConcurrencyToken, bool CanEdit, DateTime CreatedAt, DateTime UpdatedAt,
-    IReadOnlyList<RubricCriterionDto> Criteria);
+    IReadOnlyList<RubricCriterionDto> Criteria)
+{
+    public long? MajorId { get; init; }
+    public string? ProjectMode { get; init; }
+    public string? EvaluationStage { get; init; }
+    public string? EvaluationScope { get; init; }
+    public DateOnly? EffectiveFrom { get; init; }
+    public DateOnly? EffectiveTo { get; init; }
+    public string? ApprovalReference { get; init; }
+}
 public sealed record CreateRubricRequest(long DepartmentId, long AcademicSemesterId, string Code,
-    string Name, string? Description, IReadOnlyList<RubricCriterionInput> Criteria);
+    string Name, string? Description, IReadOnlyList<RubricCriterionInput> Criteria)
+{
+    public long? MajorId { get; init; }
+    public string? ProjectMode { get; init; }
+    public string? EvaluationStage { get; init; }
+    public string? EvaluationScope { get; init; }
+    public DateOnly? EffectiveFrom { get; init; }
+    public DateOnly? EffectiveTo { get; init; }
+}
 public sealed record UpdateRubricRequest(string Name, string? Description,
-    IReadOnlyList<RubricCriterionInput> Criteria, string ConcurrencyToken);
+    IReadOnlyList<RubricCriterionInput> Criteria, string ConcurrencyToken)
+{
+    public long? MajorId { get; init; }
+    public string? ProjectMode { get; init; }
+    public string? EvaluationStage { get; init; }
+    public string? EvaluationScope { get; init; }
+    public DateOnly? EffectiveFrom { get; init; }
+    public DateOnly? EffectiveTo { get; init; }
+}
 public sealed record ChangeRubricStatusRequest(string ConcurrencyToken);
 public sealed record CreateRubricVersionRequest(string Code, string ConcurrencyToken);
 
@@ -41,6 +67,15 @@ public static class RubricDtoMapper
             r.Status == RubricStatuses.Published, r.RootRubricId, r.Version, r.ConcurrencyToken,
             r.Status == RubricStatuses.Draft && !r.IsReferenced,
             DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc), DateTime.SpecifyKind(r.UpdatedAt, DateTimeKind.Utc),
-            byParent[null].OrderBy(c => c.SortOrder).ThenBy(c => c.Id).Select(c => mapped[c.Id]).ToArray());
+            byParent[null].OrderBy(c => c.SortOrder).ThenBy(c => c.Id).Select(c => mapped[c.Id]).ToArray())
+        {
+            MajorId = r.MajorId,
+            ProjectMode = r.ProjectMode,
+            EvaluationStage = r.EvaluationStage,
+            EvaluationScope = r.EvaluationScope,
+            EffectiveFrom = r.EffectiveFrom,
+            EffectiveTo = r.EffectiveTo,
+            ApprovalReference = r.ApprovalReference
+        };
     }
 }

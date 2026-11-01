@@ -1,5 +1,6 @@
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Evaluations.Models;
+using AIPMS.Domain.Exceptions;
 
 namespace AIPMS.Application.Features.Evaluations.Services;
 
@@ -9,6 +10,27 @@ public static class RubricRules
     {
         if (rubric.Status != RubricStatuses.Draft || rubric.IsReferenced)
             throw new ConflictException("This rubric version is protected. Create a new draft version to change its content.");
+    }
+
+    public static void ValidateScope(string? scope, long? majorId, string? projectMode, string? stage, DateOnly? effectiveFrom, DateOnly? effectiveTo)
+    {
+        if (scope == "COMMON" && majorId.HasValue)
+            throw new DomainException("A common rubric cannot be scoped to a specific major.", "RUBRIC_COMMON_HAS_MAJOR");
+
+        if (scope == "MAJOR_SPECIFIC" && !majorId.HasValue)
+            throw new DomainException("A major-specific rubric must specify a major ID.", "RUBRIC_MAJOR_REQUIRED");
+
+        if (effectiveFrom.HasValue && effectiveTo.HasValue && effectiveFrom.Value > effectiveTo.Value)
+            throw new DomainException("EffectiveFrom date cannot be after EffectiveTo date.", "RUBRIC_EFFECTIVE_RANGE_INVALID");
+
+        if (projectMode is not null && projectMode is not ("SINGLE_MAJOR" or "INTERDISCIPLINARY"))
+            throw new DomainException("Invalid project mode.", "RUBRIC_INVALID_PROJECT_MODE");
+
+        if (stage is not null && stage is not ("ON_GOING" or "COLD" or "DEFENSE"))
+            throw new DomainException("Invalid evaluation stage.", "RUBRIC_INVALID_STAGE");
+
+        if (scope is not null && scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL"))
+            throw new DomainException("Invalid evaluation scope.", "RUBRIC_INVALID_SCOPE");
     }
 
     public static void EnsurePublishable(IReadOnlyList<RubricCriterionRecord> criteria)

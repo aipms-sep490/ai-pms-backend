@@ -1,3 +1,5 @@
+using System;
+
 namespace AIPMS.Application.Features.Evaluations.Models;
 
 public static class RubricStatuses
@@ -23,6 +25,21 @@ public sealed record RubricCriterionRecord(long Id, long CriterionId, string Nam
 public sealed record RubricRecord(long Id, long? DepartmentId, long? AcademicSemesterId,
     string Code, string Name, string? Description, string Status, long RootRubricId, int Version,
     string ConcurrencyToken, bool IsReferenced, DateTime CreatedAt, DateTime UpdatedAt,
-    IReadOnlyList<RubricCriterionRecord> Criteria);
+    IReadOnlyList<RubricCriterionRecord> Criteria)
+{
+    public long? MajorId { get; init; }
+    public string? ProjectMode { get; init; }
+    public string? EvaluationStage { get; init; }
+    public string? EvaluationScope { get; init; }
+    public DateOnly? EffectiveFrom { get; init; }
+    public DateOnly? EffectiveTo { get; init; }
+    public string? ApprovalReference { get; init; }
+}
 public sealed record RubricFilter(long? DepartmentId, long? AcademicSemesterId, string? Status,
-    string? Search, int Page, int PageSize);
+    string? Search, int Page, int PageSize)
+{
+    public long? MajorId { get; init; }
+    public string? ProjectMode { get; init; }
+    public string? EvaluationStage { get; init; }
+    public string? EvaluationScope { get; init; }
+}

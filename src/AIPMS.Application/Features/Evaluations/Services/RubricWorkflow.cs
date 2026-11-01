@@ -50,9 +50,12 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
     {
         var actor = await Actor(ct);
         await Scope(actor, input.DepartmentId, input.AcademicSemesterId, ct);
+        RubricRules.ValidateScope(input.EvaluationScope, input.MajorId, input.ProjectMode, input.EvaluationStage, input.EffectiveFrom, input.EffectiveTo);
         var rubric = await repository.CreateAsync(input.DepartmentId, input.AcademicSemesterId,
             input.Code.Trim().ToUpperInvariant(), input.Name.Trim(), input.Description?.Trim(), input.Criteria,
-            actor.UserId, clock.GetUtcNow().UtcDateTime, null, ct);
+            actor.UserId, clock.GetUtcNow().UtcDateTime, null,
+            input.MajorId, input.ProjectMode, input.EvaluationStage, input.EvaluationScope,
+            input.EffectiveFrom, input.EffectiveTo, ct);
         await Audit("RUBRIC_CREATED", rubric, actor.UserId, ct);
         return rubric.ToDto();
     }, ct);
@@ -64,8 +67,11 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         RubricRules.EnsureCurrent(rubric, input.ConcurrencyToken);
         RubricRules.EnsureEditable(rubric);
         await Scope(actor, rubric.DepartmentId!.Value, rubric.AcademicSemesterId!.Value, ct);
+        RubricRules.ValidateScope(input.EvaluationScope, input.MajorId, input.ProjectMode, input.EvaluationStage, input.EffectiveFrom, input.EffectiveTo);
         var updated = await repository.UpdateAsync(id, input.Name.Trim(), input.Description?.Trim(),
-            input.Criteria, clock.GetUtcNow().UtcDateTime, ct);
+            input.Criteria, clock.GetUtcNow().UtcDateTime,
+            input.MajorId, input.ProjectMode, input.EvaluationStage, input.EvaluationScope,
+            input.EffectiveFrom, input.EffectiveTo, ct);
         await Audit("RUBRIC_UPDATED", updated, actor.UserId, ct);
         return updated.ToDto();
     }, ct);
@@ -101,7 +107,9 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         await Scope(actor, rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct);
         var created = await repository.CreateAsync(rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value,
             input.Code.Trim().ToUpperInvariant(), rubric.Name, rubric.Description,
-            RubricHierarchy.ToInputs(rubric.Criteria), actor.UserId, clock.GetUtcNow().UtcDateTime, id, ct);
+            RubricHierarchy.ToInputs(rubric.Criteria), actor.UserId, clock.GetUtcNow().UtcDateTime, id,
+            rubric.MajorId, rubric.ProjectMode, rubric.EvaluationStage, rubric.EvaluationScope,
+            rubric.EffectiveFrom, rubric.EffectiveTo, ct);
         await Audit("RUBRIC_VERSION_CREATED", created, actor.UserId, ct);
         return created.ToDto();
     }, ct);
