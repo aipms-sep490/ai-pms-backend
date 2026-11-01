@@ -6,6 +6,8 @@ namespace AIPMS.Infrastructure.Persistence.Generated;
 
 public partial class AipmsDbContext
 {
+    public virtual DbSet<RubricCriterionLevel> RubricCriterionLevels { get; set; } = null!;
+
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
         ConfigureChat(modelBuilder);
@@ -76,6 +78,41 @@ public partial class AipmsDbContext
             entity.HasOne(e => e.Major).WithMany().HasForeignKey(e => e.MajorId).OnDelete(DeleteBehavior.NoAction);
             entity.HasIndex(e => new { e.AcademicSemesterId, e.ProjectMode, e.EvaluationStage, e.EvaluationScope, e.MajorId })
                 .HasDatabaseName("ix_rubrics_scope");
+        });
+
+        modelBuilder.Entity<RubricCriterion>(entity =>
+        {
+            entity.Property(e => e.LearningOutcome)
+                .HasMaxLength(500)
+                .HasColumnName("learning_outcome");
+            entity.Property(e => e.EvidenceGuidance)
+                .HasMaxLength(1000)
+                .HasColumnName("evidence_guidance");
+            entity.HasMany(e => e.Levels)
+                .WithOne(e => e.RubricCriterion)
+                .HasForeignKey(e => e.RubricCriterionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RubricCriterionLevel>(entity =>
+        {
+            entity.ToTable("rubric_criterion_levels", table =>
+            {
+                table.HasCheckConstraint("ck_rubric_criterion_levels_order", "[level_order] > 0");
+                table.HasCheckConstraint("ck_rubric_criterion_levels_band", "[score_from] IS NULL OR [score_to] IS NULL OR [score_from] <= [score_to]");
+            });
+            entity.HasKey(x => x.Id).HasName("pk_rubric_criterion_levels");
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.RubricCriterionId).HasColumnName("rubric_criterion_id");
+            entity.Property(x => x.LevelOrder).HasColumnName("level_order");
+            entity.Property(x => x.Label).HasColumnName("label").HasMaxLength(100);
+            entity.Property(x => x.Descriptor).HasColumnName("descriptor").HasMaxLength(1000);
+            entity.Property(x => x.ScoreFrom).HasColumnName("score_from").HasColumnType("decimal(8, 2)");
+            entity.Property(x => x.ScoreTo).HasColumnName("score_to").HasColumnType("decimal(8, 2)");
+            entity.Property(x => x.CreatedAt).HasPrecision(0).HasDefaultValueSql("(sysutcdatetime())").HasColumnName("created_at");
+            entity.Property(x => x.UpdatedAt).HasPrecision(0).HasDefaultValueSql("(sysutcdatetime())").HasColumnName("updated_at");
+            entity.HasIndex(x => new { x.RubricCriterionId, x.LevelOrder }).IsUnique().HasDatabaseName("uq_rubric_criterion_levels_order");
+            entity.HasOne(x => x.RubricCriterion).WithMany(x => x.Levels).HasForeignKey(x => x.RubricCriterionId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

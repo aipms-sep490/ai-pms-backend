@@ -29,6 +29,7 @@ public sealed class RubricDatabaseFixture : IAsyncLifetime
         {
             "20260911_add_rubric_versions.sql",
             "20260922_add_rubric_hierarchy.sql",
+            "20261030_add_rubric_criterion_levels.sql",
             "20261030_add_rubric_scope_fields.sql"
         };
         await using var connection = new SqlConnection(ConnectionString);
