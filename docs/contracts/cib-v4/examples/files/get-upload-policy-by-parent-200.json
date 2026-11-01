@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/upload-policies/REVIEW_GATE_EVIDENCE",
+    "headers": {
+      "Accept": "application/json"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "parentType": "REVIEW_GATE_EVIDENCE",
+      "maxBytes": 23068672,
+      "maxBytesLabel": "22 MiB",
+      "allowedMimeTypes": [
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "application/zip"
+      ],
+      "allowedExtensions": [
+        ".pdf",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".zip"
+      ],
+      "maxFilesPerRequest": 1,
+      "requiresVersionAnchor": true
+    }
+  }
+}
