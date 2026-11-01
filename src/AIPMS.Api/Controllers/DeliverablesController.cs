@@ -1,3 +1,4 @@
+using AIPMS.Application.Features.Files;
 using System.ComponentModel.DataAnnotations;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Deliverables.Commands;
@@ -64,8 +65,8 @@ public sealed class DeliverablesController(ISender sender) : ControllerBase
 
     [HttpPost("{id:long}/versions")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(22 * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 22 * 1024 * 1024)]
+    [RequestSizeLimit(UploadPolicies.DeliverableVersionLimit)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.DeliverableVersionLimit)]
     [ProducesResponseType<DeliverableVersionDto>(201)]
     public async Task<ActionResult<DeliverableVersionDto>> Submit(long id, [FromForm] SubmitDeliverableForm request, CancellationToken ct)
     {

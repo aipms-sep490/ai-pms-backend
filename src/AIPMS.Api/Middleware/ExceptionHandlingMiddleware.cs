@@ -81,6 +81,34 @@ public sealed class ExceptionHandlingMiddleware(
             problem.Extensions["errors"] = validationException.Errors;
         }
 
+        if (mapping.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            problem.Extensions["code"] = "UPLOAD_TOO_LARGE";
+            problem.Extensions["errorCode"] = "UPLOAD_TOO_LARGE";
+
+            if (exception is PayloadTooLargeException payloadTooLarge)
+            {
+                problem.Extensions["maxBytes"] = payloadTooLarge.MaxBytes;
+            }
+            else
+            {
+                var endpoint = context.GetEndpoint();
+                var limitMeta = endpoint?.Metadata.GetMetadata<Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata>();
+                if (limitMeta?.MaxRequestBodySize is long limit)
+                {
+                    problem.Extensions["maxBytes"] = limit;
+                }
+                else
+                {
+                    var maxBodySize = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize;
+                    if (maxBodySize.HasValue)
+                    {
+                        problem.Extensions["maxBytes"] = maxBodySize.Value;
+                    }
+                }
+            }
+        }
+
         await problemDetailsService.WriteAsync(new ProblemDetailsContext
         {
             HttpContext = context,
@@ -90,6 +118,18 @@ public sealed class ExceptionHandlingMiddleware(
 
     private static ExceptionMapping MapException(Exception exception) => exception switch
     {
+        PayloadTooLargeException => new(
+            StatusCodes.Status413PayloadTooLarge,
+            "Request entity too large.",
+            "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.14"),
+        BadHttpRequestException badHttp when badHttp.StatusCode == StatusCodes.Status413PayloadTooLarge => new(
+            StatusCodes.Status413PayloadTooLarge,
+            "Request entity too large.",
+            "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.14"),
+        InvalidDataException invalidData when invalidData.Message.Contains("Multipart body length limit", StringComparison.OrdinalIgnoreCase) => new(
+            StatusCodes.Status413PayloadTooLarge,
+            "Request entity too large.",
+            "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.14"),
         ServiceUnavailableException => new(
             StatusCodes.Status503ServiceUnavailable,
             "Service temporarily unavailable.",

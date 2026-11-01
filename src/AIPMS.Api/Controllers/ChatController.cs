@@ -1,3 +1,4 @@
+using AIPMS.Application.Features.Files;
 using System.Globalization;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
@@ -47,7 +48,7 @@ public sealed class ChatController(IChatService chat,ICurrentUser user) : Contro
     public async Task<IActionResult> Read(long id,ChatReadRequest request,CancellationToken ct) { await chat.ReadAsync(Actor,id,Id(request.MessageId),ct);return NoContent(); }
 
     [HttpPost("conversations/{id:long}/uploads"), EnableRateLimiting("chat-write")]
-    [Consumes("multipart/form-data"), RequestSizeLimit(11 * 1024 * 1024), RequestFormLimits(MultipartBodyLengthLimit = 11 * 1024 * 1024)]
+    [Consumes("multipart/form-data"), RequestSizeLimit(UploadPolicies.ChatAttachmentLimit), RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.ChatAttachmentLimit)]
     [ProducesResponseType<ChatAttachmentDto>(200), ProducesResponseType<ProblemDetails>(413)]
     public async Task<ChatAttachmentDto> Upload(long id, [FromForm] ChatUploadForm input, CancellationToken ct)
     {
