@@ -21,7 +21,7 @@ public sealed class ColdSubmissionsController(IColdSubmissionService service) : 
     public IReadOnlyList<ColdReportInput> ItExample() => ColdTemplateExamples.ItReports;
     [HttpGet("api/v1/cold-report-templates")]
     [ProducesResponseType<PagedResult<ColdTemplateDto>>(200)]
-    public Task<PagedResult<ColdTemplateDto>> Templates([FromQuery] long majorId, [FromQuery] long projectPeriodId,
+    public Task<PagedResult<ColdTemplateDto>> Templates([FromQuery] long? majorId, [FromQuery] long projectPeriodId,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) => service.Templates(majorId, projectPeriodId, page, pageSize, ct);
     [HttpPost("api/v1/cold-report-templates")]
     [ProducesResponseType<ColdTemplateDto>(201)]

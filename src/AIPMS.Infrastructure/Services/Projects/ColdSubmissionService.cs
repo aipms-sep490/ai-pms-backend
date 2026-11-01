@@ -14,6 +14,7 @@ using AIPMS.Application.Features.Deliverables.Services;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.Projects.DTOs;
+using AIPMS.Domain.Exceptions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
@@ -96,7 +97,7 @@ internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluati
         return (row, item, package);
     }
     private static ColdTemplateDto TemplateDto(ColdReportTemplate row) => new(row.Id, row.MajorId, row.ProjectPeriodId,
-        row.Name, row.Version, JsonSerializer.Deserialize<ColdReportInput[]>(row.ReportsJson)!);
+        row.Name, row.Version, JsonSerializer.Deserialize<ColdReportInput[]>(row.ReportsJson)!, row.Scope);
     private static ColdSubmissionDto Dto(ColdSubmission row, ColdChecklistItem item, ColdPackage package) => new(row.Id, item.Id,
         package.ProjectId, item.ReportType, item.Scope, item.MajorId, item.StudentId, row.Version, row.Status, row.Note,
         row.CreatedBy, DateTime.SpecifyKind(row.CreatedAt, DateTimeKind.Utc), Utc(row.SubmittedAt), Utc(row.LockedAt), row.ConcurrencyToken.ToString("N"),
@@ -104,16 +105,47 @@ internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluati
             $"/api/v1/cold-submissions/{row.Id}/files/{f.FileId}/download")).ToArray());
     private static DateTime? Utc(DateTime? date) => date.HasValue ? DateTime.SpecifyKind(date.Value, DateTimeKind.Utc) : null;
 
-    private async Task TemplateScope(long majorId, long periodId, CancellationToken ct)
+    private async Task TemplateScope(long? majorId, long periodId, CancellationToken ct)
     {
         var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
-        if (!actor.IsStaff || !await db.Majors.AnyAsync(m => m.Id == majorId && m.IsActive && m.DepartmentId == actor.DepartmentId
-            && m.Department.IsActive && m.Department.Organization.IsActive
-            && db.ProjectPeriods.Any(p => p.Id == periodId && p.AcademicSemester.OrganizationId == m.Department.OrganizationId
-                && (p.PeriodType == "EVALUATION" || p.PeriodType == "FINAL_SUBMISSION")), ct)) throw new ForbiddenException();
+        if (!actor.IsStaff) throw new ForbiddenException();
+        if (majorId.HasValue)
+        {
+            if (!await db.Majors.AnyAsync(m => m.Id == majorId.Value && m.IsActive && m.DepartmentId == actor.DepartmentId
+                && m.Department.IsActive && m.Department.Organization.IsActive
+                && db.ProjectPeriods.Any(p => p.Id == periodId && p.AcademicSemester.OrganizationId == m.Department.OrganizationId
+                    && (p.PeriodType == "EVALUATION" || p.PeriodType == "FINAL_SUBMISSION")), ct)) throw new ForbiddenException();
+        }
+        else
+        {
+            if (!await db.ProjectPeriods.AnyAsync(p => p.Id == periodId
+                && (p.PeriodType == "EVALUATION" || p.PeriodType == "FINAL_SUBMISSION")
+                && db.Departments.Any(d => d.Id == actor.DepartmentId && d.IsActive && d.OrganizationId == p.AcademicSemester.OrganizationId && d.Organization.IsActive), ct))
+                throw new ForbiddenException();
+        }
     }
     public Task<ColdTemplateDto> CreateTemplate(CreateColdTemplateRequest input, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
     {
+        if (input.Scope == "COMMON")
+        {
+            if (input.MajorId.HasValue)
+                throw new DomainException("Major ID must not be set for COMMON scope template.", "COLD_TEMPLATE_COMMON_HAS_MAJOR");
+        }
+        else if (input.Scope == "MAJOR_SPECIFIC")
+        {
+            if (!input.MajorId.HasValue)
+                throw new DomainException("Major ID is required for MAJOR_SPECIFIC scope template.", "COLD_TEMPLATE_MAJOR_REQUIRED");
+        }
+        else if (input.Scope is null)
+        {
+            if (!input.MajorId.HasValue)
+                throw new DomainException("Major ID is required when scope is not COMMON.", "COLD_TEMPLATE_MAJOR_REQUIRED");
+        }
+        else
+        {
+            throw Invalid("Invalid template scope. Must be COMMON, MAJOR_SPECIFIC, or null.");
+        }
+
         await TemplateScope(input.MajorId, input.ProjectPeriodId, ct);
         await db.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.project_periods WITH (UPDLOCK,HOLDLOCK) WHERE id={input.ProjectPeriodId}").ToListAsync(ct);
         if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Trim().Length > 200 || input.Reports is null || input.Reports.Count is < 1 or > 30
@@ -122,17 +154,21 @@ internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluati
                 || string.IsNullOrWhiteSpace(r.Name) || r.Name.Trim().Length > 200)
             || input.Reports.Select(r => r.Code).Distinct().Count() != input.Reports.Count || !input.Reports.Any(r => r.Required))
             throw Invalid("Provide 1..30 distinct report codes (A-Z, 0-9, underscore), names and at least one required report.");
-        var row = new ColdReportTemplate { MajorId = input.MajorId, ProjectPeriodId = input.ProjectPeriodId, Name = input.Name.Trim(),
+        var row = new ColdReportTemplate { MajorId = input.MajorId, Scope = input.Scope?.Trim(), ProjectPeriodId = input.ProjectPeriodId, Name = input.Name.Trim(),
             Version = (await db.Set<ColdReportTemplate>().Where(t => t.MajorId == input.MajorId && t.ProjectPeriodId == input.ProjectPeriodId)
                 .MaxAsync(t => (int?)t.Version, ct) ?? 0) + 1,
             ReportsJson = JsonSerializer.Serialize(input.Reports), CreatedBy = Actor, CreatedAt = Now };
         db.Add(row); await db.SaveChangesAsync(ct); await Audit("COLD_TEMPLATE_CREATED", "COLD_TEMPLATE", row.Id, TemplateDto(row), ct);
         return TemplateDto(row);
     }, ct);
-    public async Task<PagedResult<ColdTemplateDto>> Templates(long majorId, long periodId, int page, int pageSize, CancellationToken ct)
+    public async Task<PagedResult<ColdTemplateDto>> Templates(long? majorId, long periodId, int page, int pageSize, CancellationToken ct)
     {
         Page(page, pageSize); await TemplateScope(majorId, periodId, ct);
-        var query = db.Set<ColdReportTemplate>().AsNoTracking().Where(t => t.MajorId == majorId && t.ProjectPeriodId == periodId);
+        var query = db.Set<ColdReportTemplate>().AsNoTracking().Where(t => t.ProjectPeriodId == periodId);
+        if (majorId.HasValue)
+            query = query.Where(t => t.MajorId == majorId.Value);
+        else
+            query = query.Where(t => t.MajorId == null);
         var total = await query.LongCountAsync(ct);
         var rows = await query.OrderByDescending(t => t.Version).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(ct);
         return new(rows.Select(TemplateDto).ToArray(), page, pageSize, total);
@@ -156,14 +192,14 @@ internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluati
         foreach (var target in input.Targets)
         {
             if (!templates.TryGetValue(target.TemplateId, out var template) || template.ProjectPeriodId != period.Id
-                || !access.Registration.Scope.Requirements.Any(r => r.MajorId == template.MajorId))
+                || (template.MajorId.HasValue && !access.Registration.Scope.Requirements.Any(r => r.MajorId == template.MajorId.Value)))
                 throw new ConflictException("Template is outside the frozen project/period scope.");
             if (target.Scope is not ("MAJOR_SPECIFIC" or "INDIVIDUAL") || (target.Scope == "INDIVIDUAL") != target.StudentId.HasValue
-                || target.StudentId.HasValue && !access.Registration.Members.Any(m => m.UserId == target.StudentId && m.MajorId == template.MajorId))
+                || (target.StudentId.HasValue && template.MajorId.HasValue && !access.Registration.Members.Any(m => m.UserId == target.StudentId && m.MajorId == template.MajorId.Value)))
                 throw Invalid("Specify a major target or a matching individual from the frozen roster.");
             foreach (var report in TemplateDto(template).Reports)
                 items.Add(new() { TemplateId = template.Id, TemplateVersion = template.Version, ReportType = report.Code, Name = report.Name,
-                    Required = report.Required, Scope = target.Scope, MajorId = template.MajorId, StudentId = target.StudentId });
+                    Required = report.Required, Scope = target.Scope, MajorId = template.MajorId.GetValueOrDefault(), StudentId = target.StudentId });
         }
         if (items.Count > 100 || items.Select(i => (i.ReportType, i.MajorId, i.StudentId)).Distinct().Count() != items.Count)
             throw Invalid("A project checklist supports at most 100 distinct report/major/student targets.");
