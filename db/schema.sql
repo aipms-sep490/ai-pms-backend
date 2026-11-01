@@ -2911,14 +2911,17 @@ BEGIN TRANSACTION;
 IF OBJECT_ID('dbo.cold_report_templates','U') IS NULL
 BEGIN
  CREATE TABLE dbo.cold_report_templates (
-  id bigint IDENTITY PRIMARY KEY, major_id bigint NOT NULL, project_period_id bigint NOT NULL,
+  id bigint IDENTITY PRIMARY KEY, major_id bigint NULL, project_period_id bigint NOT NULL,
   version int NOT NULL, name nvarchar(200) NOT NULL, reports_json nvarchar(max) NOT NULL,
+  scope nvarchar(32) NULL,
   created_by bigint NOT NULL, created_at datetime2(0) NOT NULL,
   CONSTRAINT fk_cold_template_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id),
   CONSTRAINT fk_cold_template_period FOREIGN KEY(project_period_id) REFERENCES dbo.project_periods(id),
   CONSTRAINT fk_cold_template_creator FOREIGN KEY(created_by) REFERENCES dbo.users(id),
   CONSTRAINT ck_cold_template_json CHECK(ISJSON(reports_json)=1),
   CONSTRAINT ck_cold_template_version CHECK(version>0),
+  CONSTRAINT ck_cold_template_scope CHECK(scope IS NULL OR scope IN ('COMMON','MAJOR_SPECIFIC','INDIVIDUAL')),
+  CONSTRAINT ck_cold_template_scope_major CHECK(scope <> 'COMMON' OR major_id IS NULL),
   CONSTRAINT uq_cold_template_version UNIQUE(major_id,project_period_id,version));
 END;
 IF OBJECT_ID('dbo.cold_packages','U') IS NULL
