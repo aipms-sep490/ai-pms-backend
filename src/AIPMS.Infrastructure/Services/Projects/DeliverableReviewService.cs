@@ -203,6 +203,7 @@ internal sealed class DeliverableReviewService(AipmsDbContext db, AiActorScope a
         var q = from review in db.AiDeliverableReviewRuns.AsNoTracking()
                 join run in db.Set<AiRun>().AsNoTracking() on review.Id equals run.Id
                 where run.ProjectId == projectId && run.ActorId == scope.Actor && run.ScopeHash == scope.Hash &&
+                    run.Status != "RUNNING" && run.Status != "FAILED" && run.ResultJson != null &&
                     visible.Contains(review.DeliverableVersionId) && (versionId == null || review.DeliverableVersionId == versionId)
                 select run;
         var total = await q.LongCountAsync(ct);
