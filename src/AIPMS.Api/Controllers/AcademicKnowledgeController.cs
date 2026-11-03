@@ -96,12 +96,6 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     {
         if (input.Files.Count > 4 || input.Files.Sum(f => f.Length) > 8 * 1024 * 1024 || input.Files.Any(f => f.Length is 0 or > 4 * 1024 * 1024))
             throw new ArgumentException("Tối đa 4 tệp, mỗi tệp 4 MB và tổng 8 MB.");
-        var files = new List<AssistantUpload>();
-        foreach (var file in input.Files)
-        {
-            using var buffer = new MemoryStream(); await file.CopyToAsync(buffer, ct);
-            files.Add(new(file.FileName, buffer.ToArray()));
-        }
         Response.Headers.CacheControl = "no-store";
         Response.Headers["X-Accel-Buffering"] = "no";
         // Audit uses this after the response begins, so allocate its header before streaming.
@@ -114,6 +108,14 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
         }
         try
         {
+            // Let the dock show progress while file buffering and scoped retrieval run.
+            await Emit(new("status", "Đang kiểm tra dữ liệu và quyền truy cập…"));
+            var files = new List<AssistantUpload>();
+            foreach (var file in input.Files)
+            {
+                using var buffer = new MemoryStream(); await file.CopyToAsync(buffer, ct);
+                files.Add(new(file.FileName, buffer.ToArray()));
+            }
             var result = await service.AskStreamingAsync(input.ToRequest(), files, Emit, ct);
             await Emit(new("completed", Response: result));
         }

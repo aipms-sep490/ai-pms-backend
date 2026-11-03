@@ -192,6 +192,7 @@ internal sealed partial class AcademicKnowledgeService(
         }
         if (request.ToolMode != "PROGRESS" && !provider.ModelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.Ordinal))
         {
+            if (emit != null) await emit(new("status", "Đang tạo câu trả lời…"));
             var sources = citations.Select((c, i) => new { id = $"DOC-{i + 1}", c.Title, c.Version, c.Section, c.Excerpt }).ToArray();
             var projectSources = projectEvidence.Select((e, i) => new { id = $"PROJECT-{i + 1}", e.Title, e.Excerpt, e.PeriodOrDate }).ToArray();
             var fileSources = attachments.Select((a, i) => new { id = $"FILE-{i + 1}", a.Name, a.MediaType, a.Text, hasImage = a.Image is not null }).ToArray();
