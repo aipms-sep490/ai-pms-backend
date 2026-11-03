@@ -4,6 +4,7 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.AiAssistant.DTOs;
 using AIPMS.Application.Features.AiAssistant.Abstractions;
 using AIPMS.Application.Features.Projects.DTOs;
+using AIPMS.Application.Features.AcademicKnowledge;
 using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.IntegrationTests.Evaluations;
 using Microsoft.EntityFrameworkCore;
@@ -23,6 +24,98 @@ public sealed class ScopedProgressAnalysisTests(EvaluationDraftDatabaseFixture d
         return (await response.Content.ReadFromJsonAsync<T>())!;
     }
     private static string Root(long project) => $"/api/v1/projects/{project}";
+
+    [Theory]
+    [InlineData("NEXT_STEPS")]
+    [InlineData("BLOCKERS")]
+    [InlineData("SUBMISSION_CHECK")]
+    [InlineData("MEETING_PREP")]
+    [InlineData("MEETING_FOLLOWUP")]
+    [InlineData("CONSISTENCY")]
+    [InlineData("COORDINATION")]
+    [InlineData("SUPERVISOR_BRIEF")]
+    public async Task Workflow_modes_use_real_scoped_services_without_business_mutations(string mode)
+    {
+        var x = await Seed(); using var app = new EvaluationFactory(database);
+        using var leader = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
+        await using var db = database.CreateContext();
+        var before = await db.Tasks.Where(t => t.Milestone.ProjectId == x.Scenario.ProjectId).Select(t => new { t.Id, t.Status, t.UpdatedAt }).ToArrayAsync();
+        var result = await Body<WorkflowAssistanceDto>(await leader.GetAsync(Root(x.Scenario.ProjectId) + "/ai/workflow-assistance?mode=" + mode));
+        Assert.Equal(x.Scenario.ProjectId, result.ProjectId); Assert.Equal(mode, result.Mode);
+        Assert.NotEmpty(result.Limitations);
+        if (mode == "MEETING_PREP") { Assert.Equal("MEETING", result.Draft!.Kind); Assert.Null(result.Draft.Meeting); }
+        Assert.Equal(before, await db.Tasks.Where(t => t.Milestone.ProjectId == x.Scenario.ProjectId).Select(t => new { t.Id, t.Status, t.UpdatedAt }).ToArrayAsync());
+        Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == "AI_WORKFLOW_ASSISTANCE_READ" && a.EntityId == x.Scenario.ProjectId.ToString()));
+    }
+
+    [Fact]
+    public async Task Workflow_hides_dependencies_outside_mentor_scope_and_rejects_foreign_project()
+    {
+        var x = await Seed(); using var app = new EvaluationFactory(database);
+        await using (var db = database.CreateContext())
+        {
+            var other = await db.Tasks.SingleAsync(t => t.Milestone.ProjectId == x.Scenario.ProjectId && t.Id != x.Task);
+            db.TaskDependencies.Add(new() { TaskId = x.Task, DependsOnTaskId = other.Id, DependencyType = "FINISH_TO_START" });
+            await db.SaveChangesAsync();
+        }
+        using var mentor = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.NewLecturer, roles: ["LECTURER"]);
+        var url = Root(x.Scenario.ProjectId) + "/ai/workflow-assistance?mode=";
+        var result = await Body<WorkflowAssistanceDto>(await mentor.GetAsync(url + "COORDINATION"));
+        Assert.Empty(result.Items);
+        Assert.DoesNotContain("Unclassified private task", System.Text.Json.JsonSerializer.Serialize(result));
+        var checklist = await Body<WorkflowAssistanceDto>(await mentor.GetAsync(url + "SUBMISSION_CHECK"));
+        Assert.Equal("INSUFFICIENT_DATA", checklist.Status);
+        using var leader = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
+        var full = await Body<WorkflowAssistanceDto>(await leader.GetAsync(url + "COORDINATION"));
+        Assert.Contains(full.Items, i => i.Code == "DEPENDENCY" && i.Detail.Contains("Unclassified private task"));
+        var foreign = await database.Seed(false);
+        Assert.Equal(HttpStatusCode.Forbidden, (await mentor.GetAsync(Root(foreign.ProjectId) + "/ai/workflow-assistance?mode=NEXT_STEPS")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Workflow_consistency_is_a_review_signal_and_missing_data_is_not_readiness()
+    {
+        var x = await Seed(); using var app = new EvaluationFactory(database);
+        await using (var db = database.CreateContext())
+        {
+            var task = await db.Tasks.SingleAsync(t => t.Id == x.Task); task.Status = "DONE";
+            await db.SaveChangesAsync();
+        }
+        using var leader = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
+        var result = await Body<WorkflowAssistanceDto>(await leader.GetAsync(Root(x.Scenario.ProjectId) + "/ai/workflow-assistance?mode=CONSISTENCY"));
+        var signal = Assert.Single(result.Items.Where(i => i.Code == "DONE_WITHOUT_FILE"));
+        Assert.Equal("REVIEW", signal.Status); Assert.Contains("không phải mọi task", signal.Detail);
+        Assert.NotEqual("READY", result.Status);
+        using var stranger = app.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await stranger.GetAsync(Root(x.Scenario.ProjectId) + "/ai/workflow-assistance?mode=CONSISTENCY")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await leader.GetAsync(Root(x.Scenario.ProjectId) + "/ai/workflow-assistance?mode=UNSUPPORTED")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Workflow_followup_requires_selected_invited_meeting_and_only_proposes_drafts()
+    {
+        var x = await Seed(); using var app = new EvaluationFactory(database);
+        long visible, hidden;
+        await using (var db = database.CreateContext())
+        {
+            var meeting = new M.Meeting { ProjectId = x.Scenario.ProjectId, Title = "Review API", Status = "SCHEDULED",
+                StartAt = EvaluationDraftDatabaseFixture.Now, CreatedBy = x.Scenario.Scope.Users.Student,
+                MeetingNotes = "Bổ sung test API\nRà lại tài liệu", MeetingParticipants = [new() { UserId = x.Scenario.Scope.Users.Student }] };
+            var privateMeeting = new M.Meeting { ProjectId = x.Scenario.ProjectId, Title = "Private", Status = "SCHEDULED",
+                StartAt = EvaluationDraftDatabaseFixture.Now, CreatedBy = x.Scenario.Scope.Users.Student, MeetingNotes = "Private decisions" };
+            db.AddRange(meeting, privateMeeting); await db.SaveChangesAsync(); visible = meeting.Id; hidden = privateMeeting.Id;
+        }
+        using var leader = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
+        var url = Root(x.Scenario.ProjectId) + "/ai/workflow-assistance?mode=MEETING_FOLLOWUP";
+        var choices = await Body<WorkflowAssistanceDto>(await leader.GetAsync(url));
+        Assert.Equal("NEEDS_SELECTION", choices.Status); Assert.Equal(visible, Assert.Single(choices.Meetings!).Id);
+        var result = await Body<WorkflowAssistanceDto>(await leader.GetAsync(url + "&meetingId=" + visible));
+        Assert.Equal("WORK_PLAN", result.Draft!.Kind); Assert.Equal(2, result.Draft.Tasks!.Count);
+        Assert.All(result.Draft.Tasks, t => Assert.Null(t.Task));
+        Assert.Equal(HttpStatusCode.NotFound, (await leader.GetAsync(url + "&meetingId=" + hidden)).StatusCode);
+        await using var verify = database.CreateContext();
+        Assert.Equal(2, await verify.Tasks.CountAsync(t => t.Milestone.ProjectId == x.Scenario.ProjectId));
+    }
 
     private async Task<(EvaluationScenario Scenario, long Task, long Assignment)> Seed()
     {
