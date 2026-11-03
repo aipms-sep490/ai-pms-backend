@@ -206,7 +206,13 @@ internal sealed partial class AcademicKnowledgeService(
                 "toolMode WORK_PLAN: draft objectives, tasks, deliverables and proposed timeline. " +
                 "For these document tools mark all unprovided dates, people and decisions [Cần bổ sung]; separate proposals from supplied facts. " +
                 "Write an editable document in answer with clear headings and bullets, no Markdown tables. The application provides download buttons; never invent download URLs. " +
-                "When draftKind is TASK or MEETING, add draft:{kind,title,description} with concise editable content. Do not assign people, IDs, dates or execute actions. Otherwise omit draft. " +
+                "When draftKind is TASK or MEETING, add draft:{kind,title,description} with concise editable content. Never execute actions or invent people/IDs. Otherwise omit draft. " +
+                "For MEETING also add draft.meeting:{startAt,endAt,meetingDeliveryMode,videoChannel,location,onlineUrl,inviteAll}. " +
+                "Use only details supplied by the user; leave unknown fields null and inviteAll false unless the user explicitly asks to invite everyone. " +
+                "Resolve relative dates (e.g. tomorrow) using currentTime in Vietnam; dates must be ISO8601 with explicit +07:00 offset. Do not invent an end time. " +
+                "meetingDeliveryMode is ONSITE, REMOTE or HYBRID. Online/onl means REMOTE; for online without a specified external platform/link propose IN_APP_VIDEO and clearly say this is the editable default. " +
+                "videoChannel is NONE for onsite, IN_APP_VIDEO for AI-PMS video, EXTERNAL_LINK for a user-specified external platform/link. Never invent a meeting URL. " +
+                "inviteAll means preselect the authorized project meeting candidates on the form, not that invitations have been sent. " +
                 "For greetings, everyday conversation, explanations, writing, programming and general knowledge, use your general knowledge; " +
                 "do not require school documents or refer unrelated questions to department staff. Mark these answers GENERAL with empty citationIds. " +
                 "Use currentTime (Asia/Ho_Chi_Minh, UTC+07:00) for today's date, weekday and time, never infer the current date from training data. " +
@@ -270,7 +276,8 @@ internal sealed partial class AcademicKnowledgeService(
                     var title = action.GetProperty("title").GetString();
                     var description = action.GetProperty("description").GetString();
                     if (action.GetProperty("kind").GetString() == request.DraftKind && title is { Length: > 0 and <= 255 } && description is { Length: <= 4000 })
-                        draft = new(request.DraftKind, title, description);
+                        draft = new(request.DraftKind, title, description,
+                            request.DraftKind == "MEETING" ? AssistantMeetingDraftParser.Parse(action) : null);
                 }
                 if (Regex.Matches(generated, @"\[(?:DOC|PROJECT|FILE)-\d+\]").Any(m => !ids.Contains(m.Value[1..^1]))) throw new JsonException();
                 answer = generated;

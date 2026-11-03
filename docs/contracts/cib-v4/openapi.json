@@ -117,6 +117,238 @@
         }
       }
     },
+    "/api/v1/projects/{projectId}/ai/deliverables/{deliverableVersionId}/review": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "deliverableVersionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliverableReviewRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliverableReviewRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliverableReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewResponseDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewResponseDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{projectId}/ai/deliverables/{deliverableVersionId}/review-options": {
+      "get": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "deliverableVersionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewOptions"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewOptions"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewOptions"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{projectId}/ai/deliverable-reviews": {
+      "get": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "deliverableVersionId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewResponseDtoPagedResult"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewResponseDtoPagedResult"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewResponseDtoPagedResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{projectId}/ai/deliverable-reviews/{runId}": {
+      "get": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewResponseDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewResponseDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliverableReviewResponseDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/academic/assistant/ask": {
       "post": {
         "tags": [
@@ -55705,6 +55937,9 @@
           },
           "progressAnalysis": {
             "$ref": "#/components/schemas/ProjectProgressAnalysisDto"
+          },
+          "deliverableReview": {
+            "$ref": "#/components/schemas/DeliverableReviewResponseDto"
           }
         },
         "additionalProperties": false
@@ -56126,6 +56361,44 @@
           "description": {
             "type": "string",
             "nullable": true
+          },
+          "meeting": {
+            "$ref": "#/components/schemas/AssistantMeetingDraftDto"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantMeetingDraftDto": {
+        "type": "object",
+        "properties": {
+          "startAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "endAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "meetingDeliveryMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "videoChannel": {
+            "type": "string",
+            "nullable": true
+          },
+          "location": {
+            "type": "string",
+            "nullable": true
+          },
+          "onlineUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "inviteAll": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -58728,6 +59001,24 @@
         },
         "additionalProperties": false
       },
+      "DeliverableChecklistOption": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
       "DeliverableDto": {
         "type": "object",
         "properties": {
@@ -58861,6 +59152,195 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DeliverableFeedbackDto"
+            },
+            "nullable": true
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeliverableReviewCitationDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "string",
+            "nullable": true
+          },
+          "section": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeliverableReviewCriterionDto": {
+        "type": "object",
+        "properties": {
+          "criterionId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "criterionName": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "missingEvidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeliverableReviewOptions": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "nullable": true
+          },
+          "rubrics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantRubricOption"
+            },
+            "nullable": true
+          },
+          "checklists": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliverableChecklistOption"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeliverableReviewRequest": {
+        "type": "object",
+        "properties": {
+          "rubricId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "checklistId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "scope": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeliverableReviewResponseDto": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "projectId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "deliverableVersionId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "readiness": {
+            "type": "string",
+            "nullable": true
+          },
+          "readinessPercent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliverableReviewCriterionDto"
+            },
+            "nullable": true
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliverableReviewCitationDto"
+            },
+            "nullable": true
+          },
+          "insufficientEvidence": {
+            "type": "boolean"
+          },
+          "limitationNote": {
+            "type": "string",
+            "nullable": true
+          },
+          "generationStatus": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeliverableReviewResponseDtoPagedResult": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliverableReviewResponseDto"
             },
             "nullable": true
           },
@@ -63011,6 +63491,28 @@
         },
         "additionalProperties": false
       },
+      "ProgressRiskSignalDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "severity": {
+            "type": "string",
+            "nullable": true
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ProgressSummaryDto": {
         "type": "object",
         "properties": {
@@ -64032,6 +64534,28 @@
             "type": "string",
             "nullable": true,
             "readOnly": true
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "generationStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "signals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProgressRiskSignalDto"
+            },
+            "nullable": true
+          },
+          "projectEvidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceReferenceDto"
+            },
+            "nullable": true
           },
           "reasons": {
             "type": "array",

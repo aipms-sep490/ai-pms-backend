@@ -24,7 +24,9 @@ public sealed record CreateAssistantConversationRequest(long? ProjectId = null, 
 public sealed record AssistantConversationDto(long Id, string Title, long? ProjectId, string Scope, int Revision, DateTime UpdatedAt);
 public sealed record AssistantTurnDto(long Id, string Query, AcademicAssistantResponseDto Response);
 public sealed record AssistantConversationDetailDto(AssistantConversationDto Conversation, IReadOnlyList<AssistantTurnDto> Turns, bool HasMore);
-public sealed record AssistantDraftDto(string Kind, string Title, string Description);
+public sealed record AssistantMeetingDraftDto(DateTimeOffset? StartAt, DateTimeOffset? EndAt,
+    string? MeetingDeliveryMode, string? VideoChannel, string? Location, string? OnlineUrl, bool InviteAll);
+public sealed record AssistantDraftDto(string Kind, string Title, string Description, AssistantMeetingDraftDto? Meeting = null);
 public sealed record AssistantStreamEvent(string Type, string? Text = null, AcademicAssistantResponseDto? Response = null);
 public sealed record AssistantUpload(string FileName, byte[] Content);
 public sealed record AssistantExport(string FileName, string ContentType, byte[] Content);

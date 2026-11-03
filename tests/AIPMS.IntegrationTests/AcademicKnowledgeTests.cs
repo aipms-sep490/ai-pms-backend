@@ -200,6 +200,25 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     }
 
     [Fact]
+    public async Task MeetingDraftPreservesStructuredFieldsInHistoryWithoutScheduling()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var provider = new Provider("""{"answer":"Lịch họp nháp: 12h ngày 4/11, đề xuất video AI-PMS. Kiểm tra trước khi lưu.","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false,"draft":{"kind":"MEETING","title":"Họp nhóm","description":"Trao đổi tiến độ","meeting":{"startAt":"2026-11-04T12:00:00+07:00","meetingDeliveryMode":"REMOTE","videoChannel":"IN_APP_VIDEO","inviteAll":true}}}""");
+        var service = Service(db, student, provider);
+        var count = await db.Meetings.CountAsync();
+        var conversation = await service.CreateConversationAsync(new(), default);
+        var answer = await service.AskAsync(new("Họp ngày 4/11/2026 lúc 12h trưa, mời tất cả, online", ConversationId: conversation.Id, ExpectedRevision: conversation.Revision, DraftKind: "MEETING"), default);
+        Assert.Equal("COMPLETED", answer.GenerationStatus);
+        var meeting = answer.Draft!.Meeting!;
+        Assert.Equal(new DateTimeOffset(2026, 11, 4, 5, 0, 0, TimeSpan.Zero), meeting.StartAt);
+        Assert.True(meeting.InviteAll); Assert.Equal("REMOTE", meeting.MeetingDeliveryMode);
+        var history = await service.ConversationAsync(conversation.Id, null, default);
+        Assert.Equal(meeting, Assert.Single(history.Turns).Response.Draft!.Meeting);
+        Assert.Equal(count, await db.Meetings.CountAsync());
+    }
+
+    [Fact]
     public async Task ConversationMigrationRerunsAndConstraintsStayTrusted()
     {
         var sql = await System.IO.File.ReadAllTextAsync(Path.Combine(SqlSchemaBootstrap.Root, "db", "changes", "20261025_add_assistant_conversations.sql"));
