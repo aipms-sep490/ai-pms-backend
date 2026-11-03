@@ -19,14 +19,30 @@ internal static class SqlSchemaBootstrap
 
     internal static async Task ApplyAsync(string connectionString, string? schema = null, CancellationToken ct = default)
     {
+        var builder = new SqlConnectionStringBuilder(connectionString) { MultipleActiveResultSets = false };
+        if (!Regex.IsMatch(builder.InitialCatalog, "^AI_PMS_TEST_[a-f0-9]{32}$"))
+            throw new InvalidOperationException("Bootstrap requires an owned isolated test database.");
+        await using var connection = new SqlConnection(builder.ConnectionString);
+        await connection.OpenAsync(ct);
+
         schema ??= await File.ReadAllTextAsync(Path.Combine(Root, "db", "schema.sql"), ct);
         var start = schema.IndexOf("SET ANSI_NULLS ON;", StringComparison.Ordinal);
         if (start < 0) throw new InvalidOperationException("Unexpected schema bootstrap.");
-        await ExecuteAsync(connectionString, schema[start..], ct);
-        await ReplayAsync(connectionString, ct);
+        await ExecuteOnConnectionAsync(connection, schema[start..], ct);
+        await ReplayOnConnectionAsync(connection, ct);
     }
 
     internal static async Task ReplayAsync(string connectionString, CancellationToken ct = default)
+    {
+        var builder = new SqlConnectionStringBuilder(connectionString) { MultipleActiveResultSets = false };
+        if (!Regex.IsMatch(builder.InitialCatalog, "^AI_PMS_TEST_[a-f0-9]{32}$"))
+            throw new InvalidOperationException("Bootstrap requires an owned isolated test database.");
+        await using var connection = new SqlConnection(builder.ConnectionString);
+        await connection.OpenAsync(ct);
+        await ReplayOnConnectionAsync(connection, ct);
+    }
+
+    private static async Task ReplayOnConnectionAsync(SqlConnection connection, CancellationToken ct)
     {
         var manifest = JsonSerializer.Deserialize<string[]>(await File.ReadAllTextAsync(
             Path.Combine(Root, "db", "e2e", "migrations.json"), ct))!;
@@ -40,7 +56,7 @@ internal static class SqlSchemaBootstrap
             // Only these historical scripts contain a known database selector.
             if (name is "20260825_add_account_security.sql" or "20260825_add_project_metadata_tags.sql")
                 sql = Regex.Replace(sql, @"^USE \[AI_PMS\];[^\r\n]*\r?$", "", RegexOptions.Multiline | RegexOptions.IgnoreCase);
-            await ExecuteAsync(connectionString, sql, ct);
+            await ExecuteOnConnectionAsync(connection, sql, ct);
         }
     }
 
@@ -53,6 +69,13 @@ internal static class SqlSchemaBootstrap
             throw new InvalidOperationException("Schema must not switch or manage databases.");
         await using var connection = new SqlConnection(builder.ConnectionString);
         await connection.OpenAsync(ct);
+        await ExecuteOnConnectionAsync(connection, sql, ct);
+    }
+
+    private static async Task ExecuteOnConnectionAsync(SqlConnection connection, string sql, CancellationToken ct)
+    {
+        if (Regex.IsMatch(sql, @"^\s*(USE\s|(?:CREATE|ALTER|DROP)\s+DATABASE\b)", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+            throw new InvalidOperationException("Schema must not switch or manage databases.");
         await using (var options = new SqlCommand("SET QUOTED_IDENTIFIER ON; SET XACT_ABORT ON;", connection))
             await options.ExecuteNonQueryAsync(ct);
         foreach (var batch in Regex.Split(sql, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))

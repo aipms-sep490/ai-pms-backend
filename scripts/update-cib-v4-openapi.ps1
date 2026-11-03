@@ -20,6 +20,11 @@ $processEnvironment = @{
     GoogleAuth__Enabled = 'false'
     PasswordRecovery__Enabled = 'false'
     Chat__Enabled = 'false'
+    NotificationRealtime__Enabled = 'false'
+    RiskAlert__Enabled = 'false'
+    GoogleChallengeCleanup__Enabled = 'false'
+    Logging__LogLevel__Default = 'Warning'
+    Logging__LogLevel__Microsoft = 'Warning'
     Jwt__Issuer = 'AI-PMS.OpenApi'
     Jwt__Audience = 'AI-PMS.OpenApi'
     Jwt__SigningKey = 'offline-openapi-generation-only-not-a-deployment-signing-key-123456789'
@@ -28,9 +33,10 @@ $processEnvironment = @{
 foreach ($k in $processEnvironment.Keys) {
     [System.Environment]::SetEnvironmentVariable($k, $processEnvironment[$k], "Process")
 }
+$apiDll = Join-Path $repoRoot 'src/AIPMS.Api/bin/Release/net8.0/AIPMS.Api.dll'
 $start = @{
     FilePath = 'dotnet'
-    ArgumentList = @('run','--project','src/AIPMS.Api/AIPMS.Api.csproj','-c','Release','--no-build','--no-launch-profile','--urls',$apiUrl)
+    ArgumentList = @($apiDll, '--urls', $apiUrl)
     WorkingDirectory = $repoRoot
     PassThru = $true
     RedirectStandardOutput = $logBase + '-out.log'
@@ -43,19 +49,35 @@ try {
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
     while ($timer.Elapsed.TotalSeconds -lt 30) {
         if ($process.HasExited) { throw "OpenAPI host exited. Diagnostics: $logBase-out.log and $logBase-err.log" }
-        try { $rawSwagger = (Invoke-WebRequest "$apiUrl/swagger/v1/swagger.json" -TimeoutSec 2).Content; break }
+        try {
+            $response = Invoke-WebRequest "$apiUrl/swagger/v1/swagger.json" -UseBasicParsing -TimeoutSec 5
+            if ($response.StatusCode -eq 200 -and -not [string]::IsNullOrWhiteSpace($response.Content)) {
+                $rawSwagger = $response.Content
+                break
+            }
+        }
         catch { Start-Sleep -Milliseconds 500 }
     }
     if ([string]::IsNullOrWhiteSpace($rawSwagger)) { throw 'OpenAPI host did not respond within 30 seconds.' }
-    $doc = [System.Text.Json.JsonDocument]::Parse([string]$rawSwagger)
+
+    $tempRaw = Join-Path ([System.IO.Path]::GetTempPath()) ('swagger-raw-' + [Guid]::NewGuid().ToString('N') + '.json')
+    [System.IO.File]::WriteAllText($tempRaw, [string]$rawSwagger)
     try {
-        $options = [System.Text.Json.JsonSerializerOptions]::new()
-        $options.WriteIndented = $true
-        $formatted = [System.Text.Json.JsonSerializer]::Serialize($doc.RootElement, $options)
-        [System.IO.File]::WriteAllText($openApiPath, $formatted)
-    } finally { $doc.Dispose() }
+        $formatterDll = Join-Path $repoRoot 'scripts/FormatOpenApi/bin/Release/net8.0/FormatOpenApi.dll'
+        & dotnet $formatterDll $tempRaw $openApiPath
+        if ($LASTEXITCODE -ne 0) { throw "FormatOpenApi failed with exit code $LASTEXITCODE" }
+    } finally {
+        Remove-Item -Path $tempRaw -Force -ErrorAction SilentlyContinue
+    }
     Write-Output 'Updated OpenAPI from an offline host with delivery workers disabled.'
 } finally {
-    if (-not $process.HasExited) { Stop-Process -Id $process.Id; [void]$process.WaitForExit(5000) }
-    $process.Dispose()
+    if ($process -and -not $process.HasExited) {
+        if ($IsWindows) {
+            & taskkill /PID $process.Id /T /F 2>$null | Out-Null
+        } else {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
+        [void]$process.WaitForExit(5000)
+    }
+    if ($process) { $process.Dispose() }
 }
