@@ -229,6 +229,27 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     }
 
     [Theory]
+    [InlineData("WEEKLY_REPORT", "\"report\":{\"completedWork\":\"API implemented\",\"blockers\":\"Waiting review\"}")]
+    [InlineData("MEETING_MINUTES", "\"meetingId\":999")]
+    [InlineData("WORK_PLAN", "\"tasks\":[{\"kind\":\"TASK\",\"title\":\"Test API\",\"description\":\"Check scope\"}]")]
+    public async Task Document_tools_persist_editable_drafts_without_business_mutations(string mode, string fields)
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var output = "{\"answer\":\"Draft for review\",\"answerType\":\"GENERAL\",\"citationIds\":[],\"insufficientEvidence\":false,\"draft\":{\"kind\":\"" + mode + "\",\"title\":\"Draft\",\"description\":\"Review this content\"," + fields + "}}";
+        var service = Service(db, student, new Provider(output));
+        var conversation = await service.CreateConversationAsync(new(), default);
+        var tasks = await db.Tasks.CountAsync(); var meetings = await db.Meetings.CountAsync(); var reports = await db.ProgressReports.CountAsync();
+        var result = await service.AskAsync(new("Draft from these notes", ConversationId: conversation.Id, ExpectedRevision: conversation.Revision, ToolMode: mode), default);
+        Assert.Equal("COMPLETED", result.GenerationStatus); Assert.Equal(mode, result.Draft!.Kind);
+        var history = await service.ConversationAsync(conversation.Id, null, default);
+        Assert.Equal(mode, Assert.Single(history.Turns).Response.Draft!.Kind);
+        if (mode == "WEEKLY_REPORT") Assert.Equal("API implemented", result.Draft.Report!.CompletedWork);
+        if (mode == "WORK_PLAN") Assert.Single(result.Draft.Tasks!);
+        Assert.Equal(tasks, await db.Tasks.CountAsync()); Assert.Equal(meetings, await db.Meetings.CountAsync()); Assert.Equal(reports, await db.ProgressReports.CountAsync());
+    }
+
+    [Theory]
     [InlineData("{\"answer\":\"Hello", "Hello")]
     [InlineData("{\"answer\":\"line\\nnext", "line\nnext")]
     [InlineData("{\"answer\":\"Hi\\u00", "Hi")]

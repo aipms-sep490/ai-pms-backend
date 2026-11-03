@@ -26,7 +26,12 @@ public sealed record AssistantTurnDto(long Id, string Query, AcademicAssistantRe
 public sealed record AssistantConversationDetailDto(AssistantConversationDto Conversation, IReadOnlyList<AssistantTurnDto> Turns, bool HasMore);
 public sealed record AssistantMeetingDraftDto(DateTimeOffset? StartAt, DateTimeOffset? EndAt,
     string? MeetingDeliveryMode, string? VideoChannel, string? Location, string? OnlineUrl, bool InviteAll);
-public sealed record AssistantDraftDto(string Kind, string Title, string Description, AssistantMeetingDraftDto? Meeting = null);
+public sealed record AssistantTaskDraftDto(DateTimeOffset? DueAt, string? Priority, string? MilestoneTitle,
+    IReadOnlyList<string> AssigneeNames, string? PrimaryMajorName);
+public sealed record AssistantReportDraftDto(string? PeriodStart, string? PeriodEnd, string? CompletedWork,
+    string? InProgressWork, string? Blockers, string? Risks, string? NextActions, string? PlannedWork);
+public sealed record AssistantDraftDto(string Kind, string Title, string Description, AssistantMeetingDraftDto? Meeting = null,
+    AssistantTaskDraftDto? Task = null, AssistantReportDraftDto? Report = null, IReadOnlyList<AssistantDraftDto>? Tasks = null);
 public sealed record AssistantStreamEvent(string Type, string? Text = null, AcademicAssistantResponseDto? Response = null);
 public sealed record AssistantUpload(string FileName, byte[] Content);
 public sealed record AssistantExport(string FileName, string ContentType, byte[] Content);

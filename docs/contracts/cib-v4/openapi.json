@@ -56364,6 +56364,19 @@
           },
           "meeting": {
             "$ref": "#/components/schemas/AssistantMeetingDraftDto"
+          },
+          "task": {
+            "$ref": "#/components/schemas/AssistantTaskDraftDto"
+          },
+          "report": {
+            "$ref": "#/components/schemas/AssistantReportDraftDto"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantDraftDto"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -56403,6 +56416,44 @@
         },
         "additionalProperties": false
       },
+      "AssistantReportDraftDto": {
+        "type": "object",
+        "properties": {
+          "periodStart": {
+            "type": "string",
+            "nullable": true
+          },
+          "periodEnd": {
+            "type": "string",
+            "nullable": true
+          },
+          "completedWork": {
+            "type": "string",
+            "nullable": true
+          },
+          "inProgressWork": {
+            "type": "string",
+            "nullable": true
+          },
+          "blockers": {
+            "type": "string",
+            "nullable": true
+          },
+          "risks": {
+            "type": "string",
+            "nullable": true
+          },
+          "nextActions": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedWork": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "AssistantRubricOption": {
         "type": "object",
         "properties": {
@@ -56420,6 +56471,36 @@
           },
           "assignedToProject": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantTaskDraftDto": {
+        "type": "object",
+        "properties": {
+          "dueAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "priority": {
+            "type": "string",
+            "nullable": true
+          },
+          "milestoneTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "assigneeNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "primaryMajorName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false

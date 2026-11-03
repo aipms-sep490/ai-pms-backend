@@ -167,6 +167,7 @@ internal sealed partial class AcademicKnowledgeService(
         }
         var status = "INSUFFICIENT_EVIDENCE";
         var answerType = "INSUFFICIENT_EVIDENCE";
+        var expectedDraftKind = request.DraftKind ?? (request.ToolMode is "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" ? request.ToolMode : null);
         AssistantDraftDto? draft = null;
         var answer = "Chưa có đủ nguồn phù hợp để trả lời. Hãy liên hệ Khoa để xác nhận quy định, thời hạn hoặc tiêu chí áp dụng.";
         var hasEvidence = citations.Length > 0 || projectEvidence.Length > 0;
@@ -206,7 +207,12 @@ internal sealed partial class AcademicKnowledgeService(
                 "toolMode WORK_PLAN: draft objectives, tasks, deliverables and proposed timeline. " +
                 "For these document tools mark all unprovided dates, people and decisions [Cần bổ sung]; separate proposals from supplied facts. " +
                 "Write an editable document in answer with clear headings and bullets, no Markdown tables. The application provides download buttons; never invent download URLs. " +
-                "When draftKind is TASK or MEETING, add draft:{kind,title,description} with concise editable content. Never execute actions or invent people/IDs. Otherwise omit draft. " +
+                "When expectedDraftKind is present, add draft:{kind,title,description}, kind must equal expectedDraftKind. Never execute actions or invent IDs. Otherwise omit draft. " +
+                "For TASK add draft.task:{dueAt,priority,milestoneTitle,assigneeNames,primaryMajorName}. Copy exact names from user input or project evidence. Leave ambiguous fields null/empty. " +
+                "Only set a person, priority, milestone, major or deadline if explicitly requested or clearly grounded in evidence; do not silently assign your proposals. dueAt requires ISO8601 with timezone; resolve relative dates with currentTime. " +
+                "For WEEKLY_REPORT description is the summary; add draft.report:{periodStart,periodEnd,completedWork,inProgressWork,blockers,risks,nextActions,plannedWork}. Period dates use yyyy-MM-dd only when user specifies the week/dates. " +
+                "For MEETING_MINUTES description is the full editable minutes. Never infer attendance, unprovided decisions, approvals or completed work. Mark missing facts [Cần bổ sung]. The user selects the actual meeting on the form. " +
+                "For WORK_PLAN add draft.tasks containing up to 8 objects {kind:TASK,title,description,task:{dueAt,priority,milestoneTitle,assigneeNames,primaryMajorName}}. Do not assign invented people or dates to proposed tasks. User reviews and saves each task separately. " +
                 "For MEETING also add draft.meeting:{startAt,endAt,meetingDeliveryMode,videoChannel,location,onlineUrl,inviteAll}. " +
                 "Use only details supplied by the user; leave unknown fields null and inviteAll false unless the user explicitly asks to invite everyone. " +
                 "Resolve relative dates (e.g. tomorrow) using currentTime in Vietnam; dates must be ISO8601 with explicit +07:00 offset. Do not invent an end time. " +
@@ -240,7 +246,7 @@ internal sealed partial class AcademicKnowledgeService(
                 var prompt = JsonSerializer.Serialize(new
                 {
                     query, sources, projectSources, fileSources, conversationHistory = memory,
-                    pageContext = request.PageContext, draftKind = request.DraftKind, toolMode = request.ToolMode,
+                    pageContext = request.PageContext, draftKind = request.DraftKind, expectedDraftKind, toolMode = request.ToolMode,
                     currentUser = new { displayName = actor.FullName },
                     currentTime = new { iso8601 = localTime.ToString("O"), weekday = localTime.DayOfWeek.ToString(), timeZone = "Asia/Ho_Chi_Minh" }
                 });
@@ -271,14 +277,8 @@ internal sealed partial class AcademicKnowledgeService(
                 if (request.ToolMode == "REPORT_REVIEW" && kind != "INSUFFICIENT_EVIDENCE"
                     && (kind != "GROUNDED" || !ids.Any(id => fileIds.Contains(id!)) || !ids.Any(id => officialIds.Contains(id!)))) throw new JsonException();
                 if (string.IsNullOrWhiteSpace(generated) || generated.Length > 4000) throw new JsonException();
-                if (request.DraftKind != null && result.TryGetProperty("draft", out var action))
-                {
-                    var title = action.GetProperty("title").GetString();
-                    var description = action.GetProperty("description").GetString();
-                    if (action.GetProperty("kind").GetString() == request.DraftKind && title is { Length: > 0 and <= 255 } && description is { Length: <= 4000 })
-                        draft = new(request.DraftKind, title, description,
-                            request.DraftKind == "MEETING" ? AssistantMeetingDraftParser.Parse(action) : null);
-                }
+                if (expectedDraftKind != null && result.TryGetProperty("draft", out var action))
+                    draft = AssistantActionDraftParser.Parse(action, expectedDraftKind);
                 if (Regex.Matches(generated, @"\[(?:DOC|PROJECT|FILE)-\d+\]").Any(m => !ids.Contains(m.Value[1..^1]))) throw new JsonException();
                 answer = generated;
                 answerType = kind;
