@@ -142,12 +142,17 @@ internal sealed partial class AcademicKnowledgeService(
         if (request.RubricId != null && request.ToolMode != "REPORT_REVIEW") throw new ArgumentException("Rubric chỉ dùng trong chế độ nhận xét báo cáo.");
         if (request.ToolMode == "PROGRESS" && files.Count > 0) throw new ArgumentException("Chế độ tiến độ dùng dữ liệu hệ thống; hãy bỏ tệp đính kèm.");
         if (request.PageContext?.Length > 160) throw new ArgumentException("Page context too long.");
+        var documentTool = request.ToolMode is "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN";
+        var expectedDraftKind = request.DraftKind ?? (documentTool ? request.ToolMode : null);
         var conversation = request.ConversationId.HasValue ? await OwnedConversationAsync(request.ConversationId.Value, ct) : null;
         if (conversation != null && (conversation.ProjectId != request.ProjectId || conversation.Scope != scope || conversation.Revision != request.ExpectedRevision))
             throw new ConflictException("Hội thoại đã thay đổi. Mở lại lịch sử trước khi gửi.", "AI_CONVERSATION_STALE");
         var memory = conversation is null ? [] : await MemoryAsync(conversation.Id, ct);
         ProjectBoundedContext? context = null;
         // Even academic requests must authorize any project used to select a period.
+        // The first context read also enforces project access, so it must remain
+        // in place for local document drafts. Only the redundant final recheck
+        // can be skipped for a deterministic draft that does not use project data.
         if (request.ProjectId.HasValue)
             context = await projectContext.RetrieveProjectContextAsync(request.ProjectId.Value, request.ToolMode == "PROGRESS" ? "progress deadline risk" : query, ct);
         var attachments = AssistantAttachmentReader.Read(files, ct);
@@ -158,8 +163,12 @@ internal sealed partial class AcademicKnowledgeService(
             throw new ConflictException("Model hiện tại chưa hỗ trợ đọc ảnh.", "AI_VISION_UNAVAILABLE");
         var selectedAttachments = Array.Empty<AssistantAttachmentDto>();
         var retrievalQuery = query + " " + string.Join(" ", memory.TakeLast(2).Select(x => x.Query));
-        var citations = scope == "PROJECT" ? Array.Empty<KnowledgeCitationDto>() : await RetrieveCitationsAsync(retrievalQuery, actor.DepartmentId, request.ProjectId, ct);
-        var projectEvidence = scope == "ACADEMIC" ? Array.Empty<EvidenceReferenceDto>() : context!.EvidenceList.Take(20).ToArray();
+        var localDeterministicDraft = provider.ModelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.Ordinal) && expectedDraftKind is not null;
+        var citations = scope == "PROJECT" || documentTool || localDeterministicDraft ? Array.Empty<KnowledgeCitationDto>() : await RetrieveCitationsAsync(retrievalQuery, actor.DepartmentId, request.ProjectId, ct);
+        // Draft tools may use authorized project facts when a remote model is
+        // configured, but a local deterministic draft must never surface raw
+        // project evidence as an unrelated answer.
+        var projectEvidence = scope == "ACADEMIC" || localDeterministicDraft ? Array.Empty<EvidenceReferenceDto>() : context!.EvidenceList.Take(20).ToArray();
         if (request.ToolMode == "REPORT_REVIEW")
         {
             citations = [];
@@ -168,8 +177,13 @@ internal sealed partial class AcademicKnowledgeService(
         var status = "INSUFFICIENT_EVIDENCE";
         var answerType = "INSUFFICIENT_EVIDENCE";
         AssistantDraftDto? draft = null;
+        var deterministicDraft = false;
         var answer = "Chưa có đủ nguồn phù hợp để trả lời. Hãy liên hệ Khoa để xác nhận quy định, thời hạn hoặc tiêu chí áp dụng.";
-        var hasEvidence = citations.Length > 0 || projectEvidence.Length > 0;
+        // Demo fixtures are useful to test retrieval, but they are never a safe
+        // deterministic answer when the model is unavailable. Showing their raw
+        // excerpts is what makes a generic request look like an official rule.
+        var hasEvidence = citations.Any(c => !string.Equals(c.DocumentType, "DEMO", StringComparison.OrdinalIgnoreCase))
+            || projectEvidence.Length > 0;
         // Preserve retrieved evidence in the audit snapshot, but display only cited sources.
         var retrievedCitations = citations;
         var retrievedProjectEvidence = projectEvidence;
@@ -189,6 +203,19 @@ internal sealed partial class AcademicKnowledgeService(
                 .Concat(context.EvidenceList.Where(e => e.SourceType is "TASK" or "MILESTONE").Take(40)).ToArray();
             retrievedCitations = citations; retrievedProjectEvidence = projectEvidence;
         }
+        else if (provider.ModelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.Ordinal) && expectedDraftKind is not null)
+        {
+            // The local provider is deliberately deterministic and does not call
+            // an LLM. Still return the same editable draft contract as the remote
+            // provider instead of exposing unrelated retrieval excerpts.
+            draft = BuildLocalDraft(expectedDraftKind, query);
+            answer = draft.Description;
+            answerType = "GENERAL";
+            status = "COMPLETED";
+            deterministicDraft = true;
+            citations = [];
+            projectEvidence = [];
+        }
         if (request.ToolMode != "PROGRESS" && !provider.ModelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.Ordinal))
         {
             if (emit != null) await emit(new("status", "Đang tạo câu trả lời…"));
@@ -207,7 +234,18 @@ internal sealed partial class AcademicKnowledgeService(
                 "toolMode WORK_PLAN: draft objectives, tasks, deliverables and proposed timeline. " +
                 "For these document tools mark all unprovided dates, people and decisions [Cần bổ sung]; separate proposals from supplied facts. " +
                 "Write an editable document in answer with clear headings and bullets, no Markdown tables. The application provides download buttons; never invent download URLs. " +
-                "When draftKind is TASK or MEETING, add draft:{kind,title,description} with concise editable content. Do not assign people, IDs, dates or execute actions. Otherwise omit draft. " +
+                "When expectedDraftKind is present, add draft:{kind,title,description}, kind must equal expectedDraftKind. Never execute actions or invent IDs. Otherwise omit draft. " +
+                "For TASK add draft.task:{dueAt,priority,milestoneTitle,assigneeNames,primaryMajorName}. Copy exact names from user input or project evidence. Leave ambiguous fields null/empty. " +
+                "Only set a person, priority, milestone, major or deadline if explicitly requested or clearly grounded in evidence; do not silently assign your proposals. dueAt requires ISO8601 with timezone; resolve relative dates with currentTime. " +
+                "For WEEKLY_REPORT description is the summary; add draft.report:{periodStart,periodEnd,completedWork,inProgressWork,blockers,risks,nextActions,plannedWork}. Period dates use yyyy-MM-dd only when user specifies the week/dates. " +
+                "For MEETING_MINUTES description is the full editable minutes. Never infer attendance, unprovided decisions, approvals or completed work. Mark missing facts [Cần bổ sung]. The user selects the actual meeting on the form. " +
+                "For WORK_PLAN add draft.tasks containing up to 8 objects {kind:TASK,title,description,task:{dueAt,priority,milestoneTitle,assigneeNames,primaryMajorName}}. Do not assign invented people or dates to proposed tasks. User reviews and saves each task separately. " +
+                "For MEETING also add draft.meeting:{startAt,endAt,meetingDeliveryMode,videoChannel,location,onlineUrl,inviteAll}. " +
+                "Use only details supplied by the user; leave unknown fields null and inviteAll false unless the user explicitly asks to invite everyone. " +
+                "Resolve relative dates (e.g. tomorrow) using currentTime in Vietnam; dates must be ISO8601 with explicit +07:00 offset. Do not invent an end time. " +
+                "meetingDeliveryMode is ONSITE, REMOTE or HYBRID. Online/onl means REMOTE; for online without a specified external platform/link propose IN_APP_VIDEO and clearly say this is the editable default. " +
+                "videoChannel is NONE for onsite, IN_APP_VIDEO for AI-PMS video, EXTERNAL_LINK for a user-specified external platform/link. Never invent a meeting URL. " +
+                "inviteAll means preselect the authorized project meeting candidates on the form, not that invitations have been sent. " +
                 "For greetings, everyday conversation, explanations, writing, programming and general knowledge, use your general knowledge; " +
                 "do not require school documents or refer unrelated questions to department staff. Mark these answers GENERAL with empty citationIds. " +
                 "Use currentTime (Asia/Ho_Chi_Minh, UTC+07:00) for today's date, weekday and time, never infer the current date from training data. " +
@@ -235,7 +273,7 @@ internal sealed partial class AcademicKnowledgeService(
                 var prompt = JsonSerializer.Serialize(new
                 {
                     query, sources, projectSources, fileSources, conversationHistory = memory,
-                    pageContext = request.PageContext, draftKind = request.DraftKind, toolMode = request.ToolMode,
+                    pageContext = request.PageContext, draftKind = request.DraftKind, expectedDraftKind, toolMode = request.ToolMode,
                     currentUser = new { displayName = actor.FullName },
                     currentTime = new { iso8601 = localTime.ToString("O"), weekday = localTime.DayOfWeek.ToString(), timeZone = "Asia/Ho_Chi_Minh" }
                 });
@@ -266,13 +304,10 @@ internal sealed partial class AcademicKnowledgeService(
                 if (request.ToolMode == "REPORT_REVIEW" && kind != "INSUFFICIENT_EVIDENCE"
                     && (kind != "GROUNDED" || !ids.Any(id => fileIds.Contains(id!)) || !ids.Any(id => officialIds.Contains(id!)))) throw new JsonException();
                 if (string.IsNullOrWhiteSpace(generated) || generated.Length > 4000) throw new JsonException();
-                if (request.DraftKind != null && result.TryGetProperty("draft", out var action))
-                {
-                    var title = action.GetProperty("title").GetString();
-                    var description = action.GetProperty("description").GetString();
-                    if (action.GetProperty("kind").GetString() == request.DraftKind && title is { Length: > 0 and <= 255 } && description is { Length: <= 4000 })
-                        draft = new(request.DraftKind, title, description);
-                }
+                if (expectedDraftKind != null && result.TryGetProperty("draft", out var action))
+                    draft = AssistantActionDraftParser.Parse(action, expectedDraftKind);
+                if (expectedDraftKind != null && draft is null)
+                    throw new JsonException("The provider did not return the requested editable draft.");
                 if (Regex.Matches(generated, @"\[(?:DOC|PROJECT|FILE)-\d+\]").Any(m => !ids.Contains(m.Value[1..^1]))) throw new JsonException();
                 answer = generated;
                 answerType = kind;
@@ -285,8 +320,20 @@ internal sealed partial class AcademicKnowledgeService(
             catch (Exception ex)
             {
                 logger?.LogWarning("Assistant generation fallback: {FailureType}; {FailureLocation}", ex.GetType().Name, ex.StackTrace);
-                draft = null;
-                if (!hasEvidence || attachments.Count > 0)
+                if (expectedDraftKind is not null)
+                {
+                    // A provider outage should still leave the user with a safe,
+                    // editable structure. It must not turn into a raw policy
+                    // excerpt or claim that an action was saved.
+                    draft = BuildLocalDraft(expectedDraftKind, query);
+                    answer = draft.Description;
+                    answerType = "GENERAL";
+                    status = "COMPLETED";
+                    deterministicDraft = true;
+                    citations = [];
+                    projectEvidence = [];
+                }
+                if (!deterministicDraft && (!hasEvidence || attachments.Count > 0))
                 {
                     status = answerType = "FALLBACK";
                     answer = ex is JsonException
@@ -304,7 +351,9 @@ internal sealed partial class AcademicKnowledgeService(
             if (citations.Length > 0)
             {
                 var currentQuestionSources = await RetrieveCitationsAsync(query, actor.DepartmentId, request.ProjectId, ct);
-                citations = citations.Where(currentQuestionSources.Contains).ToArray();
+                citations = citations.Where(currentQuestionSources.Contains)
+                    .Where(c => !string.Equals(c.DocumentType, "DEMO", StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
             }
             if (citations.Length > 0)
             {
@@ -318,9 +367,12 @@ internal sealed partial class AcademicKnowledgeService(
                     + (request.ProjectId.HasValue ? " Để xem công việc và mốc của đồ án, chọn Tiến độ & deadline." : "");
             }
         }
+        if (provider.ModelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.Ordinal) && status != "COMPLETED")
+            citations = citations.Where(c => !string.Equals(c.DocumentType, "DEMO", StringComparison.OrdinalIgnoreCase)).ToArray();
         var completed = clock.GetUtcNow().UtcDateTime;
         var demo = citations.Any(c => c.DocumentType == "DEMO");
         var limitation = demo ? "Nguồn DEMO chỉ phục vụ kiểm thử; không phải quyết định hay quy định học vụ đã được phê duyệt." :
+            deterministicDraft ? "Mô hình AI chưa sẵn sàng; đã tạo khung nháp cục bộ từ nội dung bạn cung cấp. Không có dữ liệu nào được tự động lưu hoặc gửi." :
             status == "FALLBACK" ? citations.Length + projectEvidence.Length > 0 ? "Đang hiển thị trích đoạn nguồn do chưa nhận được câu trả lời AI hợp lệ." : "Mô hình AI tạm thời không khả dụng." :
             answerType == "GENERAL" ? "Thông tin tham khảo từ AI; không phải quy định chính thức của trường. Chưa kết nối tra cứu web trực tiếp." :
             answerType == "ATTACHMENT" ? "Dựa trên tệp bạn gửi; chưa được xác minh là tài liệu học vụ chính thức." :
@@ -342,7 +394,11 @@ internal sealed partial class AcademicKnowledgeService(
         // transaction and turn a valid preview into a stream error.
         var latestActor = await ActiveUserAsync(ct);
         if (latestActor.DepartmentId != actor.DepartmentId) throw new ForbiddenException("Academic scope changed while answering.");
-        if (request.ProjectId.HasValue) await projectContext.RetrieveProjectContextAsync(request.ProjectId.Value, query, ct);
+        // The initial context read authorizes the project and supplies evidence.
+        // A local document draft does not use that evidence, so avoid repeating
+        // the expensive final context read after generation.
+        if (request.ProjectId.HasValue && !localDeterministicDraft)
+            await projectContext.RetrieveProjectContextAsync(request.ProjectId.Value, query, ct);
         if (request.ToolMode == "REPORT_REVIEW")
         {
             var latest = await ReviewEvidenceAsync(request.ProjectId!.Value, request.RubricId!.Value, actor.DepartmentId, ct);
@@ -481,4 +537,50 @@ internal sealed partial class AcademicKnowledgeService(
     private static string BuildFallback(IReadOnlyList<KnowledgeCitationDto> citations, IReadOnlyList<EvidenceReferenceDto> projectEvidence) =>
         "Trích đoạn nguồn để đối chiếu:\n" + string.Join("\n\n", citations.Select((c, i) => $"[DOC-{i + 1}] {c.Title} ({c.Version}): {c.Excerpt}")) +
         (projectEvidence.Count == 0 ? "" : "\nDữ liệu project:\n" + string.Join("\n", projectEvidence.Take(5).Select((e, i) => $"[PROJECT-{i + 1}] {e.Title}: {e.Excerpt}")));
+
+    private static AssistantDraftDto BuildLocalDraft(string kind, string query)
+    {
+        const string missing = "[Cần bổ sung]";
+        var title = kind switch
+        {
+            "TASK" => "Nháp công việc",
+            "MEETING" => "Nháp cuộc họp",
+            "WEEKLY_REPORT" => "Nháp báo cáo tuần",
+            "MEETING_MINUTES" => "Nháp biên bản họp",
+            "WORK_PLAN" => "Nháp kế hoạch làm việc",
+            _ => "Nháp từ trợ lý AI"
+        };
+        var notes = ExtractDraftNotes(kind, query);
+        var description = kind switch
+        {
+            "WEEKLY_REPORT" => $"Đã hoàn thành: {missing}\nĐang thực hiện: {missing}\nVướng mắc: {missing}\nRủi ro: {missing}\nBước tiếp theo: {missing}\nKế hoạch tuần tới: {missing}",
+            "MEETING_MINUTES" => $"Nội dung thảo luận: {missing}\nQuyết định: {missing}\nViệc cần làm: {missing}",
+            "WORK_PLAN" => $"Mục tiêu: {missing}\nSản phẩm bàn giao: {missing}\nMốc thời gian: {missing}\n\nChưa có đầu việc đủ cụ thể để tách thành task.",
+            _ => $"Nội dung: {missing}"
+        };
+        if (!string.IsNullOrWhiteSpace(notes)) description += $"\n\nGhi chú bạn cung cấp:\n{notes}";
+        var report = kind == "WEEKLY_REPORT" ? new AssistantReportDraftDto(null, null, missing, missing, missing, missing, missing, missing) : null;
+        var tasks = kind == "WORK_PLAN" ? Array.Empty<AssistantDraftDto>() : null;
+        return new AssistantDraftDto(kind, title, description,
+            Meeting: kind == "MEETING" ? new AssistantMeetingDraftDto(null, null, null, null, null, null, false) : null,
+            Task: kind == "TASK" ? new AssistantTaskDraftDto(null, null, null, Array.Empty<string>(), null) : null,
+            Report: report, Tasks: tasks);
+    }
+
+    private static string ExtractDraftNotes(string kind, string query)
+    {
+        var marker = kind switch
+        {
+            "WEEKLY_REPORT" => "Nội dung tuần này:",
+            "MEETING_MINUTES" => "ghi chú sau, gồm nội dung, quyết định và việc cần làm:",
+            "WORK_PLAN" => "mục tiêu sau:",
+            _ => string.Empty
+        };
+        if (!string.IsNullOrWhiteSpace(marker))
+        {
+            var index = query.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index >= 0) return query[(index + marker.Length)..].Trim();
+        }
+        return string.Empty;
+    }
 }

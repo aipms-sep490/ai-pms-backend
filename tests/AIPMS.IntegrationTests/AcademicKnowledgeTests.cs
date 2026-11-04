@@ -94,6 +94,23 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         Assert.Contains("Công việc cần sửa", System.Text.Encoding.UTF8.GetString((await service.ExportAsync(result.RunId!.Value, "txt", default)).Content));
     }
 
+    [Fact]
+    public async Task GroundedLocalProviderSupportsWeeklyReportDraftWithoutRawSourceFallback()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var service = Service(db, student);
+
+        var response = await service.AskAsync(new(
+            "Soạn báo cáo tuần gồm việc đã làm, đang làm, vướng mắc và kế hoạch tuần tới.",
+            "ACADEMIC",
+            ToolMode: "WEEKLY_REPORT"), default);
+
+        Assert.Equal("COMPLETED", response.GenerationStatus);
+        Assert.Equal("WEEKLY_REPORT", response.Draft?.Kind);
+        Assert.DoesNotContain("Trích đoạn nguồn để đối chiếu", response.Answer, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("not json", "FALLBACK")]
     [InlineData("{\"answer\":\"Xin chào!\",\"answerType\":\"GENERAL\",\"citationIds\":[],\"insufficientEvidence\":false}", "COMPLETED")]
@@ -200,6 +217,25 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
     }
 
     [Fact]
+    public async Task MeetingDraftPreservesStructuredFieldsInHistoryWithoutScheduling()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var provider = new Provider("""{"answer":"Lịch họp nháp: 12h ngày 4/11, đề xuất video AI-PMS. Kiểm tra trước khi lưu.","answerType":"GENERAL","citationIds":[],"insufficientEvidence":false,"draft":{"kind":"MEETING","title":"Họp nhóm","description":"Trao đổi tiến độ","meeting":{"startAt":"2026-11-04T12:00:00+07:00","meetingDeliveryMode":"REMOTE","videoChannel":"IN_APP_VIDEO","inviteAll":true}}}""");
+        var service = Service(db, student, provider);
+        var count = await db.Meetings.CountAsync();
+        var conversation = await service.CreateConversationAsync(new(), default);
+        var answer = await service.AskAsync(new("Họp ngày 4/11/2026 lúc 12h trưa, mời tất cả, online", ConversationId: conversation.Id, ExpectedRevision: conversation.Revision, DraftKind: "MEETING"), default);
+        Assert.Equal("COMPLETED", answer.GenerationStatus);
+        var meeting = answer.Draft!.Meeting!;
+        Assert.Equal(new DateTimeOffset(2026, 11, 4, 5, 0, 0, TimeSpan.Zero), meeting.StartAt);
+        Assert.True(meeting.InviteAll); Assert.Equal("REMOTE", meeting.MeetingDeliveryMode);
+        var history = await service.ConversationAsync(conversation.Id, null, default);
+        Assert.Equal(meeting, Assert.Single(history.Turns).Response.Draft!.Meeting);
+        Assert.Equal(count, await db.Meetings.CountAsync());
+    }
+
+    [Fact]
     public async Task ConversationMigrationRerunsAndConstraintsStayTrusted()
     {
         var sql = await System.IO.File.ReadAllTextAsync(Path.Combine(SqlSchemaBootstrap.Root, "db", "changes", "20261025_add_assistant_conversations.sql"));
@@ -207,6 +243,27 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         await SqlSchemaBootstrap.ExecuteAsync(fixture.ConnectionString, sql);
         await using var db = fixture.Context();
         Assert.Equal(0, await db.Database.SqlQueryRaw<int>("SELECT COUNT(*) AS Value FROM sys.foreign_keys WHERE parent_object_id IN (OBJECT_ID('assistant_conversations'),OBJECT_ID('assistant_conversation_turns')) AND (is_disabled=1 OR is_not_trusted=1)").SingleAsync());
+    }
+
+    [Theory]
+    [InlineData("WEEKLY_REPORT", "\"report\":{\"completedWork\":\"API implemented\",\"blockers\":\"Waiting review\"}")]
+    [InlineData("MEETING_MINUTES", "\"meetingId\":999")]
+    [InlineData("WORK_PLAN", "\"tasks\":[{\"kind\":\"TASK\",\"title\":\"Test API\",\"description\":\"Check scope\"}]")]
+    public async Task Document_tools_persist_editable_drafts_without_business_mutations(string mode, string fields)
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var output = "{\"answer\":\"Draft for review\",\"answerType\":\"GENERAL\",\"citationIds\":[],\"insufficientEvidence\":false,\"draft\":{\"kind\":\"" + mode + "\",\"title\":\"Draft\",\"description\":\"Review this content\"," + fields + "}}";
+        var service = Service(db, student, new Provider(output));
+        var conversation = await service.CreateConversationAsync(new(), default);
+        var tasks = await db.Tasks.CountAsync(); var meetings = await db.Meetings.CountAsync(); var reports = await db.ProgressReports.CountAsync();
+        var result = await service.AskAsync(new("Draft from these notes", ConversationId: conversation.Id, ExpectedRevision: conversation.Revision, ToolMode: mode), default);
+        Assert.Equal("COMPLETED", result.GenerationStatus); Assert.Equal(mode, result.Draft!.Kind);
+        var history = await service.ConversationAsync(conversation.Id, null, default);
+        Assert.Equal(mode, Assert.Single(history.Turns).Response.Draft!.Kind);
+        if (mode == "WEEKLY_REPORT") Assert.Equal("API implemented", result.Draft.Report!.CompletedWork);
+        if (mode == "WORK_PLAN") Assert.Single(result.Draft.Tasks!);
+        Assert.Equal(tasks, await db.Tasks.CountAsync()); Assert.Equal(meetings, await db.Meetings.CountAsync()); Assert.Equal(reports, await db.ProgressReports.CountAsync());
     }
 
     [Theory]

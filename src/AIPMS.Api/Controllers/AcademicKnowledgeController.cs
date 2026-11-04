@@ -15,6 +15,13 @@ namespace AIPMS.Api.Controllers;
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class AcademicKnowledgeController(IAcademicKnowledgeService service, ILogger<AcademicKnowledgeController> logger, IRequestContext requestContext) : ControllerBase
 {
+    [HttpGet("/api/v1/projects/{projectId:long}/ai/workflow-assistance")]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<WorkflowAssistanceDto>(200)]
+    public Task<WorkflowAssistanceDto> WorkflowAssistance(long projectId, [FromQuery] string mode,
+        [FromQuery] long? meetingId, [FromServices] IWorkflowAssistanceService assistance, CancellationToken ct) =>
+        assistance.GetAsync(projectId, mode, meetingId, ct);
+
     [HttpGet("assistant/review-rubrics")]
     public Task<IReadOnlyList<AssistantRubricOption>> ReviewRubrics([FromQuery] long projectId, CancellationToken ct) => service.ReviewRubricsAsync(projectId, ct);
     [HttpPost("/api/v1/projects/{projectId:long}/ai/deliverables/{deliverableVersionId:long}/review")]
