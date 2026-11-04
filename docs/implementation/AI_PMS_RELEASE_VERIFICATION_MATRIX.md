@@ -88,7 +88,7 @@ To maintain absolute requirement traceability, the additional UC-136..148 workfl
 |:---|:---:|:---:|:---:|:---:|:---:|:---|:---:|
 | **Unit Tests (`AIPMS.UnitTests`)** | 1,249 | 1,249 | 1,249 | 0 | 0 | `tests/AIPMS.UnitTests/TestResults/be-unit-FINAL.trx` | 3.0s |
 | **Targeted Integration Tests** | 95 | 95 | 95 | 0 | 0 | `tests/AIPMS.IntegrationTests/TestResults/be-integration.trx` | 42.1s |
-| **Full Integration Suite (`AIPMS.IntegrationTests`)** | 1,458 | 1,458 | 1,458 | 0 | 0 | `tests/AIPMS.IntegrationTests/TestResults/be-integration-FULL.trx` | Full Assembly |
+| **Full Integration Suite (`AIPMS.IntegrationTests`)** | 1,458 | 1,458 | 1,458 | 0 | 0 | `tests/AIPMS.IntegrationTests/TestResults/be-integration-FULL.trx` | 36m 18s (Exit code: 0) |
 
 ### 4.2 Frontend Test Suites & Build Quality
 
