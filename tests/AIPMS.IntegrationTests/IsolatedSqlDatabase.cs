@@ -42,7 +42,7 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                 }
                 await using var command = connection.CreateCommand();
                 command.CommandTimeout = 180;
-                command.CommandText = $"CREATE DATABASE [{name}]";
+                command.CommandText = $"CREATE DATABASE [{name}]; ALTER DATABASE [{name}] SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;";
                 await command.ExecuteNonQueryAsync(ct);
                 created = true;
             }
