@@ -94,6 +94,23 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         Assert.Contains("Công việc cần sửa", System.Text.Encoding.UTF8.GetString((await service.ExportAsync(result.RunId!.Value, "txt", default)).Content));
     }
 
+    [Fact]
+    public async Task GroundedLocalProviderSupportsWeeklyReportDraftWithoutRawSourceFallback()
+    {
+        await using var db = fixture.Context();
+        var (_, student, _) = await Seed(db);
+        var service = Service(db, student);
+
+        var response = await service.AskAsync(new(
+            "Soạn báo cáo tuần gồm việc đã làm, đang làm, vướng mắc và kế hoạch tuần tới.",
+            "ACADEMIC",
+            ToolMode: "WEEKLY_REPORT"), default);
+
+        Assert.Equal("COMPLETED", response.GenerationStatus);
+        Assert.Equal("WEEKLY_REPORT", response.Draft?.Kind);
+        Assert.DoesNotContain("Trích đoạn nguồn để đối chiếu", response.Answer, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("not json", "FALLBACK")]
     [InlineData("{\"answer\":\"Xin chào!\",\"answerType\":\"GENERAL\",\"citationIds\":[],\"insufficientEvidence\":false}", "COMPLETED")]
