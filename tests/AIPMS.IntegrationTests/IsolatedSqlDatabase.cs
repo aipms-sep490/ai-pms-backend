@@ -93,7 +93,14 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                     DROP DATABASE [{name}];
                 END
                 """;
-            await command.ExecuteNonQueryAsync();
+            try
+            {
+                await command.ExecuteNonQueryAsync();
+            }
+            catch (SqlException)
+            {
+                // Best effort drop on cleanup
+            }
             created = false;
         }
         finally
