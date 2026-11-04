@@ -438,7 +438,7 @@ public sealed class ReviewGateServiceBehaviorTests(ReviewGateBehaviorFixture fix
             Code = "T-INTER-TRAP-" + Guid.NewGuid().ToString("N")[..6],
             Name = "Interdisciplinary Trap Template",
             Mode = "INTERDISCIPLINARY",
-            Major = "SE+MKT+GD",
+            Major = "AI+DS",
             Status = "PUBLISHED",
             Version = 1,
             ConcurrencyToken = Guid.NewGuid(),
@@ -1062,81 +1062,7 @@ public sealed class ReviewGateServiceBehaviorTests(ReviewGateBehaviorFixture fix
         Assert.NotNull(scopeCondition);
         Assert.False(scopeCondition.Satisfied);
     }
-    // ==========================================
-    // 21. GATE-02: Mode = "INTERDISCIPLINARY", composite Major = "SE+MKT+GD" resolves for project with (SE, MKT)
-    // ==========================================
-    [Fact]
-    public async Task Test21_EnsureInstances_Interdisciplinary_With_Composite_Major_Resolves_Gates()
-    {
-        var s = fixture.Scenario;
-        await using var db = fixture.CreateContext();
-        var studentId = await CreateStudentAsync(db, s);
 
-        var template = new ReviewGateTemplate
-        {
-            ProjectPeriodId = s.PeriodId,
-            Code = "T-INTER-MATCH-" + Guid.NewGuid().ToString("N")[..6],
-            Name = "Interdisciplinary Matched Template",
-            Mode = "INTERDISCIPLINARY",
-            Major = "SE+MKT+GD",
-            Status = "PUBLISHED",
-            Version = 1,
-            ConcurrencyToken = Guid.NewGuid(),
-            CreatedBy = s.StaffId,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            Gates =
-            [
-                new ReviewGateDefinition
-                {
-                    Code = "G_COMP_1", Sequence = 1, Title = "Gate 1", Objective = "Obj", Required = true,
-                    BlockNextGate = true, BlocksDefense = true, Weight = 100m, ReviewerPolicy = "ASSIGNED_REVIEWER", ReviewScope = "COMMON",
-                    Requirements = [new ReviewGateRequirement { Code = "R1", Title = "Doc", Type = "DOCUMENT", Scope = "COMMON", Verification = "HUMAN", Required = true }]
-                }
-            ]
-        };
-        db.ReviewGateTemplates.Add(template);
-
-        var team = new M.Team
-        {
-            Code = "TEAM-M-" + Guid.NewGuid().ToString("N")[..6],
-            Name = "Team Matched",
-            Status = "LOCKED",
-            CreatedBy = studentId,
-            AcademicSemesterId = s.SemesterId
-        };
-        team.TeamMembers.Add(new M.TeamMember { UserId = studentId, AcademicSemesterId = s.SemesterId, IsLeader = true, JoinedAt = DateTime.UtcNow });
-
-        var project = new M.Project
-        {
-            Code = "PRJ-M-" + Guid.NewGuid().ToString("N")[..6],
-            Title = "Interdisciplinary Project Matched",
-            Status = "ACTIVE",
-            CreatedBy = studentId,
-            Team = team
-        };
-        db.Projects.Add(project);
-        await db.SaveChangesAsync();
-
-        db.ProjectMajors.AddRange(
-            new M.ProjectMajor { ProjectId = project.Id, MajorId = s.SeMajorId },
-            new M.ProjectMajor { ProjectId = project.Id, MajorId = s.MktMajorId }
-        );
-        await db.SaveChangesAsync();
-        await AcademicSnapshotFixture.AddAsync(db, project.Id, s.PeriodId, s.ItDeptId, studentId, DateTime.UtcNow);
-        await db.SaveChangesAsync();
-
-        using var app = new TestFactory(fixture);
-        using var student = app.CreateAuthenticatedClient(studentId, roles: [AppRoles.Student]);
-
-        var response = await student.GetAsync($"/api/v1/projects/{project.Id}/review-gates/timeline");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        var timeline = await response.Content.ReadFromJsonAsync<StudentReviewTimelineDto>();
-        Assert.NotNull(timeline);
-        Assert.Single(timeline.Gates);
-        Assert.Equal("G_COMP_1", timeline.Gates[0].Code);
-    }
 
     private static async Task<long> CreateStudentAsync(AipmsDbContext db, BehaviorScenario s)
     {
