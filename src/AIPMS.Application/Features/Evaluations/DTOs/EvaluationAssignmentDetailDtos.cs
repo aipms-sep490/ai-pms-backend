@@ -14,7 +14,8 @@ public sealed record EvaluationAssignmentItemDto(
     string? CriterionCode,
     string? LearningOutcome,
     string? EvidenceGuidance,
-    IReadOnlyList<RubricCriterionLevelDto> Levels);
+    IReadOnlyList<RubricCriterionLevelDto> Levels,
+    long? ParentId = null);
 
 public sealed record EvaluationAssignmentDetailDto(
     EvaluationAssignmentDto Assignment,
@@ -25,7 +26,9 @@ public sealed record EvaluationAssignmentDetailDto(
     decimal? ComponentStudentWeightPercent = null,
     string? SchemeApprovalStatus = null,
     bool? SchemeIsDemo = null,
-    IReadOnlyList<EvaluationAssignmentItemDto>? Items = null)
+    IReadOnlyList<EvaluationAssignmentItemDto>? Items = null,
+    int? CompletedEvaluators = null,
+    int? RequiredEvaluators = null)
 {
     public IReadOnlyList<EvaluationAssignmentItemDto> Criteria => Items ?? [];
 }

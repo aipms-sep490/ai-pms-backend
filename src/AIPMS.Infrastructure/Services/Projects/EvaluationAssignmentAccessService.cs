@@ -141,7 +141,8 @@ internal sealed class EvaluationAssignmentAccessService(
             c.CriterionCode,
             c.LearningOutcome,
             c.EvidenceGuidance,
-            c.Levels
+            c.Levels,
+            c.ParentId
         )).ToArray();
 
         var legacy = row.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL");
@@ -156,7 +157,24 @@ internal sealed class EvaluationAssignmentAccessService(
                 catch (ConflictException) { canScore = false; reason = "EVALUATION_EVIDENCE_OR_SCHEME_CHANGED"; }
             }
         }
-        return new(dto, canScore && !legacy, legacy, reason, stage, componentStudentWeightPercent, schemeApprovalStatus, schemeIsDemo, items);
+                int? requiredEvaluators = component?.RequiredEvaluators;
+        int? completedEvaluators = null;
+        if (component is not null)
+        {
+            completedEvaluators = await (
+                from a in db.Set<EvaluationAssignment>().AsNoTracking()
+                where a.ProjectId == row.ProjectId
+                   && a.ComponentId == row.ComponentId
+                   && a.Status == "ACTIVE"
+                   && (row.StudentId == null || a.StudentId == row.StudentId)
+                   && (row.MajorId == null || a.MajorId == row.MajorId)
+                join state in db.Set<EvaluationDraftState>().AsNoTracking() on a.Id equals state.AssignmentId
+                join final in db.Set<EvaluationFinalization>().AsNoTracking() on state.EvaluationId equals final.EvaluationId
+                select a.Id
+            ).Distinct().CountAsync(ct);
+        }
+
+        return new(dto, canScore && !legacy, legacy, reason, stage, componentStudentWeightPercent, schemeApprovalStatus, schemeIsDemo, items, completedEvaluators, requiredEvaluators);
     }
 
     private async Task<(FinalSubmission? Final, IReadOnlyList<InternalEvidenceItem> AllItems, IReadOnlyList<InternalEvidenceItem> ScopedItems)> ResolveEvidenceItemsAsync(EvaluationAssignment row, CancellationToken ct)

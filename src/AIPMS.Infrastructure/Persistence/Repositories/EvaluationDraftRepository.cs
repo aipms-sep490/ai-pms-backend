@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -318,7 +318,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
                 Levels = c.Levels,
                 LearningOutcome = c.LearningOutcome,
                 EvidenceGuidance = c.EvidenceGuidance,
-                EffectiveWeightPercent = c.EffectiveWeightPercent
+                EffectiveWeightPercent = c.EffectiveWeightPercent,
+                ParentId = c.ParentId
             }).ToArray())
         {
             Stage = stage,

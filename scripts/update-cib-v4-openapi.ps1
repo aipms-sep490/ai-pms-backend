@@ -63,7 +63,11 @@ try {
     $tempRaw = Join-Path ([System.IO.Path]::GetTempPath()) ('swagger-raw-' + [Guid]::NewGuid().ToString('N') + '.json')
     [System.IO.File]::WriteAllText($tempRaw, [string]$rawSwagger)
     try {
+        $formatterProject = Join-Path $repoRoot 'scripts/FormatOpenApi/FormatOpenApi.csproj'
         $formatterDll = Join-Path $repoRoot 'scripts/FormatOpenApi/bin/Release/net8.0/FormatOpenApi.dll'
+        if (-not (Test-Path $formatterDll)) {
+            & dotnet build $formatterProject -c Release | Out-Null
+        }
         & dotnet $formatterDll $tempRaw $openApiPath
         if ($LASTEXITCODE -ne 0) { throw "FormatOpenApi failed with exit code $LASTEXITCODE" }
     } finally {

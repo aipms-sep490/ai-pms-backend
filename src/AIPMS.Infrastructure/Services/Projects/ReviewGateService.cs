@@ -676,7 +676,26 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         string[] exactTokens = major is null ? [] : [major.Id.ToString(), major.Code, major.Name];
         var exact = candidates.Where(x => exactTokens.Contains(x.Major, StringComparer.OrdinalIgnoreCase)).ToArray();
         var generic = candidates.Where(x => string.IsNullOrWhiteSpace(x.Major)).ToArray();
-        var interdisciplinary = candidates.FirstOrDefault(x => x.Major.Equals("INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase));
+        ReviewGateTemplate? interdisciplinary = null;
+        if (scope.MajorIds.Count > 1)
+        {
+            var projectMajors = await db.Majors.AsNoTracking()
+                .Where(x => scope.MajorIds.Contains(x.Id))
+                .Select(x => new { x.Id, x.Code, x.Name })
+                .ToArrayAsync(ct);
+            var projectCodes = projectMajors.Select(m => m.Code).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            interdisciplinary = candidates.FirstOrDefault(c =>
+            {
+                if (string.IsNullOrWhiteSpace(c.Major) || c.Major.Equals("INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase))
+                    return false;
+                var tokens = c.Major.Split(new[] { '+', ',', '/', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                return projectCodes.All(code => tokens.Contains(code, StringComparer.OrdinalIgnoreCase));
+            });
+
+            interdisciplinary ??= candidates.FirstOrDefault(x => x.Major.Equals("INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase))
+                               ?? candidates.FirstOrDefault(x => string.IsNullOrWhiteSpace(x.Major));
+        }
         var template = scope.MajorIds.Count > 1 ? interdisciplinary : exact.FirstOrDefault() ?? (generic.Length == 1 ? generic[0] : null);
         if (template is null) return [];
         var created = template.Gates.OrderBy(x => x.Sequence).Select(g => new ProjectGateInstance { ProjectId = project.Id, TemplateId = template.Id, TemplateVersion = template.Version, Code = g.Code, Sequence = g.Sequence, Title = g.Title, Objective = g.Objective, Status = g.Sequence == 1 ? "PLANNED" : "LOCKED", ReviewEligibility = g.Sequence == 1 ? "READY" : "BLOCKED", Required = g.Required, BlockNextGate = g.BlockNextGate, BlocksDefense = g.BlocksDefense, Weight = g.Weight, WindowStart = g.WindowStart, WindowEnd = g.WindowEnd, CreatedAt = Now, Requirements = g.Requirements.Select(r => new ProjectGateRequirement { Code = r.Code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId, TargetStudentId = r.TargetStudentId, Required = r.Required }).ToList() }).ToArray();

@@ -10,6 +10,7 @@ public sealed record EvaluationScoreRecord(long RubricCriterionId, string Name, 
     public string? LearningOutcome { get; init; }
     public string? EvidenceGuidance { get; init; }
     public decimal? EffectiveWeightPercent { get; init; }
+    public long? ParentId { get; init; }
 }
 
 public sealed record EvaluationPreview(decimal? Total, IReadOnlyList<long> MissingCriterionIds,

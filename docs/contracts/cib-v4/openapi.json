@@ -60565,6 +60565,11 @@
             "type": "number",
             "format": "double",
             "nullable": true
+          },
+          "parentId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -60649,6 +60654,11 @@
           "effectiveWeightPercent": {
             "type": "number",
             "format": "double",
+            "nullable": true
+          },
+          "parentId": {
+            "type": "integer",
+            "format": "int64",
             "nullable": true
           }
         },
