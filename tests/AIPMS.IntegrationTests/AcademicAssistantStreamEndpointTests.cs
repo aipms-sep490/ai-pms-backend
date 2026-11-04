@@ -24,7 +24,8 @@ public sealed class AcademicAssistantStreamEndpointTests
         Assert.True(response.Headers.Contains("X-Correlation-ID"));
         var lines = (await response.Content.ReadAsStringAsync()).Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(3, lines.Length);
-        Assert.Equal("preview", JsonDocument.Parse(lines[0]).RootElement.GetProperty("type").GetString());
+        Assert.Equal("status", JsonDocument.Parse(lines[0]).RootElement.GetProperty("type").GetString());
+        Assert.Equal("preview", JsonDocument.Parse(lines[1]).RootElement.GetProperty("type").GetString());
         Assert.Equal("completed", JsonDocument.Parse(lines[2]).RootElement.GetProperty("type").GetString());
     }
 

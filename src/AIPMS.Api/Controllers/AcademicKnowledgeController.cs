@@ -1,4 +1,5 @@
 using AIPMS.Application.Common.Models;
+using System.Diagnostics;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.AcademicKnowledge;
@@ -100,8 +101,18 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
         Response.Headers["X-Accel-Buffering"] = "no";
         // Audit uses this after the response begins, so allocate its header before streaming.
         _ = requestContext.CorrelationId;
+        var lastPreviewAt = 0L;
         async Task Emit(AssistantStreamEvent item)
         {
+            // Provider deltas can arrive once per token. Flushing each one through
+            // the tunnel creates backpressure and delays the completed response;
+            // the final event still contains the complete answer.
+            if (item.Type == "preview")
+            {
+                var now = Stopwatch.GetTimestamp();
+                if (lastPreviewAt != 0 && Stopwatch.GetElapsedTime(lastPreviewAt, now) < TimeSpan.FromMilliseconds(100)) return;
+                lastPreviewAt = now;
+            }
             if (!Response.HasStarted) Response.ContentType = "application/x-ndjson; charset=utf-8";
             await Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(item, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)) + "\n", ct);
             await Response.Body.FlushAsync(ct);
