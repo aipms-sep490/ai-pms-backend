@@ -70,7 +70,7 @@ Toàn bộ **1,458 integration tests** phát hiện trong dự án (`dotnet test
 | 2 | **Group A1b** | `EvaluationDraftContractTests` | 5 / 5 | 3s | `Group_A1b_DraftContract.trx` |
 | 3 | **Group A1c** | `EvaluationAssignmentEvidenceEndpointTests` | 23 / 23 | 15s | `Group_A1c_AssignmentEvidence.trx` |
 | 4 | **Group A2** | `RubricEndpointTests` & `RubricPolicyEvaluationTests` | 96 / 96 | 1m 56s | `Group_A2_Rubric.trx` |
-| 5 | **Group B1a** | `ReviewGateServiceBehaviorTests` | 20 / 20 | 10s | `Group_B1_ReviewGate_Interdisciplinary.trx` |
+| 5 | **Group B1a** | `ReviewGateServiceBehaviorTests` (20), `InterdisciplinaryWorkflowTests` (30), `WorkflowContextTests` (18), `ReviewGateTemplateAuthorityTests` (7) | 75 / 75 | 1m 17s | `Group_B1_ReviewGate_Interdisciplinary.trx` |
 | 6 | **Group B1b** | `ReviewGateCompositeMajorTests` | 5 / 5 | 2s | `Group_B1b_CompositeMajor.trx` |
 | 7 | **Group B2** | `AcademicYearTests` & `ContributionServiceTests` | 71 / 71 | 53s | `Group_B2_Academic_Contribution.trx` |
 | 8 | **Group C1** | `ColdTemplateTests` & `ProgressReportDraftTests` | 75 / 75 | 1m 07s | `Group_C1_Cold_Progress.trx` |
@@ -87,6 +87,9 @@ Toàn bộ **1,458 integration tests** phát hiện trong dự án (`dotnet test
 | 19 | **Group F4** | `ChatEndpointTests`, `TopicEndpointTests`, `SystemHealthTests`, `AiWorkerTests` | 141 / 141 | 2m 34s | `Group_F4_Chat_Topics_System_AI.trx` |
 | | **TỔNG CỘNG** | **Toàn bộ 19 Batches Integration Tests** | **1,458 / 1,458 (100%)** | **~21 phút** | **0 FAILED, 0 SKIPPED** |
 
+> **Kiểm chứng phép cộng tổng**:  
+> `91 + 5 + 23 + 96 + 75 + 5 + 71 + 75 + 40 + 40 + 136 + 135 + 45 + 82 + 92 + 63 + 100 + 143 + 141 = 1,458` (Chính xác 100%).
+
 ---
 
 ## 5. Đối chiếu số liệu kiểm thử: 1,461 vs 1,458 tests
@@ -98,12 +101,14 @@ Toàn bộ **1,458 integration tests** phát hiện trong dự án (`dotnet test
   - Số lượng test integration có sẵn từ trước: **1,453**.
   - Số lượng test mới bổ sung tại task này ([`ReviewGateCompositeMajorTests.cs`](file:///D:/AI_PMS/ai-pms-backend/tests/AIPMS.IntegrationTests/ReviewGateCompositeMajorTests.cs)): **+5 tests**.
   - Tổng số test khám phá thực tế (`dotnet test --list-tests`): **1,453 + 5 = 1,458 tests**.
-- **Xác nhận đối chiếu không bỏ sót**:
-  - Script đối chiếu toàn diện giữa 1,458 test names được discovery với tập hợp test names trong 19 tệp TRX xác nhận:
+- **Xác nhận đối chiếu không bỏ sót (Outcome Passed)**:
+  - Script đối chiếu toàn diện giữa 1,458 test names được discovery với tập hợp test names có `outcome="Passed"` trong 19 tệp TRX xác nhận:
     ```text
-    Missing tests count: 0
+    Discovered count: 1458
+    Passed unique count in TRX: 1458
+    Not passed or missing: 0
     ```
-  - **100% 1,458 tests đều đã được thực thi và có bằng chứng PASS trong các tệp TRX.**
+  - **100% 1,458 tests đều đã được thực thi và có bằng chứng outcome PASS trong các tệp TRX.**
 
 ---
 
