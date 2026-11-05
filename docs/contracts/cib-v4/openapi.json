@@ -61190,6 +61190,10 @@
             "type": "integer",
             "format": "int64",
             "nullable": true
+          },
+          "parentName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -61279,6 +61283,10 @@
           "parentId": {
             "type": "integer",
             "format": "int64",
+            "nullable": true
+          },
+          "parentName": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -67783,6 +67791,15 @@
           "approvalReference": {
             "type": "string",
             "nullable": true
+          },
+          "canSubmitForApproval": {
+            "type": "boolean"
+          },
+          "canApprove": {
+            "type": "boolean"
+          },
+          "canReject": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
