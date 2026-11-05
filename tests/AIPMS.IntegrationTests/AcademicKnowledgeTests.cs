@@ -111,6 +111,29 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         Assert.DoesNotContain("Trích đoạn nguồn để đối chiếu", response.Answer, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task WeeklyReportUsesCurrentProjectFactsWhenProviderFails()
+    {
+        await using var db = fixture.Context();
+        var (_, student, department) = await Seed(db);
+        var semester = new AcademicSemester { OrganizationId = department.OrganizationId, Code = Guid.NewGuid().ToString("N"), Name = "Weekly report fallback", Status = "ACTIVE", StartDate = new(2026, 1, 1), EndDate = new(2026, 12, 31) };
+        db.AcademicSemesters.Add(semester);
+        await db.SaveChangesAsync();
+        var project = new Project { Code = Guid.NewGuid().ToString("N"), Title = "Weekly report project", Status = "ACTIVE", CreatedBy = student.Id,
+            Team = new Team { Code = Guid.NewGuid().ToString("N"), Name = "Weekly report team", Status = "LOCKED", CreatedBy = student.Id, AcademicSemesterId = semester.Id, AcademicSemester = semester } };
+        db.Add(project); await db.SaveChangesAsync();
+
+        var response = await Service(db, student, new FailingProvider(), context: new AllowedProject()).AskAsync(new(
+            "Soạn báo cáo tuần gồm việc đã làm, đang làm, vướng mắc và kế hoạch tuần tới. Nội dung tuần này: nhóm đã họp.",
+            "COMBINED", project.Id, ToolMode: "WEEKLY_REPORT"), default);
+
+        Assert.Equal("COMPLETED", response.GenerationStatus);
+        Assert.Equal("WEEKLY_REPORT", response.Draft?.Kind);
+        Assert.Contains("Công việc cần sửa", response.Draft?.Report?.InProgressWork);
+        Assert.Contains("Công việc cần sửa", response.Draft?.Report?.Risks);
+        Assert.Contains("Công việc cần sửa", response.Answer, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("not json", "FALLBACK")]
     [InlineData("{\"answer\":\"Xin chào!\",\"answerType\":\"GENERAL\",\"citationIds\":[],\"insufficientEvidence\":false}", "COMPLETED")]
