@@ -21,8 +21,9 @@ public static class UploadValidator
     public static async Task<ValidatedUpload> ReadAsync(UploadContent upload, CancellationToken ct)
     {
         var name = upload.FileName.Trim();
+        if (upload.Length > MaxBytes) throw new PayloadTooLargeException(MaxBytes, "File exceeds 20 MiB.");
         if (name.Length is 0 or > 255 || name.Any(c => char.IsControl(c) || "<>:\"/\\|?*".Contains(c))
-            || name.EndsWith('.') || upload.Length is <= 0 or > MaxBytes)
+            || name.EndsWith('.') || upload.Length <= 0)
             throw Invalid("File name or size is invalid (maximum 20 MiB).");
         var extension = Path.GetExtension(name);
         if (!Types.TryGetValue(extension, out var mime) || !string.Equals(upload.ContentType, mime, StringComparison.OrdinalIgnoreCase))
@@ -32,7 +33,7 @@ public static class UploadValidator
         int length;
         while ((length = await upload.Content.ReadAsync(buffer, ct)) != 0)
         {
-            if (output.Length + length > MaxBytes) throw Invalid("File exceeds 20 MiB.");
+            if (output.Length + length > MaxBytes) throw new PayloadTooLargeException(MaxBytes, "File exceeds 20 MiB.");
             await output.WriteAsync(buffer.AsMemory(0, length), ct);
         }
         var bytes = output.ToArray();

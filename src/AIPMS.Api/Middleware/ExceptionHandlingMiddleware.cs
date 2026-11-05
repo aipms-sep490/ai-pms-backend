@@ -46,11 +46,12 @@ public sealed class ExceptionHandlingMiddleware(
         else
         {
             logger.LogWarning(
-                "Request {Method} {Path} failed with {StatusCode} because of {ExceptionType}",
+                "Request {Method} {Path} failed with {StatusCode} because of {ExceptionType}: {Message}",
                 context.Request.Method,
                 context.Request.Path,
                 mapping.StatusCode,
-                exception.GetType().Name);
+                exception.GetType().Name,
+                exception.Message);
         }
 
         context.Response.StatusCode = mapping.StatusCode;

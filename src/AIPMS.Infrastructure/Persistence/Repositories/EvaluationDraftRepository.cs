@@ -308,6 +308,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         var schemeIsDemo = policy?.IsDemo ?? (scheme is not null ? true : (bool?)null);
         var schemeApprovalStatus = policy?.ApprovalStatus ?? (scheme is not null ? "DEMO" : null);
 
+        var parentNames = rubricCriteria.ToDictionary(r => r.Id, r => r.Name);
+
         return new(row.Id, state.AssignmentId, row.ProjectId, row.EvaluatorId, row.RubricId, row.Rubric.Name,
             rubricVersion.RootRubricId, rubricVersion.VersionNumber, row.EvaluationType,
             row.Status, row.Comments, row.TotalScore, state.ConcurrencyToken.ToString("N"), row.CreatedAt, row.UpdatedAt,
@@ -319,7 +321,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
                 LearningOutcome = c.LearningOutcome,
                 EvidenceGuidance = c.EvidenceGuidance,
                 EffectiveWeightPercent = c.EffectiveWeightPercent,
-                ParentId = c.ParentId
+                ParentId = c.ParentId,
+                ParentName = c.ParentId.HasValue ? parentNames.GetValueOrDefault(c.ParentId.Value) : null
             }).ToArray())
         {
             Stage = stage,

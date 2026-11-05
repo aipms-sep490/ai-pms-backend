@@ -29,17 +29,21 @@ public sealed class UploadValidatorTests
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
-    [InlineData(20 * 1024 * 1024 + 1)]
+
     [InlineData(5)]
     public async Task Invalid_declared_size_is_rejected(long size) =>
         await Assert.ThrowsAsync<ValidationException>(() => Read("text"u8.ToArray(), size: size));
+
+    [Fact]
+    public async Task Declared_size_exceeding_limit_throws_payload_too_large() =>
+        await Assert.ThrowsAsync<PayloadTooLargeException>(() => Read("text"u8.ToArray(), size: UploadValidator.MaxBytes + 1));
 
     [Fact]
     public async Task Actual_size_is_bounded_even_when_client_declares_a_small_file()
     {
         var bytes = new byte[UploadValidator.MaxBytes + 1];
         Array.Fill(bytes, (byte)'a');
-        await Assert.ThrowsAsync<ValidationException>(() => Read(bytes, size: 1));
+        await Assert.ThrowsAsync<PayloadTooLargeException>(() => Read(bytes, size: 1));
         Assert.Equal(UploadValidator.MaxBytes, (await Read(bytes[..UploadValidator.MaxBytes])).Bytes.Length);
     }
 

@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$ConnectionString = $env:AIPMS_TEST_SQL_CONNECTION,
     [Parameter(Mandatory = $true)][string]$DatabaseName
@@ -267,7 +267,173 @@ END;
     END;
 
     -- Extend E2E-EVAL period so deadlines can be flexibly scheduled in tests
-    UPDATE dbo.project_periods SET end_at='2026-12-31 23:59:59', status=N'ACTIVE' WHERE id=@evalPeriod;
+        UPDATE dbo.project_periods SET end_at='2026-12-31 23:59:59', status=N'ACTIVE' WHERE id=@evalPeriod;
+
+    -- Interdisciplinary project final submission package for evaluation workflows (BE-09, BE-16)
+    DECLARE @interDeliverable bigint=(SELECT TOP(1) id FROM dbo.deliverables WHERE project_id=@interProject);
+    IF @interDeliverable IS NULL
+    BEGIN
+        INSERT dbo.deliverables(project_id,milestone_id,title,description,status,created_by,created_at,updated_at)
+        VALUES(@interProject,NULL,N'Inter Final Deliverable',N'Final project package',N'ACCEPTED',@interLeader,@now,@now);
+        SET @interDeliverable=SCOPE_IDENTITY();
+    END;
+
+    DECLARE @interDeliverableVersion bigint=(SELECT TOP(1) id FROM dbo.deliverable_versions WHERE deliverable_id=@interDeliverable);
+    IF @interDeliverableVersion IS NULL
+    BEGIN
+        INSERT dbo.deliverable_versions(deliverable_id,version_number,submitted_by,status,submitted_at,created_at,updated_at)
+        VALUES(@interDeliverable,1,@interLeader,N'ACCEPTED',@now,@now,@now);
+        SET @interDeliverableVersion=SCOPE_IDENTITY();
+    END;
+
+    DECLARE @interFinalSubmission bigint=(SELECT TOP(1) id FROM dbo.final_submissions WHERE project_id=@interProject);
+    IF @interFinalSubmission IS NULL
+    BEGIN
+        INSERT dbo.final_submissions(project_id,project_period_id,submitted_by,submitted_at,deadline,notes,draft_concurrency_token,requirements_concurrency_token)
+        VALUES(@interProject,@evalPeriod,@interLeader,@now,DATEADD(day,30,@now),N'Inter locked final submission',NEWID(),NEWID());
+        SET @interFinalSubmission=SCOPE_IDENTITY();
+
+        INSERT dbo.final_submission_items(submission_id,deliverable_version_id,deliverable_id,title,version_number,status_at_submission,was_required,files_json)
+        VALUES(@interFinalSubmission,@interDeliverableVersion,@interDeliverable,N'Inter Final Deliverable',1,'ACCEPTED',1,N'[{"id":1,"fileName":"inter_final.pdf","contentType":"application/pdf","sizeBytes":102400,"reportType":"Final Report"}]');
+    END;
+
+        UPDATE dbo.projects SET status=N'FINAL_SUBMISSION',updated_at=@now WHERE id=@interProject;
+
+    -- Dedicated project and team for legacy evaluation testing (E04)
+    DECLARE @evalProject bigint=(SELECT id FROM dbo.projects WHERE code=N'E2E-EVAL-P');
+    IF @evalProject IS NULL
+    BEGIN
+        DECLARE @roleStudentId bigint=(SELECT id FROM dbo.roles WHERE code=N'STUDENT');
+        DECLARE @evalStudent1 bigint, @evalStudent2 bigint, @evalStudent3 bigint;
+        INSERT dbo.users(department_id,major_id,email,password_hash,full_name,employee_code,status,academic_profile_status)
+        VALUES (@leadDept,@singleMajor,N'eval.student1@e2e.invalid',N'hash',N'Eval Student 1',N'STU-EV1',N'ACTIVE',N'VERIFIED');
+        SET @evalStudent1=SCOPE_IDENTITY();
+        INSERT dbo.users(department_id,major_id,email,password_hash,full_name,employee_code,status,academic_profile_status)
+        VALUES (@leadDept,@singleMajor,N'eval.student2@e2e.invalid',N'hash',N'Eval Student 2',N'STU-EV2',N'ACTIVE',N'VERIFIED');
+        SET @evalStudent2=SCOPE_IDENTITY();
+        INSERT dbo.users(department_id,major_id,email,password_hash,full_name,employee_code,status,academic_profile_status)
+        VALUES (@leadDept,@singleMajor,N'eval.student3@e2e.invalid',N'hash',N'Eval Student 3',N'STU-EV3',N'ACTIVE',N'VERIFIED');
+        SET @evalStudent3=SCOPE_IDENTITY();
+
+        INSERT dbo.user_roles(user_id,role_id) VALUES(@evalStudent1,@roleStudentId),(@evalStudent2,@roleStudentId),(@evalStudent3,@roleStudentId);
+
+        DECLARE @evalTeam bigint;
+        INSERT dbo.teams(academic_semester_id,code,name,description,status,created_by,created_at,updated_at)
+        VALUES(@semester,N'E2E-EVAL-TEAM',N'E2E Eval Team',N'Legacy rubric test team',N'LOCKED',@evalStudent1,@now,@now);
+        SET @evalTeam=SCOPE_IDENTITY();
+
+        INSERT dbo.team_members(team_id,academic_semester_id,user_id,is_leader,joined_at,created_at,updated_at)
+        VALUES(@evalTeam,@semester,@evalStudent1,1,@now,@now,@now),
+              (@evalTeam,@semester,@evalStudent2,0,@now,@now,@now),
+              (@evalTeam,@semester,@evalStudent3,0,@now,@now,@now);
+
+        INSERT dbo.team_academic_configurations(team_id,project_mode,primary_major_id,lead_department_id,concurrency_token)
+        VALUES(@evalTeam,'SINGLE_MAJOR',@singleMajor,@leadDept,NEWID());
+
+        INSERT dbo.projects(team_id,code,title,description,objectives,problem_statement,expected_output,status,created_by,created_at,updated_at)
+        VALUES(@evalTeam,N'E2E-EVAL-P',N'E2E Evaluation Project',N'Legacy rubric test',N'Eval',N'Eval',N'Output',N'FINAL_SUBMISSION',@evalStudent1,@now,@now);
+        SET @evalProject=SCOPE_IDENTITY();
+        INSERT dbo.project_majors(project_id,major_id) VALUES(@evalProject,@singleMajor);
+
+        DECLARE @evalToken uniqueidentifier=NEWID();
+        DECLARE @sEv1 nvarchar(20)=CONVERT(nvarchar(20),@evalStudent1);
+        DECLARE @sEv2 nvarchar(20)=CONVERT(nvarchar(20),@evalStudent2);
+        DECLARE @sEv3 nvarchar(20)=CONVERT(nvarchar(20),@evalStudent3);
+        DECLARE @evalJson nvarchar(max)=N'{
+          "Scope":{"ProjectMode":"SINGLE_MAJOR","PrimaryMajorId":'+@sSm+',"LeadDepartmentId":'+@sLd+',"Requirements":[{"MajorId":'+@sSm+',"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"}],"ConcurrencyToken":"'+CONVERT(nvarchar(36),@evalToken)+'"},
+          "Policy":{"MinMembers":3,"MaxMembers":5,"MinDistinctMajors":1,"Version":"E2E-2026"},"OrganizationId":'+@sOrg+',"WindowStartAt":"2026-01-01T00:00:00Z","WindowEndAt":"2026-12-31T23:59:59Z",
+          "Members":[{"UserId":'+@sEv1+',"FullName":"Eval Student 1","MajorId":'+@sSm+',"IsLeader":true},{"UserId":'+@sEv2+',"FullName":"Eval Student 2","MajorId":'+@sSm+',"IsLeader":false},{"UserId":'+@sEv3+',"FullName":"Eval Student 3","MajorId":'+@sSm+',"IsLeader":false}],
+          "DepartmentIds":['+@sLd+'],"PolicyVersion":1,"AllowedProjectModes":"SINGLE_MAJOR,INTERDISCIPLINARY","AllowedProposalSources":"PUBLISHED_TOPIC,STUDENT_PROPOSAL","ProposalSource":"STUDENT_PROPOSAL","MajorDepartmentIds":{"'+@sSm+'":'+@sLd+'},"ProjectRequirements":[{"MajorId":'+@sSm+',"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"}],"TeamResponsibilities":[]}';
+
+        INSERT dbo.project_registration_snapshots(project_id,project_period_id,lead_department_id,submitted_by,submitted_at,snapshot_json)
+        VALUES(@evalProject,@evalPeriod,@leadDept,@evalStudent1,@now,@evalJson);
+
+        DECLARE @evalDeliverable bigint;
+        INSERT dbo.deliverables(project_id,milestone_id,title,description,status,created_by,created_at,updated_at)
+        VALUES(@evalProject,NULL,N'Eval Final Deliverable',N'Final package',N'ACCEPTED',@evalStudent1,@now,@now);
+        SET @evalDeliverable=SCOPE_IDENTITY();
+
+        DECLARE @evalDeliverableVersion bigint;
+        INSERT dbo.deliverable_versions(deliverable_id,version_number,submitted_by,status,submitted_at,created_at,updated_at)
+        VALUES(@evalDeliverable,1,@evalStudent1,N'ACCEPTED',@now,@now,@now);
+        SET @evalDeliverableVersion=SCOPE_IDENTITY();
+
+        DECLARE @evalFinalSubmission bigint;
+        INSERT dbo.final_submissions(project_id,project_period_id,submitted_by,submitted_at,deadline,notes,draft_concurrency_token,requirements_concurrency_token)
+        VALUES(@evalProject,@evalPeriod,@evalStudent1,@now,DATEADD(day,30,@now),N'Eval locked final submission',NEWID(),NEWID());
+        SET @evalFinalSubmission=SCOPE_IDENTITY();
+
+        INSERT dbo.final_submission_items(submission_id,deliverable_version_id,deliverable_id,title,version_number,status_at_submission,was_required,files_json)
+        VALUES(@evalFinalSubmission,@evalDeliverableVersion,@evalDeliverable,N'Eval Final Deliverable',1,'ACCEPTED',1,N'[{"id":1,"fileName":"eval_final.pdf","contentType":"application/pdf","sizeBytes":102400,"reportType":"Final Report"}]');
+    END;
+
+    -- Dedicated project and team for hierarchical rubric evaluation testing (E10)
+    DECLARE @hierProject bigint=(SELECT id FROM dbo.projects WHERE code=N'E2E-HIER-P');
+    IF @hierProject IS NULL
+    BEGIN
+        DECLARE @roleStudentId2 bigint=(SELECT id FROM dbo.roles WHERE code=N'STUDENT');
+        DECLARE @hierStudent1 bigint, @hierStudent2 bigint, @hierStudent3 bigint;
+        INSERT dbo.users(department_id,major_id,email,password_hash,full_name,employee_code,status,academic_profile_status)
+        VALUES (@leadDept,@singleMajor,N'hier.student1@e2e.invalid',N'hash',N'Hier Student 1',N'STU-HI1',N'ACTIVE',N'VERIFIED');
+        SET @hierStudent1=SCOPE_IDENTITY();
+        INSERT dbo.users(department_id,major_id,email,password_hash,full_name,employee_code,status,academic_profile_status)
+        VALUES (@leadDept,@singleMajor,N'hier.student2@e2e.invalid',N'hash',N'Hier Student 2',N'STU-HI2',N'ACTIVE',N'VERIFIED');
+        SET @hierStudent2=SCOPE_IDENTITY();
+        INSERT dbo.users(department_id,major_id,email,password_hash,full_name,employee_code,status,academic_profile_status)
+        VALUES (@leadDept,@singleMajor,N'hier.student3@e2e.invalid',N'hash',N'Hier Student 3',N'STU-HI3',N'ACTIVE',N'VERIFIED');
+        SET @hierStudent3=SCOPE_IDENTITY();
+
+        INSERT dbo.user_roles(user_id,role_id) VALUES(@hierStudent1,@roleStudentId2),(@hierStudent2,@roleStudentId2),(@hierStudent3,@roleStudentId2);
+
+        DECLARE @hierTeam bigint;
+        INSERT dbo.teams(academic_semester_id,code,name,description,status,created_by,created_at,updated_at)
+        VALUES(@semester,N'E2E-HIER-TEAM',N'E2E Hier Team',N'Hierarchical rubric test team',N'LOCKED',@hierStudent1,@now,@now);
+        SET @hierTeam=SCOPE_IDENTITY();
+
+        INSERT dbo.team_members(team_id,academic_semester_id,user_id,is_leader,joined_at,created_at,updated_at)
+        VALUES(@hierTeam,@semester,@hierStudent1,1,@now,@now,@now),
+              (@hierTeam,@semester,@hierStudent2,0,@now,@now,@now),
+              (@hierTeam,@semester,@hierStudent3,0,@now,@now,@now);
+
+        INSERT dbo.team_academic_configurations(team_id,project_mode,primary_major_id,lead_department_id,concurrency_token)
+        VALUES(@hierTeam,'SINGLE_MAJOR',@singleMajor,@leadDept,NEWID());
+
+        INSERT dbo.projects(team_id,code,title,description,objectives,problem_statement,expected_output,status,created_by,created_at,updated_at)
+        VALUES(@hierTeam,N'E2E-HIER-P',N'E2E Hierarchical Project',N'Hierarchical rubric test',N'Hierarchy',N'Hierarchy',N'Output',N'FINAL_SUBMISSION',@hierStudent1,@now,@now);
+        SET @hierProject=SCOPE_IDENTITY();
+        INSERT dbo.project_majors(project_id,major_id) VALUES(@hierProject,@singleMajor);
+
+        DECLARE @hierToken uniqueidentifier=NEWID();
+        DECLARE @sHi1 nvarchar(20)=CONVERT(nvarchar(20),@hierStudent1);
+        DECLARE @sHi2 nvarchar(20)=CONVERT(nvarchar(20),@hierStudent2);
+        DECLARE @sHi3 nvarchar(20)=CONVERT(nvarchar(20),@hierStudent3);
+        DECLARE @hierJson nvarchar(max)=N'{
+          "Scope":{"ProjectMode":"SINGLE_MAJOR","PrimaryMajorId":'+@sSm+',"LeadDepartmentId":'+@sLd+',"Requirements":[{"MajorId":'+@sSm+',"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"}],"ConcurrencyToken":"'+CONVERT(nvarchar(36),@hierToken)+'"},
+          "Policy":{"MinMembers":3,"MaxMembers":5,"MinDistinctMajors":1,"Version":"E2E-2026"},"OrganizationId":'+@sOrg+',"WindowStartAt":"2026-01-01T00:00:00Z","WindowEndAt":"2026-12-31T23:59:59Z",
+          "Members":[{"UserId":'+@sHi1+',"FullName":"Hier Student 1","MajorId":'+@sSm+',"IsLeader":true},{"UserId":'+@sHi2+',"FullName":"Hier Student 2","MajorId":'+@sSm+',"IsLeader":false},{"UserId":'+@sHi3+',"FullName":"Hier Student 3","MajorId":'+@sSm+',"IsLeader":false}],
+          "DepartmentIds":['+@sLd+'],"PolicyVersion":1,"AllowedProjectModes":"SINGLE_MAJOR,INTERDISCIPLINARY","AllowedProposalSources":"PUBLISHED_TOPIC,STUDENT_PROPOSAL","ProposalSource":"STUDENT_PROPOSAL","MajorDepartmentIds":{"'+@sSm+'":'+@sLd+'},"ProjectRequirements":[{"MajorId":'+@sSm+',"MinMembers":1,"MaxMembers":5,"Responsibility":"Software engineering"}],"TeamResponsibilities":[]}';
+
+        INSERT dbo.project_registration_snapshots(project_id,project_period_id,lead_department_id,submitted_by,submitted_at,snapshot_json)
+        VALUES(@hierProject,@evalPeriod,@leadDept,@hierStudent1,@now,@hierJson);
+
+        DECLARE @hierDeliverable bigint;
+        INSERT dbo.deliverables(project_id,milestone_id,title,description,status,created_by,created_at,updated_at)
+        VALUES(@hierProject,NULL,N'Hier Final Deliverable',N'Final package',N'ACCEPTED',@hierStudent1,@now,@now);
+        SET @hierDeliverable=SCOPE_IDENTITY();
+
+        DECLARE @hierDeliverableVersion bigint;
+        INSERT dbo.deliverable_versions(deliverable_id,version_number,submitted_by,status,submitted_at,created_at,updated_at)
+        VALUES(@hierDeliverable,1,@hierStudent1,N'ACCEPTED',@now,@now,@now);
+        SET @hierDeliverableVersion=SCOPE_IDENTITY();
+
+        DECLARE @hierFinalSubmission bigint;
+        INSERT dbo.final_submissions(project_id,project_period_id,submitted_by,submitted_at,deadline,notes,draft_concurrency_token,requirements_concurrency_token)
+        VALUES(@hierProject,@evalPeriod,@hierStudent1,@now,DATEADD(day,30,@now),N'Hier locked final submission',NEWID(),NEWID());
+        SET @hierFinalSubmission=SCOPE_IDENTITY();
+
+        INSERT dbo.final_submission_items(submission_id,deliverable_version_id,deliverable_id,title,version_number,status_at_submission,was_required,files_json)
+        VALUES(@hierFinalSubmission,@hierDeliverableVersion,@hierDeliverable,N'Hier Final Deliverable',1,'ACCEPTED',1,N'[{"id":1,"fileName":"hier_final.pdf","contentType":"application/pdf","sizeBytes":102400,"reportType":"Final Report"}]');
+    END;
 COMMIT TRANSACTION;
 '@
     Write-Output "Prepared v5 demo data in $DatabaseName."

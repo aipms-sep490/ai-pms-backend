@@ -25,7 +25,8 @@ public sealed record EvaluationScoreDto(long RubricCriterionId, string Name, str
     string? LearningOutcome = null,
     string? EvidenceGuidance = null,
     decimal? EffectiveWeightPercent = null,
-    long? ParentId = null);
+    long? ParentId = null,
+    string? ParentName = null);
 
 public sealed record EvaluationDraftDto(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
     long RubricId, string RubricName, long RootRubricId, int RubricVersion, string EvaluationType, string Status, string? Comments, decimal? TotalScore,
@@ -56,7 +57,7 @@ public static class EvaluationDraftDtoMapper
         e.ConcurrencyToken, Utc(e.CreatedAt), Utc(e.UpdatedAt),
         e.Scores.Select(c => new EvaluationScoreDto(c.RubricCriterionId, c.Name, c.Description, c.WeightPercent,
             c.MaxScore, c.SortOrder, c.IsRequired, c.Score, c.Comments,
-            c.CriterionCode, c.Levels, c.LearningOutcome, c.EvidenceGuidance, c.EffectiveWeightPercent ?? c.WeightPercent, c.ParentId)).ToArray(),
+            c.CriterionCode, c.Levels, c.LearningOutcome, c.EvidenceGuidance, c.EffectiveWeightPercent ?? c.WeightPercent, c.ParentId, c.ParentName)).ToArray(),
         e.Finalization is null ? null : new(e.Finalization.FinalizedBy, Utc(e.Finalization.FinalizedAt),
             new(e.Finalization.Evidence.FinalSubmissionId, e.Finalization.Evidence.ProjectPeriodId,
                 Utc(e.Finalization.Evidence.SubmittedAt), e.Finalization.Evidence.ArtifactCount,
