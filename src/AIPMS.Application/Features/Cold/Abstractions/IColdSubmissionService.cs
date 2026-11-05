@@ -7,7 +7,7 @@ namespace AIPMS.Application.Features.Cold.Abstractions;
 public interface IColdSubmissionService
 {
     Task<ColdTemplateDto> CreateTemplate(CreateColdTemplateRequest input, CancellationToken ct);
-    Task<PagedResult<ColdTemplateDto>> Templates(long majorId, long periodId, int page, int pageSize, CancellationToken ct);
+    Task<PagedResult<ColdTemplateDto>> Templates(long? majorId, long periodId, int page, int pageSize, CancellationToken ct);
     Task<ColdChecklistDto> Apply(long projectId, ApplyColdChecklistRequest input, CancellationToken ct);
     Task<ColdChecklistDto> Checklist(long projectId, CancellationToken ct);
     Task<ColdProgressDto> Progress(long projectId, CancellationToken ct);

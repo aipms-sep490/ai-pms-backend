@@ -1075,16 +1075,33 @@ CREATE TABLE dbo.rubrics (
     created_by           BIGINT NOT NULL,
     created_at           DATETIME2(0) NOT NULL CONSTRAINT df_rubrics_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at           DATETIME2(0) NOT NULL CONSTRAINT df_rubrics_updated_at DEFAULT (SYSUTCDATETIME()),
+    major_id             BIGINT NULL,
+    project_mode         NVARCHAR(32) NULL,
+    evaluation_stage     NVARCHAR(32) NULL,
+    evaluation_scope     NVARCHAR(32) NULL,
+    effective_from       DATE NULL,
+    effective_to         DATE NULL,
+    approval_reference   NVARCHAR(1000) NULL,
     CONSTRAINT pk_rubrics PRIMARY KEY (id),
     CONSTRAINT uq_rubrics_code UNIQUE (code),
     CONSTRAINT ck_rubrics_scope CHECK (department_id IS NOT NULL OR academic_semester_id IS NOT NULL),
+    CONSTRAINT ck_rubrics_project_mode CHECK (project_mode IS NULL OR project_mode IN ('SINGLE_MAJOR','INTERDISCIPLINARY')),
+    CONSTRAINT ck_rubrics_evaluation_stage CHECK (evaluation_stage IS NULL OR evaluation_stage IN ('ON_GOING','COLD','DEFENSE')),
+    CONSTRAINT ck_rubrics_evaluation_scope CHECK (evaluation_scope IS NULL OR evaluation_scope IN ('COMMON','MAJOR_SPECIFIC','INDIVIDUAL')),
+    CONSTRAINT ck_rubrics_scope_major CHECK (evaluation_scope IS NULL OR evaluation_scope <> 'COMMON' OR major_id IS NULL),
+    CONSTRAINT ck_rubrics_effective_range CHECK (effective_from IS NULL OR effective_to IS NULL OR effective_from <= effective_to),
     CONSTRAINT fk_rubrics_department FOREIGN KEY (department_id)
         REFERENCES dbo.departments(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_rubrics_semester FOREIGN KEY (academic_semester_id)
         REFERENCES dbo.academic_semesters(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_rubrics_created_by FOREIGN KEY (created_by)
-        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_rubrics_major FOREIGN KEY (major_id)
+        REFERENCES dbo.majors(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
+GO
+
+CREATE INDEX ix_rubrics_scope ON dbo.rubrics(academic_semester_id, project_mode, evaluation_stage, evaluation_scope, major_id);
 GO
 
 ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_rubric
@@ -1100,6 +1117,8 @@ CREATE TABLE dbo.rubric_criteria (
     max_score       DECIMAL(8,2) NULL,
     sort_order      INT NOT NULL CONSTRAINT df_rubric_criteria_sort_order DEFAULT (0),
     is_required     BIT NOT NULL CONSTRAINT df_rubric_criteria_is_required DEFAULT (1),
+    learning_outcome NVARCHAR(500) NULL,
+    evidence_guidance NVARCHAR(1000) NULL,
     created_at      DATETIME2(0) NOT NULL CONSTRAINT df_rubric_criteria_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at      DATETIME2(0) NOT NULL CONSTRAINT df_rubric_criteria_updated_at DEFAULT (SYSUTCDATETIME()),
     CONSTRAINT pk_rubric_criteria PRIMARY KEY (id),
@@ -1115,6 +1134,28 @@ CREATE TABLE dbo.rubric_criteria (
     CONSTRAINT fk_rubric_criteria_criterion FOREIGN KEY (criterion_id)
         REFERENCES dbo.evaluation_criteria(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
+GO
+
+CREATE TABLE dbo.rubric_criterion_levels (
+    id                  BIGINT IDENTITY(1,1) NOT NULL,
+    rubric_criterion_id BIGINT NOT NULL,
+    level_order         INT NOT NULL,
+    label               NVARCHAR(100) NOT NULL,
+    descriptor          NVARCHAR(1000) NOT NULL,
+    score_from          DECIMAL(8,2) NULL,
+    score_to            DECIMAL(8,2) NULL,
+    created_at          DATETIME2(0) NOT NULL CONSTRAINT df_rubric_criterion_levels_created_at DEFAULT (SYSUTCDATETIME()),
+    updated_at          DATETIME2(0) NOT NULL CONSTRAINT df_rubric_criterion_levels_updated_at DEFAULT (SYSUTCDATETIME()),
+    CONSTRAINT pk_rubric_criterion_levels PRIMARY KEY (id),
+    CONSTRAINT uq_rubric_criterion_levels_order UNIQUE (rubric_criterion_id, level_order),
+    CONSTRAINT ck_rubric_criterion_levels_order CHECK (level_order > 0),
+    CONSTRAINT ck_rubric_criterion_levels_band CHECK (score_from IS NULL OR score_to IS NULL OR score_from <= score_to),
+    CONSTRAINT fk_rubric_criterion_levels_criterion FOREIGN KEY (rubric_criterion_id)
+        REFERENCES dbo.rubric_criteria(id) ON DELETE CASCADE ON UPDATE NO ACTION
+);
+GO
+
+CREATE INDEX ix_rubric_criterion_levels_criterion ON dbo.rubric_criterion_levels(rubric_criterion_id, level_order);
 GO
 
 CREATE TABLE dbo.evaluations (
@@ -1387,6 +1428,34 @@ BEGIN CATCH
     IF @@TRANCOUNT > 0 ROLLBACK;
     THROW;
 END CATCH;
+GO
+
+-- Bootstrap source: 20261030_add_rubric_approvals.sql
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+IF OBJECT_ID(N'dbo.rubric_approvals', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.rubric_approvals (
+        id            BIGINT IDENTITY(1,1) NOT NULL,
+        rubric_id     BIGINT NOT NULL,
+        submitted_by  BIGINT NOT NULL,
+        submitted_at  DATETIME2(0) NOT NULL CONSTRAINT df_rubric_approvals_submitted_at DEFAULT (SYSUTCDATETIME()),
+        decided_by    BIGINT NULL,
+        decided_at    DATETIME2(0) NULL,
+        decision      NVARCHAR(16) NULL,
+        reason        NVARCHAR(1000) NULL,
+        CONSTRAINT pk_rubric_approvals PRIMARY KEY (id),
+        CONSTRAINT ck_rubric_approvals_decision CHECK (decision IS NULL OR decision IN ('APPROVED','REJECTED')),
+        CONSTRAINT ck_rubric_approvals_decided CHECK ((decided_by IS NULL AND decided_at IS NULL) OR (decided_by IS NOT NULL AND decided_at IS NOT NULL)),
+        CONSTRAINT ck_rubric_approvals_four_eyes CHECK (decided_by IS NULL OR decided_by <> submitted_by),
+        CONSTRAINT fk_rubric_approvals_rubric FOREIGN KEY (rubric_id) REFERENCES dbo.rubrics(id),
+        CONSTRAINT fk_rubric_approvals_submitter FOREIGN KEY (submitted_by) REFERENCES dbo.users(id),
+        CONSTRAINT fk_rubric_approvals_decider FOREIGN KEY (decided_by) REFERENCES dbo.users(id)
+    );
+    CREATE INDEX ix_rubric_approvals_rubric ON dbo.rubric_approvals(rubric_id);
+END;
+COMMIT;
 GO
 
 /* Additive governance foundation for the v3 baseline. Safe to run repeatedly. */
@@ -1707,7 +1776,7 @@ BEGIN TRY
             CONSTRAINT fk_rubric_versions_rubric FOREIGN KEY (rubric_id) REFERENCES dbo.rubrics(id),
             CONSTRAINT fk_rubric_versions_root FOREIGN KEY (root_rubric_id) REFERENCES dbo.rubrics(id),
             CONSTRAINT uq_rubric_versions_family_number UNIQUE (root_rubric_id, version_number),
-            CONSTRAINT ck_rubric_versions_status CHECK (status IN ('DRAFT','PUBLISHED','RETIRED')),
+            CONSTRAINT ck_rubric_versions_status CHECK (status IN ('DRAFT','PENDING_APPROVAL','PUBLISHED','RETIRED')),
             CONSTRAINT ck_rubric_versions_number CHECK (version_number > 0)
         );
     END;
@@ -2842,14 +2911,17 @@ BEGIN TRANSACTION;
 IF OBJECT_ID('dbo.cold_report_templates','U') IS NULL
 BEGIN
  CREATE TABLE dbo.cold_report_templates (
-  id bigint IDENTITY PRIMARY KEY, major_id bigint NOT NULL, project_period_id bigint NOT NULL,
+  id bigint IDENTITY PRIMARY KEY, major_id bigint NULL, project_period_id bigint NOT NULL,
   version int NOT NULL, name nvarchar(200) NOT NULL, reports_json nvarchar(max) NOT NULL,
+  scope nvarchar(32) NULL,
   created_by bigint NOT NULL, created_at datetime2(0) NOT NULL,
   CONSTRAINT fk_cold_template_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id),
   CONSTRAINT fk_cold_template_period FOREIGN KEY(project_period_id) REFERENCES dbo.project_periods(id),
   CONSTRAINT fk_cold_template_creator FOREIGN KEY(created_by) REFERENCES dbo.users(id),
   CONSTRAINT ck_cold_template_json CHECK(ISJSON(reports_json)=1),
   CONSTRAINT ck_cold_template_version CHECK(version>0),
+  CONSTRAINT ck_cold_template_scope CHECK(scope IS NULL OR scope IN ('COMMON','MAJOR_SPECIFIC','INDIVIDUAL')),
+  CONSTRAINT ck_cold_template_scope_major CHECK(scope <> 'COMMON' OR major_id IS NULL),
   CONSTRAINT uq_cold_template_version UNIQUE(major_id,project_period_id,version));
 END;
 IF OBJECT_ID('dbo.cold_packages','U') IS NULL

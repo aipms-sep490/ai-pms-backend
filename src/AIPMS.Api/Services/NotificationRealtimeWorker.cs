@@ -8,10 +8,11 @@ namespace AIPMS.Api.Services;
 internal sealed class NotificationRealtimeWorker(
     IServiceScopeFactory scopes,
     IHubContext<NotificationHub> hub,
-    ILogger<NotificationRealtimeWorker> logger) : BackgroundService
+    ILogger<NotificationRealtimeWorker> logger, Microsoft.Extensions.Configuration.IConfiguration? configuration = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (configuration?.GetValue<bool?>("NotificationRealtime:Enabled") == false) return;
         while (!stoppingToken.IsCancellationRequested)
         {
             try

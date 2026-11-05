@@ -5,8 +5,8 @@ using AIPMS.Application.Features.Deliverables.Models;
 namespace AIPMS.Application.Features.Cold;
 
 public sealed record ColdReportInput(string Code, string Name, bool Required = true);
-public sealed record CreateColdTemplateRequest(long MajorId, long ProjectPeriodId, string Name, IReadOnlyList<ColdReportInput> Reports);
-public sealed record ColdTemplateDto(long Id, long MajorId, long ProjectPeriodId, string Name, int Version, IReadOnlyList<ColdReportInput> Reports);
+public sealed record CreateColdTemplateRequest(long? MajorId, long ProjectPeriodId, string Name, IReadOnlyList<ColdReportInput> Reports, string? Scope = null);
+public sealed record ColdTemplateDto(long Id, long? MajorId, long ProjectPeriodId, string Name, int Version, IReadOnlyList<ColdReportInput> Reports, string? Scope = null);
 public sealed record ColdTemplateTarget(long TemplateId, string Scope, long? StudentId = null);
 public sealed record ApplyColdChecklistRequest(long ProjectPeriodId, DateTimeOffset Deadline, IReadOnlyList<ColdTemplateTarget> Targets);
 public sealed record ColdTokenRequest(string ConcurrencyToken);

@@ -1,0 +1,79 @@
+{
+  "id": 301,
+  "departmentId": 1,
+  "academicSemesterId": 2,
+  "majorId": null,
+  "projectMode": "INTERDISCIPLINARY",
+  "evaluationStage": "COLD",
+  "evaluationScope": "COMMON",
+  "effectiveFrom": "2026-09-01",
+  "effectiveTo": "2026-12-31",
+  "approvalReference": "QD-2026/10/DH-CNTT",
+  "code": "R_CMN_COLD_FA26",
+  "name": "Interdisciplinary Common Cold Evaluation Rubric",
+  "description": "Common cold evaluation rubric for all disciplines in interdisciplinary projects",
+  "status": "PUBLISHED",
+  "isActive": true,
+  "rootRubricId": 301,
+  "version": 1,
+  "concurrencyToken": "e5f6a7b8-c9d0-1234-5678-9abcdef01234",
+  "canEdit": false,
+  "createdAt": "2026-10-30T09:00:00Z",
+  "updatedAt": "2026-10-30T10:30:00Z",
+  "criteria": [
+    {
+      "id": 3001,
+      "criterionId": 701,
+      "name": "Interdisciplinary Synthesis & Integration",
+      "description": "Cross-discipline coherence, shared architecture, and integration rigor",
+      "weightPercent": 100.0,
+      "effectiveWeightPercent": 100.0,
+      "maxScore": 10.0,
+      "sortOrder": 0,
+      "isRequired": true,
+      "parentId": null,
+      "criterionCode": "RC_CMN_SYN_01",
+      "learningOutcome": "PLO-03: Synthesize interdisciplinary system components into cohesive solution",
+      "evidenceGuidance": "Review system architecture diagrams, cross-discipline API contracts, and integration test coverage",
+      "levels": [
+        {
+          "levelOrder": 1,
+          "label": "Chưa đạt (Unsatisfactory)",
+          "descriptor": "No discernible cross-discipline integration; components operate as disconnected silos",
+          "scoreFrom": 0.0,
+          "scoreTo": 4.9
+        },
+        {
+          "levelOrder": 2,
+          "label": "Đạt yêu cầu (Developing)",
+          "descriptor": "Basic interface definitions exist but lack cohesive interdisciplinary workflow",
+          "scoreFrom": 5.0,
+          "scoreTo": 6.9
+        },
+        {
+          "levelOrder": 3,
+          "label": "Tốt (Proficient)",
+          "descriptor": "Solid end-to-end integration across all disciplines with verified data flows",
+          "scoreFrom": 7.0,
+          "scoreTo": 8.4
+        },
+        {
+          "levelOrder": 4,
+          "label": "Xuất sắc (Exemplary)",
+          "descriptor": "Seamless integration, comprehensive contracts, resilient error handling across domains",
+          "scoreFrom": 8.5,
+          "scoreTo": 10.0
+        }
+      ],
+      "children": []
+    }
+  ],
+  "approval": {
+    "submittedBy": 1001,
+    "submittedAt": "2026-10-30T09:30:00Z",
+    "decidedBy": 1002,
+    "decidedAt": "2026-10-30T10:30:00Z",
+    "decision": "APPROVED",
+    "approvalReference": "QD-2026/10/DH-CNTT"
+  }
+}

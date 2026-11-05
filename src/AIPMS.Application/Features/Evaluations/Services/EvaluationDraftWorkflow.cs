@@ -105,16 +105,16 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         if (!Manages(actor, project)) throw new ForbiddenException();
         await repository.LockProjectAsync(projectId, ct);
         project = await Project(projectId, ct);
+        if (input.EvaluationType == "SUPERVISOR")
+            throw new ConflictException("New SUPERVISOR evaluation assignments are retired; existing assignments may complete under legacy rules.", "SUPERVISOR_EVALUATION_TYPE_RETIRED");
+        if (await repository.IsCurrentSupervisorAsync(projectId, input.EvaluatorId, ct))
+            throw new ConflictException("The current primary supervisor cannot evaluate the same project.", "PRIMARY_EVALUATOR_CONFLICT");
         var period = await Window(project, input.ProjectPeriodId, ct);
         var evaluator = await repository.GetActorAsync(input.EvaluatorId, ct);
         if (evaluator is null || !evaluator.IsLecturer || evaluator.DepartmentId is null
             || !project.DepartmentIds.Contains(evaluator.DepartmentId.Value)
             || !Manages(actor, project, evaluator.DepartmentId))
             throw new ConflictException("The evaluator must be an active lecturer in the managed project department.", WorkflowErrorCodes.EvaluatorIneligible);
-        if (input.EvaluationType == "SUPERVISOR")
-            throw new ConflictException("New SUPERVISOR evaluation assignments are retired; existing assignments may complete under legacy rules.", "SUPERVISOR_EVALUATION_TYPE_RETIRED");
-        if (await repository.IsCurrentSupervisorAsync(projectId, evaluator.Id, ct))
-            throw new ConflictException("The current primary supervisor cannot evaluate the same project.", "PRIMARY_EVALUATOR_CONFLICT");
         if (input.ComponentId is null && period.RubricId is null)
             throw new ConflictException("The evaluation period has no configured rubric.", WorkflowErrorCodes.PublishedRubricRequired);
         if (input.ComponentId is null && period.RubricId.HasValue)

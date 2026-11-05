@@ -52,6 +52,9 @@ public static class RubricHierarchy
         foreach (var c in ordered.Reverse())
             mapped.Add(c.Id, new(c.Name, c.Description, c.WeightPercent, c.MaxScore, c.SortOrder, c.IsRequired)
             {
+                LearningOutcome = c.LearningOutcome,
+                EvidenceGuidance = c.EvidenceGuidance,
+                Levels = c.Levels.Select(l => new RubricCriterionLevelInput(l.LevelOrder, l.Label, l.Descriptor, l.ScoreFrom, l.ScoreTo)).ToArray(),
                 Children = children[c.Id].OrderBy(x => x.SortOrder).ThenBy(x => x.Id).Select(x => mapped[x.Id]).ToArray()
             });
         return children[null].OrderBy(c => c.SortOrder).ThenBy(c => c.Id).Select(c => mapped[c.Id]).ToArray();

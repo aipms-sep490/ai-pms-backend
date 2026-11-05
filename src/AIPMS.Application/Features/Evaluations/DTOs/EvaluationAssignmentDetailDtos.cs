@@ -2,11 +2,36 @@ using System.Text.Json.Serialization;
 
 namespace AIPMS.Application.Features.Evaluations.DTOs;
 
+public sealed record EvaluationAssignmentItemDto(
+    long RubricCriterionId,
+    string Name,
+    string? Description,
+    decimal WeightPercent,
+    decimal EffectiveWeightPercent,
+    decimal MaxScore,
+    int SortOrder,
+    bool IsRequired,
+    string? CriterionCode,
+    string? LearningOutcome,
+    string? EvidenceGuidance,
+    IReadOnlyList<RubricCriterionLevelDto> Levels,
+    long? ParentId = null);
+
 public sealed record EvaluationAssignmentDetailDto(
     EvaluationAssignmentDto Assignment,
     bool CanScore,
     bool LegacyReadOnly,
-    string? DenialReason);
+    string? DenialReason,
+    string? Stage = null,
+    decimal? ComponentStudentWeightPercent = null,
+    string? SchemeApprovalStatus = null,
+    bool? SchemeIsDemo = null,
+    IReadOnlyList<EvaluationAssignmentItemDto>? Items = null,
+    int? CompletedEvaluators = null,
+    int? RequiredEvaluators = null)
+{
+    public IReadOnlyList<EvaluationAssignmentItemDto> Criteria => Items ?? [];
+}
 
 public sealed record EvaluationAssignmentEvidenceItemDto(
     long Id,

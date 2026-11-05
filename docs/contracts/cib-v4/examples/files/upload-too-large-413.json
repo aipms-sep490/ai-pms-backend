@@ -1,0 +1,30 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/projects/1/review-gates/GATE_1/evidence/file",
+    "headers": {
+      "Authorization": "Bearer [SYNTHETIC_JWT_STUDENT]"
+    },
+    "form": {
+      "requirementId": 10,
+      "notes": "Large submission",
+      "expectedVersion": 1,
+      "concurrencyToken": "00000000-0000-0000-0000-000000000000",
+      "file": "[binary: evidence_oversize.pdf, 25 MB]"
+    }
+  },
+  "response": {
+    "status": 413,
+    "body": {
+      "type": "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.14",
+      "title": "Request entity too large.",
+      "status": 413,
+      "detail": "Use the trace id when contacting support.",
+      "instance": "/api/v1/projects/1/review-gates/GATE_1/evidence/file",
+      "traceId": "00-8e2b3c4d5f6a7b8c9d0e1f2a3b4c5d6e-0000000000000000-00",
+      "code": "UPLOAD_TOO_LARGE",
+      "errorCode": "UPLOAD_TOO_LARGE",
+      "maxBytes": 23068672
+    }
+  }
+}

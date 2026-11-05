@@ -48,7 +48,7 @@ public sealed partial class ColdSubmissionEndpointTests
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
         using var outsider = app.CreateAuthenticatedClient(s.Scope.Users.NewLecturer);
-        var scheme = await ColdScheme(staff, s, template.MajorId, scope);
+        var scheme = await ColdScheme(staff, s, template.MajorId!.Value, scope);
         var component = scheme.Components.Single(c => c.Stage == "COLD");
         Assert.Equal(HttpStatusCode.Conflict, (await AssignCold(staff, s, component, s.Scope.Users.Lecturer)).StatusCode);
         var submitted = await SubmitReport(student, checklist.Items.Single().Id);
@@ -93,7 +93,7 @@ public sealed partial class ColdSubmissionEndpointTests
         using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
         using var second = app.CreateAuthenticatedClient(s.Scope.Users.NewLecturer);
         await SubmitReport(student, checklist.Items.Single().Id); await LockCold(staff, s.ProjectId);
-        var scheme = await ColdScheme(staff, s, template.MajorId, required: 2, mapped: mapped);
+        var scheme = await ColdScheme(staff, s, template.MajorId!.Value, required: 2, mapped: mapped);
         var cold = scheme.Components.Single(c => c.Stage == "COLD");
         var progressUrl = $"/api/v1/projects/{s.ProjectId}/cold/progress";
         var missing = await Body<ColdProgressDto>(await student.GetAsync(progressUrl));
@@ -131,7 +131,7 @@ public sealed partial class ColdSubmissionEndpointTests
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
         await SubmitReport(student, checklist.Items.Single().Id); await LockCold(staff, s.ProjectId);
-        var scheme = await ColdScheme(staff, s, template.MajorId);
+        var scheme = await ColdScheme(staff, s, template.MajorId!.Value);
         var assignment = await Body<EvaluationAssignmentDto>(await AssignCold(staff, s, scheme.Components.Single(c => c.Stage == "COLD"), s.Scope.Users.Lecturer));
         var draft = await ScoreCold(evaluator, s, assignment.Id, 7);
         var url = $"/api/v1/evaluations/{draft.Id}/finalize";
@@ -157,7 +157,7 @@ public sealed partial class ColdSubmissionEndpointTests
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
         var submitted = await SubmitReport(student, checklist.Items.Single().Id); await LockCold(staff, s.ProjectId);
-        var scheme = await ColdScheme(staff, s, template.MajorId);
+        var scheme = await ColdScheme(staff, s, template.MajorId!.Value);
         var assignment = await Body<EvaluationAssignmentDto>(await AssignCold(staff, s, scheme.Components.Single(c => c.Stage == "COLD"), s.Scope.Users.Lecturer));
         var draft = await ScoreCold(evaluator, s, assignment.Id, 8);
         await using (var db = database.CreateContext())

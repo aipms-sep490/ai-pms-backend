@@ -181,6 +181,8 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Trim().Length > 200 || input.Components is null
             || input.Components.Any(x => x is null || x.Stage is not ("ON_GOING" or "COLD" or "DEFENSE")))
             throw new ValidationException(new Dictionary<string, string[]> { ["scheme"] = ["A name and components with supported stages are required."] });
+        if (input.Policy is not null && !input.Policy.IsDemo && (input.Policy.ApprovalStatus != "APPROVED" || string.IsNullOrWhiteSpace(input.Policy.ApprovalReference)))
+            throw new AIPMS.Domain.Exceptions.DomainException("Official approved schemes require a non-empty Academic Council or Department approval reference.", "SCHEME_APPROVAL_REFERENCE_REQUIRED");
         var row = id.HasValue ? await Row(id.Value, ct) : new EvaluationScheme { ProjectId = input.ProjectId,
             Version = (await db.Set<EvaluationScheme>().Where(x => x.ProjectId == input.ProjectId).MaxAsync(x => (int?)x.Version, ct) ?? 0) + 1,
             CreatedBy = Actor, CreatedAt = Now };

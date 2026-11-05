@@ -1,3 +1,4 @@
+using AIPMS.Application.Features.Files;
 using System.ComponentModel.DataAnnotations;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Cold;
@@ -21,7 +22,7 @@ public sealed class ColdSubmissionsController(IColdSubmissionService service) : 
     public IReadOnlyList<ColdReportInput> ItExample() => ColdTemplateExamples.ItReports;
     [HttpGet("api/v1/cold-report-templates")]
     [ProducesResponseType<PagedResult<ColdTemplateDto>>(200)]
-    public Task<PagedResult<ColdTemplateDto>> Templates([FromQuery] long majorId, [FromQuery] long projectPeriodId,
+    public Task<PagedResult<ColdTemplateDto>> Templates([FromQuery] long? majorId, [FromQuery] long projectPeriodId,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) => service.Templates(majorId, projectPeriodId, page, pageSize, ct);
     [HttpPost("api/v1/cold-report-templates")]
     [ProducesResponseType<ColdTemplateDto>(201)]
@@ -49,8 +50,8 @@ public sealed class ColdSubmissionsController(IColdSubmissionService service) : 
         CancellationToken ct = default) => service.History(itemId, page, pageSize, ct);
     [HttpPost("api/v1/cold-submissions/{id:long}/files")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(11 * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 11 * 1024 * 1024)]
+    [RequestSizeLimit(UploadPolicies.ColdSubmissionLimit)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.ColdSubmissionLimit)]
     [ProducesResponseType<ColdSubmissionDto>(200)]
     public async Task<ColdSubmissionDto> Upload(long id, [FromForm] ColdUploadForm request, CancellationToken ct)
     {

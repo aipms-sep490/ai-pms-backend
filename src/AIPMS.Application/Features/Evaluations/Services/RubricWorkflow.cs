@@ -5,12 +5,16 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
+using AIPMS.Domain.Exceptions;
+using Microsoft.Extensions.Options;
 
 namespace AIPMS.Application.Features.Evaluations.Services;
 
 public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser currentUser,
-    IAuditTrail audit, TimeProvider clock)
+    IAuditTrail audit, TimeProvider clock, IOptions<RubricOptions>? rubricOptions = null)
 {
+    private readonly RubricOptions options = rubricOptions?.Value ?? new RubricOptions();
+
     private async Task<RubricActor> Actor(CancellationToken ct)
     {
         if (!currentUser.IsAuthenticated || currentUser.UserId is null) throw new UnauthorizedException();
@@ -25,6 +29,27 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
             ?? throw new ConflictException("Rubric department and semester must belong to the same active organization and department.");
         if (scope.SemesterStatus is "CLOSED" or "ARCHIVED")
             throw new ConflictException("Rubrics cannot be changed in a closed or archived semester.");
+    }
+
+    private async Task ValidateApprovalScopeAuthority(RubricActor actor, RubricRecord rubric, CancellationToken ct)
+    {
+        if (rubric.EvaluationScope == "COMMON" && rubric.ProjectMode == "INTERDISCIPLINARY")
+        {
+            if (actor.DepartmentId != rubric.DepartmentId)
+                throw new ForbiddenException("Only staff from the lead department can approve COMMON interdisciplinary rubrics.", "RUBRIC_SCOPE_NOT_LEAD_DEPARTMENT");
+            return;
+        }
+
+        if (rubric.EvaluationScope == "MAJOR_SPECIFIC" && rubric.MajorId.HasValue)
+        {
+            var majorDeptId = await repository.GetMajorDepartmentIdAsync(rubric.MajorId.Value, ct);
+            if (majorDeptId.HasValue && actor.DepartmentId != majorDeptId.Value)
+                throw new ForbiddenException("Only staff from the major's department can approve major-specific rubrics.", "RUBRIC_SCOPE_NOT_LEAD_DEPARTMENT");
+            return;
+        }
+
+        if (actor.DepartmentId != rubric.DepartmentId)
+            throw new ForbiddenException("The actor is outside the rubric's department scope.");
     }
 
     private async Task<RubricRecord> Load(long id, RubricActor actor, bool forUpdate, CancellationToken ct) =>
@@ -50,9 +75,13 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
     {
         var actor = await Actor(ct);
         await Scope(actor, input.DepartmentId, input.AcademicSemesterId, ct);
+        RubricRules.EnsureValidHierarchy(input.Criteria);
+        RubricRules.ValidateScope(input.EvaluationScope, input.MajorId, input.ProjectMode, input.EvaluationStage, input.EffectiveFrom, input.EffectiveTo);
         var rubric = await repository.CreateAsync(input.DepartmentId, input.AcademicSemesterId,
             input.Code.Trim().ToUpperInvariant(), input.Name.Trim(), input.Description?.Trim(), input.Criteria,
-            actor.UserId, clock.GetUtcNow().UtcDateTime, null, ct);
+            actor.UserId, clock.GetUtcNow().UtcDateTime, null,
+            input.MajorId, input.ProjectMode, input.EvaluationStage, input.EvaluationScope,
+            input.EffectiveFrom, input.EffectiveTo, ct);
         await Audit("RUBRIC_CREATED", rubric, actor.UserId, ct);
         return rubric.ToDto();
     }, ct);
@@ -63,10 +92,88 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         var rubric = await Load(id, actor, true, ct);
         RubricRules.EnsureCurrent(rubric, input.ConcurrencyToken);
         RubricRules.EnsureEditable(rubric);
+        RubricRules.EnsureValidHierarchy(input.Criteria);
         await Scope(actor, rubric.DepartmentId!.Value, rubric.AcademicSemesterId!.Value, ct);
+        RubricRules.ValidateScope(input.EvaluationScope, input.MajorId, input.ProjectMode, input.EvaluationStage, input.EffectiveFrom, input.EffectiveTo);
         var updated = await repository.UpdateAsync(id, input.Name.Trim(), input.Description?.Trim(),
-            input.Criteria, clock.GetUtcNow().UtcDateTime, ct);
+            input.Criteria, clock.GetUtcNow().UtcDateTime,
+            input.MajorId, input.ProjectMode, input.EvaluationStage, input.EvaluationScope,
+            input.EffectiveFrom, input.EffectiveTo, ct);
         await Audit("RUBRIC_UPDATED", updated, actor.UserId, ct);
+        return updated.ToDto();
+    }, ct);
+
+    public Task<RubricDto> SubmitForApproval(long id, SubmitRubricForApprovalRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
+    {
+        var actor = await Actor(ct);
+        var rubric = await Load(id, actor, true, ct);
+        RubricRules.EnsureCurrent(rubric, input.ConcurrencyToken);
+        if (rubric.Status != RubricStatuses.Draft)
+            throw new ConflictException("Only draft rubrics can be submitted for approval.");
+        if (rubric.DepartmentId is null || rubric.AcademicSemesterId is null || string.IsNullOrWhiteSpace(rubric.EvaluationScope))
+            throw new ConflictException("Legacy unscoped rubrics cannot be submitted for approval.", "RUBRIC_SCOPE_REQUIRED");
+        await Scope(actor, rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct);
+        RubricRules.EnsureValidHierarchy(RubricHierarchy.ToInputs(rubric.Criteria));
+        RubricRules.EnsurePublishable(rubric.Criteria, options.RequiredLevelCount, requireLevels: true);
+        await repository.SubmitForApprovalAsync(id, actor.UserId, clock.GetUtcNow().UtcDateTime, ct);
+        var updated = await Load(id, actor, false, ct);
+        await Audit("RUBRIC_SUBMITTED_FOR_APPROVAL", updated, actor.UserId, ct);
+        return updated.ToDto();
+    }, ct);
+
+    public Task<RubricDto> Approve(long id, ApproveRubricRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
+    {
+        var actor = await Actor(ct);
+        var rubric = await Load(id, actor, true, ct);
+        RubricRules.EnsureCurrent(rubric, input.ConcurrencyToken);
+        if (rubric.Status != RubricStatuses.PendingApproval)
+            throw new ConflictException("Only rubrics pending approval can be approved.");
+        if (rubric.DepartmentId is null || rubric.AcademicSemesterId is null)
+            throw new ConflictException("Legacy unscoped rubrics cannot be approved.");
+        var approval = await repository.GetLatestApprovalAsync(id, ct);
+        if (approval is null || approval.DecidedAt.HasValue)
+            throw new ConflictException("No active approval request found for this rubric.");
+        if (actor.UserId == approval.SubmittedBy)
+            throw new ForbiddenException("Submitter cannot approve their own rubric.", "RUBRIC_SELF_APPROVAL_FORBIDDEN");
+        if (actor.IsAdmin && !actor.DepartmentId.HasValue)
+            throw new ForbiddenException("Administrators without an academic department scope cannot approve rubrics.", "RUBRIC_APPROVAL_ADMIN_NOT_ACADEMIC");
+        var scope = await repository.GetScopeAsync(rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct)
+            ?? throw new ConflictException("Rubric department and semester must belong to the same active organization and department.");
+        if (scope.SemesterStatus is "CLOSED" or "ARCHIVED")
+            throw new ConflictException("Rubrics cannot be changed in a closed or archived semester.");
+        await ValidateApprovalScopeAuthority(actor, rubric, ct);
+        await repository.ApproveAsync(id, approval.Id, actor.UserId, input.ApprovalReference, clock.GetUtcNow().UtcDateTime, ct);
+        var updated = await Load(id, actor, false, ct);
+        await Audit("RUBRIC_APPROVED", updated, actor.UserId, ct);
+        return updated.ToDto();
+    }, ct);
+
+    public Task<RubricDto> Reject(long id, RejectRubricRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
+    {
+        var actor = await Actor(ct);
+        if (string.IsNullOrWhiteSpace(input.Reason))
+            throw new DomainException("Rejection reason is required.", "RUBRIC_REJECTION_REASON_REQUIRED");
+        var rubric = await Load(id, actor, true, ct);
+        RubricRules.EnsureCurrent(rubric, input.ConcurrencyToken);
+        if (rubric.Status != RubricStatuses.PendingApproval)
+            throw new ConflictException("Only rubrics pending approval can be rejected.");
+        if (rubric.DepartmentId is null || rubric.AcademicSemesterId is null)
+            throw new ConflictException("Legacy unscoped rubrics cannot be rejected.");
+        var approval = await repository.GetLatestApprovalAsync(id, ct);
+        if (approval is null || approval.DecidedAt.HasValue)
+            throw new ConflictException("No active approval request found for this rubric.");
+        if (actor.UserId == approval.SubmittedBy)
+            throw new ForbiddenException("Submitter cannot reject their own rubric.", "RUBRIC_SELF_APPROVAL_FORBIDDEN");
+        if (actor.IsAdmin && !actor.DepartmentId.HasValue)
+            throw new ForbiddenException("Administrators without an academic department scope cannot reject rubrics.", "RUBRIC_APPROVAL_ADMIN_NOT_ACADEMIC");
+        var scope = await repository.GetScopeAsync(rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct)
+            ?? throw new ConflictException("Rubric department and semester must belong to the same active organization and department.");
+        if (scope.SemesterStatus is "CLOSED" or "ARCHIVED")
+            throw new ConflictException("Rubrics cannot be changed in a closed or archived semester.");
+        await ValidateApprovalScopeAuthority(actor, rubric, ct);
+        await repository.RejectAsync(id, approval.Id, actor.UserId, input.Reason.Trim(), clock.GetUtcNow().UtcDateTime, ct);
+        var updated = await Load(id, actor, false, ct);
+        await Audit("RUBRIC_REJECTED", updated, actor.UserId, ct);
         return updated.ToDto();
     }, ct);
 
@@ -80,8 +187,10 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         await Scope(actor, rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct);
         if (publish)
         {
+            if (rubric.EvaluationScope is not null || rubric.ProjectMode is not null || rubric.EvaluationStage is not null || rubric.MajorId is not null)
+                throw new ConflictException("Direct publish is not allowed for scoped rubrics. Use the approval workflow instead.", "RUBRIC_REQUIRES_APPROVAL_FLOW");
             RubricRules.EnsureEditable(rubric);
-            RubricRules.EnsurePublishable(rubric.Criteria);
+            RubricRules.EnsurePublishable(rubric.Criteria, options.RequiredLevelCount);
         }
         else if (rubric.Status != RubricStatuses.Published)
             throw new ConflictException("Only published rubrics can be retired.");
@@ -101,7 +210,9 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         await Scope(actor, rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct);
         var created = await repository.CreateAsync(rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value,
             input.Code.Trim().ToUpperInvariant(), rubric.Name, rubric.Description,
-            RubricHierarchy.ToInputs(rubric.Criteria), actor.UserId, clock.GetUtcNow().UtcDateTime, id, ct);
+            RubricHierarchy.ToInputs(rubric.Criteria), actor.UserId, clock.GetUtcNow().UtcDateTime, id,
+            rubric.MajorId, rubric.ProjectMode, rubric.EvaluationStage, rubric.EvaluationScope,
+            rubric.EffectiveFrom, rubric.EffectiveTo, ct);
         await Audit("RUBRIC_VERSION_CREATED", created, actor.UserId, ct);
         return created.ToDto();
     }, ct);

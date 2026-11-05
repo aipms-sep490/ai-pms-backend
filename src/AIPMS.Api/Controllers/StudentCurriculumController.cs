@@ -1,3 +1,4 @@
+using AIPMS.Application.Features.Files;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.StudentRosters;
 using AIPMS.Application.Features.StudentRosters.Abstractions;
@@ -17,8 +18,8 @@ public sealed class StudentCurriculumController(IStudentRosterService service) :
 {
     [HttpPost("preview")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(6 * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 6 * 1024 * 1024)]
+    [RequestSizeLimit(UploadPolicies.StudentCurriculumLimit)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.StudentCurriculumLimit)]
     [ProducesResponseType<CurriculumPreviewDto>(200)]
     [ProducesResponseType<ProblemDetails>(413)]
     public async Task<ActionResult<CurriculumPreviewDto>> Preview(IFormFile file, CancellationToken ct)
