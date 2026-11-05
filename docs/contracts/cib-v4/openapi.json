@@ -56571,6 +56571,10 @@
             "type": "string",
             "nullable": true
           },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time"
+          },
           "response": {
             "$ref": "#/components/schemas/AcademicAssistantResponseDto"
           }
