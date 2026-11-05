@@ -18,6 +18,7 @@ public sealed class OpenAiTextGenerationProviderTests
         {
             using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
             Assert.True(body.RootElement.GetProperty("stream").GetBoolean());
+            Assert.Equal(1200, body.RootElement.GetProperty("max_tokens").GetInt32());
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("data: {\"choices\":[{\"delta\":{\"content\":\"Hello \"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"world\"}}]}\n\ndata: [DONE]\n\n", Encoding.UTF8, "text/event-stream") };
         });
         using var client = new HttpClient(handler);
@@ -54,6 +55,7 @@ public sealed class OpenAiTextGenerationProviderTests
             Assert.Equal("test-only-key", request.Headers.Authorization.Parameter);
             using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
             Assert.Equal("cx/test-model", body.RootElement.GetProperty("model").GetString());
+            Assert.Equal(1200, body.RootElement.GetProperty("max_tokens").GetInt32());
             Assert.Equal("system", body.RootElement.GetProperty("messages")[0].GetProperty("role").GetString());
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
