@@ -28,7 +28,7 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
                 ActiveScope = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
             }).SingleOrDefaultAsync(ct);
         if (user is null || (!user.Admin && (!user.Staff || !user.ActiveScope))) return null;
-        return new(user.Id, user.Admin, user.DepartmentId, user.OrganizationId);
+        return new(user.Id, user.Admin, user.DepartmentId, user.OrganizationId, user.Staff && user.ActiveScope);
     }
 
     public async Task<RubricScope?> GetScopeAsync(long departmentId, long semesterId, CancellationToken ct) =>

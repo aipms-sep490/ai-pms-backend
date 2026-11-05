@@ -30,6 +30,9 @@ public sealed record RubricDto(long Id, long? DepartmentId, long? AcademicSemest
     public DateOnly? EffectiveFrom { get; init; }
     public DateOnly? EffectiveTo { get; init; }
     public string? ApprovalReference { get; init; }
+    public bool CanSubmitForApproval { get; init; }
+    public bool CanApprove { get; init; }
+    public bool CanReject { get; init; }
 }
 public sealed record CreateRubricRequest(long DepartmentId, long AcademicSemesterId, string Code,
     string Name, string? Description, IReadOnlyList<RubricCriterionInput> Criteria)
@@ -59,7 +62,7 @@ public sealed record RejectRubricRequest(string ConcurrencyToken, string Reason)
 
 public static class RubricDtoMapper
 {
-    public static RubricDto ToDto(this RubricRecord r)
+    public static RubricDto ToDto(this RubricRecord r, bool canSubmitForApproval = false, bool canApprove = false, bool canReject = false)
     {
         var ordered = RubricHierarchy.WithEffectiveWeights(r.Criteria);
         var byParent = ordered.ToLookup(c => c.ParentId);
@@ -89,7 +92,10 @@ public static class RubricDtoMapper
             EvaluationScope = r.EvaluationScope,
             EffectiveFrom = r.EffectiveFrom,
             EffectiveTo = r.EffectiveTo,
-            ApprovalReference = r.ApprovalReference
+            ApprovalReference = r.ApprovalReference,
+            CanSubmitForApproval = canSubmitForApproval,
+            CanApprove = canApprove,
+            CanReject = canReject
         };
     }
 }

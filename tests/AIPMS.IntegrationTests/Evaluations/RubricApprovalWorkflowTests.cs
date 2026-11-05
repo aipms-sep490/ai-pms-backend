@@ -558,4 +558,406 @@ public sealed class RubricApprovalWorkflowTests(RubricDatabaseFixture database) 
         var body = await createRes.Content.ReadAsStringAsync();
         Assert.Contains("RUBRIC_SCOPE_REQUIRED", body);
     }
+
+    [Fact]
+    public async Task Staff_FromWrongDepartment_CannotApprove_Returns403()
+    {
+        var s = await database.Seed();
+        using var app = new RubricFactory(database);
+        using var submitter = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        using var outsideStaff = app.CreateAuthenticatedClient(s.Users.OutsideStaff, roles: [AppRoles.DepartmentStaff]);
+
+        var code = $"R_WRONG_DEPT_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Departmental Rubric", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "COMMON",
+            ProjectMode = "INTERDISCIPLINARY"
+        };
+        var createRes = await submitter.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes = await submitter.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, submitRes.StatusCode);
+        var submitted = (await submitRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var approveRes = await outsideStaff.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Forbidden, approveRes.StatusCode);
+        var body = await approveRes.Content.ReadAsStringAsync();
+        Assert.Contains("RUBRIC_SCOPE_NOT_LEAD_DEPARTMENT", body);
+    }
+
+    [Fact]
+    public async Task LeadDepartmentStaff_CanApproveCommonInterdisciplinaryRubric_Success()
+    {
+        var s = await database.Seed();
+        await using var db = database.CreateContext();
+        var staff2Id = await CreateDepartmentStaffAsync(db, s.Users.DepartmentId);
+
+        using var app = new RubricFactory(database);
+        using var submitter = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        using var leadStaff = app.CreateAuthenticatedClient(staff2Id, roles: [AppRoles.DepartmentStaff]);
+
+        var code = $"R_LEAD_OK_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Interdisciplinary Lead Common", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "COMMON",
+            ProjectMode = "INTERDISCIPLINARY"
+        };
+        var createRes = await submitter.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes = await submitter.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        var submitted = (await submitRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var approveRes = await leadStaff.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken, "QD-2026/INTER-LEAD"));
+        Assert.Equal(HttpStatusCode.OK, approveRes.StatusCode);
+        var approved = (await approveRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+        Assert.Equal("PUBLISHED", approved.Status);
+        Assert.True(approved.IsActive);
+    }
+
+    [Fact]
+    public async Task PureLecturer_CannotManageOrApproveRubric_Returns403()
+    {
+        var s = await database.Seed();
+        using var app = new RubricFactory(database);
+        using var submitter = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        using var lecturer = app.CreateAuthenticatedClient(s.Users.Lecturer, roles: [AppRoles.Lecturer]);
+
+        var code = $"R_LEC_403_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Lecturer Forbidden Test", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "COMMON",
+            ProjectMode = "SINGLE_MAJOR"
+        };
+        var createRes = await submitter.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes = await submitter.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        var submitted = (await submitRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var approveRes = await lecturer.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Forbidden, approveRes.StatusCode);
+
+        var submitAttempt = await lecturer.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(submitted.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Forbidden, submitAttempt.StatusCode);
+    }
+
+    [Fact]
+    public async Task SubmitForApproval_WhenAlreadyPending_Returns409()
+    {
+        var s = await database.Seed();
+        using var app = new RubricFactory(database);
+        using var client = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+
+        var code = $"R_SUB_DUP_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Pending Rubric", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "COMMON",
+            ProjectMode = "SINGLE_MAJOR"
+        };
+        var createRes = await client.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes1 = await client.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, submitRes1.StatusCode);
+        var submitted1 = (await submitRes1.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes2 = await client.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(submitted1.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Conflict, submitRes2.StatusCode);
+    }
+
+    [Fact]
+    public async Task Approve_WhenAlreadyApproved_Returns409()
+    {
+        var s = await database.Seed();
+        await using var db = database.CreateContext();
+        var staff2Id = await CreateDepartmentStaffAsync(db, s.Users.DepartmentId);
+        var staff3Id = await CreateDepartmentStaffAsync(db, s.Users.DepartmentId);
+
+        using var app = new RubricFactory(database);
+        using var submitter = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        using var approver1 = app.CreateAuthenticatedClient(staff2Id, roles: [AppRoles.DepartmentStaff]);
+        using var approver2 = app.CreateAuthenticatedClient(staff3Id, roles: [AppRoles.DepartmentStaff]);
+
+        var code = $"R_APP_TWICE_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Approve Twice", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "COMMON",
+            ProjectMode = "SINGLE_MAJOR"
+        };
+        var createRes = await submitter.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes = await submitter.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        var submitted = (await submitRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var approveRes1 = await approver1.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken, "REF-001"));
+        Assert.Equal(HttpStatusCode.OK, approveRes1.StatusCode);
+
+        var approveRes2 = await approver2.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken, "REF-002"));
+        Assert.Equal(HttpStatusCode.Conflict, approveRes2.StatusCode);
+    }
+
+    [Fact]
+    public async Task Approve_WithStaleConcurrencyToken_Returns409Conflict()
+    {
+        var s = await database.Seed();
+        await using var db = database.CreateContext();
+        var staff2Id = await CreateDepartmentStaffAsync(db, s.Users.DepartmentId);
+
+        using var app = new RubricFactory(database);
+        using var submitter = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        using var approver = app.CreateAuthenticatedClient(staff2Id, roles: [AppRoles.DepartmentStaff]);
+
+        var code = $"R_STALE_TOK_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Stale Token Test", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "COMMON",
+            ProjectMode = "SINGLE_MAJOR"
+        };
+        var createRes = await submitter.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes = await submitter.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.OK, submitRes.StatusCode);
+
+        var staleToken = Guid.NewGuid().ToString("N");
+        var approveRes = await approver.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(staleToken, "REF-STALE"));
+        Assert.Equal(HttpStatusCode.Conflict, approveRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Approve_ConcurrentRequests_OnlyOneSucceeds()
+    {
+        var s = await database.Seed();
+        await using var db = database.CreateContext();
+        var staff2Id = await CreateDepartmentStaffAsync(db, s.Users.DepartmentId);
+        var staff3Id = await CreateDepartmentStaffAsync(db, s.Users.DepartmentId);
+
+        using var app = new RubricFactory(database);
+        using var submitter = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        using var approverA = app.CreateAuthenticatedClient(staff2Id, roles: [AppRoles.DepartmentStaff]);
+        using var approverB = app.CreateAuthenticatedClient(staff3Id, roles: [AppRoles.DepartmentStaff]);
+
+        var code = $"R_RACE_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Race Approval Test", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "COMMON",
+            ProjectMode = "SINGLE_MAJOR"
+        };
+        var createRes = await submitter.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes = await submitter.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        var submitted = (await submitRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var taskA = approverA.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken, "REF-RACE-A"));
+        var taskB = approverB.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken, "REF-RACE-B"));
+
+        var responses = await Task.WhenAll(taskA, taskB);
+        var statusCodes = responses.Select(r => r.StatusCode).ToList();
+
+        Assert.Contains(HttpStatusCode.OK, statusCodes);
+        Assert.Contains(HttpStatusCode.Conflict, statusCodes);
+
+        await using var verifyDb = database.CreateContext();
+        var approvedCount = await verifyDb.RubricApprovals.CountAsync(a => a.RubricId == created.Id && a.Decision == "APPROVED");
+        Assert.Equal(1, approvedCount);
+    }
+
+    [Fact]
+    public async Task PublishedOrReferencedRubric_CannotBeEditedOrDeleted_Returns409()
+    {
+        var s = await database.Seed();
+        await using var db = database.CreateContext();
+        var staff2Id = await CreateDepartmentStaffAsync(db, s.Users.DepartmentId);
+
+        using var app = new RubricFactory(database);
+        using var submitter = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        using var approver = app.CreateAuthenticatedClient(staff2Id, roles: [AppRoles.DepartmentStaff]);
+
+        var code = $"R_PUB_LOCK_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Published Protected", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "COMMON",
+            ProjectMode = "SINGLE_MAJOR"
+        };
+        var createRes = await submitter.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes = await submitter.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        var submitted = (await submitRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var approveRes = await approver.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken, "REF-LOCK"));
+        Assert.Equal(HttpStatusCode.OK, approveRes.StatusCode);
+        var published = (await approveRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var putRes = await submitter.PutAsJsonAsync($"/api/v1/rubrics/{created.Id}",
+            new UpdateRubricRequest("New Name", null, [new("C1", null, 100m, 10m, 0, true)], published.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Conflict, putRes.StatusCode);
+
+        var deleteRes = await submitter.DeleteAsync($"/api/v1/rubrics/{created.Id}?concurrencyToken={published.ConcurrencyToken}");
+        Assert.Equal(HttpStatusCode.Conflict, deleteRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task RubricWorkflow_AuditTrail_RecordsActionAndActor()
+    {
+        var s = await database.Seed();
+        await using var db = database.CreateContext();
+        var staff2Id = await CreateDepartmentStaffAsync(db, s.Users.DepartmentId);
+
+        using var app = new RubricFactory(database);
+        using var submitter = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        using var approver = app.CreateAuthenticatedClient(staff2Id, roles: [AppRoles.DepartmentStaff]);
+
+        var code = $"R_AUDIT_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Audit Trail Rubric", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "COMMON",
+            ProjectMode = "SINGLE_MAJOR"
+        };
+        var createRes = await submitter.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes = await submitter.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        var submitted = (await submitRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var approveRes = await approver.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken, "QD-AUDIT-2026"));
+        Assert.Equal(HttpStatusCode.OK, approveRes.StatusCode);
+
+        await using var verifyDb = database.CreateContext();
+        var submitAudit = await verifyDb.AuditLogs
+            .Where(a => a.EntityType == "RUBRIC" && a.EntityId == created.Id.ToString() && a.Action == "RUBRIC_SUBMITTED_FOR_APPROVAL")
+            .FirstOrDefaultAsync();
+        Assert.NotNull(submitAudit);
+        Assert.Equal(s.Users.Staff, submitAudit.ActorUserId);
+
+        var approveAudit = await verifyDb.AuditLogs
+            .Where(a => a.EntityType == "RUBRIC" && a.EntityId == created.Id.ToString() && a.Action == "RUBRIC_APPROVED")
+            .FirstOrDefaultAsync();
+        Assert.NotNull(approveAudit);
+        Assert.Equal(staff2Id, approveAudit.ActorUserId);
+        Assert.Contains("QD-AUDIT-2026", approveAudit.DetailsJson);
+    }
+
+    [Fact]
+    public async Task RubricWorkflow_MajorSpecific_DifferentMajorOrClosedSemester_Rejected()
+    {
+        var s = await database.Seed();
+        await using var db = database.CreateContext();
+        var major1 = new M.Major { DepartmentId = s.Users.DepartmentId, Code = $"M1_{Guid.NewGuid():N}"[..10], Name = "Major 1", IsActive = true };
+        var otherDeptId = await db.Departments.Where(d => d.Id != s.Users.DepartmentId && d.OrganizationId == s.OrganizationId).Select(d => d.Id).FirstAsync();
+        var major2 = new M.Major { DepartmentId = otherDeptId, Code = $"M2_{Guid.NewGuid():N}"[..10], Name = "Major 2", IsActive = true };
+        db.Majors.AddRange(major1, major2);
+        await db.SaveChangesAsync();
+
+        var staff2Id = await CreateDepartmentStaffAsync(db, s.Users.DepartmentId);
+
+        using var app = new RubricFactory(database);
+        using var submitter = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        using var dept1Staff = app.CreateAuthenticatedClient(staff2Id, roles: [AppRoles.DepartmentStaff]);
+
+        var code = $"R_MAJ_SPEC_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Major Specific", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "MAJOR_SPECIFIC",
+            MajorId = major2.Id,
+            ProjectMode = "SINGLE_MAJOR"
+        };
+        var createRes = await submitter.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var submitRes = await submitter.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        var submitted = (await submitRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var approveRes = await dept1Staff.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Forbidden, approveRes.StatusCode);
+        var body = await approveRes.Content.ReadAsStringAsync();
+        Assert.Contains("RUBRIC_SCOPE_NOT_LEAD_DEPARTMENT", body);
+    }
+
+    [Fact]
+    public async Task RubricDto_PermissionsFlags_AccuratelyReflectsWorkflowStateAndActor()
+    {
+        var s = await database.Seed();
+        await using var db = database.CreateContext();
+        var staff2Id = await CreateDepartmentStaffAsync(db, s.Users.DepartmentId);
+
+        using var app = new RubricFactory(database);
+        using var submitter = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        using var approver = app.CreateAuthenticatedClient(staff2Id, roles: [AppRoles.DepartmentStaff]);
+
+        var code = $"R_PERMS_{Guid.NewGuid():N}"[..20];
+        var createReq = new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, code, "Perms Rubric", null,
+            [new("Criterion 1", "Desc", 100m, 10m, 0, true) { Levels = FourLevels() }])
+        {
+            EvaluationScope = "COMMON",
+            ProjectMode = "SINGLE_MAJOR"
+        };
+        var createRes = await submitter.PostAsJsonAsync("/api/v1/rubrics", createReq);
+        var created = (await createRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        Assert.True(created.CanSubmitForApproval);
+        Assert.False(created.CanApprove);
+        Assert.False(created.CanReject);
+
+        var submitRes = await submitter.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/submit-for-approval",
+            new SubmitRubricForApprovalRequest(created.ConcurrencyToken));
+        var submitted = (await submitRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+
+        var getBySubmitter = await submitter.GetAsync($"/api/v1/rubrics/{created.Id}");
+        var dtoSubmitter = (await getBySubmitter.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+        Assert.False(dtoSubmitter.CanSubmitForApproval);
+        Assert.False(dtoSubmitter.CanApprove);
+        Assert.False(dtoSubmitter.CanReject);
+
+        var getByApprover = await approver.GetAsync($"/api/v1/rubrics/{created.Id}");
+        var dtoApprover = (await getByApprover.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+        Assert.False(dtoApprover.CanSubmitForApproval);
+        Assert.True(dtoApprover.CanApprove);
+        Assert.True(dtoApprover.CanReject);
+
+        var approveRes = await approver.PostAsJsonAsync($"/api/v1/rubrics/{created.Id}/approve",
+            new ApproveRubricRequest(submitted.ConcurrencyToken, "REF-PERM"));
+        var approved = (await approveRes.Content.ReadFromJsonAsync<RubricDto>(JsonOpts))!;
+        Assert.False(approved.CanSubmitForApproval);
+        Assert.False(approved.CanApprove);
+        Assert.False(approved.CanReject);
+    }
 }

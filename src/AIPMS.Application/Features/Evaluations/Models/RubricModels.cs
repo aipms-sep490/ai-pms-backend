@@ -11,7 +11,7 @@ public static class RubricStatuses
     public const string Retired = "RETIRED";
 }
 
-public sealed record RubricActor(long UserId, bool IsAdmin, long? DepartmentId, long? OrganizationId = null);
+public sealed record RubricActor(long UserId, bool IsAdmin, long? DepartmentId, long? OrganizationId = null, bool IsStaff = false);
 public sealed record RubricScope(long DepartmentId, long OrganizationId, string SemesterStatus);
 public sealed record RubricApprovalRecord(long Id, long RubricId, long SubmittedBy, DateTime SubmittedAt,
     long? DecidedBy, DateTime? DecidedAt, string? Decision, string? Reason);
