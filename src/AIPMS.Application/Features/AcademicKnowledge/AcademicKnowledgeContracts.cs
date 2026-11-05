@@ -22,7 +22,7 @@ public sealed record DeliverableReviewResponseDto(long RunId, long ProjectId, lo
     string? LimitationNote, string GenerationStatus);
 public sealed record CreateAssistantConversationRequest(long? ProjectId = null, string Scope = "ACADEMIC");
 public sealed record AssistantConversationDto(long Id, string Title, long? ProjectId, string Scope, int Revision, DateTime UpdatedAt);
-public sealed record AssistantTurnDto(long Id, string Query, AcademicAssistantResponseDto Response);
+public sealed record AssistantTurnDto(long Id, string Query, DateTime SentAt, AcademicAssistantResponseDto Response);
 public sealed record AssistantConversationDetailDto(AssistantConversationDto Conversation, IReadOnlyList<AssistantTurnDto> Turns, bool HasMore);
 public sealed record AssistantMeetingDraftDto(DateTimeOffset? StartAt, DateTimeOffset? EndAt,
     string? MeetingDeliveryMode, string? VideoChannel, string? Location, string? OnlineUrl, bool InviteAll);

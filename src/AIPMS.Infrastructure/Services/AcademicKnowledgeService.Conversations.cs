@@ -42,9 +42,9 @@ internal sealed partial class AcademicKnowledgeService
                           join run in db.AcademicKnowledgeQueryRuns.AsNoTracking() on turn.RunId equals run.Id
                           where turn.ConversationId == id && (!beforeTurnId.HasValue || turn.Id < beforeTurnId)
                           orderby turn.Id descending
-                          select new { turn.Id, turn.Query, turn.RunId, run.ResultJson }).Take(21).ToArrayAsync(ct);
+                          select new { turn.Id, turn.Query, turn.RunId, run.StartedAt, run.ResultJson }).Take(21).ToArrayAsync(ct);
         return new(ConversationDto(conversation), rows.Take(20).Reverse().Select(x => new AssistantTurnDto(x.Id, x.Query,
-            JsonSerializer.Deserialize<AcademicAssistantResponseDto>(x.ResultJson)! with { RunId = x.RunId })).ToArray(), rows.Length > 20);
+            x.StartedAt, JsonSerializer.Deserialize<AcademicAssistantResponseDto>(x.ResultJson)! with { RunId = x.RunId })).ToArray(), rows.Length > 20);
     }
 
     public async Task DeleteConversationAsync(long id, CancellationToken ct)

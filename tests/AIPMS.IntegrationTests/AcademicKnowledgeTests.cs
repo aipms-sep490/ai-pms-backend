@@ -188,6 +188,7 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         var detail = await service.ConversationAsync(conversation.Id, null, default);
         Assert.Equal(2, detail.Turns.Count);
         Assert.Equal(first.RunId, detail.Turns[0].Response.RunId);
+        Assert.Equal((await db.AcademicKnowledgeQueryRuns.FindAsync(first.RunId))!.StartedAt, detail.Turns[0].SentAt);
         Assert.Contains(await service.ConversationsAsync(null, null, default), x => x.Id == conversation.Id);
         Assert.DoesNotContain(await Service(db, admin).ConversationsAsync(null, null, default), x => x.Id == conversation.Id);
         await Assert.ThrowsAsync<NotFoundException>(() => Service(db, admin).ConversationAsync(conversation.Id, null, default));
