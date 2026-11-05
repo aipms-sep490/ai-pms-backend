@@ -3,7 +3,8 @@ namespace AIPMS.Infrastructure.Persistence.Models;
 public sealed class ColdReportTemplate
 {
     public long Id { get; set; }
-    public long MajorId { get; set; }
+    public long? MajorId { get; set; }
+    public string? Scope { get; set; }
     public long ProjectPeriodId { get; set; }
     public int Version { get; set; }
     public string Name { get; set; } = "";

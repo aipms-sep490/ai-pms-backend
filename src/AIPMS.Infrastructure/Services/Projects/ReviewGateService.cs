@@ -13,6 +13,7 @@ using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.ReviewGates;
 using AIPMS.Application.Features.ReviewGates.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
+using UserModel = AIPMS.Infrastructure.Persistence.Generated.Models.User;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
@@ -61,6 +62,111 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
     private async Task RequireStaff(CancellationToken ct)
     { if (!await IsStaff(ct)) throw new ForbiddenException("Academic staff access is required."); }
 
+    private async Task<UserModel> RequireTemplateStaffUser(CancellationToken ct)
+    {
+        var user = await db.Users.AsNoTracking()
+            .Include(u => u.UserRoleUsers).ThenInclude(r => r.Role)
+            .Include(u => u.Department).ThenInclude(d => d!.Organization)
+            .FirstOrDefaultAsync(u => u.Id == Actor && u.Status == "ACTIVE", ct);
+
+        if (user == null)
+            throw new ForbiddenException("An active account is required.");
+
+        var roles = user.UserRoleUsers.Select(r => r.Role.Code).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool isAdmin = roles.Contains("ADMIN");
+        bool isStaff = roles.Contains("DEPARTMENT_STAFF");
+
+        if (isAdmin && !isStaff)
+            throw new ForbiddenException("Administrative accounts without academic department staff authority cannot manage review gate templates.", "TEMPLATE_AUTHORITY_ADMIN_NOT_ACADEMIC");
+
+        if (!isStaff)
+            throw new ForbiddenException("Academic staff access is required.");
+
+        if (!user.DepartmentId.HasValue)
+            throw new ForbiddenException("The account has no academic department scope.", "TEMPLATE_SCOPE_FORBIDDEN");
+
+        return user;
+    }
+
+    private async Task RequireTemplateAuthority(long id, CancellationToken ct)
+    {
+        var user = await RequireTemplateStaffUser(ct);
+        var row = await db.ReviewGateTemplates.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct)
+            ?? throw new NotFoundException("ReviewGateTemplate", id);
+        await ValidateTemplateScope(user, row.Mode, row.Major, row.ProjectPeriodId, ct);
+    }
+
+    private async Task RequireTemplateAuthority(SaveReviewGateTemplateRequest input, CancellationToken ct) =>
+        await RequireTemplateAuthority(input.Mode, input.Major, input.ProjectPeriodId, ct);
+
+    private async Task RequireTemplateAuthority(string mode, string? major, long? projectPeriodId, CancellationToken ct)
+    {
+        var user = await RequireTemplateStaffUser(ct);
+        await ValidateTemplateScope(user, mode, major, projectPeriodId, ct);
+    }
+
+    private async Task ValidateTemplateScope(UserModel user, string mode, string? major, long? projectPeriodId, CancellationToken ct)
+    {
+        var actorDepartmentId = user.DepartmentId!.Value;
+
+        if (!string.IsNullOrWhiteSpace(major))
+        {
+            var majorNormalized = major.Trim();
+            var majorTokens = majorNormalized.Split(new[] { '+', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (majorTokens.Length == 1 && !majorNormalized.Equals("INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase))
+            {
+                var majorRow = await db.Majors.AsNoTracking()
+                    .FirstOrDefaultAsync(m => m.Code == majorNormalized || m.Name == majorNormalized || m.Id.ToString() == majorNormalized, ct);
+                if (majorRow != null && majorRow.DepartmentId != actorDepartmentId)
+                {
+                    throw new ForbiddenException($"The account is outside the requested major scope '{majorNormalized}'.", "TEMPLATE_SCOPE_FORBIDDEN");
+                }
+            }
+        }
+
+        if (projectPeriodId.HasValue)
+        {
+            var period = await db.ProjectPeriods.AsNoTracking()
+                .Include(p => p.AcademicSemester)
+                .Include(p => p.Rubric)
+                .FirstOrDefaultAsync(p => p.Id == projectPeriodId.Value, ct);
+
+            if (period != null)
+            {
+                if (period.AcademicSemester != null && user.Department != null && period.AcademicSemester.OrganizationId != user.Department.OrganizationId)
+                {
+                    throw new ForbiddenException($"The account is outside the requested period organization scope '{projectPeriodId.Value}'.", "TEMPLATE_SCOPE_FORBIDDEN");
+                }
+
+                if (mode == "INTERDISCIPLINARY")
+                {
+                    var snapshotLead = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
+                        .Where(s => s.ProjectPeriodId == projectPeriodId.Value)
+                        .Select(s => (long?)s.LeadDepartmentId).FirstOrDefaultAsync(ct);
+
+                    var topicLead = await db.Set<ProjectTopic>().AsNoTracking()
+                        .Where(t => t.ProjectPeriodId == projectPeriodId.Value)
+                        .Select(t => (long?)t.LeadDepartmentId).FirstOrDefaultAsync(ct);
+
+                    var rubricDept = period.Rubric?.DepartmentId;
+
+                    var leadDeptId = snapshotLead ?? topicLead ?? rubricDept;
+                    if (leadDeptId.HasValue && leadDeptId.Value != actorDepartmentId)
+                    {
+                        throw new ForbiddenException($"Only the lead department may manage interdisciplinary templates for period '{projectPeriodId.Value}'.", "TEMPLATE_SCOPE_FORBIDDEN");
+                    }
+                }
+                else
+                {
+                    if (period.Rubric?.DepartmentId != null && period.Rubric.DepartmentId.Value != actorDepartmentId)
+                    {
+                        throw new ForbiddenException($"The account is outside the requested period department scope '{projectPeriodId.Value}'.", "TEMPLATE_SCOPE_FORBIDDEN");
+                    }
+                }
+            }
+        }
+    }
+
     private static void Page(int page, int size)
     { if (page is < 1 or > 100000 || size is < 1 or > 100) throw new ValidationException(new Dictionary<string, string[]> { ["page"] = ["Invalid bounded pagination."] }); }
 
@@ -83,7 +189,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
     public Task<ReviewGateTemplateDto> SaveTemplate(SaveReviewGateTemplateRequest input, long? id, CancellationToken ct) =>
         transactions.InTransactionAsync(async token =>
         {
-            await RequireStaff(token);
+            await RequireTemplateAuthority(input, token);
             if (string.IsNullOrWhiteSpace(input.Code) || string.IsNullOrWhiteSpace(input.Name) || input.Gates is null || input.Gates.Count == 0)
                 throw new ValidationException(new Dictionary<string, string[]> { ["template"] = ["Code, name and at least one gate are required."] });
             if (input.Mode is not ("SINGLE_MAJOR" or "INTERDISCIPLINARY")) throw new ValidationException(new Dictionary<string, string[]> { ["mode"] = ["Unsupported project mode."] });
@@ -106,6 +212,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             {
                 row = await db.ReviewGateTemplates.Include(x => x.Gates).ThenInclude(x => x.Requirements).SingleOrDefaultAsync(x => x.Id == id, token)
                     ?? throw new NotFoundException("ReviewGateTemplate", id.Value);
+                await RequireTemplateAuthority(row.Mode, row.Major, row.ProjectPeriodId, token);
                 if (row.Status == "PUBLISHED") throw new ConflictException("Published templates are immutable; create a new version.");
                 CheckToken(row.ConcurrencyToken, input.ConcurrencyToken);
                 db.ReviewGateRequirements.RemoveRange(row.Gates.SelectMany(x => x.Requirements));
@@ -135,7 +242,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
 
     public Task<ReviewGateTemplateDto> PublishTemplate(long id, PublishReviewGateTemplateRequest? input, CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
-        await RequireStaff(token);
+        await RequireTemplateAuthority(id, token);
         var row = await db.ReviewGateTemplates.Include(x => x.Gates).ThenInclude(x => x.Requirements).SingleOrDefaultAsync(x => x.Id == id, token)
             ?? throw new NotFoundException("ReviewGateTemplate", id);
         if (input is null || string.IsNullOrWhiteSpace(input.ConcurrencyToken))
@@ -569,7 +676,26 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         string[] exactTokens = major is null ? [] : [major.Id.ToString(), major.Code, major.Name];
         var exact = candidates.Where(x => exactTokens.Contains(x.Major, StringComparer.OrdinalIgnoreCase)).ToArray();
         var generic = candidates.Where(x => string.IsNullOrWhiteSpace(x.Major)).ToArray();
-        var interdisciplinary = candidates.FirstOrDefault(x => x.Major.Equals("INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase));
+        ReviewGateTemplate? interdisciplinary = null;
+        if (scope.MajorIds.Count > 1)
+        {
+            var projectMajors = await db.Majors.AsNoTracking()
+                .Where(x => scope.MajorIds.Contains(x.Id))
+                .Select(x => new { x.Id, x.Code, x.Name })
+                .ToArrayAsync(ct);
+            var projectCodes = projectMajors.Select(m => m.Code).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            interdisciplinary = candidates.FirstOrDefault(c =>
+            {
+                if (string.IsNullOrWhiteSpace(c.Major) || c.Major.Equals("INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase))
+                    return false;
+                var tokens = c.Major.Split(new[] { '+', ',', '/', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                return projectCodes.All(code => tokens.Contains(code, StringComparer.OrdinalIgnoreCase));
+            });
+
+            interdisciplinary ??= candidates.FirstOrDefault(x => x.Major.Equals("INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase))
+                               ?? candidates.FirstOrDefault(x => string.IsNullOrWhiteSpace(x.Major));
+        }
         var template = scope.MajorIds.Count > 1 ? interdisciplinary : exact.FirstOrDefault() ?? (generic.Length == 1 ? generic[0] : null);
         if (template is null) return [];
         var created = template.Gates.OrderBy(x => x.Sequence).Select(g => new ProjectGateInstance { ProjectId = project.Id, TemplateId = template.Id, TemplateVersion = template.Version, Code = g.Code, Sequence = g.Sequence, Title = g.Title, Objective = g.Objective, Status = g.Sequence == 1 ? "PLANNED" : "LOCKED", ReviewEligibility = g.Sequence == 1 ? "READY" : "BLOCKED", Required = g.Required, BlockNextGate = g.BlockNextGate, BlocksDefense = g.BlocksDefense, Weight = g.Weight, WindowStart = g.WindowStart, WindowEnd = g.WindowEnd, CreatedAt = Now, Requirements = g.Requirements.Select(r => new ProjectGateRequirement { Code = r.Code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId, TargetStudentId = r.TargetStudentId, Required = r.Required }).ToList() }).ToArray();

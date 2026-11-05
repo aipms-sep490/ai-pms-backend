@@ -1,3 +1,4 @@
+using AIPMS.Application.Features.Files;
 using System.ComponentModel.DataAnnotations;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Deliverables.Commands;
@@ -51,8 +52,8 @@ public sealed class FilesController(ISender sender) : ControllerBase
 
     [HttpPost]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(22 * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 22 * 1024 * 1024)]
+    [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
     [ProducesResponseType<ProjectFileDto>(201)]
     public async Task<ActionResult<ProjectFileDto>> Upload([FromForm] UploadProjectFileForm request, CancellationToken ct)
     {

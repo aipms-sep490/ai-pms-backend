@@ -1,0 +1,99 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/cold-report-templates",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer [SYNTHETIC_JWT_STAFF]"
+    },
+    "body": {
+      "majorId": null,
+      "projectPeriodId": 10,
+      "name": "Interdisciplinary Common Cold Evaluation Report",
+      "scope": "COMMON",
+      "reports": [
+        {
+          "code": "PROJECT_OVERVIEW",
+          "name": "Cross-Disciplinary Project Overview",
+          "required": true
+        },
+        {
+          "code": "ARCHITECTURE_SYNTHESIS",
+          "name": "Joint Architecture and Synthesis Document",
+          "required": true
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": 15,
+      "majorId": null,
+      "projectPeriodId": 10,
+      "name": "Interdisciplinary Common Cold Evaluation Report",
+      "version": 1,
+      "scope": "COMMON",
+      "reports": [
+        {
+          "code": "PROJECT_OVERVIEW",
+          "name": "Cross-Disciplinary Project Overview",
+          "required": true
+        },
+        {
+          "code": "ARCHITECTURE_SYNTHESIS",
+          "name": "Joint Architecture and Synthesis Document",
+          "required": true
+        }
+      ]
+    }
+  },
+  "variants": {
+    "legacy": {
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/cold-report-templates",
+        "body": {
+          "majorId": 1,
+          "projectPeriodId": 10,
+          "name": "Software Engineering Legacy Cold Report",
+          "reports": [
+            {
+              "code": "SRS_DOC",
+              "name": "Software Requirements Specification",
+              "required": true
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "id": 16,
+          "majorId": 1,
+          "projectPeriodId": 10,
+          "name": "Software Engineering Legacy Cold Report",
+          "version": 1,
+          "scope": null,
+          "reports": [
+            {
+              "code": "SRS_DOC",
+              "name": "Software Requirements Specification",
+              "required": true
+            }
+          ]
+        }
+      }
+    },
+    "validationCommonHasMajor": {
+      "status": 422,
+      "errorCode": "COLD_TEMPLATE_COMMON_HAS_MAJOR",
+      "message": "Common cold report templates cannot be scoped to a single major."
+    },
+    "validationMajorRequired": {
+      "status": 422,
+      "errorCode": "COLD_TEMPLATE_MAJOR_REQUIRED",
+      "message": "Major-specific cold report templates require a valid major."
+    }
+  }
+}

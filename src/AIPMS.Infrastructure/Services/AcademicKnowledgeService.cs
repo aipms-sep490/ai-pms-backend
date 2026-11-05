@@ -163,10 +163,11 @@ internal sealed partial class AcademicKnowledgeService(
             throw new ConflictException("Model hiện tại chưa hỗ trợ đọc ảnh.", "AI_VISION_UNAVAILABLE");
         var selectedAttachments = Array.Empty<AssistantAttachmentDto>();
         var retrievalQuery = query + " " + string.Join(" ", memory.TakeLast(2).Select(x => x.Query));
-        var localDeterministicDraft = provider.ModelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.Ordinal) && expectedDraftKind is not null;
+        var isLocalProvider = provider.ModelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.Ordinal);
+        var localDeterministicDraft = isLocalProvider && expectedDraftKind is not null;
         var projectWeeklyDraft = request.ToolMode == "WEEKLY_REPORT" && request.ProjectId.HasValue && attachments.Count == 0
             && string.IsNullOrWhiteSpace(ExtractDraftNotes("WEEKLY_REPORT", query));
-        var skipProviderDraft = localDeterministicDraft || projectWeeklyDraft;
+        var skipProviderDraft = isLocalProvider || projectWeeklyDraft;
         var citations = scope == "PROJECT" || documentTool || localDeterministicDraft ? Array.Empty<KnowledgeCitationDto>() : await RetrieveCitationsAsync(retrievalQuery, actor.DepartmentId, request.ProjectId, ct);
         // Draft tools may use authorized project facts when a remote model is
         // configured, but a local deterministic draft must never surface raw

@@ -1,3 +1,4 @@
+using AIPMS.Application.Features.Files;
 using AIPMS.Application.Common.Models;
 using System.Diagnostics;
 using AIPMS.Application.Abstractions.Security;
@@ -50,8 +51,8 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     [HttpPost("assistant/ask-with-files")]
     [EnableRateLimiting("ai-assistant")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(9 * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 9 * 1024 * 1024)]
+    [RequestSizeLimit(UploadPolicies.AcademicAssistantAskLimit)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.AcademicAssistantAskLimit)]
     [ProducesResponseType<AcademicAssistantResponseDto>(200)]
     public async Task<AcademicAssistantResponseDto> AskWithFiles([FromForm] AssistantFilesForm input, CancellationToken ct)
     {
@@ -91,8 +92,8 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     [EnableRateLimiting("ai-assistant")]
     [Consumes("multipart/form-data")]
     [Produces("application/x-ndjson")]
-    [RequestSizeLimit(9 * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 9 * 1024 * 1024)]
+    [RequestSizeLimit(UploadPolicies.AcademicAssistantStreamLimit)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.AcademicAssistantStreamLimit)]
     public async Task Stream([FromForm] AssistantFilesForm input, CancellationToken ct)
     {
         if (input.Files.Count > 4 || input.Files.Sum(f => f.Length) > 8 * 1024 * 1024 || input.Files.Any(f => f.Length is 0 or > 4 * 1024 * 1024))

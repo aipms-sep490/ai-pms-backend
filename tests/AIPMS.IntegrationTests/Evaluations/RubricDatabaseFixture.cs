@@ -25,23 +25,27 @@ public sealed class RubricDatabaseFixture : IAsyncLifetime
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "db", "changes"))) directory = directory.Parent;
         Assert.NotNull(directory);
-        var script = await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "changes", "20260911_add_rubric_versions.sql"));
+        var scripts = new[]
+        {
+            "20260911_add_rubric_versions.sql",
+            "20260922_add_rubric_hierarchy.sql",
+            "20261030_add_rubric_criterion_levels.sql",
+            "20261030_add_rubric_scope_fields.sql",
+            "20261030_add_rubric_approvals.sql"
+        };
         await using var connection = new SqlConnection(ConnectionString);
         await connection.OpenAsync();
-        foreach (var batch in Regex.Split(script, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+        foreach (var scriptName in scripts)
         {
-            if (string.IsNullOrWhiteSpace(batch)) continue;
-            await using var command = new SqlCommand(batch, connection);
-            await command.ExecuteNonQueryAsync();
-        }
-        var hierarchy = await File.ReadAllTextAsync(Path.Combine(directory.FullName, "db", "changes", "20260922_add_rubric_hierarchy.sql"));
-        await using var hierarchyConnection = new SqlConnection(ConnectionString);
-        await hierarchyConnection.OpenAsync();
-        foreach (var batch in Regex.Split(hierarchy, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
-        {
-            if (string.IsNullOrWhiteSpace(batch)) continue;
-            await using var command = new SqlCommand(batch, hierarchyConnection);
-            await command.ExecuteNonQueryAsync();
+            var scriptPath = Path.Combine(directory.FullName, "db", "changes", scriptName);
+            if (!File.Exists(scriptPath)) continue;
+            var script = await File.ReadAllTextAsync(scriptPath);
+            foreach (var batch in Regex.Split(script, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(batch)) continue;
+                await using var command = new SqlCommand(batch, connection);
+                await command.ExecuteNonQueryAsync();
+            }
         }
     }
 

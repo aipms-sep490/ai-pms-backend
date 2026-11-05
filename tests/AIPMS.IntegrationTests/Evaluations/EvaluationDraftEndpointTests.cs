@@ -301,7 +301,7 @@ public sealed partial class EvaluationDraftEndpointTests(EvaluationDraftDatabase
         var read = await Body<EvaluationDraftDto>(await lecturer.GetAsync(DraftUrl(draft.Id)));
         Assert.Equal(saved.TotalScore, read.TotalScore);
         Assert.Equal(saved.ConcurrencyToken, read.ConcurrencyToken);
-        Assert.Equal(saved.Scores, read.Scores);
+        AssertScoresEqual(saved.Scores, read.Scores);
     }
 
     [Theory]
@@ -376,7 +376,7 @@ public sealed partial class EvaluationDraftEndpointTests(EvaluationDraftDatabase
         var after = await Body<EvaluationDraftDto>(await lecturer.GetAsync(DraftUrl(draft.Id)));
         Assert.Equal(draft.ConcurrencyToken, after.ConcurrencyToken);
         Assert.Equal(draft.TotalScore, after.TotalScore);
-        Assert.Equal(draft.Scores, after.Scores);
+        AssertScoresEqual(draft.Scores, after.Scores);
     }
 
     [Fact]
@@ -475,6 +475,42 @@ public sealed partial class EvaluationDraftEndpointTests(EvaluationDraftDatabase
         Assert.Equal("FINALIZED", persisted.Status);
         Assert.Equal(7.25m, persisted.TotalScore);
         Assert.False(await verify.EvaluationDetails.AnyAsync(d => d.EvaluationId == draft.Id));
+    }
+
+    private static void AssertScoresEqual(IReadOnlyList<EvaluationScoreDto> expected, IReadOnlyList<EvaluationScoreDto> actual)
+    {
+        Assert.Equal(expected.Count, actual.Count);
+        for (var i = 0; i < expected.Count; i++)
+        {
+            var exp = expected[i];
+            var act = actual[i];
+            Assert.Equal(exp.RubricCriterionId, act.RubricCriterionId);
+            Assert.Equal(exp.Name, act.Name);
+            Assert.Equal(exp.Description, act.Description);
+            Assert.Equal(exp.WeightPercent, act.WeightPercent);
+            Assert.Equal(exp.MaxScore, act.MaxScore);
+            Assert.Equal(exp.SortOrder, act.SortOrder);
+            Assert.Equal(exp.IsRequired, act.IsRequired);
+            Assert.Equal(exp.Score, act.Score);
+            Assert.Equal(exp.Comments, act.Comments);
+            Assert.Equal(exp.CriterionCode, act.CriterionCode);
+            Assert.Equal(exp.LearningOutcome, act.LearningOutcome);
+            Assert.Equal(exp.EvidenceGuidance, act.EvidenceGuidance);
+            Assert.Equal(exp.EffectiveWeightPercent, act.EffectiveWeightPercent);
+            if (exp.Levels is null)
+            {
+                Assert.True(act.Levels is null || act.Levels.Count == 0);
+            }
+            else
+            {
+                Assert.NotNull(act.Levels);
+                Assert.Equal(exp.Levels.Count, act.Levels.Count);
+                for (var j = 0; j < exp.Levels.Count; j++)
+                {
+                    Assert.Equal(exp.Levels[j], act.Levels[j]);
+                }
+            }
+        }
     }
 }
 

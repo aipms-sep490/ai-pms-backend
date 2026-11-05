@@ -1,3 +1,4 @@
+using AIPMS.Application.Features.Files;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.StudentQualifications.Commands;
 using AIPMS.Application.Features.StudentQualifications.DTOs;
@@ -21,8 +22,8 @@ public sealed class StudentQualificationsController(ISender sender) : Controller
 {
     [HttpPost("me/certificate")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(22 * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 22 * 1024 * 1024)]
+    [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
     [ProducesResponseType<StudentQualificationDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status413PayloadTooLarge)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]

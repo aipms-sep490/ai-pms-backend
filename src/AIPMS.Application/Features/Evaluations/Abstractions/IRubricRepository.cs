@@ -1,3 +1,4 @@
+using System;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Evaluations.Models;
 
@@ -11,10 +12,18 @@ public interface IRubricRepository
     Task<RubricRecord?> GetAsync(long id, RubricActor actor, bool forUpdate, CancellationToken ct);
     Task<RubricRecord> CreateAsync(long departmentId, long semesterId, string code, string name,
         string? description, IReadOnlyList<RubricCriterionInput> criteria, long actorId, DateTime now,
-        long? sourceId, CancellationToken ct);
+        long? sourceId, long? majorId, string? projectMode, string? evaluationStage, string? evaluationScope,
+        DateOnly? effectiveFrom, DateOnly? effectiveTo, CancellationToken ct);
     Task<RubricRecord> UpdateAsync(long id, string name, string? description,
-        IReadOnlyList<RubricCriterionInput> criteria, DateTime now, CancellationToken ct);
+        IReadOnlyList<RubricCriterionInput> criteria, DateTime now,
+        long? majorId, string? projectMode, string? evaluationStage, string? evaluationScope,
+        DateOnly? effectiveFrom, DateOnly? effectiveTo, CancellationToken ct);
     Task<RubricRecord> SetStatusAsync(long id, string status, DateTime now, CancellationToken ct);
     Task DeleteAsync(long id, CancellationToken ct);
     Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken ct);
+    Task<long?> GetMajorDepartmentIdAsync(long majorId, CancellationToken ct);
+    Task<RubricApprovalRecord?> GetLatestApprovalAsync(long rubricId, CancellationToken ct);
+    Task SubmitForApprovalAsync(long rubricId, long actorId, DateTime now, CancellationToken ct);
+    Task ApproveAsync(long rubricId, long approvalId, long actorId, string? approvalReference, DateTime now, CancellationToken ct);
+    Task RejectAsync(long rubricId, long approvalId, long actorId, string reason, DateTime now, CancellationToken ct);
 }

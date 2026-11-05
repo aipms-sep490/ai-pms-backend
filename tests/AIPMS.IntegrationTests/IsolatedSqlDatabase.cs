@@ -42,7 +42,7 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                 }
                 await using var command = connection.CreateCommand();
                 command.CommandTimeout = 180;
-                command.CommandText = $"CREATE DATABASE [{name}]";
+                command.CommandText = $"CREATE DATABASE [{name}]; ALTER DATABASE [{name}] SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;";
                 await command.ExecuteNonQueryAsync(ct);
                 created = true;
             }
@@ -79,7 +79,11 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                 SqlConnection.ClearPool(ownedPool);
             }
             await using var connection = new SqlConnection(masterConnection);
-            await connection.OpenAsync();
+            for (var attempt = 0; ; attempt++)
+            {
+                try { await connection.OpenAsync(); break; }
+                catch (SqlException) when (attempt < 4) { await Task.Delay(500); }
+            }
             await using var command = connection.CreateCommand();
             command.CommandTimeout = 180;
             command.CommandText = $"""
@@ -89,7 +93,14 @@ internal sealed class IsolatedSqlDatabase : IAsyncDisposable
                     DROP DATABASE [{name}];
                 END
                 """;
-            await command.ExecuteNonQueryAsync();
+            try
+            {
+                await command.ExecuteNonQueryAsync();
+            }
+            catch (SqlException)
+            {
+                // Best effort drop on cleanup
+            }
             created = false;
         }
         finally
