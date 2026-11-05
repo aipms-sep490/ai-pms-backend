@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Reflection;
 using AIPMS.Api.Controllers;
 using AIPMS.Application.Features.Files;
+using AIPMS.Application.Features.Deliverables.Services;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
@@ -39,7 +40,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         Assert.Equal(UploadPolicies.Tier6MiB, distinctLimits[0]);   // 6 MiB
         Assert.Equal(UploadPolicies.Tier9MiB, distinctLimits[1]);   // 9 MiB
         Assert.Equal(UploadPolicies.Tier11MiB, distinctLimits[2]); // 11 MiB
-        Assert.Equal(UploadPolicies.Tier22MiB, distinctLimits[3]); // 22 MiB
+        Assert.Equal(UploadPolicies.EffectiveFileLimit, distinctLimits[3]); // 20 MiB
 
         foreach (var policy in policies)
         {
@@ -53,10 +54,10 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     }
 
     [Theory]
-    [InlineData("REVIEW_GATE_EVIDENCE", 22 * 1024 * 1024, "22 MiB")]
-    [InlineData("DELIVERABLE_VERSION", 22 * 1024 * 1024, "22 MiB")]
-    [InlineData("PROJECT_FILE", 22 * 1024 * 1024, "22 MiB")]
-    [InlineData("STUDENT_QUALIFICATION", 22 * 1024 * 1024, "22 MiB")]
+    [InlineData("REVIEW_GATE_EVIDENCE", 20 * 1024 * 1024, "20 MiB")]
+    [InlineData("DELIVERABLE_VERSION", 20 * 1024 * 1024, "20 MiB")]
+    [InlineData("PROJECT_FILE", 20 * 1024 * 1024, "20 MiB")]
+    [InlineData("STUDENT_QUALIFICATION", 20 * 1024 * 1024, "20 MiB")]
     [InlineData("COLD_SUBMISSION", 11 * 1024 * 1024, "11 MiB")]
     [InlineData("RESULT_APPEAL", 11 * 1024 * 1024, "11 MiB")]
     [InlineData("CHAT_ATTACHMENT", 11 * 1024 * 1024, "11 MiB")]
@@ -101,6 +102,44 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     }
 
     [Fact]
+    public void PublishedMaxBytes_NeverExceeds_EffectiveValidatorCeiling()
+    {
+        foreach (var policy in UploadPolicies.All)
+            Assert.True(policy.MaxBytes <= UploadValidator.MaxBytes,
+                $"{policy.ParentType} công bố {policy.MaxBytes} nhưng UploadValidator chặn ở {UploadValidator.MaxBytes}.");
+    }
+
+    [Fact]
+    public void EveryEndpointRequestSizeLimit_IsAtLeast_ItsPublishedMaxBytes()
+    {
+        var controllerAssembly = typeof(UploadPoliciesController).Assembly;
+        var controllerTypes = controllerAssembly.GetTypes()
+            .Where(t => typeof(ControllerBase).IsAssignableFrom(t) && !t.IsAbstract)
+            .ToArray();
+
+        var endpointsWithLimit = new List<(MethodInfo Method, long Limit)>();
+        foreach (var controller in controllerTypes)
+        {
+            foreach (var method in controller.GetMethods(BindingFlags.Instance | BindingFlags.Public))
+            {
+                var attr = method.GetCustomAttribute<RequestSizeLimitAttribute>();
+                if (attr != null && attr is IRequestSizeLimitMetadata meta && meta.MaxRequestBodySize.HasValue)
+                {
+                    endpointsWithLimit.Add((method, meta.MaxRequestBodySize.Value));
+                }
+            }
+        }
+
+        Assert.Equal(11, endpointsWithLimit.Count);
+
+        foreach (var (method, limit) in endpointsWithLimit)
+        {
+            Assert.True(limit >= UploadPolicies.Tier6MiB);
+            Assert.True(limit == UploadPolicies.MultipartTransportCeiling || limit <= UploadPolicies.Tier11MiB);
+        }
+    }
+
+    [Fact]
     public void ReflectionConsistency_All11ControllersMatchUploadPoliciesConstants()
     {
         var controllerAssembly = typeof(UploadPoliciesController).Assembly;
@@ -135,10 +174,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             UploadPolicies.ChatAttachmentLimit,
             UploadPolicies.ColdSubmissionLimit,
             UploadPolicies.ResultAppealLimit,
-            UploadPolicies.DeliverableVersionLimit,
-            UploadPolicies.ProjectFileLimit,
-            UploadPolicies.ReviewGateEvidenceLimit,
-            UploadPolicies.StudentQualificationLimit
+            UploadPolicies.MultipartTransportCeiling
         };
 
         foreach (var (method, limit) in endpointsWithLimit)
@@ -146,10 +182,12 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             Assert.Contains(limit, validConstants);
         }
 
-        // Verify the 11 UploadPolicyDto MaxBytes match the endpoints
-        var policyLimits = UploadPolicies.All.Select(p => p.MaxBytes).OrderBy(x => x).ToArray();
-        var endpointLimits = endpointsWithLimit.Select(e => e.Limit).OrderBy(x => x).ToArray();
-        Assert.Equal(endpointLimits, policyLimits);
+        // 4 endpoints have MultipartTransportCeiling for multipart overhead; remaining 7 match their policy MaxBytes
+        var multipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartTransportCeiling);
+        Assert.Equal(4, multipartCount);
+
+        var directMatchCount = endpointsWithLimit.Count(e => UploadPolicies.All.Any(p => p.MaxBytes == e.Limit));
+        Assert.Equal(7, directMatchCount);
     }
 
     [Fact]
@@ -182,5 +220,54 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         Assert.True(problem.Extensions.TryGetValue("maxBytes", out var maxBytesVal));
         var maxBytes = Convert.ToInt64(maxBytesVal?.ToString());
         Assert.Equal(UploadPolicies.StudentCurriculumLimit, maxBytes);
+    }
+
+    [Fact]
+    public async Task Upload_PayloadBetweenPublishedLimitAndValidatorCeiling_IsRejectedConsistently()
+    {
+        // Route STUDENT_QUALIFICATION (/api/v1/student-qualifications/me/certificate).
+        // Send a 21 MiB file (greater than UploadValidator.MaxBytes 20 MiB, within transport limit 22 MB).
+        using var client = _factory.CreateAuthenticatedClient(1001, "student@aipms.test", "Student User", AIPMS.Application.Common.Security.AppRoles.Student);
+
+        // Fetch published policy first
+        var policyResponse = await _client.GetAsync("/api/v1/upload-policies/STUDENT_QUALIFICATION");
+        Assert.Equal(HttpStatusCode.OK, policyResponse.StatusCode);
+        var policy = await policyResponse.Content.ReadFromJsonAsync<UploadPolicyDto>();
+        Assert.NotNull(policy);
+
+        var boundary = "---------------------------" + DateTime.UtcNow.Ticks.ToString("x");
+        using var content = new MultipartFormDataContent(boundary);
+        content.Add(new StringContent("CAPSTONE_READINESS"), "qualificationType");
+        content.Add(new StringContent("QUALIFIED"), "trainingStatus");
+        content.Add(new StringContent("CERT-12345"), "certificateNumber");
+        content.Add(new StringContent("2026-09-01T00:00:00Z"), "issuedAt");
+
+        // 21 MiB synthetic PDF file content (%PDF- header)
+        var oversizedBytes = new byte[21 * 1024 * 1024];
+        oversizedBytes[0] = (byte)'%';
+        oversizedBytes[1] = (byte)'P';
+        oversizedBytes[2] = (byte)'D';
+        oversizedBytes[3] = (byte)'F';
+        oversizedBytes[4] = (byte)'-';
+
+        var fileContent = new ByteArrayContent(oversizedBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+        content.Add(fileContent, "file", "certificate.pdf");
+
+        var response = await client.PostAsync("/api/v1/student-qualifications/me/certificate", content);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.NotNull(problem);
+
+        Assert.True(problem.Extensions.TryGetValue("errorCode", out var errorCode) ||
+                    problem.Extensions.TryGetValue("code", out errorCode));
+        Assert.Equal("UPLOAD_TOO_LARGE", errorCode?.ToString());
+
+        Assert.True(problem.Extensions.TryGetValue("maxBytes", out var maxBytesVal));
+        var maxBytes = Convert.ToInt64(maxBytesVal?.ToString());
+
+        // Invariant: Response maxBytes must strictly match the published policy maxBytes
+        Assert.Equal(policy.MaxBytes, maxBytes);
     }
 }

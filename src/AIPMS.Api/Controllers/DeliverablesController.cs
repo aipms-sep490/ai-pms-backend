@@ -65,8 +65,8 @@ public sealed class DeliverablesController(ISender sender) : ControllerBase
 
     [HttpPost("{id:long}/versions")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(UploadPolicies.DeliverableVersionLimit)]
-    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.DeliverableVersionLimit)]
+    [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
     [ProducesResponseType<DeliverableVersionDto>(201)]
     public async Task<ActionResult<DeliverableVersionDto>> Submit(long id, [FromForm] SubmitDeliverableForm request, CancellationToken ct)
     {

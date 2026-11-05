@@ -13,6 +13,7 @@ using AIPMS.IntegrationTests.Supervisors;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.Mvc;
 using Xunit;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
@@ -532,6 +533,78 @@ public sealed class ProgressReportEndpointTests(SupervisorDatabaseFixture databa
         Assert.Equal(HttpStatusCode.OK, submitSuccess.StatusCode);
         var submitted = await submitSuccess.Content.ReadFromJsonAsync<ProgressReportDto>();
         Assert.Equal("SUBMITTED", submitted!.Status);
+    }
+
+    [Fact]
+    public async Task CreateProgressReport_SecondReportForSameCycle_Returns409WithReportAlreadyExistsForCycle()
+    {
+        var s = await SeedAsync();
+        using var app = new Factory(database);
+        using var leaderClient = app.CreateAuthenticatedClient(s.Accounts.Student);
+
+        var periodStart = DateOnly.FromDateTime(Now.AddDays(-7));
+        var periodEnd = DateOnly.FromDateTime(Now);
+        long cycleId;
+
+        await using (var db = database.CreateContext())
+        {
+            var semesterId = await db.Projects.Where(p => p.Id == s.ProjectId).Select(p => p.Team.AcademicSemesterId).SingleAsync();
+            var periodId = await db.ProjectPeriods.Where(p => p.AcademicSemesterId == semesterId && p.PeriodType == "EXECUTION").Select(p => p.Id).SingleAsync();
+            var cycle = new ProgressReportPeriod
+            {
+                ProjectId = s.ProjectId,
+                ProjectPeriodId = periodId,
+                ReportType = "WEEKLY",
+                PeriodStart = periodStart.ToDateTime(TimeOnly.MinValue),
+                PeriodEnd = periodEnd.ToDateTime(TimeOnly.MinValue),
+                Deadline = DateTime.UtcNow.AddDays(30),
+                LatePolicy = "BLOCK",
+                ConcurrencyToken = Guid.NewGuid(),
+                CreatedBy = s.Accounts.Student
+            };
+            db.Add(cycle);
+            await db.SaveChangesAsync();
+            cycleId = cycle.Id;
+        }
+
+        // 1. Submit first report for cycle -> 201 Created
+        var req1 = new CreateProgressReportRequest(
+            "WEEKLY", periodStart, periodEnd, "First Report Summary",
+            CompletedWork: "Done work",
+            PlannedWork: "Plan next",
+            IssuesAndRisks: "None",
+            ProgressReportPeriodId: cycleId);
+
+        var res1 = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", req1);
+        Assert.Equal(HttpStatusCode.Created, res1.StatusCode);
+        var created1 = await res1.Content.ReadFromJsonAsync<ProgressReportDto>();
+        Assert.NotNull(created1);
+
+        // 2. Submit second report for the same cycle -> 409 Conflict with REPORT_ALREADY_EXISTS_FOR_CYCLE
+        var req2 = new CreateProgressReportRequest(
+            "WEEKLY", periodStart, periodEnd, "Second Report Summary",
+            CompletedWork: "Other work",
+            PlannedWork: "Other plan",
+            IssuesAndRisks: "None",
+            ProgressReportPeriodId: cycleId);
+
+        var res2 = await leaderClient.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/progress-reports", req2);
+        Assert.Equal(HttpStatusCode.Conflict, res2.StatusCode);
+
+        var problem = await res2.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.NotNull(problem);
+        Assert.True(problem.Extensions.TryGetValue("errorCode", out var code) ||
+                    problem.Extensions.TryGetValue("code", out code));
+        Assert.Equal(AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.ReportAlreadyExistsForCycle, code?.ToString());
+
+        // 3. Assert append-only invariant: first report remains unmodified
+        await using var verifyDb = database.CreateContext();
+        var existingReports = await verifyDb.ProgressReports
+            .Where(r => r.ProjectId == s.ProjectId && r.ProgressReportPeriodId == cycleId)
+            .ToListAsync();
+        Assert.Single(existingReports);
+        Assert.Equal(created1.Id, existingReports[0].Id);
+        Assert.Equal("First Report Summary", existingReports[0].Summary);
     }
 
     [Fact]

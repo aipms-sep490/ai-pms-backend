@@ -52,8 +52,8 @@ public sealed class FilesController(ISender sender) : ControllerBase
 
     [HttpPost]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(UploadPolicies.ProjectFileLimit)]
-    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.ProjectFileLimit)]
+    [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
     [ProducesResponseType<ProjectFileDto>(201)]
     public async Task<ActionResult<ProjectFileDto>> Upload([FromForm] UploadProjectFileForm request, CancellationToken ct)
     {

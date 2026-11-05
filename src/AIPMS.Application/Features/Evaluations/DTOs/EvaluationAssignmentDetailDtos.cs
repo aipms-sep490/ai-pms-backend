@@ -15,7 +15,8 @@ public sealed record EvaluationAssignmentItemDto(
     string? LearningOutcome,
     string? EvidenceGuidance,
     IReadOnlyList<RubricCriterionLevelDto> Levels,
-    long? ParentId = null);
+    long? ParentId = null,
+    string? ParentName = null);
 
 public sealed record EvaluationAssignmentDetailDto(
     EvaluationAssignmentDto Assignment,

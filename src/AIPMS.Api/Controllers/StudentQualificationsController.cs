@@ -22,8 +22,8 @@ public sealed class StudentQualificationsController(ISender sender) : Controller
 {
     [HttpPost("me/certificate")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(UploadPolicies.StudentQualificationLimit)]
-    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.StudentQualificationLimit)]
+    [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
     [ProducesResponseType<StudentQualificationDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status413PayloadTooLarge)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]

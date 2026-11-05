@@ -1,3 +1,5 @@
+using AIPMS.Application.Features.Deliverables.Services;
+
 namespace AIPMS.Application.Features.Files;
 
 public sealed record UploadPolicyDto(
@@ -16,7 +18,19 @@ public static class UploadPolicies
     public const long Tier6MiB = 6 * 1024 * 1024;
     public const long Tier9MiB = 9 * 1024 * 1024;
     public const long Tier11MiB = 11 * 1024 * 1024;
-    public const long Tier22MiB = 22 * 1024 * 1024;
+
+    /// <summary>
+    /// Trần vận chuyển HTTP multipart (22 * 1024 * 1024 bytes) trên controller [RequestSizeLimit].
+    /// Khoảng chênh so với trần file 20 MiB là khoảng dư cho multipart boundary và headers.
+    /// </summary>
+    public const long MultipartTransportCeiling = 22 * 1024 * 1024;
+
+    /// <summary>
+    /// Trần file hiệu lực do UploadValidator áp đặt. RequestSizeLimit lớn hơn trần này
+    /// chỉ là khoảng dư cho header multipart, KHÔNG phải giới hạn file.
+    /// Giới hạn công bố phải là min(RequestSizeLimit, trần này).
+    /// </summary>
+    public const long EffectiveFileLimit = UploadValidator.MaxBytes; // 20 * 1024 * 1024
 
     // The 11 endpoint constants (reading from the tiers)
     public const long StudentAccountImportLimit = Tier6MiB;
@@ -26,17 +40,17 @@ public static class UploadPolicies
     public const long ChatAttachmentLimit = Tier11MiB;
     public const long ColdSubmissionLimit = Tier11MiB;
     public const long ResultAppealLimit = Tier11MiB;
-    public const long DeliverableVersionLimit = Tier22MiB;
-    public const long ProjectFileLimit = Tier22MiB;
-    public const long ReviewGateEvidenceLimit = Tier22MiB;
-    public const long StudentQualificationLimit = Tier22MiB;
+    public const long DeliverableVersionLimit = EffectiveFileLimit;
+    public const long ProjectFileLimit = EffectiveFileLimit;
+    public const long ReviewGateEvidenceLimit = EffectiveFileLimit;
+    public const long StudentQualificationLimit = EffectiveFileLimit;
 
     public static readonly IReadOnlyList<UploadPolicyDto> All = new[]
     {
         new UploadPolicyDto(
             ParentType: "REVIEW_GATE_EVIDENCE",
             MaxBytes: ReviewGateEvidenceLimit,
-            MaxBytesLabel: "22 MiB",
+            MaxBytesLabel: "20 MiB",
             AllowedMimeTypes: ["application/pdf", "image/png", "image/jpeg", "application/zip"],
             AllowedExtensions: [".pdf", ".png", ".jpg", ".jpeg", ".zip"],
             MaxFilesPerRequest: 1,
@@ -45,7 +59,7 @@ public static class UploadPolicies
         new UploadPolicyDto(
             ParentType: "DELIVERABLE_VERSION",
             MaxBytes: DeliverableVersionLimit,
-            MaxBytesLabel: "22 MiB",
+            MaxBytesLabel: "20 MiB",
             AllowedMimeTypes: ["application/pdf", "application/zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/x-rar-compressed"],
             AllowedExtensions: [".pdf", ".zip", ".docx", ".rar"],
             MaxFilesPerRequest: 1,
@@ -54,7 +68,7 @@ public static class UploadPolicies
         new UploadPolicyDto(
             ParentType: "PROJECT_FILE",
             MaxBytes: ProjectFileLimit,
-            MaxBytesLabel: "22 MiB",
+            MaxBytesLabel: "20 MiB",
             AllowedMimeTypes: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/zip", "image/png", "image/jpeg"],
             AllowedExtensions: [".pdf", ".docx", ".zip", ".png", ".jpg", ".jpeg"],
             MaxFilesPerRequest: 1,
@@ -63,7 +77,7 @@ public static class UploadPolicies
         new UploadPolicyDto(
             ParentType: "STUDENT_QUALIFICATION",
             MaxBytes: StudentQualificationLimit,
-            MaxBytesLabel: "22 MiB",
+            MaxBytesLabel: "20 MiB",
             AllowedMimeTypes: ["application/pdf", "image/png", "image/jpeg"],
             AllowedExtensions: [".pdf", ".png", ".jpg", ".jpeg"],
             MaxFilesPerRequest: 1,

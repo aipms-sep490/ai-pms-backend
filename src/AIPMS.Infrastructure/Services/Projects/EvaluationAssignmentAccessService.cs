@@ -129,6 +129,7 @@ internal sealed class EvaluationAssignmentAccessService(
         var parentIds = criteria.Where(c => c.ParentId.HasValue).Select(c => c.ParentId!.Value).ToHashSet();
         var leaves = weighted.Where(c => !parentIds.Contains(c.Id)).ToArray();
 
+        var parentNames = criteria.ToDictionary(r => r.Id, r => r.Criterion.Name);
         var items = leaves.Select(c => new EvaluationAssignmentItemDto(
             c.Id,
             c.Name,
@@ -142,7 +143,8 @@ internal sealed class EvaluationAssignmentAccessService(
             c.LearningOutcome,
             c.EvidenceGuidance,
             c.Levels,
-            c.ParentId
+            c.ParentId,
+            c.ParentId.HasValue ? parentNames.GetValueOrDefault(c.ParentId.Value) : null
         )).ToArray();
 
         var legacy = row.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL");

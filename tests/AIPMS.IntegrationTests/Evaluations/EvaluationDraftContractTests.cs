@@ -391,4 +391,216 @@ public sealed class EvaluationDraftContractTests(EvaluationDraftDatabaseFixture 
         Assert.True(detail.Assignment.SchemeIsDemo);
         Assert.Equal("DEMO", detail.Assignment.SchemeApprovalStatus);
     }
+
+    [Fact]
+    public async Task GetAssignmentDetail_TwoLevelRubric_CriteriaContainParentIdAndParentName()
+    {
+        var s = await database.Seed();
+        await using var db = database.CreateContext();
+
+        // 1. Create a parent evaluation criterion and 2 leaf criteria
+        var parentCriterion = new M.EvaluationCriterion
+        {
+            Code = $"CRIT_PARENT_{Guid.NewGuid():N}",
+            Name = "Software Architecture & Quality Assurance",
+            Description = "Parent category for architecture and testing criteria",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var leafCriterion1 = new M.EvaluationCriterion
+        {
+            Code = $"CRIT_LEAF1_{Guid.NewGuid():N}",
+            Name = "1.1 Modular Design & Component Contracts",
+            Description = "Evaluates bounded contexts and interface isolation",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var leafCriterion2 = new M.EvaluationCriterion
+        {
+            Code = $"CRIT_LEAF2_{Guid.NewGuid():N}",
+            Name = "1.2 Automated Integration & Regression Suite",
+            Description = "Evaluates test coverage and CI pipeline quality",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        db.EvaluationCriteria.AddRange(parentCriterion, leafCriterion1, leafCriterion2);
+        await db.SaveChangesAsync();
+
+        // 2. Clear old criteria for this rubric and attach the 2-level hierarchy
+        var existingCriteria = await db.RubricCriteria.Where(c => c.RubricId == s.RubricId).ToListAsync();
+        db.RubricCriteria.RemoveRange(existingCriteria);
+        await db.SaveChangesAsync();
+
+        // Parent criterion (MaxScore = null, IsRequired = false, WeightPercent = 100)
+        var parentRc = new M.RubricCriterion
+        {
+            RubricId = s.RubricId,
+            CriterionId = parentCriterion.Id,
+            ParentId = null,
+            WeightPercent = 100.0m,
+            MaxScore = null,
+            SortOrder = 1,
+            IsRequired = false,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        db.RubricCriteria.Add(parentRc);
+        await db.SaveChangesAsync();
+
+        // Leaf criteria (under parentRc.Id, weights sum to 100: 60% and 40%)
+        var leafRc1 = new M.RubricCriterion
+        {
+            RubricId = s.RubricId,
+            CriterionId = leafCriterion1.Id,
+            ParentId = parentRc.Id,
+            WeightPercent = 60.0m,
+            MaxScore = 10.0m,
+            SortOrder = 1,
+            IsRequired = true,
+            LearningOutcome = "PLO-1: Software Architecture",
+            EvidenceGuidance = "Inspect ADRs and architecture diagrams",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var leafRc2 = new M.RubricCriterion
+        {
+            RubricId = s.RubricId,
+            CriterionId = leafCriterion2.Id,
+            ParentId = parentRc.Id,
+            WeightPercent = 40.0m,
+            MaxScore = 10.0m,
+            SortOrder = 2,
+            IsRequired = true,
+            LearningOutcome = "PLO-2: Automated Testing",
+            EvidenceGuidance = "Inspect integration tests and CI reports",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        db.RubricCriteria.AddRange(leafRc1, leafRc2);
+        await db.SaveChangesAsync();
+
+        // Add 4 quality levels to each leaf
+        var levels = StandardFourLevels();
+        foreach (var leaf in new[] { leafRc1, leafRc2 })
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                db.Set<RubricCriterionLevel>().Add(new RubricCriterionLevel
+                {
+                    RubricCriterionId = leaf.Id,
+                    LevelOrder = levels[i].LevelOrder,
+                    Label = levels[i].Label,
+                    Descriptor = levels[i].Descriptor,
+                    ScoreFrom = levels[i].ScoreFrom,
+                    ScoreTo = levels[i].ScoreTo,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+        }
+        await db.SaveChangesAsync();
+
+        // 3. Evaluation Scheme & Component
+        var policy = new PeriodPolicyVersion
+        {
+            ProjectPeriodId = s.PeriodId,
+            Version = 1,
+            Status = "PUBLISHED",
+            EffectiveFrom = DateTime.UtcNow.AddDays(-10),
+            EffectiveTo = DateTime.UtcNow.AddDays(10),
+            ConcurrencyToken = Guid.NewGuid(),
+            CreatedBy = s.Scope.Users.Staff,
+            CreatedAt = DateTime.UtcNow,
+            SnapshotJson = "{}"
+        };
+        db.Set<PeriodPolicyVersion>().Add(policy);
+        await db.SaveChangesAsync();
+
+        var scheme = new EvaluationScheme
+        {
+            ProjectId = s.ProjectId,
+            ProjectPeriodId = s.PeriodId,
+            Name = "Hierarchical Defense Scheme",
+            PassThreshold = 5.0m,
+            Status = "PUBLISHED",
+            CreatedBy = s.Scope.Users.Staff,
+            CreatedAt = DateTime.UtcNow,
+            PublishedBy = s.Scope.Users.Staff,
+            PublishedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid(),
+            PolicyVersionId = policy.Id,
+            GovernanceJson = JsonSerializer.Serialize(new SchemePolicyInput(false, "APPROVED", "QĐ-TEST-2026"))
+        };
+        db.Set<EvaluationScheme>().Add(scheme);
+        await db.SaveChangesAsync();
+
+        var component = new EvaluationSchemeComponent
+        {
+            SchemeId = scheme.Id,
+            Name = "Defense Component",
+            Scope = "COMMON",
+            RubricId = s.RubricId,
+            ProjectWeightPercent = 50.0m,
+            StudentWeightPercent = 50.0m,
+            RequiredEvaluators = 1,
+            Stage = "DEFENSE"
+        };
+        db.Set<EvaluationSchemeComponent>().Add(component);
+        await db.SaveChangesAsync();
+
+        // 4. Assignment
+        var assignment = new EvaluationAssignment
+        {
+            ProjectId = s.ProjectId,
+            EvaluatorId = s.Scope.Users.Lecturer,
+            ProjectPeriodId = s.PeriodId,
+            DepartmentId = s.Scope.Users.DepartmentId,
+            EvaluationType = "LECTURER",
+            RubricId = s.RubricId,
+            Status = "ACTIVE",
+            AssignedBy = s.Scope.Users.Staff,
+            AssignedAt = DateTime.UtcNow,
+            ConcurrencyToken = Guid.NewGuid(),
+            Scope = "COMMON",
+            ComponentId = component.Id,
+            PolicyVersionId = policy.Id,
+            ScopeSnapshotJson = "{}",
+            Stage = "DEFENSE"
+        };
+        db.Set<EvaluationAssignment>().Add(assignment);
+        await db.SaveChangesAsync();
+
+        // 5. Query as Lecturer
+        using var app = new EvaluationFactory(database);
+        using var lecturer = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
+
+        var response = await lecturer.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var detail = await response.Content.ReadFromJsonAsync<EvaluationAssignmentDetailDto>(JsonOpts);
+        Assert.NotNull(detail);
+
+        // Invariant: ONLY leaves appear in Criteria (parent criterion has no MaxScore and cannot be scored)
+        Assert.NotNull(detail.Criteria);
+        Assert.Equal(2, detail.Criteria.Count);
+        Assert.DoesNotContain(detail.Criteria, c => c.RubricCriterionId == parentRc.Id);
+
+        // Invariant: Each leaf contains ParentId and ParentName
+        var c1 = detail.Criteria.Single(c => c.RubricCriterionId == leafRc1.Id);
+        Assert.Equal(parentRc.Id, c1.ParentId);
+        Assert.Equal(parentCriterion.Name, c1.ParentName);
+        Assert.Equal(leafCriterion1.Code, c1.CriterionCode);
+        Assert.Equal(60.0m, c1.WeightPercent);
+        Assert.Equal(60.0m, c1.EffectiveWeightPercent);
+
+        var c2 = detail.Criteria.Single(c => c.RubricCriterionId == leafRc2.Id);
+        Assert.Equal(parentRc.Id, c2.ParentId);
+        Assert.Equal(parentCriterion.Name, c2.ParentName);
+        Assert.Equal(leafCriterion2.Code, c2.CriterionCode);
+        Assert.Equal(40.0m, c2.WeightPercent);
+        Assert.Equal(40.0m, c2.EffectiveWeightPercent);
+    }
 }

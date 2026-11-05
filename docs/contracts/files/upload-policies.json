@@ -11,8 +11,8 @@
     "body": [
       {
         "parentType": "REVIEW_GATE_EVIDENCE",
-        "maxBytes": 23068672,
-        "maxBytesLabel": "22 MiB",
+        "maxBytes": 20971520,
+        "maxBytesLabel": "20 MiB",
         "allowedMimeTypes": [
           "application/pdf",
           "image/png",
@@ -31,8 +31,8 @@
       },
       {
         "parentType": "DELIVERABLE_VERSION",
-        "maxBytes": 23068672,
-        "maxBytesLabel": "22 MiB",
+        "maxBytes": 20971520,
+        "maxBytesLabel": "20 MiB",
         "allowedMimeTypes": [
           "application/pdf",
           "application/zip",
@@ -50,8 +50,8 @@
       },
       {
         "parentType": "PROJECT_FILE",
-        "maxBytes": 23068672,
-        "maxBytesLabel": "22 MiB",
+        "maxBytes": 20971520,
+        "maxBytesLabel": "20 MiB",
         "allowedMimeTypes": [
           "application/pdf",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -72,8 +72,8 @@
       },
       {
         "parentType": "STUDENT_QUALIFICATION",
-        "maxBytes": 23068672,
-        "maxBytesLabel": "22 MiB",
+        "maxBytes": 20971520,
+        "maxBytesLabel": "20 MiB",
         "allowedMimeTypes": [
           "application/pdf",
           "image/png",

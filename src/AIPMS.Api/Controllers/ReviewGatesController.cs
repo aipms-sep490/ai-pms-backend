@@ -35,8 +35,8 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public async Task<ActionResult<StudentReviewTimelineDto>> SubmitEvidence(long projectId, string gateCode, SubmitReviewGateEvidenceRequest request, CancellationToken ct) => Ok(await service.SubmitEvidence(projectId, gateCode, request, ct));
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/evidence/file")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(UploadPolicies.ReviewGateEvidenceLimit)]
-    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.ReviewGateEvidenceLimit)]
+    [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
     public async Task<ActionResult<StudentReviewTimelineDto>> SubmitEvidenceFile(long projectId, string gateCode, [FromForm] ReviewGateFileForm request, CancellationToken ct)
     {
         await using var stream = request.File.OpenReadStream();
