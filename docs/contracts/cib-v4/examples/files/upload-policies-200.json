@@ -1,0 +1,231 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/upload-policies",
+    "headers": {
+      "Accept": "application/json"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "parentType": "REVIEW_GATE_EVIDENCE",
+        "maxBytes": 23068672,
+        "maxBytesLabel": "22 MiB",
+        "allowedMimeTypes": [
+          "application/pdf",
+          "image/png",
+          "image/jpeg",
+          "application/zip"
+        ],
+        "allowedExtensions": [
+          ".pdf",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          ".zip"
+        ],
+        "maxFilesPerRequest": 1,
+        "requiresVersionAnchor": true
+      },
+      {
+        "parentType": "DELIVERABLE_VERSION",
+        "maxBytes": 23068672,
+        "maxBytesLabel": "22 MiB",
+        "allowedMimeTypes": [
+          "application/pdf",
+          "application/zip",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/x-rar-compressed"
+        ],
+        "allowedExtensions": [
+          ".pdf",
+          ".zip",
+          ".docx",
+          ".rar"
+        ],
+        "maxFilesPerRequest": 1,
+        "requiresVersionAnchor": true
+      },
+      {
+        "parentType": "PROJECT_FILE",
+        "maxBytes": 23068672,
+        "maxBytesLabel": "22 MiB",
+        "allowedMimeTypes": [
+          "application/pdf",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/zip",
+          "image/png",
+          "image/jpeg"
+        ],
+        "allowedExtensions": [
+          ".pdf",
+          ".docx",
+          ".zip",
+          ".png",
+          ".jpg",
+          ".jpeg"
+        ],
+        "maxFilesPerRequest": 1,
+        "requiresVersionAnchor": false
+      },
+      {
+        "parentType": "STUDENT_QUALIFICATION",
+        "maxBytes": 23068672,
+        "maxBytesLabel": "22 MiB",
+        "allowedMimeTypes": [
+          "application/pdf",
+          "image/png",
+          "image/jpeg"
+        ],
+        "allowedExtensions": [
+          ".pdf",
+          ".png",
+          ".jpg",
+          ".jpeg"
+        ],
+        "maxFilesPerRequest": 1,
+        "requiresVersionAnchor": false
+      },
+      {
+        "parentType": "COLD_SUBMISSION",
+        "maxBytes": 11534336,
+        "maxBytesLabel": "11 MiB",
+        "allowedMimeTypes": [
+          "application/pdf",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/zip",
+          "image/png",
+          "image/jpeg"
+        ],
+        "allowedExtensions": [
+          ".pdf",
+          ".docx",
+          ".zip",
+          ".png",
+          ".jpg",
+          ".jpeg"
+        ],
+        "maxFilesPerRequest": 1,
+        "requiresVersionAnchor": true
+      },
+      {
+        "parentType": "RESULT_APPEAL",
+        "maxBytes": 11534336,
+        "maxBytesLabel": "11 MiB",
+        "allowedMimeTypes": [
+          "application/pdf",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/zip",
+          "image/png",
+          "image/jpeg"
+        ],
+        "allowedExtensions": [
+          ".pdf",
+          ".docx",
+          ".zip",
+          ".png",
+          ".jpg",
+          ".jpeg"
+        ],
+        "maxFilesPerRequest": 1,
+        "requiresVersionAnchor": true
+      },
+      {
+        "parentType": "CHAT_ATTACHMENT",
+        "maxBytes": 11534336,
+        "maxBytesLabel": "11 MiB",
+        "allowedMimeTypes": [
+          "application/pdf",
+          "image/png",
+          "image/jpeg",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/zip"
+        ],
+        "allowedExtensions": [
+          ".pdf",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          ".docx",
+          ".zip"
+        ],
+        "maxFilesPerRequest": 1,
+        "requiresVersionAnchor": false
+      },
+      {
+        "parentType": "ACADEMIC_ASSISTANT_ASK",
+        "maxBytes": 9437184,
+        "maxBytesLabel": "9 MiB",
+        "allowedMimeTypes": [
+          "application/pdf",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "text/plain",
+          "text/markdown"
+        ],
+        "allowedExtensions": [
+          ".pdf",
+          ".docx",
+          ".txt",
+          ".md"
+        ],
+        "maxFilesPerRequest": 4,
+        "requiresVersionAnchor": false
+      },
+      {
+        "parentType": "ACADEMIC_ASSISTANT_STREAM",
+        "maxBytes": 9437184,
+        "maxBytesLabel": "9 MiB",
+        "allowedMimeTypes": [
+          "application/pdf",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "text/plain",
+          "text/markdown"
+        ],
+        "allowedExtensions": [
+          ".pdf",
+          ".docx",
+          ".txt",
+          ".md"
+        ],
+        "maxFilesPerRequest": 4,
+        "requiresVersionAnchor": false
+      },
+      {
+        "parentType": "STUDENT_ACCOUNT_IMPORT",
+        "maxBytes": 6291456,
+        "maxBytesLabel": "6 MiB",
+        "allowedMimeTypes": [
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-excel",
+          "text/csv"
+        ],
+        "allowedExtensions": [
+          ".xlsx",
+          ".xls",
+          ".csv"
+        ],
+        "maxFilesPerRequest": 1,
+        "requiresVersionAnchor": false
+      },
+      {
+        "parentType": "STUDENT_CURRICULUM",
+        "maxBytes": 6291456,
+        "maxBytesLabel": "6 MiB",
+        "allowedMimeTypes": [
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-excel",
+          "text/csv"
+        ],
+        "allowedExtensions": [
+          ".xlsx",
+          ".xls",
+          ".csv"
+        ],
+        "maxFilesPerRequest": 1,
+        "requiresVersionAnchor": false
+      }
+    ]
+  }
+}

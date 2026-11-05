@@ -1,3 +1,4 @@
+using AIPMS.Application.Features.Files;
 using System.ComponentModel.DataAnnotations;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Appeals;
@@ -64,8 +65,8 @@ public sealed class ResultAppealsController(IAppealService appeals) : Controller
     }
     [HttpPost("correction-requests/{id:long}/files")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(11 * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 11 * 1024 * 1024)]
+    [RequestSizeLimit(UploadPolicies.ResultAppealLimit)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.ResultAppealLimit)]
     public async Task<CorrectionRequestDto> Upload(long projectId, long id, [FromForm] AppealUploadForm input, CancellationToken ct)
     {
         await using var stream = input.File.OpenReadStream();

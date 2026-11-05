@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.AcademicKnowledge;
+using AIPMS.Application.Features.AcademicKnowledge.Abstractions;
 using AIPMS.Application.Features.AiAssistant.Abstractions;
 using AIPMS.Application.Features.AiAssistant.Models;
 using AIPMS.Application.Features.ExecutionCapabilities.Abstractions;

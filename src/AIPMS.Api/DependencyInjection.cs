@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using System.Net;
 using AIPMS.Api.Middleware;
 using System.Security.Claims;
@@ -146,6 +147,43 @@ public static class DependencyInjection
             options.JsonSerializerOptions.MaxDepth = 2 * RubricHierarchy.MaxNodes + 16;
             options.JsonSerializerOptions.Converters.Add(new AIPMS.Application.Common.Serialization.UtcDateTimeJsonConverter());
             options.JsonSerializerOptions.Converters.Add(new AIPMS.Application.Common.Serialization.NullableUtcDateTimeJsonConverter());
+        });
+        services.Configure<ApiBehaviorOptions>(options =>
+        {
+            var originalFactory = options.InvalidModelStateResponseFactory;
+            options.InvalidModelStateResponseFactory = context =>
+            {
+                var isMultipartExceeded = context.ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Any(e => e.ErrorMessage.Contains("Multipart body length limit", StringComparison.OrdinalIgnoreCase)
+                           || e.ErrorMessage.Contains("Request body too large", StringComparison.OrdinalIgnoreCase));
+
+                if (isMultipartExceeded)
+                {
+                    var endpoint = context.HttpContext.GetEndpoint();
+                    var limitMeta = endpoint?.Metadata.GetMetadata<Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata>();
+                    var maxBytes = limitMeta?.MaxRequestBodySize
+                        ?? context.HttpContext.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize;
+
+                    var problem = new ProblemDetails
+                    {
+                        Status = StatusCodes.Status413PayloadTooLarge,
+                        Title = "Request entity too large.",
+                        Type = "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.14",
+                        Instance = context.HttpContext.Request.Path
+                    };
+                    problem.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+                    problem.Extensions["code"] = "UPLOAD_TOO_LARGE";
+                    problem.Extensions["errorCode"] = "UPLOAD_TOO_LARGE";
+                    if (maxBytes.HasValue)
+                    {
+                        problem.Extensions["maxBytes"] = maxBytes.Value;
+                    }
+                    return new ObjectResult(problem) { StatusCode = StatusCodes.Status413PayloadTooLarge };
+                }
+
+                return originalFactory(context);
+            };
         });
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>

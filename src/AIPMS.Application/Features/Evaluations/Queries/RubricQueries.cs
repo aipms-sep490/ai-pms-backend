@@ -8,7 +8,8 @@ namespace AIPMS.Application.Features.Evaluations.Queries;
 
 public sealed record GetRubricQuery(long Id) : IRequest<RubricDto>;
 public sealed record GetRubricsQuery(long? DepartmentId = null, long? AcademicSemesterId = null,
-    string? Status = null, string? Search = null, int Page = 1, int PageSize = 20) : IRequest<PagedResult<RubricDto>>;
+    string? Status = null, string? Search = null, int Page = 1, int PageSize = 20,
+    long? MajorId = null, string? ProjectMode = null, string? EvaluationStage = null, string? EvaluationScope = null) : IRequest<PagedResult<RubricDto>>;
 public sealed class GetRubricQueryHandler(RubricWorkflow workflow) : IRequestHandler<GetRubricQuery, RubricDto>
 {
     public Task<RubricDto> Handle(GetRubricQuery r, CancellationToken ct) => workflow.Get(r.Id, ct);
@@ -16,5 +17,11 @@ public sealed class GetRubricQueryHandler(RubricWorkflow workflow) : IRequestHan
 public sealed class GetRubricsQueryHandler(RubricWorkflow workflow) : IRequestHandler<GetRubricsQuery, PagedResult<RubricDto>>
 {
     public Task<PagedResult<RubricDto>> Handle(GetRubricsQuery r, CancellationToken ct) => workflow.List(
-        new RubricFilter(r.DepartmentId, r.AcademicSemesterId, r.Status, r.Search?.Trim(), r.Page, r.PageSize), ct);
+        new RubricFilter(r.DepartmentId, r.AcademicSemesterId, r.Status, r.Search?.Trim(), r.Page, r.PageSize)
+        {
+            MajorId = r.MajorId,
+            ProjectMode = r.ProjectMode,
+            EvaluationStage = r.EvaluationStage,
+            EvaluationScope = r.EvaluationScope
+        }, ct);
 }

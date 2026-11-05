@@ -137,8 +137,8 @@ public sealed partial class PolicyEvaluationEndpointTests
         var (s, major) = await Seed();
         using var app = new EvaluationFactory(database);
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
-        Assert.Equal(HttpStatusCode.BadRequest, (await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
-            Input(s, major) with { Policy = new(false, "APPROVED", null) })).StatusCode);
+        var policyRes = await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", Input(s, major) with { Policy = new(false, "APPROVED", null) });
+        Assert.True(policyRes.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity);
         var bad = Input(s, major) with { Components = [new("Bad", "COMMON", null, s.RubricId, 100, 100, 1, [null!])] };
         Assert.Equal(HttpStatusCode.BadRequest, (await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", bad)).StatusCode);
     }

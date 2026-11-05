@@ -1,0 +1,51 @@
+{
+  "id": 201,
+  "departmentId": 1,
+  "academicSemesterId": 2,
+  "majorId": 5,
+  "projectMode": "INTERDISCIPLINARY",
+  "evaluationStage": "DEFENSE",
+  "evaluationScope": "MAJOR_SPECIFIC",
+  "effectiveFrom": "2026-09-01",
+  "effectiveTo": "2026-12-31",
+  "approvalReference": null,
+  "code": "R_SE_DEF_FA26",
+  "name": "Software Engineering Defense Evaluation Rubric",
+  "description": "Major-specific defense rubric for SE discipline within interdisciplinary projects",
+  "status": "DRAFT",
+  "isActive": false,
+  "rootRubricId": 201,
+  "version": 1,
+  "concurrencyToken": "d4e5f6a7-b8c9-0123-4567-89abcdef0123",
+  "canEdit": true,
+  "createdAt": "2026-10-30T09:00:00Z",
+  "updatedAt": "2026-10-30T09:00:00Z",
+  "criteria": [
+    {
+      "id": 2001,
+      "criterionId": 601,
+      "name": "Discipline Technical Implementation",
+      "description": "Technical rigor and adherence to SE best practices",
+      "weightPercent": 60.0,
+      "effectiveWeightPercent": 60.0,
+      "maxScore": 10.0,
+      "sortOrder": 0,
+      "isRequired": true,
+      "parentId": null,
+      "children": []
+    },
+    {
+      "id": 2002,
+      "criterionId": 602,
+      "name": "Discipline Technical Defense",
+      "description": "Oral defense of technical decisions and tradeoffs",
+      "weightPercent": 40.0,
+      "effectiveWeightPercent": 40.0,
+      "maxScore": 10.0,
+      "sortOrder": 1,
+      "isRequired": false,
+      "parentId": null,
+      "children": []
+    }
+  ]
+}

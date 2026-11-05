@@ -1,3 +1,4 @@
+using AIPMS.Application.Features.Files;
 using AIPMS.Application.Features.StudentRosters;
 using AIPMS.Application.Features.StudentRosters.Abstractions;
 using Microsoft.AspNetCore.Authorization;
@@ -22,7 +23,7 @@ public sealed class StudentAccountImportController(IStudentAccountImportService 
 {
     [HttpPost("preview")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(6 * 1024 * 1024)]
+    [RequestSizeLimit(UploadPolicies.StudentAccountImportLimit)]
     [ProducesResponseType<StudentAccountImportPreview>(200)]
     [ProducesResponseType<ProblemDetails>(413)]
     public async Task<ActionResult<StudentAccountImportPreview>> Preview([FromForm] StudentAccountImportFileRequest request, CancellationToken ct)

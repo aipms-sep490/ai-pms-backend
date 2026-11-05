@@ -41321,6 +41321,35 @@
               "format": "int32",
               "default": 20
             }
+          },
+          {
+            "name": "majorId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "projectMode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "evaluationStage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "evaluationScope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -42014,6 +42043,483 @@
           },
           "204": {
             "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/v1/rubrics/{id}/submit-for-approval": {
+      "post": {
+        "tags": [
+          "Rubrics"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitRubricForApprovalRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitRubricForApprovalRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitRubricForApprovalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rubrics/{id}/approve": {
+      "post": {
+        "tags": [
+          "Rubrics"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRubricRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRubricRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRubricRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rubrics/{id}/reject": {
+      "post": {
+        "tags": [
+          "Rubrics"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRubricRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRubricRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRubricRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricDto"
+                }
+              }
+            }
           }
         }
       }
@@ -52947,6 +53453,200 @@
         }
       }
     },
+    "/api/v1/upload-policies": {
+      "get": {
+        "tags": [
+          "UploadPolicies"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UploadPolicyDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UploadPolicyDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UploadPolicyDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/upload-policies": {
+      "get": {
+        "tags": [
+          "UploadPolicies"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UploadPolicyDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UploadPolicyDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UploadPolicyDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/upload-policies/{parentType}": {
+      "get": {
+        "tags": [
+          "UploadPolicies"
+        ],
+        "parameters": [
+          {
+            "name": "parentType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadPolicyDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadPolicyDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadPolicyDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/upload-policies/{parentType}": {
+      "get": {
+        "tags": [
+          "UploadPolicies"
+        ],
+        "parameters": [
+          {
+            "name": "parentType",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadPolicyDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadPolicyDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadPolicyDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users": {
       "get": {
         "tags": [
@@ -56123,6 +56823,20 @@
         },
         "additionalProperties": false
       },
+      "ApproveRubricRequest": {
+        "type": "object",
+        "properties": {
+          "concurrencyToken": {
+            "type": "string",
+            "nullable": true
+          },
+          "approvalReference": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ArchiveProjectRequest": {
         "type": "object",
         "properties": {
@@ -57663,7 +58377,8 @@
           },
           "majorId": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "nullable": true
           },
           "projectPeriodId": {
             "type": "integer",
@@ -57682,6 +58397,10 @@
             "items": {
               "$ref": "#/components/schemas/ColdReportInput"
             },
+            "nullable": true
+          },
+          "scope": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -57894,7 +58613,8 @@
         "properties": {
           "majorId": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "nullable": true
           },
           "projectPeriodId": {
             "type": "integer",
@@ -57909,6 +58629,10 @@
             "items": {
               "$ref": "#/components/schemas/ColdReportInput"
             },
+            "nullable": true
+          },
+          "scope": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -58634,6 +59358,33 @@
             "items": {
               "$ref": "#/components/schemas/RubricCriterionInput"
             },
+            "nullable": true
+          },
+          "majorId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "projectMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationStage": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationScope": {
+            "type": "string",
+            "nullable": true
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date",
             "nullable": true
           }
         },
@@ -59934,6 +60685,19 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "componentStudentWeightPercent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "schemeApprovalStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "schemeIsDemo": {
+            "type": "boolean",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -60209,6 +60973,23 @@
           },
           "finalization": {
             "$ref": "#/components/schemas/EvaluationFinalizationDto"
+          },
+          "stage": {
+            "type": "string",
+            "nullable": true
+          },
+          "componentStudentWeightPercent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "schemeApprovalStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "schemeIsDemo": {
+            "type": "boolean",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -60380,6 +61161,35 @@
           "comments": {
             "type": "string",
             "nullable": true
+          },
+          "criterionCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RubricCriterionLevelDto"
+            },
+            "nullable": true
+          },
+          "learningOutcome": {
+            "type": "string",
+            "nullable": true
+          },
+          "evidenceGuidance": {
+            "type": "string",
+            "nullable": true
+          },
+          "effectiveWeightPercent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "parentId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -60440,6 +61250,35 @@
           },
           "comments": {
             "type": "string",
+            "nullable": true
+          },
+          "criterionCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RubricCriterionLevelDto"
+            },
+            "nullable": true
+          },
+          "learningOutcome": {
+            "type": "string",
+            "nullable": true
+          },
+          "evidenceGuidance": {
+            "type": "string",
+            "nullable": true
+          },
+          "effectiveWeightPercent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "parentId": {
+            "type": "integer",
+            "format": "int64",
             "nullable": true
           }
         },
@@ -65533,6 +66372,20 @@
         },
         "additionalProperties": false
       },
+      "RejectRubricRequest": {
+        "type": "object",
+        "properties": {
+          "concurrencyToken": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ReplaceProjectRequirementsRequest": {
         "type": "object",
         "properties": {
@@ -66631,6 +67484,25 @@
             "type": "number",
             "format": "double"
           },
+          "criterionCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "learningOutcome": {
+            "type": "string",
+            "nullable": true
+          },
+          "evidenceGuidance": {
+            "type": "string",
+            "nullable": true
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RubricCriterionLevelDto"
+            },
+            "nullable": true
+          },
           "children": {
             "type": "array",
             "items": {
@@ -66668,11 +67540,82 @@
           "isRequired": {
             "type": "boolean"
           },
+          "learningOutcome": {
+            "type": "string",
+            "nullable": true
+          },
+          "evidenceGuidance": {
+            "type": "string",
+            "nullable": true
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RubricCriterionLevelInput"
+            },
+            "nullable": true
+          },
           "children": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RubricCriterionInput"
             },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RubricCriterionLevelDto": {
+        "type": "object",
+        "properties": {
+          "levelOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "descriptor": {
+            "type": "string",
+            "nullable": true
+          },
+          "scoreFrom": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "scoreTo": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RubricCriterionLevelInput": {
+        "type": "object",
+        "properties": {
+          "levelOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "descriptor": {
+            "type": "string",
+            "nullable": true
+          },
+          "scoreFrom": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "scoreTo": {
+            "type": "number",
+            "format": "double",
             "nullable": true
           }
         },
@@ -66721,6 +67664,25 @@
           "effectiveWeightPercent": {
             "type": "number",
             "format": "double"
+          },
+          "criterionCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "learningOutcome": {
+            "type": "string",
+            "nullable": true
+          },
+          "evidenceGuidance": {
+            "type": "string",
+            "nullable": true
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RubricCriterionLevelDto"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -66789,6 +67751,37 @@
             "items": {
               "$ref": "#/components/schemas/RubricCriterionDto"
             },
+            "nullable": true
+          },
+          "majorId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "projectMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationStage": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationScope": {
+            "type": "string",
+            "nullable": true
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "approvalReference": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -66885,6 +67878,37 @@
             "items": {
               "$ref": "#/components/schemas/RubricCriterionRecord"
             },
+            "nullable": true
+          },
+          "majorId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "projectMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationStage": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationScope": {
+            "type": "string",
+            "nullable": true
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "approvalReference": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -68556,6 +69580,16 @@
             "type": "string",
             "nullable": true
           },
+          "concurrencyToken": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SubmitRubricForApprovalRequest": {
+        "type": "object",
+        "properties": {
           "concurrencyToken": {
             "type": "string",
             "nullable": true
@@ -71427,6 +72461,33 @@
           "concurrencyToken": {
             "type": "string",
             "nullable": true
+          },
+          "majorId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "projectMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationStage": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationScope": {
+            "type": "string",
+            "nullable": true
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -71613,6 +72674,45 @@
           "concurrencyToken": {
             "type": "string",
             "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "UploadPolicyDto": {
+        "type": "object",
+        "properties": {
+          "parentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "maxBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "maxBytesLabel": {
+            "type": "string",
+            "nullable": true
+          },
+          "allowedMimeTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "allowedExtensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "maxFilesPerRequest": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "requiresVersionAnchor": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false

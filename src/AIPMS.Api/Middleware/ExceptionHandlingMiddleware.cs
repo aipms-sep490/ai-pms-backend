@@ -46,11 +46,12 @@ public sealed class ExceptionHandlingMiddleware(
         else
         {
             logger.LogWarning(
-                "Request {Method} {Path} failed with {StatusCode} because of {ExceptionType}",
+                "Request {Method} {Path} failed with {StatusCode} because of {ExceptionType}: {Message}",
                 context.Request.Method,
                 context.Request.Path,
                 mapping.StatusCode,
-                exception.GetType().Name);
+                exception.GetType().Name,
+                exception.Message);
         }
 
         context.Response.StatusCode = mapping.StatusCode;
@@ -68,17 +69,57 @@ public sealed class ExceptionHandlingMiddleware(
 
         problem.Extensions["traceId"] = context.TraceIdentifier;
         if (exception is ConflictException { Code: not null } conflict)
+        {
             problem.Extensions["code"] = conflict.Code;
+            problem.Extensions["errorCode"] = conflict.Code;
+        }
         else if (exception is ForbiddenException { Code: not null } forbidden)
+        {
             problem.Extensions["code"] = forbidden.Code;
+            problem.Extensions["errorCode"] = forbidden.Code;
+        }
         else if (exception is ServiceUnavailableException { Code: not null } unavailable)
+        {
             problem.Extensions["code"] = unavailable.Code;
+            problem.Extensions["errorCode"] = unavailable.Code;
+        }
         else if (exception is DomainException { Code: not null } domain)
+        {
             problem.Extensions["code"] = domain.Code;
+            problem.Extensions["errorCode"] = domain.Code;
+        }
 
         if (exception is ValidationException validationException)
         {
             problem.Extensions["errors"] = validationException.Errors;
+        }
+
+        if (mapping.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            problem.Extensions["code"] = "UPLOAD_TOO_LARGE";
+            problem.Extensions["errorCode"] = "UPLOAD_TOO_LARGE";
+
+            if (exception is PayloadTooLargeException payloadTooLarge)
+            {
+                problem.Extensions["maxBytes"] = payloadTooLarge.MaxBytes;
+            }
+            else
+            {
+                var endpoint = context.GetEndpoint();
+                var limitMeta = endpoint?.Metadata.GetMetadata<Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata>();
+                if (limitMeta?.MaxRequestBodySize is long limit)
+                {
+                    problem.Extensions["maxBytes"] = limit;
+                }
+                else
+                {
+                    var maxBodySize = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize;
+                    if (maxBodySize.HasValue)
+                    {
+                        problem.Extensions["maxBytes"] = maxBodySize.Value;
+                    }
+                }
+            }
         }
 
         await problemDetailsService.WriteAsync(new ProblemDetailsContext
@@ -90,6 +131,18 @@ public sealed class ExceptionHandlingMiddleware(
 
     private static ExceptionMapping MapException(Exception exception) => exception switch
     {
+        PayloadTooLargeException => new(
+            StatusCodes.Status413PayloadTooLarge,
+            "Request entity too large.",
+            "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.14"),
+        BadHttpRequestException badHttp when badHttp.StatusCode == StatusCodes.Status413PayloadTooLarge => new(
+            StatusCodes.Status413PayloadTooLarge,
+            "Request entity too large.",
+            "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.14"),
+        InvalidDataException invalidData when invalidData.Message.Contains("Multipart body length limit", StringComparison.OrdinalIgnoreCase) => new(
+            StatusCodes.Status413PayloadTooLarge,
+            "Request entity too large.",
+            "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.14"),
         ServiceUnavailableException => new(
             StatusCodes.Status503ServiceUnavailable,
             "Service temporarily unavailable.",

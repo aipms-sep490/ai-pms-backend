@@ -9,8 +9,9 @@ public partial class AipmsDbContext
     {
         b.Entity<ColdReportTemplate>(e => {
             e.ToTable("cold_report_templates"); e.HasKey(x => x.Id); e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Scope).HasMaxLength(32);
             e.HasIndex(x => new { x.MajorId, x.ProjectPeriodId, x.Version }).IsUnique();
-            e.HasOne<Generated.Models.Major>().WithMany().HasForeignKey(x => x.MajorId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Generated.Models.Major>().WithMany().HasForeignKey(x => x.MajorId).IsRequired(false).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Generated.Models.ProjectPeriod>().WithMany().HasForeignKey(x => x.ProjectPeriodId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<ColdPackage>(e => {
