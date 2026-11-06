@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using AIPMS.Application.Abstractions.Storage;
 using AIPMS.Application.Features.Chat;
+using AIPMS.Application.Features.AiAssistant.Abstractions;
 using AIPMS.Infrastructure.Chat;
 using AIPMS.IntegrationTests.FinalSubmissions;
 using Microsoft.AspNetCore.Hosting;
@@ -77,6 +78,21 @@ public sealed class ChatCollaborationTests(FinalSubmissionDraftDatabaseFixture d
         var expired = await Upload(leader, c.Id);
         await using (var db = database.CreateContext()) { (await db.Set<M.ChatUpload>().FindAsync(long.Parse(expired.Id)))!.ExpiresAt = DateTime.UtcNow.AddMinutes(-1); await db.SaveChangesAsync(); }
         Assert.Equal(HttpStatusCode.Conflict, (await leader.PostAsJsonAsync(Url(c.Id) + "/messages", send with { ClientMessageId = Guid.NewGuid(), AttachmentIds = [expired.Id] })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Ai_summary_is_scoped_and_returns_reviewable_action_items()
+    {
+        var s = await database.Seed(); using var app = new Factory(database.ConnectionString); using var leader = app.CreateAuthenticatedClient(s.Users.Student);
+        var c = await Group(leader, s.ProjectId);
+        await Body<ChatMessageDto>(await leader.PostAsJsonAsync(Url(c.Id) + "/messages", new ChatSendRequest(Guid.NewGuid(), "Nam hoàn thành API trước thứ Sáu.")));
+        var summary = await Body<ChatAiSummaryDto>(await leader.PostAsJsonAsync(Url(c.Id) + "/ai/summary", new ChatAiSummaryRequest()));
+        Assert.Equal(c.Id, summary.ConversationId); Assert.Equal("COMPLETED", summary.GenerationStatus);
+        Assert.Contains("API", summary.Summary); Assert.Single(summary.ActionItems);
+        Assert.Equal("Hoàn thành API", summary.ActionItems[0].Title); Assert.Null(summary.ActionItems[0].OwnerName); Assert.Null(summary.ActionItems[0].SourceMessageId);
+        using var outsider = app.CreateAuthenticatedClient(s.Users.Admin);
+        var denied = await outsider.PostAsJsonAsync(Url(c.Id) + "/ai/summary", new ChatAiSummaryRequest());
+        Assert.True(denied.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -221,8 +237,15 @@ public sealed class ChatCollaborationTests(FinalSubmissionDraftDatabaseFixture d
             base.ConfigureWebHost(builder);
             builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string,string?> { ["ConnectionStrings:DefaultConnection"] = connection, ["Chat:Enabled"] = "true", ["Chat:RealtimeEnabled"] = "false" }));
             builder.ConfigureServices(s => { s.RemoveAll<IFileStorage>(); s.AddSingleton<IFileStorage>(Storage);
+                s.RemoveAll<IAiTextGenerationProvider>(); s.AddScoped<IAiTextGenerationProvider, ChatSummaryProvider>();
                 foreach (var descriptor in s.Where(d => d.ImplementationType?.Name == "ChatUploadCleanupWorker").ToArray()) s.Remove(descriptor); });
         }
+    }
+    private sealed class ChatSummaryProvider : IAiTextGenerationProvider
+    {
+        public string ModelVersion => "TEST_CHAT_SUMMARY";
+        public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default) =>
+            Task.FromResult("{\"summary\":\"Nhóm thống nhất hoàn thành API.\",\"decisions\":[\"Dùng endpoint staging\"],\"openQuestions\":[],\"actionItems\":[{\"title\":\"Hoàn thành API\",\"ownerName\":\"Không có trong nguồn\",\"dueAt\":null,\"sourceMessageId\":\"không tồn tại\"}]}");
     }
     private sealed class MemoryStorage : IFileStorage
     {
