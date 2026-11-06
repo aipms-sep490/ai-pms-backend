@@ -13,6 +13,7 @@ public sealed class ChatSettings
     [Range(1,300)] public int SendsPerMinute { get; set; } = 30;
     [Range(1,10)] public int MaxConnectionsPerUser { get; set; } = 5;
     [Range(1,1)] public int InstanceCount { get; set; } = 1;
+    [Range(1,60)] public int AiSummaryTimeoutSeconds { get; set; } = 15;
 }
 public sealed record ChatPage<T>(IReadOnlyList<T> Items, string? NextCursor, bool HasMore);
 public sealed record ChatPerson(string UserId, string FullName, string? LastReadSequence = null);

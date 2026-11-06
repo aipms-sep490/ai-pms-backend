@@ -55,8 +55,27 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
             return GenerateReportSummaryJson(userPrompt);
         }
 
+        if (systemPrompt.Contains("actionItems", StringComparison.OrdinalIgnoreCase) &&
+            systemPrompt.Contains("openQuestions", StringComparison.OrdinalIgnoreCase))
+        {
+            return GenerateChatSummaryJson(userPrompt);
+        }
+
         // Project Q&A request
         return GenerateProjectAnswer(userPrompt);
+    }
+
+    private static string GenerateChatSummaryJson(string transcript)
+    {
+        var messages = Regex.Matches(transcript, @"messageId=(?<id>[^;]+);\s*time=(?<time>[^;]+);\s*sender=(?<sender>[^;]+);\s*body=(?<body>.*)", RegexOptions.Multiline)
+            .Cast<Match>().Select(m => new { Id = m.Groups["id"].Value.Trim(), Sender = m.Groups["sender"].Value.Trim(), Body = m.Groups["body"].Value.Trim() }).ToList();
+        if (messages.Count == 0) return JsonSerializer.Serialize(new { summary = "Chưa có đủ dữ liệu để tóm tắt.", decisions = Array.Empty<string>(), openQuestions = Array.Empty<string>(), actionItems = Array.Empty<object>() });
+        var decisions = messages.Where(m => m.Body.Contains("đồng ý", StringComparison.OrdinalIgnoreCase) || m.Body.Contains("thống nhất", StringComparison.OrdinalIgnoreCase)).Select(m => m.Body).Take(5).ToArray();
+        var questions = messages.Where(m => m.Body.Contains('?')).Select(m => m.Body).Take(5).ToArray();
+        var actions = messages.Where(m => Regex.IsMatch(m.Body, @"\b(cần|hãy|phải|sẽ|làm|hoàn thành|kiểm tra)\b", RegexOptions.IgnoreCase)).Take(10)
+            .Select(m => new { title = m.Body.Length > 240 ? m.Body[..240] : m.Body, ownerName = m.Sender, dueAt = (string?)null, sourceMessageId = m.Id }).ToArray();
+        var summary = $"Đã phân tích {messages.Count} tin nhắn. " + (decisions.Length > 0 ? $"Có {decisions.Length} quyết định được nêu. " : "") + (actions.Length > 0 ? $"Có {actions.Length} việc cần theo dõi." : "");
+        return JsonSerializer.Serialize(new { summary, decisions, openQuestions = questions, actionItems = actions });
     }
 
     private static string GenerateReportSummaryJson(string userPrompt)
