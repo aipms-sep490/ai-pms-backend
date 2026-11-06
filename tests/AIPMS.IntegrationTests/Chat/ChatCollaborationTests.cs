@@ -1,7 +1,10 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using AIPMS.Application.Abstractions.Storage;
 using AIPMS.Application.Features.Chat;
 using AIPMS.Application.Features.AiAssistant.Abstractions;
@@ -93,6 +96,59 @@ public sealed class ChatCollaborationTests(FinalSubmissionDraftDatabaseFixture d
         using var outsider = app.CreateAuthenticatedClient(s.Users.Admin);
         var denied = await outsider.PostAsJsonAsync(Url(c.Id) + "/ai/summary", new ChatAiSummaryRequest());
         Assert.True(denied.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Ai_summary_discards_due_date_that_source_message_does_not_contain()
+    {
+        var s = await database.Seed();
+        using var app = new Factory(database.ConnectionString, new GroundingProvider(groundedDate: true));
+        using var leader = app.CreateAuthenticatedClient(s.Users.Student);
+        var c = await Group(leader, s.ProjectId);
+        var message = await Body<ChatMessageDto>(await leader.PostAsJsonAsync(Url(c.Id) + "/messages",
+            new ChatSendRequest(Guid.NewGuid(), "Hoàn thành API trước thứ Sáu.")));
+
+        var summary = await Body<ChatAiSummaryDto>(await leader.PostAsJsonAsync(Url(c.Id) + "/ai/summary", new ChatAiSummaryRequest()));
+
+        var action = Assert.Single(summary.ActionItems);
+        Assert.Equal(message.Id, action.SourceMessageId);
+        Assert.Null(action.DueAt);
+    }
+
+    [Fact]
+    public async Task Ai_summary_keeps_due_date_when_source_message_contains_exact_date()
+    {
+        var s = await database.Seed();
+        using var app = new Factory(database.ConnectionString, new GroundingProvider(groundedDate: true));
+        using var leader = app.CreateAuthenticatedClient(s.Users.Student);
+        var c = await Group(leader, s.ProjectId);
+        var message = await Body<ChatMessageDto>(await leader.PostAsJsonAsync(Url(c.Id) + "/messages",
+            new ChatSendRequest(Guid.NewGuid(), "Hoàn thành API trước 2030-12-31.")));
+
+        var summary = await Body<ChatAiSummaryDto>(await leader.PostAsJsonAsync(Url(c.Id) + "/ai/summary", new ChatAiSummaryRequest()));
+
+        var action = Assert.Single(summary.ActionItems);
+        Assert.Equal(message.Id, action.SourceMessageId);
+        Assert.Equal(new DateTime(2030, 12, 31, 10, 0, 0, DateTimeKind.Utc), action.DueAt);
+    }
+
+    [Fact]
+    public async Task Ai_summary_returns_bounded_fallback_when_provider_does_not_finish()
+    {
+        var s = await database.Seed();
+        using var app = new Factory(database.ConnectionString, new BlockingProvider(), timeoutSeconds: 1);
+        using var leader = app.CreateAuthenticatedClient(s.Users.Student);
+        var c = await Group(leader, s.ProjectId);
+        await Body<ChatMessageDto>(await leader.PostAsJsonAsync(Url(c.Id) + "/messages",
+            new ChatSendRequest(Guid.NewGuid(), "Cần kiểm tra API.")));
+
+        var started = Stopwatch.GetTimestamp();
+        var summary = await Body<ChatAiSummaryDto>(await leader.PostAsJsonAsync(Url(c.Id) + "/ai/summary", new ChatAiSummaryRequest()));
+        var elapsed = Stopwatch.GetElapsedTime(started);
+
+        Assert.Equal("FALLBACK", summary.GenerationStatus);
+        Assert.Contains("Chưa thể tạo tóm tắt", summary.Summary);
+        Assert.True(elapsed < TimeSpan.FromSeconds(5), $"AI summary exceeded timeout bound: {elapsed}");
     }
 
     [Fact]
@@ -229,16 +285,51 @@ public sealed class ChatCollaborationTests(FinalSubmissionDraftDatabaseFixture d
         }
     }
 
-    private sealed class Factory(string connection) : AipmsWebApplicationFactory
+    private sealed class Factory(string connection, IAiTextGenerationProvider? provider = null, int? timeoutSeconds = null) : AipmsWebApplicationFactory
     {
         public MemoryStorage Storage { get; } = new();
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
-            builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string,string?> { ["ConnectionStrings:DefaultConnection"] = connection, ["Chat:Enabled"] = "true", ["Chat:RealtimeEnabled"] = "false" }));
+            builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string,string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = connection,
+                ["Chat:Enabled"] = "true",
+                ["Chat:RealtimeEnabled"] = "false",
+                ["Chat:AiSummaryTimeoutSeconds"] = timeoutSeconds?.ToString()
+            }));
             builder.ConfigureServices(s => { s.RemoveAll<IFileStorage>(); s.AddSingleton<IFileStorage>(Storage);
-                s.RemoveAll<IAiTextGenerationProvider>(); s.AddScoped<IAiTextGenerationProvider, ChatSummaryProvider>();
+                s.RemoveAll<IAiTextGenerationProvider>();
+                if (provider is null) s.AddScoped<IAiTextGenerationProvider, ChatSummaryProvider>();
+                else s.AddSingleton(provider);
                 foreach (var descriptor in s.Where(d => d.ImplementationType?.Name == "ChatUploadCleanupWorker").ToArray()) s.Remove(descriptor); });
+        }
+    }
+
+    private sealed class GroundingProvider(bool groundedDate) : IAiTextGenerationProvider
+    {
+        public string ModelVersion => "TEST_CHAT_GROUNDING";
+        public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
+        {
+            var id = Regex.Match(userPrompt, @"messageId=(?<id>[^;]+);").Groups["id"].Value;
+            var dueAt = groundedDate ? "2030-12-31T10:00:00Z" : null;
+            return Task.FromResult(JsonSerializer.Serialize(new
+            {
+                summary = "Grounded",
+                decisions = Array.Empty<string>(),
+                openQuestions = Array.Empty<string>(),
+                actionItems = new[] { new { title = "Hoàn thành API", ownerName = (string?)null, dueAt, sourceMessageId = id } }
+            }));
+        }
+    }
+
+    private sealed class BlockingProvider : IAiTextGenerationProvider
+    {
+        public string ModelVersion => "TEST_CHAT_BLOCKING";
+        public async Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return "{}";
         }
     }
     private sealed class ChatSummaryProvider : IAiTextGenerationProvider
