@@ -18,7 +18,8 @@ namespace AIPMS.Infrastructure.Chat;
 
 internal sealed partial class ChatService(AipmsDbContext db, ChatAccessService access, IOptions<ChatSettings> settings,
     TimeProvider clock, IChatWakeSignal wake, IChatCredentialGuard? credentials = null,
-    AIPMS.Application.Abstractions.Storage.IFileStorage? storage = null) : IChatService
+    AIPMS.Application.Abstractions.Storage.IFileStorage? storage = null,
+    AIPMS.Application.Features.AiAssistant.Abstractions.IAiTextGenerationProvider? aiProvider = null) : IChatService
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
     private static string S(long n) => n.ToString(CultureInfo.InvariantCulture);

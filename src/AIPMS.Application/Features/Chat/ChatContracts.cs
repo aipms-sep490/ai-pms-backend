@@ -34,3 +34,8 @@ public sealed record ChatAttachmentDto(string Id, string FileName, string Conten
 public sealed record ChatReactionDto(string Emoji, int Count, bool ReactedByMe);
 public sealed record ChatReactionRequest(string Emoji);
 public sealed record ChatMuteRequest(DateTimeOffset? MutedUntil);
+public sealed record ChatAiSummaryRequest(int MessageCount = 40);
+public sealed record ChatAiActionItem(string Title, string? OwnerName = null, DateTime? DueAt = null, string? SourceMessageId = null);
+public sealed record ChatAiSummaryDto(string ConversationId, string Summary, IReadOnlyList<string> Decisions,
+    IReadOnlyList<string> OpenQuestions, IReadOnlyList<ChatAiActionItem> ActionItems, DateTime GeneratedAt,
+    string GenerationStatus);

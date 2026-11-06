@@ -2,6 +2,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Features.AiAssistant.DTOs;
 using AIPMS.Application.Features.AiAssistant.Queries;
+using AIPMS.Application.Features.Projects.Abstractions;
+using AIPMS.Application.Features.Projects.DTOs;
 using AIPMS.Application.Features.AcademicKnowledge;
 using AIPMS.Application.Features.AcademicKnowledge.Abstractions;
 using MediatR;
@@ -22,6 +24,32 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
 public sealed class AiAssistantController(ISender sender, AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore runs, IAcademicKnowledgeService knowledge) : ControllerBase
 {
+    [HttpGet("/api/v1/projects/{projectId:long}/ai/digest")]
+    [ProducesResponseType<ProjectAiDigestDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<ProjectAiDigestDto>> Digest(
+        long projectId,
+        [FromServices] IScopedProgressAnalysisService analysis,
+        CancellationToken cancellationToken)
+    {
+        var result = await analysis.AnalyzeAsync(projectId, false, cancellationToken);
+        var progress = result.ProgressSummary;
+        var actions = result.Recommendations ?? Array.Empty<string>();
+        var digest = new ProjectAiDigestDto(
+            result.ProjectId,
+            result.GeneratedAtUtc,
+            result.DataStatus,
+            result.RiskLevel,
+            result.RiskScore,
+            new ProgressDigestSummary(progress.TotalMilestones, progress.CompletedMilestones,
+                progress.TotalTasks, progress.DoneTasks, progress.BlockedTasks,
+                progress.OverdueTasks, progress.ProgressPercentage),
+            result.Signals,
+            actions,
+            result.ProjectEvidence,
+            result.Limitations);
+        return Ok(digest);
+    }
+
     [HttpPost("/api/v1/projects/{projectId:long}/ai/progress-analysis")]
     [ProducesResponseType<AIPMS.Application.Features.Projects.DTOs.ProjectProgressAnalysisDto>(200)]
     public Task<AIPMS.Application.Features.Projects.DTOs.ProjectProgressAnalysisDto> AnalyzeProgress(long projectId,
