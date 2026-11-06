@@ -19,6 +19,7 @@ internal sealed partial class ChatService
             .Select(x => new { x.Id, x.SenderId, SenderName = db.Users.Where(u => u.Id == x.SenderId).Select(u => u.FullName).FirstOrDefault(), x.Body, x.CreatedAt }).ToArrayAsync(ct);
         if (rows.Length < 1) throw new ConflictException("Conversation has no messages.", "CHAT_EMPTY");
         var allowedMessageIds = rows.Select(x => x.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToHashSet(StringComparer.Ordinal);
+        var messageBodies = rows.ToDictionary(x => x.Id.ToString(CultureInfo.InvariantCulture), x => x.Body ?? string.Empty);
         var allowedNames = rows.Select(x => x.SenderName).Where(x => !string.IsNullOrWhiteSpace(x)).ToHashSet(StringComparer.Ordinal);
         // Keep the provider prompt bounded when users paste long logs or documents into chat.
         var transcript = string.Join("\n", rows.TakeLast(40).Select(x => $"messageId={x.Id}; time={x.CreatedAt:O}; sender={x.SenderName ?? $"Người dùng {x.SenderId}"}; body={Clip(x.Body, 800)}"));
@@ -28,9 +29,11 @@ internal sealed partial class ChatService
             "Chỉ điền ownerName bằng đúng tên người gửi xuất hiện trong dữ liệu; chỉ điền sourceMessageId bằng một messageId đã cung cấp; " +
             "dueAt phải là ISO-8601 có múi giờ nếu tin nhắn nêu rõ hạn, nếu không thì null. Không tự tạo task và không khẳng định điều chưa có trong tin nhắn.";
         string raw;
+        using var aiCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        aiCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(settings.Value.AiSummaryTimeoutSeconds, 1, 60)));
         try
         {
-            raw = await aiProvider.GenerateTextAsync(system, transcript, ct);
+            raw = await aiProvider.GenerateTextAsync(system, transcript, aiCts.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -50,11 +53,19 @@ internal sealed partial class ChatService
                 actions = a.EnumerateArray().Select(x => new ChatAiActionItem(
                     x.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "",
                     x.TryGetProperty("ownerName", out var o) && allowedNames.Contains(o.GetString() ?? "") ? o.GetString() : null,
-                    x.TryGetProperty("dueAt", out var d) && DateTime.TryParse(d.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var due) ? due : null,
+                    ParseGroundedDueAt(x, messageBodies, allowedMessageIds),
                     x.TryGetProperty("sourceMessageId", out var m) && allowedMessageIds.Contains(m.GetString() ?? "") ? m.GetString() : null)).Where(x => !string.IsNullOrWhiteSpace(x.Title)).Take(20).ToArray();
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException) { status = "FALLBACK"; }
         return new(S(id), summary, decisions, questions, actions, Now, status);
+    }
+
+    private static DateTime? ParseGroundedDueAt(JsonElement item, IReadOnlyDictionary<string, string> messageBodies, HashSet<string> allowedIds)
+    {
+        if (!item.TryGetProperty("sourceMessageId", out var source) || !allowedIds.Contains(source.GetString() ?? "")) return null;
+        if (!item.TryGetProperty("dueAt", out var dueProp) || !DateTime.TryParse(dueProp.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var due)) return null;
+        var body = messageBodies.GetValueOrDefault(source.GetString()!) ?? string.Empty;
+        return body.Contains(due.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), StringComparison.Ordinal) || body.Contains(due.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture), StringComparison.Ordinal) ? due : null;
     }
 
     private static string[] Strings(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array

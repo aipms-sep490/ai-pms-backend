@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.AI.Providers;
@@ -121,5 +122,24 @@ public sealed class AiEvidenceStructuredSummaryTests
         Assert.Contains("Blocked on network", result);
         Assert.Contains("Performance bottleneck", result);
         Assert.Contains("Review PR", result);
+    }
+
+    [Fact]
+    public async Task GroundedAiProvider_GeneratesChatSummaryJsonFromTranscript()
+    {
+        var provider = new GroundedAiTextGenerationProvider();
+        var system = "Return JSON with summary, decisions, openQuestions and actionItems.";
+        var transcript = "messageId=41; time=2030-12-01T09:00:00Z; sender=Lan; body=Thống nhất dùng endpoint staging.\n" +
+            "messageId=42; time=2030-12-01T09:01:00Z; sender=Minh; body=Cần kiểm tra API trước thứ Sáu?";
+
+        using var json = JsonDocument.Parse(await provider.GenerateTextAsync(system, transcript));
+        var root = json.RootElement;
+        Assert.Contains("2 tin nhắn", root.GetProperty("summary").GetString());
+        Assert.Contains(root.GetProperty("decisions").EnumerateArray(), item => item.GetString()!.Contains("Thống nhất"));
+        Assert.Contains(root.GetProperty("openQuestions").EnumerateArray(), item => item.GetString()!.Contains("API"));
+        var action = Assert.Single(root.GetProperty("actionItems").EnumerateArray());
+        Assert.Equal("42", action.GetProperty("sourceMessageId").GetString());
+        Assert.Equal("Minh", action.GetProperty("ownerName").GetString());
+        Assert.True(action.GetProperty("dueAt").ValueKind == JsonValueKind.Null);
     }
 }
