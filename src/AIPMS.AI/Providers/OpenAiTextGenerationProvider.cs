@@ -11,6 +11,10 @@ public sealed class OpenAiTextGenerationProvider(
     HttpClient http,
     IOptions<AiAssistantOptions> settings) : IAiTextGenerationProvider, IAiVisionProvider, IAiStreamingProvider
 {
+    // Assistant responses are parsed JSON and are capped by the service at 4,000
+    // characters. Keep provider completion bounded so a slow/reasoning-heavy
+    // router cannot spend an unbounded amount of time generating extra prose.
+    private const int MaxCompletionTokens = 1200;
     private readonly AiAssistantOptions options = settings.Value;
 
     public string ModelVersion => $"OPENAI_{options.OpenAi.Model}";
@@ -26,6 +30,7 @@ public sealed class OpenAiTextGenerationProvider(
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.OpenAi.ApiKey);
         request.Content = new StringContent(JsonSerializer.Serialize(new {
             model = options.OpenAi.Model, temperature = 0.1, stream = true,
+            max_tokens = MaxCompletionTokens,
             messages = new object[] { new { role = "system", content = systemPrompt }, new { role = "user", content = (object)content } }
         }), Encoding.UTF8, "application/json");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -80,6 +85,7 @@ public sealed class OpenAiTextGenerationProvider(
         {
             model = options.OpenAi.Model,
             temperature = 0.1,
+            max_tokens = MaxCompletionTokens,
             messages = new object[]
             {
                 new { role = "system", content = systemPrompt },
