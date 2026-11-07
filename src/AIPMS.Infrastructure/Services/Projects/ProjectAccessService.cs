@@ -23,10 +23,12 @@ internal sealed class ProjectAccessService(AipmsDbContext context, TimeProvider?
             var scope = await ProjectAcademicScopeReader.ReadAsync(context, projectId, cancellationToken);
             if (scope.DepartmentIds.Contains(departmentId)) return true;
         }
+        var isStudent = actor.Roles.Contains(AppRoles.Student);
+        var isLecturer = actor.Roles.Contains(AppRoles.Lecturer);
         return await context.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId
-            && ((actor.Roles.Contains(AppRoles.Student)
+            && ((isStudent
                     && p.Team.TeamMembers.Any(m => m.UserId == userId && m.LeftAt == null))
-                || (actor.Roles.Contains(AppRoles.Lecturer)
+                || (isLecturer
                     && (p.SupervisorAssignments.Any(a => a.EndedAt == null && a.SupervisorProfile.UserId == userId)
                         || p.SupervisorRequests.Any(r => r.SupervisorProfile.UserId == userId
                             && r.Status == "PENDING" && (r.ExpiresAt == null || r.ExpiresAt > now))))),
