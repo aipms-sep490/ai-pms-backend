@@ -262,6 +262,8 @@ public static class DependencyInjection
                 "WeeklyAssessment:TimeZoneId must name an installed time zone.").ValidateOnStart();
         services.AddScoped<AIPMS.Application.Features.Cold.Abstractions.IColdSubmissionService, ColdSubmissionService>();
         services.AddScoped<Application.Features.Semesters.Abstractions.IPeriodPolicyService, PeriodPolicyService>();
+        services.AddScoped<AIPMS.Application.Features.Semesters.IPeriodCalendarService, PeriodCalendarService>();
+        services.AddScoped<AIPMS.Application.Features.Semesters.IWorkingDayCalculator, WorkingDayCalculator>();
         services.AddScoped<IProjectResultRepository, ProjectResultRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<IMilestoneTemplateRepository, MilestoneTemplateRepository>();

@@ -35,8 +35,14 @@ public partial class AipmsDbContext
             e.Property(x => x.ConcurrencyToken).IsConcurrencyToken(); e.Property(x => x.CancellationReason).HasMaxLength(2000);
             e.HasOne<DefenseCommittee>().WithMany().HasForeignKey(x => x.CommitteeId).OnDelete(DeleteBehavior.NoAction);
         });
+        b.Entity<ProjectPeriodCalendar>(e => {
+            e.ToTable("project_period_calendars"); e.HasKey(x => x.Id);
+            e.HasIndex(x => x.ProjectPeriodId).IsUnique();
+            e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
+            e.HasOne<Generated.Models.ProjectPeriod>().WithMany().HasForeignKey(x => x.ProjectPeriodId).OnDelete(DeleteBehavior.Cascade);
+        });
         foreach (var type in new[] { typeof(ProjectEvidenceReview), typeof(ProjectCheckpoint), typeof(ProjectCheckpointDecision),
-                     typeof(DefenseCommittee), typeof(DefenseCommitteeMember), typeof(DefenseSession) })
+                     typeof(DefenseCommittee), typeof(DefenseCommitteeMember), typeof(DefenseSession), typeof(ProjectPeriodCalendar) })
             foreach (var p in b.Entity(type).Metadata.GetProperties())
             {
                 p.SetColumnName(System.Text.RegularExpressions.Regex.Replace(p.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());
