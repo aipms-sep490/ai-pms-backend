@@ -65,6 +65,10 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public async Task<ActionResult<AssignedReviewItemDto>> Revoke(long assignmentId, RevokeReviewGateAssignmentRequest request, CancellationToken ct) => Ok(await service.Revoke(assignmentId, request, ct));
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/decision")]
     public async Task<ActionResult<ProjectReviewMatrixRowDto>> UpdateDecision(long projectId, string gateCode, UpdateReviewGateDecisionRequest request, CancellationToken ct) => Ok(await service.UpdateDecision(projectId, gateCode, request, ct));
+    [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/override")]
+    public async Task<ActionResult<OverrideReviewGateDto>> OverrideDecision(long projectId, string gateCode, OverrideReviewGateRequest request, CancellationToken ct) => Ok(await service.OverrideDecision(projectId, gateCode, request, ct));
+    [HttpGet("api/v1/users/me/capabilities")]
+    public Task<ReviewGateUserCapabilitiesDto> OverrideCapability([FromQuery] long projectId, CancellationToken ct) => service.OverrideCapability(projectId, ct);
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/scopes/{scope}")]
     public async Task<ActionResult<ProjectReviewMatrixRowDto>> UpdateScope(long projectId, string scope, UpdateReviewGateScopeRequest request, CancellationToken ct) => Ok(await service.UpdateScope(projectId, scope, request, ct));
     [HttpGet("api/v1/departments/review-gates/matrix")]

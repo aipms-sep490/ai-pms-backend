@@ -37,6 +37,8 @@ public partial class AipmsDbContext
             e.HasIndex(x => new { x.ProjectId, x.Code }).IsUnique();
             e.Property(x => x.Code).HasMaxLength(20).IsUnicode(false); e.Property(x => x.Title).HasMaxLength(255);
             e.Property(x => x.Objective).HasMaxLength(2000); e.Property(x => x.Status).HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.DecisionSource).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.OverrideReason).HasMaxLength(2000);
             e.Property(x => x.Weight).HasPrecision(5, 2);
             e.Property(x => x.BlockNextGate).HasColumnName("block_next_gate"); e.Property(x => x.BlocksDefense).HasColumnName("blocks_defense");
             e.Property(x => x.ReviewEligibility).HasMaxLength(20).IsUnicode(false); e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
@@ -67,6 +69,7 @@ public partial class AipmsDbContext
             e.ToTable("review_gate_assignments"); e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.GateInstanceId, x.ReviewerId, x.Scope, x.MajorId, x.StudentId }).IsUnique();
             e.Property(x => x.Scope).HasMaxLength(30).IsUnicode(false); e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.SessionRole).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.LatestDecision).HasMaxLength(30).IsUnicode(false); e.Property(x => x.ReviewerNotes).HasMaxLength(2000);
             e.Property(x => x.RevocationReason).HasMaxLength(2000);
             e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();

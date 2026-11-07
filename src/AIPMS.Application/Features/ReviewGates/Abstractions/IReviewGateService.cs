@@ -23,6 +23,8 @@ public interface IReviewGateService
     Task<AssignedReviewItemDto> Assign(CreateReviewGateAssignmentRequest request, CancellationToken ct);
     Task<AssignedReviewItemDto> Revoke(long assignmentId, RevokeReviewGateAssignmentRequest request, CancellationToken ct);
     Task<ProjectReviewMatrixRowDto> UpdateDecision(long projectId, string gateCode, UpdateReviewGateDecisionRequest request, CancellationToken ct);
+    Task<OverrideReviewGateDto> OverrideDecision(long projectId, string gateCode, OverrideReviewGateRequest request, CancellationToken ct);
+    Task<ReviewGateUserCapabilitiesDto> OverrideCapability(long projectId, CancellationToken ct);
     Task<ProjectReviewMatrixRowDto> UpdateScope(long projectId, string scope, UpdateReviewGateScopeRequest request, CancellationToken ct);
     Task<IReadOnlyList<ProjectReviewMatrixRowDto>> Matrix(string? mode, long? departmentId, CancellationToken ct);
     Task<DefenseReadinessDto> DefenseReadiness(long projectId, CancellationToken ct);

@@ -1,0 +1,20 @@
+{
+  "ticket": "BE-16-03",
+  "method": "POST",
+  "path": "/api/v1/projects/12/review-gates/R2/override",
+  "request": {
+    "decision": "PASSED",
+    "reason": "Căn cứ biên bản họp khoa ngày 20/11/2026, hội đồng đã đối chiếu đủ minh chứng và thống nhất cho qua cổng thẩm định.",
+    "concurrencyToken": "f84e365248284ecab999a1a63e5246ac"
+  },
+  "response": {
+    "projectId": 12,
+    "gateCode": "R2",
+    "status": "PASSED",
+    "decisionSource": "OVERRIDE",
+    "overriddenBy": "Cán bộ khoa chủ trì",
+    "overriddenAt": "2026-11-20T07:30:00Z",
+    "reason": "Căn cứ biên bản họp khoa ngày 20/11/2026, hội đồng đã đối chiếu đủ minh chứng và thống nhất cho qua cổng thẩm định.",
+    "concurrencyToken": "0e372594b14645a495164b3cde5d6c4f"
+  }
+}

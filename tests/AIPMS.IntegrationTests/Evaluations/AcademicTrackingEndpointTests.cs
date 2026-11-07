@@ -4,6 +4,7 @@ using System.Text.Json;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.AcademicTracking;
+using AIPMS.Application.Features.ReviewGates;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +20,141 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     { Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync()); return (await response.Content.ReadFromJsonAsync<T>())!; }
     private static string Project(long id) => $"/api/v1/projects/{id}";
     private static string Evidence(long id) => $"/api/v1/project-evidence/{id}";
+
+    [Fact]
+    public async Task Lead_staff_override_requires_reason_token_and_audits_previous_decision()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
+        using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
+        var gate = await AddGate(x.S);
+        var url = $"/api/v1/projects/{x.S.ProjectId}/review-gates/{gate.Code}/override";
+        var reason = "Căn cứ biên bản họp khoa, hội đồng thống nhất chấp nhận toàn bộ minh chứng bổ sung của đề tài.";
+        var request = new OverrideReviewGateRequest("PASSED", reason, gate.ConcurrencyToken.ToString("N"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync(url, request)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync(url, request)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await staff.PostAsJsonAsync(url, request with { Reason = "too short" })).StatusCode);
+        var result = await Body<OverrideReviewGateDto>(await staff.PostAsJsonAsync(url, request));
+        Assert.Equal("OVERRIDE", result.DecisionSource); Assert.Equal("PASSED", result.Status);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url, request)).StatusCode);
+        var capabilities = await Body<ReviewGateUserCapabilitiesDto>(
+            await staff.GetAsync($"/api/v1/users/me/capabilities?projectId={x.S.ProjectId}"));
+        Assert.True(capabilities.Actions.Single(a => a.Code == "CAN_OVERRIDE_GATE").Allowed);
+        await using var db = database.CreateContext();
+        Assert.Equal("OVERRIDE", (await db.ProjectGateInstances.SingleAsync(g => g.Id == gate.Id)).DecisionSource);
+        Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == "REVIEW_GATE_OVERRIDE" && a.EntityId == gate.Id.ToString()));
+    }
+
+    [Fact]
+    public async Task Gate_script_requires_chair_or_secretary_and_sync_cannot_replay_stale_token()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        var gate = await AddGate(x.S);
+        using var chair = app.CreateAuthenticatedClient(x.S.Scope.Users.NewLecturer);
+        using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
+        var roomKey = "gate-" + gate.Id;
+        long videoSessionId;
+        await using (var db = database.CreateContext())
+        {
+            db.GateReviewerAssignments.Add(new GateReviewerAssignment { GateInstanceId = gate.Id,
+                ReviewerId = x.S.Scope.Users.NewLecturer, Scope = "COMMON", SessionRole = "CHAIR", CreatedAt = Now });
+            var meeting = new M.Meeting { ProjectId = x.S.ProjectId, Title = "Review gate session",
+                StartAt = Now.AddHours(-1), EndAt = Now.AddMinutes(15),
+                Status = "SCHEDULED", CreatedBy = x.S.Scope.Users.Staff,
+                CreatedAt = Now, UpdatedAt = Now };
+            db.Meetings.Add(meeting); await db.SaveChangesAsync();
+            var video = new M.MeetingVideoSession { MeetingId = meeting.Id, Provider = "LIVEKIT",
+                ProviderRoomKey = roomKey, Status = "LIVE", StartedAt = Now.AddMinutes(-30),
+                CreatedAt = Now.AddHours(-1), UpdatedAt = Now };
+            db.MeetingVideoSessions.Add(video); await db.SaveChangesAsync(); videoSessionId = video.Id;
+            db.MeetingVideoPresenceSessions.Add(new M.MeetingVideoPresenceSession {
+                MeetingVideoSessionId = video.Id, UserId = x.S.Scope.Users.NewLecturer,
+                ProviderParticipantIdentity = "test-chair", JoinedAt = Now.AddMinutes(-20),
+                CreatedAt = Now, UpdatedAt = Now });
+            await db.SaveChangesAsync();
+        }
+        var start = new DateTimeOffset(Now).AddHours(-1); var end = start.AddMinutes(75);
+        var url = $"/api/v1/review-gates/{gate.Id}/session-script";
+        var input = new SaveGateSessionScriptRequest("ONLINE", null, roomKey,
+            start, end, null, null, [], [new GateAgendaStage("Questions", 30, "PENDING")],
+            [], [], "Initial agenda", "PENDING", null, null, null);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.PutAsJsonAsync(url, input)).StatusCode);
+        var saved = await Body<GateSessionScriptDto>(await chair.PutAsJsonAsync(url, input));
+        Assert.Equal("ONLINE", saved.Mode); Assert.Single(saved.AgendaStages);
+        Assert.Equal(HttpStatusCode.Conflict, (await chair.PutAsJsonAsync(url, input)).StatusCode);
+        var presence = new SyncGatePresenceRequest(videoSessionId.ToString(),
+            [new LiveKitPresenceParticipant(x.S.Scope.Users.NewLecturer,
+                new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero), null, 20)], saved.ConcurrencyToken);
+        var synced = await Body<GateSessionScriptDto>(await chair.PostAsJsonAsync(
+            $"/api/v1/review-gates/{gate.Id}/livekit-presence/sync", presence));
+        Assert.Single(synced.Presences);
+        Assert.True(synced.Presences.Single().JoinedAt > new DateTimeOffset(Now).AddHours(-1));
+        Assert.Equal(HttpStatusCode.Conflict, (await chair.PostAsJsonAsync(
+            $"/api/v1/review-gates/{gate.Id}/livekit-presence/sync", presence)).StatusCode);
+        var readback = await Body<GateSessionScriptDto>(await chair.GetAsync(url));
+        Assert.Equal(synced.ConcurrencyToken, readback.ConcurrencyToken);
+    }
+
+    [Fact]
+    public async Task Offline_gate_script_uses_real_roster_and_period_working_days()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        var gate = await AddGate(x.S);
+        using var chair = app.CreateAuthenticatedClient(x.S.Scope.Users.NewLecturer);
+        using var secretary = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        long roomId;
+        await using (var db = database.CreateContext())
+        {
+            db.GateReviewerAssignments.Add(new GateReviewerAssignment { GateInstanceId = gate.Id,
+                ReviewerId = x.S.Scope.Users.NewLecturer, Scope = "COMMON", SessionRole = "CHAIR", CreatedAt = Now });
+            db.GateReviewerAssignments.Add(new GateReviewerAssignment { GateInstanceId = gate.Id,
+                ReviewerId = x.S.Scope.Users.Staff, Scope = "COMMON", SessionRole = "SECRETARY", CreatedAt = Now });
+            var room = new Room { Code = "GATE-" + Guid.NewGuid().ToString("N")[..8],
+                Building = "Test", Floor = 1, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            db.Add(room);
+            db.Set<ProjectPeriodCalendar>().Add(new ProjectPeriodCalendar { ProjectPeriodId = x.S.PeriodId,
+                WorkingDaysOfWeek = 62, HolidaysJson = "[]", CreatedAt = Now, UpdatedAt = Now });
+            await db.SaveChangesAsync(); roomId = room.Id;
+        }
+        var scheduled = new DateTimeOffset(Now);
+        var remediation = new GateRemediationItem("fix-1", "Revise architecture", "Team",
+            new DateOnly(2026, 9, 11), true, 5);
+        var input = new SaveGateSessionScriptRequest("OFFLINE", roomId, null,
+            scheduled, scheduled.AddMinutes(75), null, null,
+            [new GatePresence(x.S.Scope.Users.Student, "Forged name", "CHAIR", true)],
+            [], [], [remediation], null, "PENDING", null, null, null);
+        var url = $"/api/v1/review-gates/{gate.Id}/session-script";
+        Assert.Equal(HttpStatusCode.Forbidden, (await chair.PutAsJsonAsync(url,
+            input with { Presences = [new GatePresence(x.S.Scope.Users.Admin, "Admin", "CHAIR", true)] })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await chair.PutAsJsonAsync(url,
+            input with { SignedBySecretary = "Staff" })).StatusCode);
+        var saved = await Body<GateSessionScriptDto>(await chair.PutAsJsonAsync(url,
+            input with { SignedByChair = "NewLecturer" }));
+        Assert.Equal("STUDENT", Assert.Single(saved.Presences).Role);
+        Assert.Equal("Student", Assert.Single(saved.Presences).Name);
+        Assert.Equal(new DateOnly(2026, 9, 17), Assert.Single(saved.RemediationItems).DueDate);
+        var final = await Body<GateSessionScriptDto>(await secretary.PutAsJsonAsync(url,
+            input with { SignedByChair = "NewLecturer", SignedBySecretary = "Staff",
+                Verdict = "PASSED", ConcurrencyToken = saved.ConcurrencyToken }));
+        Assert.Equal("PASSED", final.Verdict);
+    }
+
+    private async Task<ProjectGateInstance> AddGate(EvaluationScenario scenario)
+    {
+        await using var db = database.CreateContext();
+        var template = new ReviewGateTemplate { ProjectPeriodId = scenario.PeriodId,
+            Code = "GATE-" + Guid.NewGuid().ToString("N")[..8], Name = "Gate script test",
+            Mode = "SINGLE_MAJOR", Major = "COMMON", Status = "PUBLISHED", Version = 1,
+            CreatedBy = scenario.Scope.Users.Staff, CreatedAt = Now, UpdatedAt = Now };
+        db.ReviewGateTemplates.Add(template); await db.SaveChangesAsync();
+        var gate = new ProjectGateInstance { ProjectId = scenario.ProjectId, TemplateId = template.Id,
+            TemplateVersion = 1, Code = "R" + Guid.NewGuid().ToString("N")[..4], Sequence = 1,
+            Title = "Review gate", Objective = "Test review", Status = "IN_REVIEW",
+            ReviewEligibility = "READY", CreatedAt = Now };
+        db.ProjectGateInstances.Add(gate); await db.SaveChangesAsync();
+        return gate;
+    }
 
     [Fact]
     public async Task Room_catalog_period_timetable_and_availability_use_stable_room_ids()

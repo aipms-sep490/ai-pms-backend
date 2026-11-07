@@ -4,6 +4,7 @@ using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Semesters;
+using AIPMS.Application.Features.Semesters.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;

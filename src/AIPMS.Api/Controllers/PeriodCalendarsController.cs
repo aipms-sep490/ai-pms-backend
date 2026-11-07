@@ -1,4 +1,5 @@
 using AIPMS.Application.Features.Semesters;
+using AIPMS.Application.Features.Semesters.Abstractions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

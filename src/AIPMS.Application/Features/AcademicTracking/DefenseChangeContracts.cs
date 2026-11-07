@@ -10,11 +10,3 @@ public sealed record DefenseChangeRequestDto(long Id, long DefenseSessionId, lon
     string ReasonCategory, string ReasonDetails, string? EvidenceFileUrl, string Status,
     long? ReviewerId, string? ReviewNote, DateTimeOffset? ReviewedAt, string ConcurrencyToken,
     DateTimeOffset CreatedAt);
-
-public interface IDefenseChangeRequestService
-{
-    Task<DefenseChangeRequestDto> Create(long sessionId, CreateDefenseChangeRequest input, CancellationToken ct);
-    Task<DefenseChangeRequestDto> Decide(long id, DecideDefenseChangeRequest input, CancellationToken ct);
-    Task<DefenseChangeRequestDto> Withdraw(long id, WithdrawDefenseChangeRequest input, CancellationToken ct);
-    Task<IReadOnlyList<DefenseChangeRequestDto>> List(long periodId, string? status, CancellationToken ct);
-}

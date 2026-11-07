@@ -10,9 +10,3 @@ public sealed record AutoSchedulePreviewDto(int ScheduledCount, int UnscheduledC
     string ConcurrencyToken);
 public sealed record AutoScheduleApplyRequest(IReadOnlyList<DefenseAllocation> Allocations, string ConcurrencyToken);
 public sealed record AutoScheduleApplyDto(bool Success, int CreatedSessionsCount);
-
-public interface IAutoScheduleService
-{
-    Task<AutoSchedulePreviewDto> Preview(long periodId, AutoSchedulePreviewRequest input, CancellationToken ct);
-    Task<AutoScheduleApplyDto> Apply(long periodId, AutoScheduleApplyRequest input, CancellationToken ct);
-}

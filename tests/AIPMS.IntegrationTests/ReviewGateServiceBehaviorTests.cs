@@ -1071,6 +1071,7 @@ public sealed class ReviewGateServiceBehaviorTests(ReviewGateBehaviorFixture fix
         var s = fixture.Scenario;
         await using var db = fixture.CreateContext();
         var (project, gate, studentId) = await CreateProjectWithGate(db, s);
+        await AcademicSnapshotFixture.AddAsync(db, project.Id, s.PeriodId, s.ItDeptId, studentId, DateTime.UtcNow);
         using var app = new TestFactory(fixture);
         using var staff = app.CreateAuthenticatedClient(s.StaffId, roles: [AppRoles.DepartmentStaff]);
         using var outsider = app.CreateAuthenticatedClient(s.OutsideStaffId, roles: [AppRoles.DepartmentStaff]);
