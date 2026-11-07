@@ -1,0 +1,11 @@
+{
+  "method": "POST",
+  "path": "/api/v1/project-periods/1/defense-sessions/auto-schedule/apply",
+  "request": {
+    "allocations": [{ "projectId": 12, "committeeId": 1, "roomId": 1, "roomCode": "A-201",
+      "date": "2026-11-20", "slotNumber": 1,
+      "startAt": "2026-11-20T08:00:00+07:00", "endAt": "2026-11-20T09:15:00+07:00" }],
+    "concurrencyToken": "f5b04bac85a99e06c6f8097959c7f8301774986906fad884cc8f40da60a38484"
+  },
+  "response": { "success": true, "createdSessionsCount": 1 }
+}

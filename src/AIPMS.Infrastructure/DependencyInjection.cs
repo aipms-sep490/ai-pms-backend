@@ -254,6 +254,7 @@ public static class DependencyInjection
         services.AddOptions<AIPMS.Application.Features.Evaluations.Models.RubricOptions>().BindConfiguration(AIPMS.Application.Features.Evaluations.Models.RubricOptions.SectionName);
         services.AddScoped<Application.Features.AcademicTracking.Abstractions.IAcademicTrackingService, AcademicTrackingService>();
         services.AddScoped<AIPMS.Application.Features.AcademicTracking.IDefenseCatalogService, DefenseCatalogService>();
+        services.AddScoped<AIPMS.Application.Features.AcademicTracking.IAutoScheduleService, AutoScheduleService>();
         services.AddScoped<AIPMS.Application.Features.ReviewGates.Abstractions.IReviewGateService, ReviewGateService>();
         services.AddScoped<Application.Features.WeeklyAssessments.Abstractions.IWeeklyAssessmentService, WeeklyAssessmentService>();
         services.AddScoped<Application.Features.WorkingAgreements.Abstractions.IWorkingAgreementService, WorkingAgreementService>();

@@ -55,6 +55,37 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PutAsJsonAsync($"/api/v1/rooms/{room.Id}",
             new SaveRoomRequest(room.Code, room.Building, room.Floor, room.Capacity, room.Status, Guid.NewGuid().ToString("N")))).StatusCode);
     }
+
+    [Fact]
+    public async Task Auto_schedule_preview_is_read_only_and_apply_rechecks_revision_under_lock()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
+        long roomId;
+        await using (var db = database.CreateContext())
+        {
+            var room = new Room { Code = "AUTO-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
+                Floor = 1, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Auto committee",
+                CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
+                Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
+            db.AddRange(room, committee); await db.SaveChangesAsync(); roomId = room.Id;
+        }
+        var url = $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/auto-schedule";
+        var request = new AutoSchedulePreviewRequest(new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 14), [roomId]);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync(url + "/preview", request)).StatusCode);
+        var preview = await Body<AutoSchedulePreviewDto>(await staff.PostAsJsonAsync(url + "/preview", request));
+        Assert.Single(preview.Allocations, a => a.ProjectId == x.S.ProjectId && a.RoomId == roomId);
+        await using (var db = database.CreateContext())
+            Assert.False(await db.Set<DefenseSession>().AnyAsync(s => s.ProjectId == x.S.ProjectId));
+        var apply = new AutoScheduleApplyRequest(preview.Allocations, preview.ConcurrencyToken);
+        var result = await Body<AutoScheduleApplyDto>(await staff.PostAsJsonAsync(url + "/apply", apply));
+        Assert.True(result.Success); Assert.Equal(1, result.CreatedSessionsCount);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url + "/apply", apply)).StatusCode);
+        await using (var db = database.CreateContext())
+            Assert.Equal(1, await db.Set<DefenseSession>().CountAsync(s => s.ProjectId == x.S.ProjectId && s.RoomId == roomId));
+    }
     private async Task<(EvaluationScenario S, long Primary, long Major, long Evidence, long Task)> Prepare()
     {
         var s = await database.Seed(false); await using var db = database.CreateContext();
