@@ -10,6 +10,25 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class ResultAppealService
 {
+    public Task<CorrectionRequestDto> Withdraw(long projectId, long id, WithdrawAppealRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () => {
+        await transactions.LockProjectAsync(projectId, ct);
+        var access = await Scope(projectId, ct);
+        var row = await Row(projectId, id, ct);
+        if (row.Source != "STUDENT_APPEAL" || row.RequestedBy != Actor || !access.Student)
+            throw new ForbiddenException("Only the student who submitted the appeal can withdraw it.");
+        Token(row.ConcurrencyToken, input.ConcurrencyToken);
+        if (row.Status != "PENDING")
+            throw new ConflictException("The appeal is already under review and cannot be withdrawn.", "APPEAL_NOT_PENDING");
+        var reason = Reason(input.Reason);
+        row.Status = "WITHDRAWN";
+        row.DecisionReason = reason;
+        row.DecidedBy = Actor;
+        row.DecidedAt = Now;
+        row.ConcurrencyToken = Guid.NewGuid();
+        await db.SaveChangesAsync(ct);
+        await Event(row, "WITHDRAW_REQUEST", reason, ct);
+        return await Dto(row, access, ct);
+    }, ct);
     private static void Pending(ResultAppealRequest row)
     { if (row.Status is not ("PENDING" or "UNDER_REVIEW")) throw new ConflictException("The decision is immutable.", "APPEAL_CLOSED"); }
     public Task<CorrectionRequestDto> Assign(long projectId, long id, AssignAppealReviewerRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () => {
