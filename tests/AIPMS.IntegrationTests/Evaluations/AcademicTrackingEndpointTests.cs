@@ -19,6 +19,42 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     { Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync()); return (await response.Content.ReadFromJsonAsync<T>())!; }
     private static string Project(long id) => $"/api/v1/projects/{id}";
     private static string Evidence(long id) => $"/api/v1/project-evidence/{id}";
+
+    [Fact]
+    public async Task Room_catalog_period_timetable_and_availability_use_stable_room_ids()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
+        var roomCode = "CAT-" + Guid.NewGuid().ToString("N")[..8];
+        var room = await Body<RoomDto>(await staff.PostAsJsonAsync("/api/v1/rooms",
+            new SaveRoomRequest(roomCode, "Test Building", 2, 40, "ACTIVE")));
+        var start = Now.AddDays(2); var end = start.AddMinutes(75);
+        await using (var db = database.CreateContext())
+        {
+            var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Catalog committee",
+                CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now };
+            db.Add(committee); await db.SaveChangesAsync();
+            db.Add(new DefenseSession { ProjectId = x.S.ProjectId, CommitteeId = committee.Id,
+                RoomId = room.Id, Room = room.Code, StartAt = start, EndAt = end,
+                CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now });
+            await db.SaveChangesAsync();
+        }
+        var local = new DateTimeOffset(start).ToOffset(TimeSpan.FromHours(7));
+        var date = local.ToString("yyyy-MM-dd");
+        var timetable = await Body<PeriodDefenseSessionDto[]>(await staff.GetAsync(
+            $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions?date={date}"));
+        Assert.Contains(timetable, s => s.ProjectId == x.S.ProjectId && s.RoomId == room.Id && s.RoomCode == room.Code);
+        var availability = await Body<RoomDto[]>(await staff.GetAsync(
+            $"/api/v1/project-periods/{x.S.PeriodId}/rooms/availability?date={date}&startAt={local:HH:mm}&endAt={local.AddMinutes(75):HH:mm}"));
+        Assert.DoesNotContain(availability, r => r.Id == room.Id);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.GetAsync(
+            $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.DeleteAsync(
+            $"/api/v1/rooms/{room.Id}?concurrencyToken={room.ConcurrencyToken}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PutAsJsonAsync($"/api/v1/rooms/{room.Id}",
+            new SaveRoomRequest(room.Code, room.Building, room.Floor, room.Capacity, room.Status, Guid.NewGuid().ToString("N")))).StatusCode);
+    }
     private async Task<(EvaluationScenario S, long Primary, long Major, long Evidence, long Task)> Prepare()
     {
         var s = await database.Seed(false); await using var db = database.CreateContext();

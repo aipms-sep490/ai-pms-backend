@@ -69,18 +69,28 @@ internal sealed partial class AcademicTrackingService
         if (!access.Lead) throw new ForbiddenException(); Write(access, null);
         if (input.StartAt <= clock.GetUtcNow() || input.EndAt <= input.StartAt || input.EndAt - input.StartAt > TimeSpan.FromHours(8)
             || input.StartAt.Ticks % TimeSpan.TicksPerSecond != 0 || input.EndAt.Ticks % TimeSpan.TicksPerSecond != 0
-            || input.StartAt.Year > 2200 || string.IsNullOrWhiteSpace(input.Room) || input.Room.Length > 100) throw Invalid("A future 1-second to 8-hour session at whole-second precision and explicit room are required.");
+            || input.StartAt.Year > 2200 || string.IsNullOrWhiteSpace(input.Room) || input.Room.Trim().Length > 50) throw Invalid("A future 1-second to 8-hour session at whole-second precision and explicit room code are required.");
         var committee = await db.Set<DefenseCommittee>().Include(c => c.Members).SingleOrDefaultAsync(c => c.Id == input.CommitteeId && c.ProjectId == projectId, ct)
             ?? throw new NotFoundException("DefenseCommittee", input.CommitteeId);
         await Qualified(access, committee.Members.Select(m => new CommitteeMemberInput(m.UserId, m.MajorId)).ToArray(), ct);
         var users = committee.Members.Select(m => m.UserId).Distinct().ToArray();
         var room = input.Room.Trim().ToUpperInvariant(); var start = input.StartAt.UtcDateTime; var end = input.EndAt.UtcDateTime;
+        var roomRecord = await db.Set<Room>().SingleOrDefaultAsync(r => r.Code == room, ct);
+        if (roomRecord is null)
+        {
+            // The legacy API accepts room text. Create a catalog record so old clients keep working.
+            roomRecord = new Room { Code = room, Building = "Chưa xác định", Floor = 0, Capacity = 40,
+                CreatedAt = Now, UpdatedAt = Now };
+            db.Add(roomRecord); await db.SaveChangesAsync(ct);
+        }
+        if (roomRecord.Status != "ACTIVE") throw new ConflictException("The room is unavailable for defense scheduling.", "DEFENSE_ROOM_UNAVAILABLE");
         if (await db.Set<DefenseSession>().AnyAsync(s => s.ProjectId == projectId && s.Status == "SCHEDULED", ct))
             throw new ConflictException("This project already has a scheduled defense; cancel it explicitly before rescheduling.", "DEFENSE_ALREADY_SCHEDULED");
         if (await db.Set<DefenseSession>().AnyAsync(s => s.Status == "SCHEDULED" && s.StartAt < end && s.EndAt > start
-            && (s.ProjectId == projectId || s.Room == room || db.Set<DefenseCommitteeMember>().Any(m => m.CommitteeId == s.CommitteeId && users.Contains(m.UserId))), ct))
+            && (s.ProjectId == projectId || s.RoomId == roomRecord.Id || s.Room == room || db.Set<DefenseCommitteeMember>().Any(m => m.CommitteeId == s.CommitteeId && users.Contains(m.UserId))), ct))
             throw new ConflictException("The project, room or lecturer has an overlapping defense.", "DEFENSE_SCHEDULE_CONFLICT");
-        var row = new DefenseSession { ProjectId = projectId, CommitteeId = committee.Id, StartAt = start, EndAt = end, Room = room, CreatedBy = Actor, CreatedAt = Now };
+        var row = new DefenseSession { ProjectId = projectId, CommitteeId = committee.Id, StartAt = start, EndAt = end,
+            Room = room, RoomId = roomRecord.Id, CreatedBy = Actor, CreatedAt = Now };
         db.Add(row); await db.SaveChangesAsync(ct); await Audit("DEFENSE_SCHEDULED", "DEFENSE_SESSION", row.Id,
             new { projectId, committeeId = committee.Id, start, end, room }, ct);
         await QueueDefenseNotification(row, access, ct);

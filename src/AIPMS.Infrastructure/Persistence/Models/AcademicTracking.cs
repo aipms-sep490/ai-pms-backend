@@ -59,6 +59,8 @@ public sealed class DefenseSession
     public DateTime StartAt { get; set; }
     public DateTime EndAt { get; set; }
     public string Room { get; set; } = "";
+    public long? RoomId { get; set; }
+    public Room? RoomRecord { get; set; }
     public string Status { get; set; } = "SCHEDULED";
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
     public long CreatedBy { get; set; }
