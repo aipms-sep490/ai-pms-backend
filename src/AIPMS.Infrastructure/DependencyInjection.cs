@@ -255,6 +255,7 @@ public static class DependencyInjection
         services.AddScoped<Application.Features.AcademicTracking.Abstractions.IAcademicTrackingService, AcademicTrackingService>();
         services.AddScoped<AIPMS.Application.Features.AcademicTracking.IDefenseCatalogService, DefenseCatalogService>();
         services.AddScoped<AIPMS.Application.Features.AcademicTracking.IAutoScheduleService, AutoScheduleService>();
+        services.AddScoped<AIPMS.Application.Features.AcademicTracking.IDefenseChangeRequestService, DefenseChangeRequestService>();
         services.AddScoped<AIPMS.Application.Features.ReviewGates.Abstractions.IReviewGateService, ReviewGateService>();
         services.AddScoped<Application.Features.WeeklyAssessments.Abstractions.IWeeklyAssessmentService, WeeklyAssessmentService>();
         services.AddScoped<Application.Features.WorkingAgreements.Abstractions.IWorkingAgreementService, WorkingAgreementService>();

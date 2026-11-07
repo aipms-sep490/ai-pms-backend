@@ -69,5 +69,6 @@
   "20261030_add_rubric_approvals.sql",
   "20261101_add_ai_deliverable_review.sql",
   "20261107_add_project_period_calendars.sql",
-  "20261107_add_rooms_to_defense.sql"
+  "20261107_add_rooms_to_defense.sql",
+  "20261107_add_defense_change_requests.sql"
 ]

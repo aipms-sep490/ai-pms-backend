@@ -24,10 +24,12 @@ public partial class AipmsDbContext
         });
         b.Entity<DefenseCommittee>(e => {
             e.ToTable("defense_committees"); e.HasKey(x => x.Id); e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasMany(x => x.Members).WithOne().HasForeignKey(x => x.CommitteeId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<DefenseCommitteeMember>(e => {
             e.ToTable("defense_committee_members"); e.HasKey(x => new { x.CommitteeId, x.UserId, x.MajorId });
+            e.Property(x => x.Role).HasMaxLength(20).IsUnicode(false);
         });
         b.Entity<DefenseSession>(e => {
             e.ToTable("defense_sessions"); e.HasKey(x => x.Id);
@@ -50,8 +52,19 @@ public partial class AipmsDbContext
             e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasOne<Generated.Models.ProjectPeriod>().WithMany().HasForeignKey(x => x.ProjectPeriodId).OnDelete(DeleteBehavior.Cascade);
         });
+        b.Entity<DefenseScheduleChangeRequest>(e => {
+            e.ToTable("defense_schedule_change_requests"); e.HasKey(x => x.Id);
+            e.Property(x => x.ReasonCategory).HasMaxLength(50); e.Property(x => x.ReasonDetails).HasMaxLength(2000);
+            e.Property(x => x.EvidenceFileUrl).HasMaxLength(500); e.Property(x => x.Status).HasMaxLength(30);
+            e.Property(x => x.ReviewNote).HasMaxLength(2000); e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
+            e.HasIndex(x => new { x.DefenseSessionId, x.Status });
+            e.HasOne<DefenseSession>().WithMany().HasForeignKey(x => x.DefenseSessionId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Room>().WithMany().HasForeignKey(x => x.CurrentRoomId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Room>().WithMany().HasForeignKey(x => x.DesiredRoomId).OnDelete(DeleteBehavior.NoAction);
+        });
         foreach (var type in new[] { typeof(ProjectEvidenceReview), typeof(ProjectCheckpoint), typeof(ProjectCheckpointDecision),
-                     typeof(DefenseCommittee), typeof(DefenseCommitteeMember), typeof(DefenseSession), typeof(ProjectPeriodCalendar), typeof(Room) })
+                     typeof(DefenseCommittee), typeof(DefenseCommitteeMember), typeof(DefenseSession), typeof(ProjectPeriodCalendar),
+                     typeof(Room), typeof(DefenseScheduleChangeRequest) })
             foreach (var p in b.Entity(type).Metadata.GetProperties())
             {
                 p.SetColumnName(System.Text.RegularExpressions.Regex.Replace(p.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());

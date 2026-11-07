@@ -86,6 +86,66 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         await using (var db = database.CreateContext())
             Assert.Equal(1, await db.Set<DefenseSession>().CountAsync(s => s.ProjectId == x.S.ProjectId && s.RoomId == roomId));
     }
+
+    [Fact]
+    public async Task Chair_can_request_change_lead_staff_decides_and_token_prevents_replay()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        using var chair = app.CreateAuthenticatedClient(x.S.Scope.Users.NewLecturer);
+        using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
+        var slot = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1);
+        long sessionId, desiredRoomId, committeeId; string committeeToken;
+        await using (var db = database.CreateContext())
+        {
+            var currentRoom = new Room { Code = "CUR-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
+                Floor = 1, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            var desiredRoom = new Room { Code = "NEW-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
+                Floor = 1, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Chair committee",
+                CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
+                Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
+            db.AddRange(currentRoom, desiredRoom, committee); await db.SaveChangesAsync();
+            committeeId = committee.Id; committeeToken = committee.ConcurrencyToken.ToString("N");
+            var session = new DefenseSession { ProjectId = x.S.ProjectId, CommitteeId = committee.Id,
+                RoomId = currentRoom.Id, Room = currentRoom.Code, StartAt = slot.Start.UtcDateTime,
+                EndAt = slot.End.UtcDateTime, CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now };
+            db.Add(session); await db.SaveChangesAsync();
+            sessionId = session.Id; desiredRoomId = desiredRoom.Id;
+        }
+        var assigned = await Body<CommitteeDto>(await staff.PutAsJsonAsync(
+            $"/api/v1/defense-committees/{committeeId}/roles",
+            new SaveCommitteeRolesRequest([new CommitteeMemberInput(x.S.Scope.Users.NewLecturer, x.Major, "CHAIR")], committeeToken)));
+        Assert.Equal("CHAIR", Assert.Single(assigned.Members).Role);
+        var url = $"/api/v1/defense-sessions/{sessionId}/change-requests";
+        var request = new CreateDefenseChangeRequest(desiredRoomId, slot.Start, slot.End,
+            "ROOM_FACILITY_ISSUE", "The projector is unavailable in the original room.", null);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync(url, request)).StatusCode);
+        var pending = await Body<DefenseChangeRequestDto>(await chair.PostAsJsonAsync(url, request));
+        Assert.Equal("PENDING", pending.Status);
+        Assert.Equal(HttpStatusCode.Conflict, (await chair.PostAsJsonAsync(url, request)).StatusCode);
+        var decisionUrl = $"/api/v1/defense-sessions/change-requests/{pending.Id}/decision";
+        var decision = new DecideDefenseChangeRequest("APPROVED", "Approved by lead staff", pending.ConcurrencyToken);
+        Assert.Equal(HttpStatusCode.Forbidden, (await chair.PostAsJsonAsync(decisionUrl, decision)).StatusCode);
+        var approved = await Body<DefenseChangeRequestDto>(await staff.PostAsJsonAsync(decisionUrl, decision));
+        Assert.Equal("APPROVED", approved.Status);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(decisionUrl, decision)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await chair.PostAsJsonAsync(
+            $"/api/v1/defense-sessions/change-requests/{pending.Id}/withdraw",
+            new WithdrawDefenseChangeRequest(pending.ConcurrencyToken))).StatusCode);
+        var second = await Body<DefenseChangeRequestDto>(await chair.PostAsJsonAsync(url,
+            request with { DesiredRoomId = pending.CurrentRoomId }));
+        var withdrawn = await Body<DefenseChangeRequestDto>(await chair.PostAsJsonAsync(
+            $"/api/v1/defense-sessions/change-requests/{second.Id}/withdraw",
+            new WithdrawDefenseChangeRequest(second.ConcurrencyToken)));
+        Assert.Equal("WITHDRAWN", withdrawn.Status);
+        var pendingList = await Body<DefenseChangeRequestDto[]>(await staff.GetAsync(
+            $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/change-requests?status=PENDING"));
+        Assert.DoesNotContain(pendingList, r => r.Id == withdrawn.Id);
+        await using var verify = database.CreateContext();
+        Assert.Equal(desiredRoomId, (await verify.Set<DefenseSession>().FindAsync(sessionId))!.RoomId);
+        Assert.True(await verify.AuditLogs.AnyAsync(a => a.Action == "DEFENSE_CHANGE_APPROVED" && a.EntityId == pending.Id.ToString()));
+    }
     private async Task<(EvaluationScenario S, long Primary, long Major, long Evidence, long Task)> Prepare()
     {
         var s = await database.Seed(false); await using var db = database.CreateContext();

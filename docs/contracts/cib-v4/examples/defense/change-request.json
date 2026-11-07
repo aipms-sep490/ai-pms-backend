@@ -1,0 +1,26 @@
+{
+  "assignCommitteeRoles": {
+    "method": "PUT", "path": "/api/v1/defense-committees/1/roles",
+    "request": { "members": [{ "userId": 45, "majorId": 3, "role": "CHAIR" }],
+      "concurrencyToken": "d5b8a9eaf50a4c4d91be2e8497a76740" }
+  },
+  "create": {
+    "method": "POST", "path": "/api/v1/defense-sessions/101/change-requests",
+    "request": { "desiredRoomId": 2, "desiredStartAt": "2026-11-20T09:30:00+07:00",
+      "desiredEndAt": "2026-11-20T10:45:00+07:00", "reasonCategory": "ROOM_FACILITY_ISSUE",
+      "reasonDetails": "The projector in room A-201 is broken.", "evidenceFileUrl": null },
+    "response": { "id": 201, "defenseSessionId": 101, "status": "PENDING",
+      "concurrencyToken": "4671ad12b700477b8a8aa44e58af859d" }
+  },
+  "decision": {
+    "method": "POST", "path": "/api/v1/defense-sessions/change-requests/201/decision",
+    "request": { "decision": "APPROVED", "reviewNote": "Approved by lead department staff.",
+      "concurrencyToken": "4671ad12b700477b8a8aa44e58af859d" }
+  },
+  "withdraw": {
+    "method": "POST", "path": "/api/v1/defense-sessions/change-requests/201/withdraw",
+    "request": { "concurrencyToken": "4671ad12b700477b8a8aa44e58af859d" }
+  },
+  "list": { "method": "GET",
+    "path": "/api/v1/project-periods/1/defense-sessions/change-requests?status=PENDING" }
+}
