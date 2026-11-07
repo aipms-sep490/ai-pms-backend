@@ -28,4 +28,5 @@ public interface IReviewGateService
     Task<DefenseReadinessDto> DefenseReadiness(long projectId, CancellationToken ct);
     Task<DefenseReadinessDto> DefenseReadinessByKey(string projectKey, CancellationToken ct);
     Task<FileDownload> DownloadEvidence(long projectId, string gateCode, long requirementId, int version, CancellationToken ct);
+    Task<ReviewGateArchiveManifest> ArchiveManifest(long projectId, string gateCode, CancellationToken ct);
 }

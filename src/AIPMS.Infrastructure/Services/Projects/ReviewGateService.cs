@@ -419,6 +419,40 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { throw new NotFoundException("ReviewGateEvidenceFile", evidence.Id); }
     }
 
+    public async Task<ReviewGateArchiveManifest> ArchiveManifest(long projectId, string gateCode, CancellationToken ct)
+    {
+        await RequireActiveActor(ct);
+        var project = await db.Projects.AsNoTracking().SingleOrDefaultAsync(x => x.Id == projectId, ct)
+            ?? throw new NotFoundException("Project", projectId);
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
+        var gate = await db.ProjectGateInstances.AsNoTracking().AsSplitQuery()
+            .Include(g => g.Requirements).ThenInclude(r => r.Evidence)
+            .SingleOrDefaultAsync(g => g.ProjectId == projectId && g.Code == gateCode, ct)
+            ?? throw new NotFoundException("ProjectGate", projectId);
+        var entries = new List<ReviewGateArchiveEntry>();
+        foreach (var requirement in gate.Requirements.OrderBy(r => r.Code).ThenBy(r => r.Id))
+        {
+            var evidence = requirement.Evidence.OrderByDescending(e => e.Version).FirstOrDefault();
+            if (evidence is null) continue;
+            if (!await IsAdmin(ct))
+            {
+                var assigned = await db.GateReviewerAssignments.AnyAsync(x => x.GateInstanceId == gate.Id && x.ReviewerId == Actor
+                    && x.Status != "REVOKED" && (x.Scope == "COMMON" && requirement.Scope == "COMMON"
+                        || x.Scope == "MAJOR_SPECIFIC" && requirement.Scope == "MAJOR_SPECIFIC" && x.MajorId == requirement.MajorId
+                        || x.Scope == "INDIVIDUAL" && requirement.Scope == "INDIVIDUAL" && x.StudentId == requirement.TargetStudentId), ct);
+                if (!assigned && !await CanReadEvidence(projectId, scope, requirement, ct))
+                    throw new ForbiddenException("The archive contains evidence outside the actor's academic scope.");
+            }
+            var isLink = string.IsNullOrWhiteSpace(evidence.StorageKey);
+            if (isLink && (!Uri.TryCreate(evidence.LinkUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps))
+                throw new ValidationException(new Dictionary<string, string[]> { ["evidence"] = ["The archive contains an invalid external evidence URL."] });
+            entries.Add(new(requirement.Id, requirement.Code, requirement.Title, evidence.Version,
+                evidence.ArtifactName, isLink, evidence.LinkUrl));
+        }
+        if (entries.Count == 0) throw new NotFoundException("ReviewGateEvidence", gate.Id);
+        return new(project.Code, gate.Code, entries);
+    }
+
     public Task<AssignedReviewItemDto> VerifyEvidence(long assignmentId, VerifyReviewGateEvidenceRequest input, CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
         var row = await db.GateReviewerAssignments.Include(x => x.GateInstance).ThenInclude(x => x.Requirements).ThenInclude(x => x.Evidence).SingleOrDefaultAsync(x => x.Id == assignmentId && x.ReviewerId == Actor, token)

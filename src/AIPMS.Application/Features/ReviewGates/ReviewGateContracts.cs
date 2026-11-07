@@ -39,6 +39,9 @@ public sealed record StudentGateRequirementDto(string Id, string Code, string Ti
     string VerificationStatus, ReviewGateArtifactDto? LatestArtifact, string? ReviewerFeedback);
 public sealed record ReviewGateArtifactDto(int Version, string Filename, DateTime SubmittedAt, string SubmittedBy, string? Notes,
     string ContentType = "application/octet-stream", long SizeBytes = 0, string Sha256 = "", string DownloadUrl = "", string? LinkUrl = null);
+public sealed record ReviewGateArchiveEntry(long RequirementId, string RequirementCode, string RequirementTitle,
+    int Version, string ArtifactName, bool IsLink, string? LinkUrl);
+public sealed record ReviewGateArchiveManifest(string ProjectCode, string GateCode, IReadOnlyList<ReviewGateArchiveEntry> Entries);
 public sealed record SubmitReviewGateEvidenceRequest(string RequirementId, string ArtifactName, string? Notes, int ExpectedVersion,
     string? ConcurrencyToken, string? LinkUrl = null);
 public sealed record SubmitReviewGateFileRequest(string RequirementId, string? Notes, int ExpectedVersion, string? ConcurrencyToken);
