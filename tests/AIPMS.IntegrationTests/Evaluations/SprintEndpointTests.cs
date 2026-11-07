@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Sprints;
 using AIPMS.Application.Features.Tasks.Commands;
+using AIPMS.Application.Features.Tasks.Queries;
 using AIPMS.Application.Features.Tasks.DTOs;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +35,29 @@ public sealed class SprintEndpointTests(EvaluationDraftDatabaseFixture database)
         await Body<TaskDto>(await c.PostAsJsonAsync("/api/v1/tasks", new CreateTaskCommand(milestone, null, title, null, "MEDIUM", null, null, [], [new(major, "PRIMARY")])));
     private static async Task<TaskDto> Board(HttpClient c, TaskDto task, long? sprint, int? points, params string[] labels) =>
         await Body<TaskDto>(await c.PutAsJsonAsync($"/api/v1/tasks/{task.Id}/board", new SaveTaskBoardRequest(sprint, points, labels, task.ConcurrencyToken!)));
+
+    [Fact]
+    public async System.Threading.Tasks.Task Board_summary_counts_all_tasks_and_validates_sprint_scope()
+    {
+        using var app = new EvaluationFactory(database); var x = await Seed();
+        using var leader = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
+        using var outsider = app.CreateAuthenticatedClient(x.S.Scope.Users.OtherLecturer);
+        var sprint = await Create(leader, x.S.ProjectId);
+        var first = await Task(leader, x.Milestone, x.Major, "First summary item");
+        var second = await Task(leader, x.Milestone, x.Major, "Second summary item");
+        first = await Board(leader, first, sprint.Id, null);
+        first = await Body<TaskDto>(await leader.PutAsJsonAsync($"/api/v1/tasks/{first.Id}/status",
+            new UpdateTaskStatusCommand(first.Id, "IN_PROGRESS", null, first.ConcurrencyToken)));
+        var url = $"/api/v1/projects/{x.S.ProjectId}/task-board/summary";
+        var all = await Body<TaskBoardStatusCount[]>(await leader.GetAsync(url));
+        Assert.Equal(1, all.Single(r => r.Status == "TODO").Count);
+        Assert.Equal(1, all.Single(r => r.Status == "IN_PROGRESS").Count);
+        var scoped = await Body<TaskBoardStatusCount[]>(await leader.GetAsync(url + $"?sprintId={sprint.Id}"));
+        Assert.Equal(1, scoped.Single(r => r.Status == "IN_PROGRESS").Count);
+        Assert.DoesNotContain(scoped, r => r.Status == "TODO" && r.Count > 0);
+        Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(url)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await leader.GetAsync(url + "?sprintId=-1")).StatusCode);
+    }
 
     [Fact]
     public async System.Threading.Tasks.Task Lifecycle_uses_real_status_history_explicit_carryover_and_keeps_milestone()

@@ -276,6 +276,7 @@ public static class DependencyInjection
         services.AddScoped<IContributionRepository, ContributionRepository>();
         services.AddScoped<Application.Features.Dashboards.Abstractions.IDashboardRepository, DashboardRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
+        services.AddScoped<AIPMS.Application.Features.Tasks.Abstractions.ITaskBoardSummaryReader, TaskBoardSummaryReader>();
         services.AddScoped<AIPMS.Application.Features.ExecutionCapabilities.Abstractions.IExecutionCapabilityService,
             Services.ExecutionCapabilities.ExecutionCapabilityService>();
         services.AddScoped<AIPMS.Application.Features.ExecutionCapabilities.Abstractions.IProjectCapabilityService,
