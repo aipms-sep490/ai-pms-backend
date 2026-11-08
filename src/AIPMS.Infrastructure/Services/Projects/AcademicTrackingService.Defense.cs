@@ -117,6 +117,9 @@ internal sealed partial class AcademicTrackingService
         if (await db.Set<DefenseSession>().AnyAsync(s => s.Status == "SCHEDULED" && s.StartAt < end && s.EndAt > start
             && (s.ProjectId == projectId || s.RoomId == roomRecord.Id || s.Room == room || db.Set<DefenseCommitteeMember>().Any(m => m.CommitteeId == s.CommitteeId && users.Contains(m.UserId))), ct))
             throw new ConflictException("The project, room or lecturer has an overlapping defense.", "DEFENSE_SCHEDULE_CONFLICT");
+        if (await db.Set<GateSessionScript>().AnyAsync(s => s.Mode == "OFFLINE" && s.RoomId == roomRecord.Id
+            && s.ScheduledStartAt < input.EndAt && s.ScheduledEndAt > input.StartAt, ct))
+            throw new ConflictException("The room is occupied by an offline review gate.", "DEFENSE_SCHEDULE_CONFLICT");
         var row = new DefenseSession { ProjectId = projectId, CommitteeId = committee.Id, StartAt = start, EndAt = end,
             Room = room, RoomId = roomRecord.Id, CreatedBy = Actor, CreatedAt = Now };
         db.Add(row); await db.SaveChangesAsync(ct); await Audit("DEFENSE_SCHEDULED", "DEFENSE_SESSION", row.Id,

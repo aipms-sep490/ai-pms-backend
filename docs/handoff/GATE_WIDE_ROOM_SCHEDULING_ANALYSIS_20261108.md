@@ -24,6 +24,8 @@ Ngày: 2026-11-08. Trạng thái: phân tích nghiệp vụ; điều kiện `đ�
 
 **Tối ưu:** gom ngành/hội đồng vào khu vực gần nhau, giảm khoảng trống giữa các phiên, phân bố số nhóm theo ngày, ưu tiên nhóm có ràng buộc đặc biệt. Không hy sinh ràng buộc bắt buộc để tối ưu.
 
+**Khóa trước lần tự xếp (xác nhận 2026-11-08):** Admin chọn phòng ở tầng 2, 3 hoặc 4 trên sơ đồ tham khảo FAMS rồi loại trừ cả phòng trong khoảng ngày của lần chạy, hoặc loại trừ một ca của phòng vào ngày đã chọn. Các khóa này là tham số `exclusions` của Preview/Apply, không lưu thành khóa lâu dài trong DB. Sửa khóa sau Preview phải chạy Preview lại; BE từ chối Apply nếu allocation vẫn nằm trong ô đã loại trừ. Phòng `MAINTENANCE`/`INACTIVE` vẫn bị loại theo trạng thái danh mục dù không có khóa tạm.
+
 Ví dụ năng lực: 120 nhóm, 4 phòng, 6 ca/ngày cho tối đa 24 nhóm/ngày; cần ít nhất 5 ngày làm việc nếu mỗi nhóm dùng một ca và không có xung đột người tham gia. Nếu cửa sổ chỉ 3 ngày, hệ thống báo thiếu ít nhất 48 ca trước khi công bố.
 
 ## Quyền và màn hình
@@ -49,7 +51,7 @@ Admin được sửa hoặc duyệt **lịch**, theo yêu cầu mới của ch�
 - `AutoScheduleService` hiện lọc `ProjectRegistrationSnapshot.LeadDepartmentId` theo một khoa, xếp `DefenseSession` R4 khi đã có `DefenseCommittee`; API nhận khoảng ngày và phòng do người dùng chọn, chưa tự lấy cửa sổ R4, kiểm tra R3 `PASSED` hoặc chạy cho toàn trường.
 - `ProjectGateInstance` đã có `WindowStart/WindowEnd`, `Status`, `BlocksDefense`. `GateSessionScript` mô tả phiên review nhưng chưa có lịch/phân phòng R3 tự động cấp kỳ. `GateSessionScriptService` hiện chấp nhận ONLINE/OFFLINE ở bất kỳ Gate nào, trái quy tắc cố định R1/R2 ONLINE và R3/R4 OFFLINE.
 - `DefenseReadiness` hiện có thể coi R4 `BlocksDefense` là điều kiện phải `PASSED` trước khi bảo vệ; nếu R4 chính là defense thì tạo vòng điều kiện sai. Cần tách `ready to schedule R4` khỏi `R4 passed`.
-- Xung đột của auto schedule hiện chỉ đọc `DefenseSession`; chưa dùng kho chiếm phòng chung với phiên review R3. Lưu script offline R3 hiện kiểm tra phòng ACTIVE nhưng chưa chặn trùng phòng theo thời gian.
+- Auto schedule R4 đã đọc `DefenseSession` và các `GateSessionScript` OFFLINE để tránh trùng phòng/người đánh giá; lưu script offline cũng chặn phòng có defense và dùng cùng khóa giao dịch. Luồng tự xếp R3 toàn trường vẫn chưa có API riêng.
 - Auto schedule `Apply` hiện ghi audit nhưng chưa gửi thông báo; thông báo chỉ có ở luồng xếp/hủy `DefenseSession` thủ công.
 - FE `DefenseCoordinatorView` và `AutoScheduleModal` đang dùng dữ liệu mẫu, ngày cố định và thao tác mô phỏng. `ReviewGateModeConfigPanel` còn cho đổi R1/R2 sang OFFLINE hoặc R3/R4 sang ONLINE; cần bỏ nút đổi chế độ và có trang điều phối R3/R4 toàn trường nối API thật trước E2E/UAT.
 - Kiểm thử BE đã dùng SQL Server cục bộ với database cô lập bị xóa sau test; chưa chứng minh migration/staging hoặc E2E FE–BE trên database ứng dụng thật.

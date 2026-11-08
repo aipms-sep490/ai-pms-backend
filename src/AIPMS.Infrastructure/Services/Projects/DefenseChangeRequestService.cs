@@ -86,6 +86,9 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
             && s.StartAt < endUtc && s.EndAt > startUtc).ToArrayAsync(ct);
         if (overlapping.Any(s => s.RoomId == roomId || s.RoomId is null && s.Room == room.Code))
             throw new ConflictException("The desired room is already occupied.", "DEFENSE_ROOM_CONFLICT");
+        if (await db.Set<GateSessionScript>().AsNoTracking().AnyAsync(s => s.Mode == "OFFLINE" && s.RoomId == roomId
+            && s.ScheduledStartAt < end && s.ScheduledEndAt > start, ct))
+            throw new ConflictException("The desired room is occupied by an offline review gate.", "DEFENSE_ROOM_CONFLICT");
         var committeeIds = overlapping.Select(s => s.CommitteeId).Distinct().ToArray();
         if (await db.Set<DefenseCommitteeMember>().AsNoTracking().AnyAsync(m => committeeIds.Contains(m.CommitteeId)
             && members.Contains(m.UserId), ct))

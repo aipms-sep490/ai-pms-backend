@@ -140,6 +140,34 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         Assert.Equal("PASSED", final.Verdict);
     }
 
+    [Fact]
+    public async Task Offline_gate_script_cannot_take_a_room_already_booked_for_defense()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        var gate = await AddGate(x.S);
+        using var chair = app.CreateAuthenticatedClient(x.S.Scope.Users.NewLecturer);
+        long roomId;
+        var slot = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1);
+        await using (var db = database.CreateContext())
+        {
+            var room = new Room { Code = "SHARED-" + Guid.NewGuid().ToString("N")[..8],
+                Building = "Test", Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Defense",
+                CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now };
+            db.AddRange(room, committee); await db.SaveChangesAsync(); roomId = room.Id;
+            db.Add(new DefenseSession { ProjectId = x.S.ProjectId, CommitteeId = committee.Id,
+                RoomId = room.Id, Room = room.Code, StartAt = slot.Start.UtcDateTime,
+                EndAt = slot.End.UtcDateTime, CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now });
+            db.GateReviewerAssignments.Add(new GateReviewerAssignment { GateInstanceId = gate.Id,
+                ReviewerId = x.S.Scope.Users.NewLecturer, Scope = "COMMON", SessionRole = "CHAIR", CreatedAt = Now });
+            await db.SaveChangesAsync();
+        }
+        var request = new SaveGateSessionScriptRequest("OFFLINE", roomId, null,
+            slot.Start, slot.End, null, null, [], [], [], [], null, "PENDING", null, null, null);
+        Assert.Equal(HttpStatusCode.Conflict, (await chair.PutAsJsonAsync(
+            $"/api/v1/review-gates/{gate.Id}/session-script", request)).StatusCode);
+    }
+
     private async Task<ProjectGateInstance> AddGate(EvaluationScenario scenario)
     {
         await using var db = database.CreateContext();
@@ -197,6 +225,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     {
         using var app = new TrackingFactory(database); var x = await Prepare();
         using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
         using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
         long roomId;
         await using (var db = database.CreateContext())
@@ -221,16 +250,50 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         Assert.Equal(2, nextSlot.Allocations.Single().SlotNumber);
         var preview = await Body<AutoSchedulePreviewDto>(await staff.PostAsJsonAsync(url + "/preview", request));
         Assert.Single(preview.Allocations, a => a.ProjectId == x.S.ProjectId && a.RoomId == roomId);
+        var adminPreview = await Body<AutoSchedulePreviewDto>(await admin.PostAsJsonAsync(url + "/preview", request));
+        Assert.Single(adminPreview.Allocations, a => a.ProjectId == x.S.ProjectId && a.RoomId == roomId);
         await using (var db = database.CreateContext())
             Assert.False(await db.Set<DefenseSession>().AnyAsync(s => s.ProjectId == x.S.ProjectId));
         var apply = new AutoScheduleApplyRequest(preview.Allocations, preview.ConcurrencyToken);
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url + "/apply",
             apply with { Exclusions = [new RoomSchedulingExclusion(roomId, request.StartDate, 1)] })).StatusCode);
-        var result = await Body<AutoScheduleApplyDto>(await staff.PostAsJsonAsync(url + "/apply", apply));
+        var result = await Body<AutoScheduleApplyDto>(await admin.PostAsJsonAsync(url + "/apply", apply));
         Assert.True(result.Success); Assert.Equal(1, result.CreatedSessionsCount);
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url + "/apply", apply)).StatusCode);
         await using (var db = database.CreateContext())
             Assert.Equal(1, await db.Set<DefenseSession>().CountAsync(s => s.ProjectId == x.S.ProjectId && s.RoomId == roomId));
+    }
+
+    [Fact]
+    public async Task Auto_schedule_avoids_room_and_reviewer_occupied_by_offline_gate()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
+        var gate = await AddGate(x.S);
+        long roomId;
+        await using (var db = database.CreateContext())
+        {
+            var room = new Room { Code = "GATE-BOOK-" + Guid.NewGuid().ToString("N")[..8],
+                Building = "Test", Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Defense committee",
+                CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
+                Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
+            var slot = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1);
+            db.AddRange(room, committee); await db.SaveChangesAsync(); roomId = room.Id;
+            db.GateReviewerAssignments.Add(new GateReviewerAssignment { GateInstanceId = gate.Id,
+                ReviewerId = x.S.Scope.Users.NewLecturer, Scope = "COMMON", CreatedAt = Now });
+            db.Set<GateSessionScript>().Add(new GateSessionScript { ProjectGateInstanceId = gate.Id,
+                Mode = "OFFLINE", RoomId = room.Id, ScheduledStartAt = slot.Start,
+                ScheduledEndAt = slot.End, CreatedAt = slot.Start, UpdatedAt = slot.Start });
+            await db.SaveChangesAsync();
+        }
+        var url = $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/auto-schedule/preview";
+        var preview = await Body<AutoSchedulePreviewDto>(await admin.PostAsJsonAsync(url,
+            new AutoSchedulePreviewRequest(new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 14), [roomId])));
+        Assert.Equal(2, Assert.Single(preview.Allocations).SlotNumber);
+        var available = await Body<RoomDto[]>(await admin.GetAsync(
+            $"/api/v1/project-periods/{x.S.PeriodId}/rooms/availability?date=2026-09-14&startAt=08:00&endAt=09:15"));
+        Assert.DoesNotContain(available, room => room.Id == roomId);
     }
 
     [Fact]

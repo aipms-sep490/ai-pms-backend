@@ -82,6 +82,8 @@ internal sealed class GateSessionScriptService(AipmsDbContext db, ICurrentUser c
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var gate = await Gate(gateInstanceId, ct);
         var role = await Role(gate, true, ct);
+        var scheduleLock = await db.Database.SqlQueryRaw<int>("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource=N'AI_PMS_DEFENSE_SCHEDULE', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=10000; SELECT @r AS Value;").ToListAsync(ct);
+        if (scheduleLock.Single() < 0) throw new ConflictException("The room schedule is busy; retry.", "DEFENSE_SCHEDULE_BUSY");
         if (input.Mode is not ("ONLINE" or "OFFLINE") || input.Verdict is not ("PENDING" or "PASSED" or "REVISION_REQUIRED" or "FAILED"))
             throw Invalid("sessionScript", "Mode or verdict is unsupported.");
         if (input.ScheduledEndAt <= input.ScheduledStartAt || input.ScheduledEndAt - input.ScheduledStartAt > TimeSpan.FromHours(12)
@@ -93,6 +95,17 @@ internal sealed class GateSessionScriptService(AipmsDbContext db, ICurrentUser c
             throw Invalid("mode", "Online sessions require a LiveKit room; offline sessions require a physical room.");
         if (input.Mode == "OFFLINE" && !await db.Set<Room>().AnyAsync(r => r.Id == input.RoomId && r.Status == "ACTIVE", ct))
             throw Invalid("roomId", "The physical room is unavailable.");
+        if (input.Mode == "OFFLINE")
+        {
+            var startUtc = input.ScheduledStartAt.UtcDateTime;
+            var endUtc = input.ScheduledEndAt.UtcDateTime;
+            if (await db.Set<DefenseSession>().AsNoTracking().AnyAsync(s => s.Status == "SCHEDULED"
+                    && s.RoomId == input.RoomId && s.StartAt < endUtc && s.EndAt > startUtc, ct)
+                || await db.Set<GateSessionScript>().AsNoTracking().AnyAsync(s => s.Mode == "OFFLINE"
+                    && s.ProjectGateInstanceId != gate.Id && s.RoomId == input.RoomId
+                    && s.ScheduledStartAt < input.ScheduledEndAt && s.ScheduledEndAt > input.ScheduledStartAt, ct))
+                throw new ConflictException("The room is already booked for a defense or offline gate.", "DEFENSE_ROOM_CONFLICT");
+        }
         if (input.Mode == "ONLINE" && !await db.MeetingVideoSessions.AsNoTracking()
             .AnyAsync(s => s.ProviderRoomKey == input.LiveKitRoomName && s.Provider == "LIVEKIT"
                 && s.Meeting.ProjectId == gate.ProjectId && s.Status != "FAILED", ct))

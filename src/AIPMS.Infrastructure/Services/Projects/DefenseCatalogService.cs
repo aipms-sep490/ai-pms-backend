@@ -156,8 +156,12 @@ internal sealed class DefenseCatalogService(AipmsDbContext db, ICurrentUser curr
         var start = new DateTimeOffset(date.ToDateTime(startAt), VietnamOffset).UtcDateTime;
         var end = new DateTimeOffset(date.ToDateTime(endAt), VietnamOffset).UtcDateTime;
         var occupied = db.Set<DefenseSession>().AsNoTracking().Where(s => s.Status == "SCHEDULED" && s.StartAt < end && s.EndAt > start);
+        var gateOccupied = db.Set<GateSessionScript>().AsNoTracking().Where(s => s.Mode == "OFFLINE"
+            && s.ScheduledStartAt < new DateTimeOffset(end, TimeSpan.Zero)
+            && s.ScheduledEndAt > new DateTimeOffset(start, TimeSpan.Zero));
         var rooms = await db.Set<Room>().AsNoTracking().Where(r => r.Status == "ACTIVE"
-            && !occupied.Any(s => s.RoomId == r.Id || s.RoomId == null && s.Room == r.Code))
+            && !occupied.Any(s => s.RoomId == r.Id || s.RoomId == null && s.Room == r.Code)
+            && !gateOccupied.Any(s => s.RoomId == r.Id))
             .OrderBy(r => r.Building).ThenBy(r => r.Code).ToArrayAsync(ct);
         return rooms.Select(Dto).ToArray();
     }

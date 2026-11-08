@@ -25,15 +25,17 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
         DateTimeOffset End, long[] Members);
     private static ValidationException Invalid(string text) => new(new Dictionary<string, string[]> { ["autoSchedule"] = [text] });
 
-    private async Task<long> Department(long periodId, CancellationToken ct)
+    private async Task<long?> Department(long periodId, CancellationToken ct)
     {
         var organization = await db.ProjectPeriods.AsNoTracking().Where(p => p.Id == periodId)
             .Select(p => (long?)p.AcademicSemester.OrganizationId).SingleOrDefaultAsync(ct)
             ?? throw new NotFoundException("ProjectPeriod", periodId);
         var user = await db.Users.AsNoTracking().Where(u => u.Id == Actor && u.Status == "ACTIVE")
             .Select(u => new { u.DepartmentId, Organization = u.Department == null ? (long?)null : u.Department.OrganizationId,
-                Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF") }).SingleOrDefaultAsync(ct)
+                Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"),
+                Admin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN") }).SingleOrDefaultAsync(ct)
             ?? throw new ForbiddenException();
+        if (user.Admin) return null;
         if (!user.Staff || user.Organization != organization || !user.DepartmentId.HasValue) throw new ForbiddenException();
         return user.DepartmentId.Value;
     }
@@ -44,16 +46,19 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
             .Select(s => new { s.Id, s.ConcurrencyToken }).ToArrayAsync(ct);
         var rooms = await db.Set<Room>().AsNoTracking().OrderBy(r => r.Id)
             .Select(r => new { r.Id, r.ConcurrencyToken }).ToArrayAsync(ct);
+        var gateSessions = await db.Set<GateSessionScript>().AsNoTracking().OrderBy(s => s.Id)
+            .Select(s => new { s.Id, s.ConcurrencyToken }).ToArrayAsync(ct);
         var text = string.Join('|', sessions.Select(s => $"s{s.Id}:{s.ConcurrencyToken:N}")) + "/"
-            + string.Join('|', rooms.Select(r => $"r{r.Id}:{r.ConcurrencyToken:N}"));
+            + string.Join('|', rooms.Select(r => $"r{r.Id}:{r.ConcurrencyToken:N}")) + "/"
+            + string.Join('|', gateSessions.Select(s => $"g{s.Id}:{s.ConcurrencyToken:N}"));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     }
 
     private async Task<(Dictionary<long, Candidate> Candidates, Dictionary<long, Room> Rooms, long[] MissingCommittees)> Load(long periodId,
-        long departmentId, IReadOnlyList<long> roomIds, CancellationToken ct)
+        long? departmentId, IReadOnlyList<long> roomIds, CancellationToken ct)
     {
         var snapshots = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
-            .Where(s => s.ProjectPeriodId == periodId && s.LeadDepartmentId == departmentId)
+            .Where(s => s.ProjectPeriodId == periodId && (!departmentId.HasValue || s.LeadDepartmentId == departmentId))
             .OrderByDescending(s => s.Id).ToArrayAsync(ct);
         var projectIds = snapshots.Select(s => s.ProjectId).Distinct().ToArray();
         var projects = await db.Projects.AsNoTracking().Include(p => p.Team).ThenInclude(t => t.TeamMembers)
@@ -90,10 +95,25 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
         var committeeIds = sessions.Select(s => s.CommitteeId).Distinct().ToArray();
         var members = await db.Set<DefenseCommitteeMember>().AsNoTracking()
             .Where(m => committeeIds.Contains(m.CommitteeId)).ToArrayAsync(ct);
-        return sessions.Select(s => new Occupied(s.ProjectId, s.RoomId, s.Room,
+        var occupied = sessions.Select(s => new Occupied(s.ProjectId, s.RoomId, s.Room,
             new DateTimeOffset(DateTime.SpecifyKind(s.StartAt, DateTimeKind.Utc)),
             new DateTimeOffset(DateTime.SpecifyKind(s.EndAt, DateTimeKind.Utc)),
             members.Where(m => m.CommitteeId == s.CommitteeId).Select(m => m.UserId).Distinct().ToArray())).ToList();
+        var gateSessions = await db.Set<GateSessionScript>().AsNoTracking()
+            .Where(s => s.Mode == "OFFLINE" && s.ScheduledStartAt < to && s.ScheduledEndAt > from)
+            .ToArrayAsync(ct);
+        var gateIds = gateSessions.Select(s => s.ProjectGateInstanceId).Distinct().ToArray();
+        var gates = await db.ProjectGateInstances.AsNoTracking().Where(g => gateIds.Contains(g.Id))
+            .Select(g => new { g.Id, g.ProjectId }).ToDictionaryAsync(g => g.Id, ct);
+        var reviewers = await db.GateReviewerAssignments.AsNoTracking()
+            .Where(a => gateIds.Contains(a.GateInstanceId) && a.Status != "REVOKED")
+            .Select(a => new { a.GateInstanceId, a.ReviewerId }).ToArrayAsync(ct);
+        occupied.AddRange(gateSessions.Where(s => gates.ContainsKey(s.ProjectGateInstanceId))
+            .Select(s => new Occupied(gates[s.ProjectGateInstanceId].ProjectId, s.RoomId, "",
+                s.ScheduledStartAt, s.ScheduledEndAt,
+                reviewers.Where(r => r.GateInstanceId == s.ProjectGateInstanceId)
+                    .Select(r => r.ReviewerId).Distinct().ToArray())));
+        return occupied;
     }
     private static bool Clash(long projectId, Room room, DateTimeOffset start, DateTimeOffset end,
         IReadOnlyList<long> members, IReadOnlyList<Occupied> occupied) => occupied.Any(s =>
