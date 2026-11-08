@@ -1,3 +1,7 @@
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+BEGIN TRANSACTION;
+
 IF COL_LENGTH('dbo.review_gate_assignments', 'session_role') IS NULL
     ALTER TABLE dbo.review_gate_assignments ADD session_role varchar(20) NOT NULL CONSTRAINT DF_gate_assignment_session_role DEFAULT 'MEMBER';
 
@@ -32,3 +36,5 @@ BEGIN
         CONSTRAINT CK_gate_script_mode_target CHECK ((mode='ONLINE' AND live_kit_room_name IS NOT NULL AND room_id IS NULL) OR (mode='OFFLINE' AND room_id IS NOT NULL AND live_kit_room_name IS NULL))
     );
 END;
+
+COMMIT TRANSACTION;

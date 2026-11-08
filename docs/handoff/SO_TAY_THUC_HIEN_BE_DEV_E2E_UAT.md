@@ -168,6 +168,10 @@ COMMIT TRANSACTION;
 
 #### File 3: `20261107_add_review_gate_override.sql`
 ```sql
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+BEGIN TRANSACTION;
+
 IF COL_LENGTH('dbo.project_gate_instances', 'decision_source') IS NULL
     ALTER TABLE dbo.project_gate_instances ADD decision_source varchar(20) NOT NULL CONSTRAINT DF_project_gate_decision_source DEFAULT 'REVIEW';
 IF COL_LENGTH('dbo.project_gate_instances', 'overridden_by') IS NULL
@@ -176,10 +180,16 @@ IF COL_LENGTH('dbo.project_gate_instances', 'overridden_at') IS NULL
     ALTER TABLE dbo.project_gate_instances ADD overridden_at datetime2(0) NULL;
 IF COL_LENGTH('dbo.project_gate_instances', 'override_reason') IS NULL
     ALTER TABLE dbo.project_gate_instances ADD override_reason nvarchar(2000) NULL;
+
+COMMIT TRANSACTION;
 ```
 
 #### File 4: `20261107_allow_withdrawn_appeals.sql`
 ```sql
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+BEGIN TRANSACTION;
+
 IF OBJECT_ID('dbo.result_appeal_requests', 'U') IS NOT NULL
 BEGIN
     IF EXISTS (SELECT 1 FROM sys.check_constraints
@@ -188,10 +198,16 @@ BEGIN
     ALTER TABLE dbo.result_appeal_requests WITH CHECK ADD CONSTRAINT ck_appeal_request_status
         CHECK (status IN ('PENDING', 'UNDER_REVIEW', 'ACCEPTED', 'REJECTED', 'WITHDRAWN'));
 END;
+
+COMMIT TRANSACTION;
 ```
 
 #### File 5: `20261107_add_gate_session_scripts.sql`
 ```sql
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+BEGIN TRANSACTION;
+
 IF COL_LENGTH('dbo.review_gate_assignments', 'session_role') IS NULL
     ALTER TABLE dbo.review_gate_assignments ADD session_role varchar(20) NOT NULL CONSTRAINT DF_gate_assignment_session_role DEFAULT 'MEMBER';
 
@@ -230,6 +246,8 @@ BEGIN
         )
     );
 END;
+
+COMMIT TRANSACTION;
 ```
 
 #### File 6: `20261107_add_defense_change_requests.sql`
@@ -283,6 +301,10 @@ COMMIT TRANSACTION;
 
 #### File 7: `20261108_publish_gate3_schedules.sql`
 ```sql
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+BEGIN TRANSACTION;
+
 IF COL_LENGTH('dbo.gate_session_scripts', 'published_at') IS NULL
     ALTER TABLE dbo.gate_session_scripts ADD published_at datetimeoffset(0) NULL;
 
@@ -300,6 +322,8 @@ FROM dbo.gate_session_scripts AS s
 JOIN dbo.project_gate_instances AS g ON g.id = s.project_gate_instance_id
 WHERE g.sequence = 3 AND s.mode = ''OFFLINE'' AND s.room_id IS NOT NULL
     AND s.published_at IS NULL');
+
+COMMIT TRANSACTION;
 ```
 
 ---

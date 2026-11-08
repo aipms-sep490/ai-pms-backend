@@ -1,3 +1,7 @@
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+BEGIN TRANSACTION;
+
 IF COL_LENGTH('dbo.gate_session_scripts', 'published_at') IS NULL
     ALTER TABLE dbo.gate_session_scripts ADD published_at datetimeoffset(0) NULL;
 
@@ -16,3 +20,5 @@ FROM dbo.gate_session_scripts AS s
 JOIN dbo.project_gate_instances AS g ON g.id = s.project_gate_instance_id
 WHERE g.sequence = 3 AND s.mode = ''OFFLINE'' AND s.room_id IS NOT NULL
     AND s.published_at IS NULL');
+
+COMMIT TRANSACTION;
