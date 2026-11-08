@@ -1,6 +1,8 @@
 # Phân tích lịch Gate và phân phòng toàn trường
 
-Ngày: 2026-11-08. Trạng thái: phân tích nghiệp vụ; điều kiện `đạt Gate trước` và chỉ R3/R4 offline đã được chủ dự án xác nhận. Hợp đồng FE–BE và luồng phân phòng R3/R4 toàn trường **chưa triển khai**.
+Ngày: 2026-11-08. Đây là bản phân tích nghiệp vụ tại thời điểm đề xuất. Điều kiện `đạt Gate trước` và chỉ R3/R4 offline đã được chủ dự án xác nhận. Đối chiếu phần đã code và E2E/UAT hiện hành tại [bàn giao Gate 3/4](BE16_GATE3_GATE4_FE_E2E_UAT_20261108.md); các mục “cần bổ sung” và “khoảng cách” bên dưới là ảnh chụp lịch sử, không phải trạng thái BE hiện tại.
+
+**Đã thực hiện trên nhánh BE:** preview/apply R3 và R4 theo Gate window, R2/R3 `PASSED`, phòng tầng 2–4, khóa phòng/ca cho lần chạy, kiểm tra trùng phòng/nhóm/người, quyền Admin toàn kỳ và nhân viên khoa theo scope, đổi lịch và thông báo. **Chưa thực hiện:** job tự chạy khi Gate mở, kế hoạch `GateSchedulePlan` lưu lâu dài, API phân trang/thống kê chuyên dụng, tối ưu phân bổ theo ngành/khu vực, đồng bộ kết quả R4 với trạng thái Gate R4, và E2E FE–BE trên staging.
 
 ## Phạm vi và cách hiểu
 
