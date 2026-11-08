@@ -211,11 +211,21 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         var url = $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/auto-schedule";
         var request = new AutoSchedulePreviewRequest(new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 14), [roomId]);
         Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync(url + "/preview", request)).StatusCode);
+        var blockedRoom = request with { Exclusions = [new RoomSchedulingExclusion(roomId, null, null)] };
+        var noRoom = await Body<AutoSchedulePreviewDto>(await staff.PostAsJsonAsync(url + "/preview", blockedRoom));
+        Assert.Empty(noRoom.Allocations);
+        Assert.Contains(noRoom.Conflicts, c => c.ProjectId == x.S.ProjectId && c.Reason == "NO_ROOM_OR_CONFLICT_FREE_SLOT");
+        var blockedSlot = request with { Exclusions = [new RoomSchedulingExclusion(roomId, request.StartDate, 1)] };
+        var nextSlot = await Body<AutoSchedulePreviewDto>(await staff.PostAsJsonAsync(url + "/preview", blockedSlot));
+        Assert.Single(nextSlot.Allocations);
+        Assert.Equal(2, nextSlot.Allocations.Single().SlotNumber);
         var preview = await Body<AutoSchedulePreviewDto>(await staff.PostAsJsonAsync(url + "/preview", request));
         Assert.Single(preview.Allocations, a => a.ProjectId == x.S.ProjectId && a.RoomId == roomId);
         await using (var db = database.CreateContext())
             Assert.False(await db.Set<DefenseSession>().AnyAsync(s => s.ProjectId == x.S.ProjectId));
         var apply = new AutoScheduleApplyRequest(preview.Allocations, preview.ConcurrencyToken);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url + "/apply",
+            apply with { Exclusions = [new RoomSchedulingExclusion(roomId, request.StartDate, 1)] })).StatusCode);
         var result = await Body<AutoScheduleApplyDto>(await staff.PostAsJsonAsync(url + "/apply", apply));
         Assert.True(result.Success); Assert.Equal(1, result.CreatedSessionsCount);
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url + "/apply", apply)).StatusCode);

@@ -108,6 +108,17 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
     }
     private static bool WorkDate(DateOnly date, int mask, IReadOnlyList<PeriodHoliday> holidays) =>
         date.DayOfWeek != DayOfWeek.Sunday && WorkingDayMath.IsWorkingDay(date, mask, holidays);
+    private static bool Excluded(long roomId, DateOnly date, int slot, IReadOnlyList<RoomSchedulingExclusion>? exclusions) =>
+        exclusions?.Any(x => x.RoomId == roomId && (!x.Date.HasValue || x.Date == date)
+            && (!x.SlotNumber.HasValue || x.SlotNumber == slot)) == true;
+    private static void ValidateExclusions(IReadOnlyList<RoomSchedulingExclusion>? exclusions)
+    {
+        if (exclusions is null) return;
+        if (exclusions.Count > 1000 || exclusions.Any(x => x is null || x.RoomId <= 0
+            || x.SlotNumber is < 1 or > 6 || x.Date?.Year > 2200)
+            || exclusions.Distinct().Count() != exclusions.Count)
+            throw Invalid("Use at most 1000 unique room/slot exclusions with valid room IDs and office slots.");
+    }
 
     public async Task<AutoSchedulePreviewDto> Preview(long periodId, AutoSchedulePreviewRequest input, CancellationToken ct)
     {
@@ -116,6 +127,10 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
             || input.RoomIds is null || input.RoomIds.Count is < 1 or > 100 || input.RoomIds.Distinct().Count() != input.RoomIds.Count
             || input.RoomIds.Any(id => id <= 0) || input.MaxSlotsPerDay is < 1 or > 6)
             throw Invalid("Use a date range up to 32 days, 1..100 unique rooms and 1..6 slots per day.");
+        ValidateExclusions(input.Exclusions);
+        if (input.Exclusions?.Any(x => !input.RoomIds.Contains(x.RoomId)
+            || x.Date.HasValue && (x.Date < input.StartDate || x.Date > input.EndDate)) == true)
+            throw Invalid("Exclusions must refer to selected rooms and dates in the preview range.");
         var earliest = DefenseSchedulingRules.Slot(input.StartDate, 1).Start;
         if (earliest.UtcDateTime <= Now || input.EndDate.Year > 2200) throw Invalid("Defense dates must be in the future.");
         var (candidates, rooms, missingCommittees) = await Load(periodId, departmentId, input.RoomIds, ct);
@@ -143,6 +158,7 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
                         .OrderByDescending(r => allocations.Count(a => a.RoomId == r.Id && candidates[a.ProjectId].MajorId == candidate.MajorId))
                         .ThenBy(r => r.Id))
                     {
+                        if (Excluded(room.Id, day, slot, input.Exclusions)) continue;
                         if (Clash(candidate.ProjectId, room, times.Start, times.End, candidate.Members, occupied)) continue;
                         chosen = new(candidate.ProjectId, candidate.CommitteeId, room.Id, room.Code, day, slot, times.Start, times.End);
                         occupied.Add(new(candidate.ProjectId, room.Id, room.Code, times.Start, times.End, candidate.Members));
@@ -163,6 +179,7 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
             || input.Allocations.Any(a => a is null)
             || input.Allocations.Select(a => a.ProjectId).Distinct().Count() != input.Allocations.Count)
             throw Invalid("Apply requires 1..1000 allocations with unique projects.");
+        ValidateExclusions(input.Exclusions);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var lockResult = await db.Database.SqlQueryRaw<int>("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource=N'AI_PMS_DEFENSE_SCHEDULE', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=10000; SELECT @r AS Value;").ToListAsync(ct);
         if (lockResult.Single() < 0) throw new ConflictException("Defense schedule is busy; retry.", "DEFENSE_SCHEDULE_BUSY");
@@ -182,6 +199,7 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
                 || !rooms.TryGetValue(allocation.RoomId, out var room) || room.Code != allocation.RoomCode
                 || room.Capacity < candidate.Seats || candidate.Members.Length == 0 || candidate.Members.Intersect(candidate.Supervisors).Any()
                 || allocation.SlotNumber is < 1 or > 6
+                || Excluded(allocation.RoomId, allocation.Date, allocation.SlotNumber, input.Exclusions)
                 || allocation.StartAt.UtcDateTime <= Now || !WorkDate(allocation.Date, calendar.Mask, calendar.Holidays))
                 throw new ConflictException("Allocation is no longer eligible.", "DEFENSE_ALLOCATION_INVALID");
             var times = DefenseSchedulingRules.Slot(allocation.Date, allocation.SlotNumber);

@@ -1,7 +1,9 @@
 {
   "method": "POST",
   "path": "/api/v1/project-periods/1/defense-sessions/auto-schedule/preview",
-  "request": { "startDate": "2026-11-20", "endDate": "2026-11-22", "roomIds": [1, 2], "maxSlotsPerDay": 6 },
+  "request": { "startDate": "2026-11-20", "endDate": "2026-11-22", "roomIds": [1, 2], "maxSlotsPerDay": 6,
+    "exclusions": [{ "roomId": 2, "date": null, "slotNumber": null },
+      { "roomId": 1, "date": "2026-11-20", "slotNumber": 2 }] },
   "response": {
     "scheduledCount": 1,
     "unscheduledCount": 0,
