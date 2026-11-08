@@ -100,6 +100,7 @@ internal sealed partial class AcademicTrackingService
             || input.StartAt.Year > 2200 || string.IsNullOrWhiteSpace(input.Room) || input.Room.Trim().Length > 50) throw Invalid("A future 1-second to 8-hour session at whole-second precision and explicit room code are required.");
         var committee = await db.Set<DefenseCommittee>().Include(c => c.Members).SingleOrDefaultAsync(c => c.Id == input.CommitteeId && c.ProjectId == projectId, ct)
             ?? throw new NotFoundException("DefenseCommittee", input.CommitteeId);
+        await OfflineGateEligibility.RequirePreviousGateAndWindow(db, projectId, 4, input.StartAt, input.EndAt, ct);
         await Qualified(access, committee.Members.Select(m => new CommitteeMemberInput(m.UserId, m.MajorId)).ToArray(), ct);
         var users = committee.Members.Select(m => m.UserId).Distinct().ToArray();
         var room = input.Room.Trim().ToUpperInvariant(); var start = input.StartAt.UtcDateTime; var end = input.EndAt.UtcDateTime;
@@ -120,6 +121,13 @@ internal sealed partial class AcademicTrackingService
         if (await db.Set<GateSessionScript>().AnyAsync(s => s.Mode == "OFFLINE" && s.RoomId == roomRecord.Id
             && s.ScheduledStartAt < input.EndAt && s.ScheduledEndAt > input.StartAt, ct))
             throw new ConflictException("The room is occupied by an offline review gate.", "DEFENSE_SCHEDULE_CONFLICT");
+        if (await db.Set<GateSessionScript>().AnyAsync(s => s.Mode == "OFFLINE"
+            && s.ScheduledStartAt < input.EndAt && s.ScheduledEndAt > input.StartAt
+            && (db.ProjectGateInstances.Any(g => g.Id == s.ProjectGateInstanceId && g.ProjectId == projectId)
+                || db.GateReviewerAssignments.Any(a => a.GateInstanceId == s.ProjectGateInstanceId
+                    && a.Status != "REVOKED" && users.Contains(a.ReviewerId))), ct))
+            throw new ConflictException("The group or committee member has an overlapping offline review.",
+                "DEFENSE_SCHEDULE_CONFLICT");
         var row = new DefenseSession { ProjectId = projectId, CommitteeId = committee.Id, StartAt = start, EndAt = end,
             Room = room, RoomId = roomRecord.Id, CreatedBy = Actor, CreatedAt = Now };
         db.Add(row); await db.SaveChangesAsync(ct); await Audit("DEFENSE_SCHEDULED", "DEFENSE_SESSION", row.Id,

@@ -21,7 +21,7 @@ public sealed record GateSessionScriptDto(long Id, long ProjectGateInstanceId, l
     IReadOnlyList<GateAgendaStage> AgendaStages, IReadOnlyList<GateQaEntry> QaLog,
     IReadOnlyList<GateRemediationItem> RemediationItems, string? GeneralNotes, string Verdict,
     string? SignedBySecretary, string? SignedByChair, string ConcurrencyToken,
-    DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+    DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? PublishedAt, long? PublishedBy);
 public sealed record LiveKitPresenceParticipant(long UserId, DateTimeOffset JoinedAt,
     DateTimeOffset? LeftAt, int? DurationMinutes);
 public sealed record SyncGatePresenceRequest(string SessionId,

@@ -80,6 +80,8 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             start, end, null, null, [], [new GateAgendaStage("Questions", 30, "PENDING")],
             [], [], "Initial agenda", "PENDING", null, null, null);
         Assert.Equal(HttpStatusCode.Forbidden, (await student.PutAsJsonAsync(url, input)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await chair.PutAsJsonAsync(url,
+            input with { Mode = "OFFLINE", RoomId = 1, LiveKitRoomName = null })).StatusCode);
         var saved = await Body<GateSessionScriptDto>(await chair.PutAsJsonAsync(url, input));
         Assert.Equal("ONLINE", saved.Mode); Assert.Single(saved.AgendaStages);
         Assert.Equal(HttpStatusCode.Conflict, (await chair.PutAsJsonAsync(url, input)).StatusCode);
@@ -100,10 +102,10 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     public async Task Offline_gate_script_uses_real_roster_and_period_working_days()
     {
         using var app = new TrackingFactory(database); var x = await Prepare();
-        var gate = await AddGate(x.S);
+        var gate = await AddGate(x.S, 3);
         using var chair = app.CreateAuthenticatedClient(x.S.Scope.Users.NewLecturer);
         using var secretary = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
-        long roomId;
+        long roomId; string scriptToken;
         await using (var db = database.CreateContext())
         {
             db.GateReviewerAssignments.Add(new GateReviewerAssignment { GateInstanceId = gate.Id,
@@ -111,11 +113,17 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             db.GateReviewerAssignments.Add(new GateReviewerAssignment { GateInstanceId = gate.Id,
                 ReviewerId = x.S.Scope.Users.Staff, Scope = "COMMON", SessionRole = "SECRETARY", CreatedAt = Now });
             var room = new Room { Code = "GATE-" + Guid.NewGuid().ToString("N")[..8],
-                Building = "Test", Floor = 1, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+                Building = "Test", Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
             db.Add(room);
             db.Set<ProjectPeriodCalendar>().Add(new ProjectPeriodCalendar { ProjectPeriodId = x.S.PeriodId,
                 WorkingDaysOfWeek = 62, HolidaysJson = "[]", CreatedAt = Now, UpdatedAt = Now });
             await db.SaveChangesAsync(); roomId = room.Id;
+            var script = new GateSessionScript { ProjectGateInstanceId = gate.Id, Mode = "OFFLINE",
+                RoomId = room.Id, ScheduledStartAt = new DateTimeOffset(Now),
+                ScheduledEndAt = new DateTimeOffset(Now.AddMinutes(75)),
+                PublishedAt = new DateTimeOffset(Now), PublishedBy = x.S.Scope.Users.Staff,
+                CreatedAt = new DateTimeOffset(Now), UpdatedAt = new DateTimeOffset(Now) };
+            db.Add(script); await db.SaveChangesAsync(); scriptToken = script.ConcurrencyToken.ToString("N");
         }
         var scheduled = new DateTimeOffset(Now);
         var remediation = new GateRemediationItem("fix-1", "Revise architecture", "Team",
@@ -123,7 +131,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         var input = new SaveGateSessionScriptRequest("OFFLINE", roomId, null,
             scheduled, scheduled.AddMinutes(75), null, null,
             [new GatePresence(x.S.Scope.Users.Student, "Forged name", "CHAIR", true)],
-            [], [], [remediation], null, "PENDING", null, null, null);
+            [], [], [remediation], null, "PENDING", null, null, scriptToken);
         var url = $"/api/v1/review-gates/{gate.Id}/session-script";
         Assert.Equal(HttpStatusCode.Forbidden, (await chair.PutAsJsonAsync(url,
             input with { Presences = [new GatePresence(x.S.Scope.Users.Admin, "Admin", "CHAIR", true)] })).StatusCode);
@@ -144,7 +152,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     public async Task Offline_gate_script_cannot_take_a_room_already_booked_for_defense()
     {
         using var app = new TrackingFactory(database); var x = await Prepare();
-        var gate = await AddGate(x.S);
+        var gate = await AddGate(x.S, 3);
         using var chair = app.CreateAuthenticatedClient(x.S.Scope.Users.NewLecturer);
         long roomId;
         var slot = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1);
@@ -168,7 +176,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             $"/api/v1/review-gates/{gate.Id}/session-script", request)).StatusCode);
     }
 
-    private async Task<ProjectGateInstance> AddGate(EvaluationScenario scenario)
+    private async Task<ProjectGateInstance> AddGate(EvaluationScenario scenario, int sequence = 1)
     {
         await using var db = database.CreateContext();
         var template = new ReviewGateTemplate { ProjectPeriodId = scenario.PeriodId,
@@ -177,11 +185,42 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             CreatedBy = scenario.Scope.Users.Staff, CreatedAt = Now, UpdatedAt = Now };
         db.ReviewGateTemplates.Add(template); await db.SaveChangesAsync();
         var gate = new ProjectGateInstance { ProjectId = scenario.ProjectId, TemplateId = template.Id,
-            TemplateVersion = 1, Code = "R" + Guid.NewGuid().ToString("N")[..4], Sequence = 1,
+            TemplateVersion = 1, Code = "R" + Guid.NewGuid().ToString("N")[..4], Sequence = sequence,
             Title = "Review gate", Objective = "Test review", Status = "IN_REVIEW",
-            ReviewEligibility = "READY", CreatedAt = Now };
+            ReviewEligibility = "READY", CreatedAt = Now,
+            WindowStart = sequence == 3 ? Now.AddDays(-1) : null,
+            WindowEnd = sequence == 3 ? Now.AddDays(10) : null };
         db.ProjectGateInstances.Add(gate); await db.SaveChangesAsync();
+        if (sequence == 3)
+        {
+            db.ProjectGateInstances.Add(new ProjectGateInstance { ProjectId = scenario.ProjectId, TemplateId = template.Id,
+                TemplateVersion = 1, Code = "R2", Sequence = 2, Title = "Review 2", Status = "PASSED",
+                ReviewEligibility = "READY", CreatedAt = Now });
+            await db.SaveChangesAsync();
+        }
         return gate;
+    }
+
+    private async Task<ProjectGateInstance> AddSchedulingGates(EvaluationScenario scenario, string r3Status = "PASSED")
+    {
+        await using var db = database.CreateContext();
+        var template = new ReviewGateTemplate { ProjectPeriodId = scenario.PeriodId,
+            Code = "SCHED-" + Guid.NewGuid().ToString("N")[..8], Name = "Scheduling gates",
+            Mode = "SINGLE_MAJOR", Major = "COMMON", Status = "PUBLISHED", Version = 1,
+            CreatedBy = scenario.Scope.Users.Staff, CreatedAt = Now, UpdatedAt = Now };
+        db.ReviewGateTemplates.Add(template); await db.SaveChangesAsync();
+        var start = Now.AddDays(-1);
+        var end = Now.AddDays(10);
+        var r3 = new ProjectGateInstance { ProjectId = scenario.ProjectId, TemplateId = template.Id,
+                TemplateVersion = 1, Code = "R3", Sequence = 3, Title = "Review 3", Status = r3Status,
+                ReviewEligibility = "READY", CreatedAt = Now };
+        db.ProjectGateInstances.AddRange(r3,
+            new ProjectGateInstance { ProjectId = scenario.ProjectId, TemplateId = template.Id,
+                TemplateVersion = 1, Code = "R4", Sequence = 4, Title = "Defense", Status = "PLANNED",
+                ReviewEligibility = r3Status == "PASSED" ? "READY" : "BLOCKED",
+                WindowStart = start, WindowEnd = end, CreatedAt = Now });
+        await db.SaveChangesAsync();
+        return r3;
     }
 
     [Fact]
@@ -224,6 +263,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     public async Task Auto_schedule_preview_is_read_only_and_apply_rechecks_revision_under_lock()
     {
         using var app = new TrackingFactory(database); var x = await Prepare();
+        await AddSchedulingGates(x.S);
         using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
         using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
         using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
@@ -231,7 +271,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         await using (var db = database.CreateContext())
         {
             var room = new Room { Code = "AUTO-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
-                Floor = 1, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+                Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
             var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Auto committee",
                 CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
                 Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
@@ -261,15 +301,19 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         Assert.True(result.Success); Assert.Equal(1, result.CreatedSessionsCount);
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url + "/apply", apply)).StatusCode);
         await using (var db = database.CreateContext())
-            Assert.Equal(1, await db.Set<DefenseSession>().CountAsync(s => s.ProjectId == x.S.ProjectId && s.RoomId == roomId));
+        {
+            var scheduledSession = await db.Set<DefenseSession>().SingleAsync(s => s.ProjectId == x.S.ProjectId && s.RoomId == roomId);
+            Assert.Equal(1, await db.Notifications.CountAsync(n => n.NotificationType == "DEFENSE_SCHEDULED"
+                && n.RelatedEntityType == "DEFENSE_SESSION" && n.RelatedEntityId == scheduledSession.Id));
+        }
     }
 
     [Fact]
     public async Task Auto_schedule_avoids_room_and_reviewer_occupied_by_offline_gate()
     {
         using var app = new TrackingFactory(database); var x = await Prepare();
+        var gate = await AddSchedulingGates(x.S);
         using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
-        var gate = await AddGate(x.S);
         long roomId;
         await using (var db = database.CreateContext())
         {
@@ -297,11 +341,136 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     }
 
     [Fact]
+    public async Task Auto_schedule_requires_passed_R3_and_a_configured_R4_window()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        await AddSchedulingGates(x.S, "REVISION_REQUIRED");
+        using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
+        long roomId;
+        await using (var db = database.CreateContext())
+        {
+            var room = new Room { Code = "ELIG-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
+                Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Defense",
+                CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
+                Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
+            db.AddRange(room, committee); await db.SaveChangesAsync(); roomId = room.Id;
+        }
+        var url = $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/auto-schedule/preview";
+        var input = new AutoSchedulePreviewRequest(new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 14), [roomId]);
+        var blocked = await Body<AutoSchedulePreviewDto>(await admin.PostAsJsonAsync(url, input));
+        Assert.Empty(blocked.Allocations);
+        Assert.Contains(blocked.Conflicts, c => c.ProjectId == x.S.ProjectId && c.Reason == "REVIEW_GATE_3_NOT_PASSED");
+        await using (var db = database.CreateContext())
+        {
+            var r3 = await db.ProjectGateInstances.SingleAsync(g => g.ProjectId == x.S.ProjectId && g.Sequence == 3);
+            r3.Status = "PASSED"; r3.ConcurrencyToken = Guid.NewGuid();
+            var r4 = await db.ProjectGateInstances.SingleAsync(g => g.ProjectId == x.S.ProjectId && g.Sequence == 4);
+            r4.WindowEnd = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1).End.UtcDateTime;
+            r4.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync();
+        }
+        var limited = await Body<AutoSchedulePreviewDto>(await admin.PostAsJsonAsync(url, input));
+        Assert.Single(limited.Allocations);
+        Assert.Equal(1, limited.Allocations.Single().SlotNumber);
+    }
+
+    [Fact]
+    public async Task Gate3_auto_schedule_requires_R2_and_publishes_then_admin_changes_with_notification()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        var r3 = await AddSchedulingGates(x.S, "PLANNED");
+        using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
+        using var chair = app.CreateAuthenticatedClient(x.S.Scope.Users.NewLecturer);
+        using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
+        long roomId, lockedRoomId;
+        await using (var db = database.CreateContext())
+        {
+            var r2 = new ProjectGateInstance { ProjectId = x.S.ProjectId, TemplateId = r3.TemplateId,
+                TemplateVersion = 1, Code = "R2", Sequence = 2, Title = "Review 2",
+                Status = "REVISION_REQUIRED", ReviewEligibility = "READY", CreatedAt = Now };
+            var gate = await db.ProjectGateInstances.SingleAsync(g => g.Id == r3.Id);
+            gate.WindowStart = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1).Start.UtcDateTime;
+            gate.WindowEnd = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 6).End.UtcDateTime;
+            var room = new Room { Code = "R3-" + Guid.NewGuid().ToString("N")[..8],
+                Building = "Test", Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            var lockedRoom = new Room { Code = "R3-LOCK-" + Guid.NewGuid().ToString("N")[..8],
+                Building = "Test", Floor = 3, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            db.AddRange(r2, room, lockedRoom);
+            db.GateReviewerAssignments.AddRange(
+                new GateReviewerAssignment { GateInstanceId = r3.Id, ReviewerId = x.S.Scope.Users.NewLecturer,
+                    Scope = "COMMON", SessionRole = "CHAIR", CreatedAt = Now },
+                new GateReviewerAssignment { GateInstanceId = r3.Id, ReviewerId = x.S.Scope.Users.Staff,
+                    Scope = "COMMON", SessionRole = "SECRETARY", CreatedAt = Now });
+            await db.SaveChangesAsync(); roomId = room.Id; lockedRoomId = lockedRoom.Id;
+        }
+        var url = $"/api/v1/project-periods/{x.S.PeriodId}/review-gates/r3/schedule";
+        var request = new AutoSchedulePreviewRequest(new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 14),
+            [roomId, lockedRoomId]);
+        var firstSlot = DefenseSchedulingRules.Slot(request.StartDate, 1);
+        Assert.Equal(HttpStatusCode.Conflict, (await chair.PutAsJsonAsync(
+            $"/api/v1/review-gates/{r3.Id}/session-script",
+            new SaveGateSessionScriptRequest("OFFLINE", roomId, null, firstSlot.Start, firstSlot.End,
+                null, null, [], [], [], [], null, "PENDING", null, null, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync(url + "/preview", request)).StatusCode);
+        var blocked = await Body<ReviewGate3SchedulePreviewDto>(await admin.PostAsJsonAsync(url + "/preview", request));
+        Assert.Empty(blocked.Allocations);
+        Assert.Contains(blocked.Conflicts, c => c.ProjectId == x.S.ProjectId && c.Reason == "REVIEW_GATE_2_NOT_PASSED");
+        await using (var db = database.CreateContext())
+        {
+            var r2 = await db.ProjectGateInstances.SingleAsync(g => g.ProjectId == x.S.ProjectId && g.Sequence == 2);
+            r2.Status = "PASSED"; r2.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await chair.PutAsJsonAsync(
+            $"/api/v1/review-gates/{r3.Id}/session-script",
+            new SaveGateSessionScriptRequest("OFFLINE", roomId, null, firstSlot.Start, firstSlot.End,
+                null, null, [], [], [], [], null, "PENDING", null, null, null))).StatusCode);
+        var excluded = request with { Exclusions = [new RoomSchedulingExclusion(roomId, request.StartDate, 1),
+            new RoomSchedulingExclusion(lockedRoomId, null, null)] };
+        var next = await Body<ReviewGate3SchedulePreviewDto>(await admin.PostAsJsonAsync(url + "/preview", excluded));
+        Assert.Equal(2, Assert.Single(next.Allocations).SlotNumber);
+        var preview = await Body<ReviewGate3SchedulePreviewDto>(await admin.PostAsJsonAsync(url + "/preview", request));
+        Assert.Equal(1, Assert.Single(preview.Allocations).SlotNumber);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync(url + "/apply",
+            new ReviewGate3ScheduleApplyRequest(preview.Allocations, preview.ConcurrencyToken,
+                [new RoomSchedulingExclusion(roomId, request.StartDate, 1)]))).StatusCode);
+        var published = await Body<ReviewGate3ScheduleDto[]>(await admin.PostAsJsonAsync(url + "/apply",
+            new ReviewGate3ScheduleApplyRequest(preview.Allocations, preview.ConcurrencyToken,
+                [new RoomSchedulingExclusion(lockedRoomId, null, null)])));
+        var schedule = Assert.Single(published);
+        Assert.Equal(roomId, schedule.RoomId);
+        Assert.Single(await Body<ReviewGate3ScheduleDto[]>(await admin.GetAsync(url)));
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync(url + "/apply",
+            new ReviewGate3ScheduleApplyRequest(preview.Allocations, preview.ConcurrencyToken))).StatusCode);
+        var scriptUrl = $"/api/v1/review-gates/{r3.Id}/session-script";
+        var studentView = await Body<GateSessionScriptDto>(await student.GetAsync(scriptUrl));
+        Assert.Equal(roomId, studentView.RoomId);
+        Assert.NotNull(studentView.PublishedAt);
+        var edit = new SaveGateSessionScriptRequest("OFFLINE", roomId, null,
+            DefenseSchedulingRules.Slot(request.StartDate, 2).Start,
+            DefenseSchedulingRules.Slot(request.StartDate, 2).End,
+            null, null, [], [], [], [], null, "PENDING", null, null, studentView.ConcurrencyToken);
+        Assert.Equal(HttpStatusCode.Conflict, (await chair.PutAsJsonAsync(scriptUrl, edit)).StatusCode);
+        var slot2 = DefenseSchedulingRules.Slot(request.StartDate, 2);
+        var changed = await Body<ReviewGate3ScheduleDto>(await admin.PutAsJsonAsync(url + "/" + r3.Id,
+            new ReviewGate3ScheduleChangeRequest(roomId, slot2.Start, slot2.End,
+                "Move the review to a later office slot", schedule.ConcurrencyToken)));
+        Assert.Equal(slot2.Start, changed.StartAt);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PutAsJsonAsync(url + "/" + r3.Id,
+            new ReviewGate3ScheduleChangeRequest(roomId, slot2.Start, slot2.End,
+                "Replay old token", schedule.ConcurrencyToken))).StatusCode);
+        await using var verify = database.CreateContext();
+        Assert.Equal(2, await verify.Notifications.CountAsync(n => n.RelatedEntityType == "GATE_SESSION_SCRIPT"
+            && n.RelatedEntityId == studentView.Id));
+    }
+
+    [Fact]
     public async Task Chair_can_request_change_lead_staff_decides_and_token_prevents_replay()
     {
         using var app = new TrackingFactory(database); var x = await Prepare();
+        await AddSchedulingGates(x.S);
         using var chair = app.CreateAuthenticatedClient(x.S.Scope.Users.NewLecturer);
         using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
         using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
         var slot = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1);
         long sessionId, desiredRoomId, committeeId; string committeeToken;
@@ -348,11 +517,22 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             $"/api/v1/defense-sessions/change-requests/{second.Id}/withdraw",
             new WithdrawDefenseChangeRequest(second.ConcurrencyToken)));
         Assert.Equal("WITHDRAWN", withdrawn.Status);
+        var adminList = await Body<DefenseChangeRequestDto[]>(await admin.GetAsync(
+            $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/change-requests?status=WITHDRAWN"));
+        Assert.Contains(adminList, r => r.Id == withdrawn.Id);
+        var third = await Body<DefenseChangeRequestDto>(await chair.PostAsJsonAsync(url,
+            request with { DesiredRoomId = pending.CurrentRoomId }));
+        var adminApproved = await Body<DefenseChangeRequestDto>(await admin.PostAsJsonAsync(
+            $"/api/v1/defense-sessions/change-requests/{third.Id}/decision",
+            new DecideDefenseChangeRequest("APPROVED", "Admin restored the original room", third.ConcurrencyToken)));
+        Assert.Equal("APPROVED", adminApproved.Status);
         var pendingList = await Body<DefenseChangeRequestDto[]>(await staff.GetAsync(
             $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/change-requests?status=PENDING"));
         Assert.DoesNotContain(pendingList, r => r.Id == withdrawn.Id);
         await using var verify = database.CreateContext();
-        Assert.Equal(desiredRoomId, (await verify.Set<DefenseSession>().FindAsync(sessionId))!.RoomId);
+        Assert.Equal(pending.CurrentRoomId, (await verify.Set<DefenseSession>().FindAsync(sessionId))!.RoomId);
+        Assert.Equal(2, await verify.Notifications.CountAsync(n => n.NotificationType == "DEFENSE_SCHEDULE_CHANGED"
+            && n.RelatedEntityId == sessionId));
         Assert.True(await verify.AuditLogs.AnyAsync(a => a.Action == "DEFENSE_CHANGE_APPROVED" && a.EntityId == pending.Id.ToString()));
     }
     private async Task<(EvaluationScenario S, long Primary, long Major, long Evidence, long Task)> Prepare()
@@ -452,6 +632,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     public async Task Lead_schedules_qualified_committee_concurrent_room_booking_and_explicit_cancellation()
     {
         using var app = new TrackingFactory(database); var a = await Prepare(); var b = await Prepare();
+        await AddSchedulingGates(a.S); await AddSchedulingGates(b.S);
         using var staffA = app.CreateAuthenticatedClient(a.S.Scope.Users.Staff); using var staffB = app.CreateAuthenticatedClient(b.S.Scope.Users.Staff);
         using var admin = app.CreateAuthenticatedClient(a.S.Scope.Users.Admin);
         var inputA = new CreateCommitteeRequest("Synthetic committee", [new(a.Primary, a.Major)]);
@@ -471,6 +652,18 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         Assert.False(ca.GrantsEvaluatorAuthority);
         var room = "E2E-" + Guid.NewGuid().ToString("N");
         var scheduleA = new ScheduleDefenseRequest(ca.Id, new(Now.AddHours(1)), new(Now.AddHours(2)), room);
+        await using (var db = database.CreateContext())
+        {
+            var r3 = await db.ProjectGateInstances.SingleAsync(g => g.ProjectId == a.S.ProjectId && g.Sequence == 3);
+            r3.Status = "REVISION_REQUIRED"; r3.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(
+            Project(a.S.ProjectId) + "/defense-sessions", scheduleA)).StatusCode);
+        await using (var db = database.CreateContext())
+        {
+            var r3 = await db.ProjectGateInstances.SingleAsync(g => g.ProjectId == a.S.ProjectId && g.Sequence == 3);
+            r3.Status = "PASSED"; r3.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync();
+        }
         var scheduleB = scheduleA with { CommitteeId = cb.Id, Room = " " + room.ToLowerInvariant() + " " };
         var results = await Task.WhenAll(staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-sessions", scheduleA), staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-sessions", scheduleB));
         Assert.Single(results.Where(r => r.IsSuccessStatusCode)); Assert.Single(results.Where(r => r.StatusCode == HttpStatusCode.Conflict));
@@ -554,6 +747,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     public async Task Committee_member_can_read_only_schedule_and_qualification_is_rechecked()
     {
         using var app = new TrackingFactory(database); var a = await Prepare(); var b = await Prepare();
+        await AddSchedulingGates(a.S); await AddSchedulingGates(b.S);
         using var staffA = app.CreateAuthenticatedClient(a.S.Scope.Users.Staff); using var staffB = app.CreateAuthenticatedClient(b.S.Scope.Users.Staff);
         await using (var db = database.CreateContext())
         {
@@ -581,6 +775,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     public async Task Lecturer_conflict_cross_project_and_interdisciplinary_coverage_fail_closed()
     {
         using var app = new TrackingFactory(database); var a = await Prepare(); var b = await Prepare(); long additionalMajor;
+        await AddSchedulingGates(a.S); await AddSchedulingGates(b.S);
         await using (var db = database.CreateContext())
         {
             // Prepare two synthetic projects in one academic organization for a shared lecturer.

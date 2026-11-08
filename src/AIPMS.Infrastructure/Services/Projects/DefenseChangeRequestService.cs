@@ -52,9 +52,10 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
     {
         var department = await LeadDepartment(projectId, ct);
         if (!await db.Users.AsNoTracking().AnyAsync(u => u.Id == Actor && u.Status == "ACTIVE"
-            && u.DepartmentId == department && u.Department != null && u.Department.IsActive
-            && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"), ct))
-            throw new ForbiddenException("Only academic staff of the lead department may decide this request.");
+            && (u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN")
+                || u.DepartmentId == department && u.Department != null && u.Department.IsActive
+                    && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF")), ct))
+            throw new ForbiddenException("Only Admin or academic staff of the lead department may decide this request.");
     }
     private async Task ValidateTimeAndRoom(DefenseSession session, long roomId, DateTimeOffset start,
         DateTimeOffset end, CancellationToken ct)
@@ -68,6 +69,7 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
             return start == slot.Start && end == slot.End;
         });
         if (!validSlot) throw Invalid("The desired session must match one of the six office slots.");
+        await OfflineGateEligibility.RequirePreviousGateAndWindow(db, session.ProjectId, 4, start, end, ct);
         var periodId = await Period(session.ProjectId, ct);
         var calendar = await db.Set<ProjectPeriodCalendar>().AsNoTracking().SingleOrDefaultAsync(c => c.ProjectPeriodId == periodId, ct);
         if (calendar is not null && !WorkingDayMath.IsWorkingDay(date, calendar.WorkingDaysOfWeek,
@@ -89,6 +91,13 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
         if (await db.Set<GateSessionScript>().AsNoTracking().AnyAsync(s => s.Mode == "OFFLINE" && s.RoomId == roomId
             && s.ScheduledStartAt < end && s.ScheduledEndAt > start, ct))
             throw new ConflictException("The desired room is occupied by an offline review gate.", "DEFENSE_ROOM_CONFLICT");
+        if (await db.Set<GateSessionScript>().AsNoTracking().AnyAsync(s => s.Mode == "OFFLINE"
+            && s.ScheduledStartAt < end && s.ScheduledEndAt > start
+            && (db.ProjectGateInstances.Any(g => g.Id == s.ProjectGateInstanceId && g.ProjectId == session.ProjectId)
+                || db.GateReviewerAssignments.Any(a => a.GateInstanceId == s.ProjectGateInstanceId
+                    && a.Status != "REVOKED" && members.Contains(a.ReviewerId))), ct))
+            throw new ConflictException("The group or committee member has an overlapping offline review.",
+                "DEFENSE_LECTURER_CONFLICT");
         var committeeIds = overlapping.Select(s => s.CommitteeId).Distinct().ToArray();
         if (await db.Set<DefenseCommitteeMember>().AsNoTracking().AnyAsync(m => committeeIds.Contains(m.CommitteeId)
             && members.Contains(m.UserId), ct))
@@ -150,6 +159,9 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
         row.Status = input.Decision; row.ReviewerId = Actor; row.ReviewNote = input.ReviewNote?.Trim();
         row.ReviewedAt = Utc(Now); row.ConcurrencyToken = Guid.NewGuid();
         await db.SaveChangesAsync(ct);
+        if (input.Decision == "APPROVED")
+            await ScheduleNotificationQueue.Defense(db, Actor, session.ProjectId, session.CommitteeId,
+                session.Id, Now, true, ct);
         await audit.RecordAsync(new(Actor, "DEFENSE_CHANGE_" + input.Decision, "DEFENSE_CHANGE_REQUEST", row.Id,
             new Dictionary<string, object?> { ["sessionId"] = session.Id, ["oldRoomId"] = row.CurrentRoomId,
                 ["newRoomId"] = row.DesiredRoomId, ["reviewNote"] = row.ReviewNote }), ct);
@@ -175,13 +187,14 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
     {
         if (!await db.ProjectPeriods.AnyAsync(p => p.Id == periodId, ct)) throw new NotFoundException("ProjectPeriod", periodId);
         var user = await db.Users.AsNoTracking().Where(u => u.Id == Actor && u.Status == "ACTIVE")
-            .Select(u => new { u.DepartmentId, Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF") })
+            .Select(u => new { u.DepartmentId, Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"),
+                Admin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN") })
             .SingleOrDefaultAsync(ct) ?? throw new ForbiddenException();
-        if (!user.Staff || !user.DepartmentId.HasValue) throw new ForbiddenException();
+        if (!user.Admin && (!user.Staff || !user.DepartmentId.HasValue)) throw new ForbiddenException();
         if (status is not null and not ("PENDING" or "APPROVED" or "REJECTED" or "WITHDRAWN"))
             throw Invalid("Unknown change request status.");
         var projects = db.Set<ProjectRegistrationSnapshot>().AsNoTracking().Where(s => s.ProjectPeriodId == periodId
-            && s.LeadDepartmentId == user.DepartmentId).Select(s => s.ProjectId).Distinct();
+            && (user.Admin || s.LeadDepartmentId == user.DepartmentId)).Select(s => s.ProjectId).Distinct();
         var sessions = db.Set<DefenseSession>().AsNoTracking().Where(s => projects.Contains(s.ProjectId)).Select(s => s.Id);
         var query = db.Set<DefenseScheduleChangeRequest>().AsNoTracking().Where(r => sessions.Contains(r.DefenseSessionId));
         if (status is not null) query = query.Where(r => r.Status == status);

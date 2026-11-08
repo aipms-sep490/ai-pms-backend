@@ -20,6 +20,7 @@ public partial class AipmsDbContext
             e.Property(x => x.Verdict).HasMaxLength(30).IsUnicode(false);
             e.Property(x => x.SignedBySecretary).HasMaxLength(100);
             e.Property(x => x.SignedByChair).HasMaxLength(100);
+            e.Property(x => x.PublishedAt).HasPrecision(0);
             e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
         });
         foreach (var p in b.Entity<GateSessionScript>().Metadata.GetProperties())

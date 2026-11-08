@@ -73,5 +73,6 @@
   "20261107_add_defense_change_requests.sql",
   "20261107_add_review_gate_override.sql",
   "20261107_add_gate_session_scripts.sql",
-  "20261107_allow_withdrawn_appeals.sql"
+  "20261107_allow_withdrawn_appeals.sql",
+  "20261108_publish_gate3_schedules.sql"
 ]

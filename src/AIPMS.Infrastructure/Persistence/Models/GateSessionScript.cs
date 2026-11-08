@@ -21,6 +21,8 @@ public sealed class GateSessionScript
     public string Verdict { get; set; } = "PENDING";
     public string? SignedBySecretary { get; set; }
     public string? SignedByChair { get; set; }
+    public DateTimeOffset? PublishedAt { get; set; }
+    public long? PublishedBy { get; set; }
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

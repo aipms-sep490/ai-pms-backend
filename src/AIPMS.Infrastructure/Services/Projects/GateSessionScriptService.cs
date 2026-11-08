@@ -64,7 +64,7 @@ internal sealed class GateSessionScriptService(AipmsDbContext db, ICurrentUser c
             Parse<GateAgendaStage>(row.AgendaStagesJson), Parse<GateQaEntry>(row.QaLogJson),
             Parse<GateRemediationItem>(row.RemediationItemsJson), row.GeneralNotes, row.Verdict,
             row.SignedBySecretary, row.SignedByChair, row.ConcurrencyToken.ToString("N"),
-            row.CreatedAt, row.UpdatedAt);
+            row.CreatedAt, row.UpdatedAt, row.PublishedAt, row.PublishedBy);
     }
 
     public async Task<GateSessionScriptDto> Get(long gateInstanceId, CancellationToken ct)
@@ -86,6 +86,13 @@ internal sealed class GateSessionScriptService(AipmsDbContext db, ICurrentUser c
         if (scheduleLock.Single() < 0) throw new ConflictException("The room schedule is busy; retry.", "DEFENSE_SCHEDULE_BUSY");
         if (input.Mode is not ("ONLINE" or "OFFLINE") || input.Verdict is not ("PENDING" or "PASSED" or "REVISION_REQUIRED" or "FAILED"))
             throw Invalid("sessionScript", "Mode or verdict is unsupported.");
+        if (gate.Sequence == 4 || gate.Sequence is < 1 or > 4)
+            throw new ConflictException("Gate 4 uses the defense session workflow.", "GATE4_DEFENSE_SESSION_REQUIRED");
+        if (gate.Sequence is 1 or 2 && input.Mode != "ONLINE" || gate.Sequence == 3 && input.Mode != "OFFLINE")
+            throw Invalid("mode", "Gate 1 and 2 are online; Gate 3 is offline. Gate 4 uses defense sessions.");
+        if (gate.Sequence == 3)
+            await OfflineGateEligibility.RequirePreviousGateAndWindow(db, gate.ProjectId, 3,
+                input.ScheduledStartAt, input.ScheduledEndAt, ct);
         if (input.ScheduledEndAt <= input.ScheduledStartAt || input.ScheduledEndAt - input.ScheduledStartAt > TimeSpan.FromHours(12)
             || input.ActualStartAt.HasValue && input.ActualEndAt.HasValue && input.ActualEndAt <= input.ActualStartAt)
             throw Invalid("schedule", "Session times must be ordered and at most 12 hours apart.");
@@ -93,7 +100,8 @@ internal sealed class GateSessionScriptService(AipmsDbContext db, ICurrentUser c
                 || input.LiveKitRoomName.Length > 100)
             || input.Mode == "OFFLINE" && (!input.RoomId.HasValue || !string.IsNullOrWhiteSpace(input.LiveKitRoomName)))
             throw Invalid("mode", "Online sessions require a LiveKit room; offline sessions require a physical room.");
-        if (input.Mode == "OFFLINE" && !await db.Set<Room>().AnyAsync(r => r.Id == input.RoomId && r.Status == "ACTIVE", ct))
+        if (input.Mode == "OFFLINE" && !await db.Set<Room>().AnyAsync(r => r.Id == input.RoomId && r.Status == "ACTIVE"
+            && (gate.Sequence != 3 || r.Floor >= 2 && r.Floor <= 4), ct))
             throw Invalid("roomId", "The physical room is unavailable.");
         if (input.Mode == "OFFLINE")
         {
@@ -165,6 +173,9 @@ internal sealed class GateSessionScriptService(AipmsDbContext db, ICurrentUser c
             || role == "SECRETARY" && !string.IsNullOrWhiteSpace(input.SignedBySecretary) && input.SignedBySecretary != actorName)
             throw new ForbiddenException("A participant may only sign with their own account name.");
         var row = await db.Set<GateSessionScript>().SingleOrDefaultAsync(s => s.ProjectGateInstanceId == gate.Id, ct);
+        if (gate.Sequence == 3 && row?.PublishedAt is null)
+            throw new ConflictException("Academic staff must publish the Gate 3 schedule before a session script can be edited.",
+                "REVIEW_GATE_3_SCHEDULE_NOT_PUBLISHED");
         if (row is null)
         {
             if (!string.IsNullOrWhiteSpace(input.ConcurrencyToken)) throw new ConflictException("The session has not been created yet.");
@@ -177,6 +188,10 @@ internal sealed class GateSessionScriptService(AipmsDbContext db, ICurrentUser c
         else
         {
             Token(row.ConcurrencyToken, input.ConcurrencyToken);
+            if (row.PublishedAt.HasValue && (row.Mode != input.Mode || row.RoomId != input.RoomId
+                || row.ScheduledStartAt != input.ScheduledStartAt || row.ScheduledEndAt != input.ScheduledEndAt))
+                throw new ConflictException("A published review schedule must be changed by academic staff.",
+                    "REVIEW_GATE_3_SCHEDULE_LOCKED");
             if (role != "CHAIR" && input.SignedByChair != row.SignedByChair
                 || role != "SECRETARY" && input.SignedBySecretary != row.SignedBySecretary)
                 throw new ForbiddenException("Another participant's signature cannot be changed.");

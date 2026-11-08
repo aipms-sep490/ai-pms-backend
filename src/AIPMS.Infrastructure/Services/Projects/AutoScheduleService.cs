@@ -20,7 +20,7 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
     private sealed record Candidate(long ProjectId, long CommitteeId, long? MajorId, int Seats,
-        long[] Members, long[] Supervisors);
+        long[] Members, long[] Supervisors, DateTimeOffset WindowStart, DateTimeOffset WindowEnd);
     private sealed record Occupied(long ProjectId, long? RoomId, string RoomCode, DateTimeOffset Start,
         DateTimeOffset End, long[] Members);
     private static ValidationException Invalid(string text) => new(new Dictionary<string, string[]> { ["autoSchedule"] = [text] });
@@ -48,13 +48,16 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
             .Select(r => new { r.Id, r.ConcurrencyToken }).ToArrayAsync(ct);
         var gateSessions = await db.Set<GateSessionScript>().AsNoTracking().OrderBy(s => s.Id)
             .Select(s => new { s.Id, s.ConcurrencyToken }).ToArrayAsync(ct);
+        var gates = await db.ProjectGateInstances.AsNoTracking().Where(g => g.Sequence == 3 || g.Sequence == 4)
+            .OrderBy(g => g.Id).Select(g => new { g.Id, g.ConcurrencyToken }).ToArrayAsync(ct);
         var text = string.Join('|', sessions.Select(s => $"s{s.Id}:{s.ConcurrencyToken:N}")) + "/"
             + string.Join('|', rooms.Select(r => $"r{r.Id}:{r.ConcurrencyToken:N}")) + "/"
-            + string.Join('|', gateSessions.Select(s => $"g{s.Id}:{s.ConcurrencyToken:N}"));
+            + string.Join('|', gateSessions.Select(s => $"g{s.Id}:{s.ConcurrencyToken:N}")) + "/"
+            + string.Join('|', gates.Select(g => $"w{g.Id}:{g.ConcurrencyToken:N}"));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     }
 
-    private async Task<(Dictionary<long, Candidate> Candidates, Dictionary<long, Room> Rooms, long[] MissingCommittees)> Load(long periodId,
+    private async Task<(Dictionary<long, Candidate> Candidates, Dictionary<long, Room> Rooms, DefenseScheduleConflict[] Issues)> Load(long periodId,
         long? departmentId, IReadOnlyList<long> roomIds, CancellationToken ct)
     {
         var snapshots = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
@@ -71,20 +74,34 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
             .Select(a => new { a.ProjectId, a.SupervisorProfile.UserId }).ToArrayAsync(ct);
         var majors = await db.ProjectMajors.AsNoTracking().Where(m => projectIds.Contains(m.ProjectId))
             .Select(m => new { m.ProjectId, m.MajorId }).ToArrayAsync(ct);
+        var gates = await db.ProjectGateInstances.AsNoTracking()
+            .Where(g => projectIds.Contains(g.ProjectId) && (g.Sequence == 3 || g.Sequence == 4))
+            .ToArrayAsync(ct);
         var candidates = new Dictionary<long, Candidate>();
+        var issues = new List<DefenseScheduleConflict>();
         foreach (var project in projects)
         {
+            if (!gates.Any(g => g.ProjectId == project.Id && g.Sequence == 3 && g.Status == "PASSED"))
+            { issues.Add(new(project.Id, "REVIEW_GATE_3_NOT_PASSED")); continue; }
+            var r4 = gates.SingleOrDefault(g => g.ProjectId == project.Id && g.Sequence == 4);
+            if (r4?.WindowStart is null || r4.WindowEnd is null || r4.WindowEnd <= r4.WindowStart)
+            { issues.Add(new(project.Id, "DEFENSE_GATE_WINDOW_REQUIRED")); continue; }
+            if (r4.Status is "PASSED" or "FAILED" or "REJECTED")
+            { issues.Add(new(project.Id, "DEFENSE_GATE_CLOSED")); continue; }
             var committee = committees.FirstOrDefault(c => c.ProjectId == project.Id);
-            if (committee is null) continue;
+            if (committee is null) { issues.Add(new(project.Id, "DEFENSE_COMMITTEE_REQUIRED")); continue; }
             var members = committee.Members.Select(m => m.UserId).Distinct().ToArray();
             candidates.Add(project.Id, new(project.Id, committee.Id,
                 majors.FirstOrDefault(m => m.ProjectId == project.Id)?.MajorId,
                 project.Team.TeamMembers.Count(m => m.LeftAt == null) + members.Length + 5,
-                members, supervisors.Where(s => s.ProjectId == project.Id).Select(s => s.UserId).Distinct().ToArray()));
+                members, supervisors.Where(s => s.ProjectId == project.Id).Select(s => s.UserId).Distinct().ToArray(),
+                new DateTimeOffset(DateTime.SpecifyKind(r4.WindowStart.Value, DateTimeKind.Utc)),
+                new DateTimeOffset(DateTime.SpecifyKind(r4.WindowEnd.Value, DateTimeKind.Utc))));
         }
-        var rooms = await db.Set<Room>().AsNoTracking().Where(r => roomIds.Contains(r.Id) && r.Status == "ACTIVE")
+        var rooms = await db.Set<Room>().AsNoTracking().Where(r => roomIds.Contains(r.Id) && r.Status == "ACTIVE"
+            && r.Floor >= 2 && r.Floor <= 4)
             .ToDictionaryAsync(r => r.Id, ct);
-        return (candidates, rooms, projects.Where(p => !candidates.ContainsKey(p.Id)).Select(p => p.Id).ToArray());
+        return (candidates, rooms, issues.ToArray());
     }
 
     private async Task<List<Occupied>> Existing(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
@@ -153,15 +170,14 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
             throw Invalid("Exclusions must refer to selected rooms and dates in the preview range.");
         var earliest = DefenseSchedulingRules.Slot(input.StartDate, 1).Start;
         if (earliest.UtcDateTime <= Now || input.EndDate.Year > 2200) throw Invalid("Defense dates must be in the future.");
-        var (candidates, rooms, missingCommittees) = await Load(periodId, departmentId, input.RoomIds, ct);
+        var (candidates, rooms, issues) = await Load(periodId, departmentId, input.RoomIds, ct);
         if (rooms.Count != input.RoomIds.Count) throw new ConflictException("Selected rooms must be active and available.", "DEFENSE_ROOM_UNAVAILABLE");
         var occupied = await Existing(earliest, DefenseSchedulingRules.Slot(input.EndDate, 6).End, ct);
         var calendar = await Calendar(periodId, ct);
         var allocations = new List<DefenseAllocation>(); var conflicts = new List<DefenseScheduleConflict>();
         var existingProjects = (await db.Set<DefenseSession>().AsNoTracking().Where(s => s.Status == "SCHEDULED")
             .Select(s => s.ProjectId).Distinct().ToArrayAsync(ct)).ToHashSet();
-        conflicts.AddRange(missingCommittees.Where(id => !existingProjects.Contains(id))
-            .Select(id => new DefenseScheduleConflict(id, "DEFENSE_COMMITTEE_REQUIRED")));
+        conflicts.AddRange(issues.Where(issue => !existingProjects.Contains(issue.ProjectId)));
         foreach (var candidate in candidates.Values.OrderBy(c => c.MajorId).ThenBy(c => c.ProjectId))
         {
             if (existingProjects.Contains(candidate.ProjectId)) continue;
@@ -174,6 +190,7 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
                 for (var slot = 1; slot <= input.MaxSlotsPerDay && chosen is null; slot++)
                 {
                     var times = DefenseSchedulingRules.Slot(day, slot);
+                    if (times.Start < candidate.WindowStart || times.End > candidate.WindowEnd) continue;
                     foreach (var room in rooms.Values.Where(r => r.Capacity >= candidate.Seats)
                         .OrderByDescending(r => allocations.Count(a => a.RoomId == r.Id && candidates[a.ProjectId].MajorId == candidate.MajorId))
                         .ThenBy(r => r.Id))
@@ -224,6 +241,7 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
                 throw new ConflictException("Allocation is no longer eligible.", "DEFENSE_ALLOCATION_INVALID");
             var times = DefenseSchedulingRules.Slot(allocation.Date, allocation.SlotNumber);
             if (allocation.StartAt != times.Start || allocation.EndAt != times.End
+                || times.Start < candidate.WindowStart || times.End > candidate.WindowEnd
                 || Clash(candidate.ProjectId, room, times.Start, times.End, candidate.Members, occupied))
                 throw new ConflictException("Allocation conflicts with the current defense timetable.", "DEFENSE_SCHEDULE_CONFLICT");
             occupied.Add(new(candidate.ProjectId, room.Id, room.Code, times.Start, times.End, candidate.Members));
@@ -232,6 +250,11 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
                 CreatedBy = Actor, CreatedAt = Now });
         }
         await db.SaveChangesAsync(ct);
+        var published = await db.Set<DefenseSession>().AsNoTracking().Where(s => projectIds.Contains(s.ProjectId)
+            && s.Status == "SCHEDULED").ToArrayAsync(ct);
+        foreach (var session in published)
+            await ScheduleNotificationQueue.Defense(db, Actor, session.ProjectId, session.CommitteeId,
+                session.Id, Now, false, ct);
         await audit.RecordAsync(new(Actor, "DEFENSE_AUTO_SCHEDULE_APPLIED", "PROJECT_PERIOD", periodId,
             new Dictionary<string, object?> { ["count"] = input.Allocations.Count,
                 ["projects"] = input.Allocations.Select(a => a.ProjectId).ToArray() }), ct);

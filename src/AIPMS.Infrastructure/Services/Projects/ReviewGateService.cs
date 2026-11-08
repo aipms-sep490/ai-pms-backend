@@ -678,8 +678,11 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
         await RequireProjectRead(projectId, scope, ct);
         var gates = await db.ProjectGateInstances.AsNoTracking().Where(x => x.ProjectId == projectId).OrderBy(x => x.Sequence).ToArrayAsync(ct);
-        var conditions = gates.Select(g => new DefenseConditionDto(g.Code, g.Title,
+        var conditions = gates.Where(g => g.Sequence < 4).Select(g => new DefenseConditionDto(g.Code, g.Title,
             !g.BlocksDefense || g.Status == "PASSED", !g.BlocksDefense || g.Status == "PASSED" ? "Đã đạt hoặc không chặn bảo vệ" : "Chưa đạt Review Gate", g.BlocksDefense)).ToList();
+        if (!gates.Any(g => g.Sequence == 3 && g.Status == "PASSED"))
+            conditions.Add(new("REVIEW_GATE_3_PASSED", "Đạt Review Gate 3", false,
+                "Chưa đạt Review Gate 3.", true));
         if (gates.Length == 0)
             conditions.Add(new("REVIEW_GATES_CONFIGURED", "Cấu hình Review Gates", false,
                 "Chưa áp dụng template Review Gates cho project.", true));
@@ -773,7 +776,8 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         foreach (var major in scope.MajorIds.Select((id, index) => (id, name: majorNames.ElementAtOrDefault(index) ?? id.ToString())))
             disciplineProgress.Add(BranchProgress($"MAJOR:{major.id}", major.name,
                 gates.Where(g => g.Requirements.Any(r => r.Scope == "MAJOR_SPECIFIC" && r.MajorId == major.id)).ToArray()));
-        var defenseReady = gates.Length == 0 ? (bool?)null : gates.Where(g => g.BlocksDefense).All(g => g.Status == "PASSED");
+        var defenseReady = gates.Length == 0 ? (bool?)null : gates.Any(g => g.Sequence == 3 && g.Status == "PASSED")
+            && gates.Where(g => g.Sequence < 4 && g.BlocksDefense).All(g => g.Status == "PASSED");
         var feedbacks = await db.Set<AIPMS.Infrastructure.Persistence.Generated.Models.SupervisorFeedback>().AsNoTracking()
             .Where(x => x.ProjectId == project.Id).OrderByDescending(x => x.CreatedAt).Take(20)
             .Select(x => new SupervisorFeedbackDto(x.GateCode ?? "GENERAL", x.FeedbackText, x.CreatedAt, x.SupervisorAssignment.SupervisorProfile.User.FullName)).ToArrayAsync(ct);
