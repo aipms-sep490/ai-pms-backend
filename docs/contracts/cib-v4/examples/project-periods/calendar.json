@@ -1,0 +1,27 @@
+{
+  "get": {
+    "method": "GET",
+    "path": "/api/v1/project-periods/1/calendar",
+    "response": {
+      "projectPeriodId": 1,
+      "workingDaysOfWeek": 62,
+      "workingDaysDescription": "Thứ 2 đến Thứ 6",
+      "holidays": [{ "date": "2026-04-30", "name": "Giải phóng miền Nam", "isRecurring": true }],
+      "concurrencyToken": "d5b8a9eaf50a4c4d91be2e8497a76740"
+    }
+  },
+  "put": {
+    "method": "PUT",
+    "path": "/api/v1/project-periods/1/calendar",
+    "request": {
+      "workingDaysOfWeek": 62,
+      "holidays": [{ "date": "2026-04-30", "name": "Giải phóng miền Nam", "isRecurring": true }],
+      "concurrencyToken": "d5b8a9eaf50a4c4d91be2e8497a76740"
+    }
+  },
+  "loadVietnamHolidays": {
+    "method": "POST",
+    "path": "/api/v1/project-periods/1/calendar/load-vn-holidays",
+    "request": { "year": 2026, "concurrencyToken": "d5b8a9eaf50a4c4d91be2e8497a76740" }
+  }
+}

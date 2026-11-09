@@ -19,6 +19,7 @@ public sealed record CreateCorrectionRequest(string Source, long PolicyId, long?
 public sealed record AssignAppealReviewerRequest(string ConcurrencyToken, long ReviewerId);
 public sealed record ReviewAppealRequest(string ConcurrencyToken, string Proposal, string Reason, IReadOnlyList<ScoreAmendmentInput> Amendments);
 public sealed record AppealDecisionRequest(string ConcurrencyToken, string Decision, string Reason, string? ConfirmationToken);
+public sealed record WithdrawAppealRequest(string ConcurrencyToken, string Reason);
 public sealed record AppealFileDto(long FileId, string FileName, string ContentType, long SizeBytes, string Sha256, string DownloadUrl);
 public sealed record AppealEventDto(long Id, string Action, long ActorId, DateTime At, string? Reason,
     long? BundleId, IReadOnlyList<ScoreAmendmentInput> Amendments);

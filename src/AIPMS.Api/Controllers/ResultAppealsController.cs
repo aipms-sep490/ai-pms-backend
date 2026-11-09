@@ -45,6 +45,8 @@ public sealed class ResultAppealsController(IAppealService appeals) : Controller
     public Task<AppealPreviewDto> Preview(long projectId, long id, CancellationToken ct) => appeals.Preview(projectId, id, ct);
     [HttpPost("correction-requests/{id:long}/decision")]
     public Task<CorrectionRequestDto> Decide(long projectId, long id, AppealDecisionRequest input, CancellationToken ct) => appeals.Decide(projectId, id, input, ct);
+    [HttpPost("correction-requests/{id:long}/withdraw")]
+    public Task<CorrectionRequestDto> Withdraw(long projectId, long id, WithdrawAppealRequest input, CancellationToken ct) => appeals.Withdraw(projectId, id, input, ct);
     [HttpGet("correction-requests/{id:long}/history")]
     public Task<PagedResult<AppealEventDto>> History(long projectId, long id, CancellationToken ct, int page = 1, int pageSize = 20) => appeals.History(projectId, id, page, pageSize, ct);
     [HttpGet("correction-requests/{id:long}/evidence")]
