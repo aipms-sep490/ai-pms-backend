@@ -66897,6 +66897,18 @@
           },
           "canCancel": {
             "type": "boolean"
+          },
+          "evaluatorRole": {
+            "type": "string",
+            "nullable": true
+          },
+          "processStage": {
+            "type": "string",
+            "nullable": true
+          },
+          "rubricStandard": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
