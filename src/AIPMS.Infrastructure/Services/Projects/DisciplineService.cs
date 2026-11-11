@@ -281,5 +281,5 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
         audit.RecordAsync(new(Actor, action, entity, id, new Dictionary<string, object?> { ["data"] = data }), ct);
     private static ProjectEvidenceDto Map(ProjectEvidence x) => new(x.Id, x.ProjectId, x.SourceType, x.SourceId, x.MajorId,
         x.MajorId is null ? "UNCLASSIFIED" : "CLASSIFIED", x.VerificationStatus, x.SubmittedBy, x.SubmittedAt, x.Notes,
-        x.SourceType == "FILE" ? $"/api/v1/files/{x.SourceId}/download" : null, null);
+        x.SourceType == "FILE" ? $"/api/v1/files/{x.SourceId}/download" : null);
 }
