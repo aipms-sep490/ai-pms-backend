@@ -57,7 +57,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         Assert.Equal(HttpStatusCode.Conflict, (await primary.PutAsJsonAsync(Project(x.S.ProjectId) + $"/checkpoints/{checkpoint.Id}", new SaveCheckpointRequest("Rewrite", x.Major, new(Now), checkpoint.ConcurrencyToken))).StatusCode);
         await using var verify = database.CreateContext();
         Assert.Equal("FINAL_SUBMISSION", (await verify.Projects.FindAsync(x.S.ProjectId))!.Status);
-        Assert.Equal("PENDING", (await verify.ProjectEvidence.FindAsync(x.Evidence))!.VerificationStatus);
+        Assert.Equal("VERIFIED", (await verify.ProjectEvidence.FindAsync(x.Evidence))!.VerificationStatus);
         Assert.Single(await verify.Set<ProjectEvidenceReview>().Where(r => r.EvidenceId == x.Evidence).ToArrayAsync());
         Assert.True(await verify.AuditLogs.AnyAsync(a => a.Action == "CHECKPOINT_DECISION_RECORDED" && a.EntityId == checkpoint.Id.ToString()));
         var history = await Body<PagedResult<EvidenceReviewDto>>(await primary.GetAsync(Evidence(x.Evidence) + "/reviews"));
