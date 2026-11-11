@@ -158,6 +158,12 @@ internal sealed partial class AcademicTrackingService(AipmsDbContext db, IEvalua
         if (latest != input.ExpectedLatestReviewId || source.Hash != input.ExpectedSourceVersion) throw new ConflictException("The source or review history changed; reload.");
         var row = new ProjectEvidenceReview { EvidenceId = evidenceId, SourceVersionId = input.SourceVersionId, SourceVersion = source.Hash,
             SourceSnapshotJson = source.Json, ReviewerId = Actor, SupervisorAssignmentId = assignment, Decision = input.Decision, Reason = input.Reason.Trim(), ReviewedAt = Now };
+        evidence.VerificationStatus = input.Decision switch
+        {
+            "ACCEPTED" => "VERIFIED",
+            "REJECTED" => "REJECTED",
+            _ => "PENDING"
+        };
         db.Add(row); await db.SaveChangesAsync(ct); await Audit("EVIDENCE_REVIEW_RECORDED", "PROJECT_EVIDENCE", evidenceId,
             new { reviewId = row.Id, sourceVersion = source.Hash, assignmentId = assignment, input.Decision }, ct);
         return ReviewDto(row);

@@ -186,7 +186,7 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
     {
         await RequireAccess(projectId, ct); ProjectRequirementsValidation.ValidatePage(page, pageSize);
         if (sourceType is not null) DisciplineValidation.Source(sourceType);
-        if (majorId is <= 0 || verificationStatus is not (null or "PENDING" or "UNKNOWN")) DisciplineValidation.Invalid("filter", "Invalid evidence filter.");
+        if (majorId is <= 0 || verificationStatus is not (null or "PENDING" or "UNKNOWN" or "VERIFIED" or "REJECTED")) DisciplineValidation.Invalid("filter", "Invalid evidence filter.");
         var query = db.ProjectEvidence.AsNoTracking().Where(x => x.ProjectId == projectId
             && (sourceType == null || x.SourceType == sourceType) && (majorId == null || x.MajorId == majorId)
             && (verificationStatus == null || x.VerificationStatus == verificationStatus));
@@ -280,5 +280,6 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
     private Task Audit(string action, string entity, long id, object data, CancellationToken ct) =>
         audit.RecordAsync(new(Actor, action, entity, id, new Dictionary<string, object?> { ["data"] = data }), ct);
     private static ProjectEvidenceDto Map(ProjectEvidence x) => new(x.Id, x.ProjectId, x.SourceType, x.SourceId, x.MajorId,
-        x.MajorId is null ? "UNCLASSIFIED" : "CLASSIFIED", x.VerificationStatus, x.SubmittedBy, x.SubmittedAt, x.Notes);
+        x.MajorId is null ? "UNCLASSIFIED" : "CLASSIFIED", x.VerificationStatus, x.SubmittedBy, x.SubmittedAt, x.Notes,
+        x.SourceType == "FILE" ? $"/api/v1/files/{x.SourceId}/download" : null, null);
 }

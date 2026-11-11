@@ -9,4 +9,5 @@ public sealed record TaskDisciplinesDto(string ConcurrencyToken, string Classifi
 public sealed record ReplaceTaskDisciplinesRequest(string ConcurrencyToken, IReadOnlyList<TaskDisciplineInput> Items);
 public sealed record CreateProjectEvidenceRequest(string SourceType, long SourceId, long? MajorId, string? Notes = null);
 public sealed record ProjectEvidenceDto(long Id, long ProjectId, string SourceType, long SourceId, long? MajorId,
-    string Classification, string VerificationStatus, long SubmittedBy, DateTime SubmittedAt, string? Notes);
+    string Classification, string VerificationStatus, long SubmittedBy, DateTime SubmittedAt, string? Notes,
+    string? SourceUrl = null, string? SourceFileName = null);
