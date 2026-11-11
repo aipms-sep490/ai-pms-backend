@@ -448,6 +448,22 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         return ids;
     }
 
+    public async Task<IReadOnlyList<TaskDependencyBlocker>> GetBlockingDependenciesAsync(
+        long taskId,
+        CancellationToken cancellationToken)
+    {
+        return await context.TaskDependencies
+            .AsNoTracking()
+            .Where(d => d.TaskId == taskId
+                && d.DependencyType == "FINISH_TO_START"
+                && d.DependsOnTask.Status != "DONE"
+                && d.DependsOnTask.Status != "COMPLETED"
+                && d.DependsOnTask.Status != "CANCELLED")
+            .OrderBy(d => d.Id)
+            .Select(d => new TaskDependencyBlocker(d.DependsOnTaskId, d.DependsOnTask.Title, d.DependsOnTask.Status))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(
         long projectId,
         CancellationToken cancellationToken)

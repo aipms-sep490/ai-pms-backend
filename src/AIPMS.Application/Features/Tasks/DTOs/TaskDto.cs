@@ -41,6 +41,8 @@ public sealed record TaskDependencyDto(
     string DependencyType,
     DateTime CreatedAt);
 
+public sealed record TaskDependencyBlocker(long TaskId, string Title, string Status);
+
 public sealed record TaskStatusHistoryDto(
     long Id,
     long TaskId,
