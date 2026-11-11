@@ -87,7 +87,7 @@ public sealed class UpdateTaskStatusCommandHandler(
                 var details = string.Join(", ", blockers.Select(x => $"#{x.TaskId} {x.Title} ({x.Status})"));
                 throw new ConflictException(
                     $"Task is blocked by unfinished predecessor task(s): {details}.",
-                    "TASK_DEPENDENCY_BLOCKED");
+                    WorkflowErrorCodes.TaskDependencyBlocked);
             }
         }
 
