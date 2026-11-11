@@ -143,6 +143,27 @@ public sealed class TaskHandlerTests
     }
 
     [Fact]
+    public async Task UpdateTaskStatus_UnfinishedFinishToStartPredecessor_ThrowsDependencyConflict()
+    {
+        var repository = new StubTaskRepository
+        {
+            IsLeaderOrSupervisor = true,
+            ExistingTask = new TaskDto(1, 1, null, "Successor", "Desc", "IN_PROGRESS", "NORMAL", null, null, null, 100, "User 100", DateTime.UtcNow, DateTime.UtcNow, Array.Empty<TaskAssigneeDto>(), Array.Empty<TaskDependencyDto>()),
+            BlockingDependencies = [new TaskDependencyBlocker(2, "Predecessor", "TODO")],
+        };
+        var milestoneRepository = new StubMilestoneRepository
+        {
+            ExistingMilestone = new MilestoneDto(1, 1, "M1", "Desc", null, null, "IN_PROGRESS", 0, 10, "User", DateTime.UtcNow, DateTime.UtcNow)
+        };
+        var handler = new UpdateTaskStatusCommandHandler(repository, milestoneRepository, new StubProjectExecutionGuard(), new TestCurrentUser(100, AppRoles.Student), new RecordingAuditTrail());
+
+        var error = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new UpdateTaskStatusCommand(1, "DONE", null), CancellationToken.None));
+
+        Assert.Equal("TASK_DEPENDENCY_BLOCKED", error.Code);
+        Assert.Contains("Predecessor", error.Message);
+    }
+
+    [Fact]
     public async Task GetTasks_WithoutMajorId_PassesNullMajorIdToRepository()
     {
         var repository = new StubTaskRepository();
@@ -199,6 +220,7 @@ internal sealed class StubTaskRepository : ITaskRepository
     public long? CapturedProjectId { get; private set; }
     public long? CapturedMajorId { get; private set; }
     public string? CapturedDisciplineRole { get; private set; }
+    public IReadOnlyList<TaskDependencyBlocker> BlockingDependencies { get; set; } = Array.Empty<TaskDependencyBlocker>();
 
     public Task<TaskDto?> GetByIdAsync(long id, CancellationToken cancellationToken) =>
         Task.FromResult(ExistingTask?.Id == id ? ExistingTask : null);
@@ -245,7 +267,7 @@ internal sealed class StubTaskRepository : ITaskRepository
     public Task<long?> GetParentTaskIdAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult<long?>(null);
 
     public Task<IEnumerable<long>> GetDependsOnTaskIdsAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult<IEnumerable<long>>(Array.Empty<long>());
-    public Task<IReadOnlyList<TaskDependencyBlocker>> GetBlockingDependenciesAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<TaskDependencyBlocker>>(Array.Empty<TaskDependencyBlocker>());
+    public Task<IReadOnlyList<TaskDependencyBlocker>> GetBlockingDependenciesAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult(BlockingDependencies);
 
     public Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult(( (IReadOnlyList<TaskDto>)Array.Empty<TaskDto>(), (IReadOnlyList<TaskDto>)Array.Empty<TaskDto>() ));
