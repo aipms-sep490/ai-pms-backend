@@ -245,6 +245,7 @@ internal sealed class StubTaskRepository : ITaskRepository
     public Task<long?> GetParentTaskIdAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult<long?>(null);
 
     public Task<IEnumerable<long>> GetDependsOnTaskIdsAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult<IEnumerable<long>>(Array.Empty<long>());
+    public Task<IReadOnlyList<TaskDependencyBlocker>> GetBlockingDependenciesAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<TaskDependencyBlocker>>(Array.Empty<TaskDependencyBlocker>());
 
     public Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult(( (IReadOnlyList<TaskDto>)Array.Empty<TaskDto>(), (IReadOnlyList<TaskDto>)Array.Empty<TaskDto>() ));
