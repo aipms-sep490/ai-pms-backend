@@ -158,6 +158,9 @@ internal sealed partial class AcademicTrackingService(AipmsDbContext db, IEvalua
         if (latest != input.ExpectedLatestReviewId || source.Hash != input.ExpectedSourceVersion) throw new ConflictException("The source or review history changed; reload.");
         var row = new ProjectEvidenceReview { EvidenceId = evidenceId, SourceVersionId = input.SourceVersionId, SourceVersion = source.Hash,
             SourceSnapshotJson = source.Json, ReviewerId = Actor, SupervisorAssignmentId = assignment, Decision = input.Decision, Reason = input.Reason.Trim(), ReviewedAt = Now };
+        // Evidence() is intentionally no-tracking for read paths; attach it here so
+        // the review decision and ledger projection commit atomically.
+        db.Attach(evidence);
         evidence.VerificationStatus = input.Decision switch
         {
             "ACCEPTED" => "VERIFIED",
