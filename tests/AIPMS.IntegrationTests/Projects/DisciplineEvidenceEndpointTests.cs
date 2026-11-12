@@ -271,7 +271,10 @@ public sealed class DisciplineEvidenceEndpointTests(SupervisorDatabaseFixture da
         var page2 = (await leader.GetFromJsonAsync<PagedResult<ProjectEvidenceDto>>(Evidence(s) + "?page=2&pageSize=1"))!;
         Assert.Equal(2, page1.TotalCount); Assert.Equal(second.Id, Assert.Single(page1.Items).Id); Assert.Equal(first.Id, Assert.Single(page2.Items).Id);
         Assert.Equal(HttpStatusCode.BadRequest, (await leader.GetAsync(Evidence(s) + "?pageSize=101")).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await leader.GetAsync(Evidence(s) + "?verificationStatus=VERIFIED")).StatusCode);
+        var verified = await leader.GetAsync(Evidence(s) + "?verificationStatus=VERIFIED");
+        Assert.Equal(HttpStatusCode.OK, verified.StatusCode);
+        var verifiedPage = (await verified.Content.ReadFromJsonAsync<PagedResult<ProjectEvidenceDto>>())!;
+        Assert.Empty(verifiedPage.Items);
         Assert.Equal(HttpStatusCode.Unauthorized, (await factory.CreateClient().GetAsync(Evidence(s))).StatusCode);
     }
 
