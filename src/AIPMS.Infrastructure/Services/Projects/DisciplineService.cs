@@ -186,15 +186,36 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
     {
         await RequireAccess(projectId, ct); ProjectRequirementsValidation.ValidatePage(page, pageSize);
         if (sourceType is not null) DisciplineValidation.Source(sourceType);
-        if (majorId is <= 0 || verificationStatus is not (null or "PENDING" or "UNKNOWN")) DisciplineValidation.Invalid("filter", "Invalid evidence filter.");
-        var query = db.ProjectEvidence.AsNoTracking().Where(x => x.ProjectId == projectId
-            && (sourceType == null || x.SourceType == sourceType) && (majorId == null || x.MajorId == majorId)
-            && (verificationStatus == null || x.VerificationStatus == verificationStatus));
+        if (majorId is <= 0 || verificationStatus is not (null or "PENDING" or "UNKNOWN" or "VERIFIED" or "REJECTED")) DisciplineValidation.Invalid("filter", "Invalid evidence filter.");
+        // Legacy rows may still carry PENDING after a review; project the latest decision at read time.
+        var query = db.ProjectEvidence.AsNoTracking()
+            .Where(x => x.ProjectId == projectId
+                && (sourceType == null || x.SourceType == sourceType)
+                && (majorId == null || x.MajorId == majorId))
+            .Select(x => new
+            {
+                Evidence = x,
+                LatestDecision = db.Set<ProjectEvidenceReview>()
+                    .Where(r => r.EvidenceId == x.Id)
+                    .OrderByDescending(r => r.Id)
+                    .Select(r => r.Decision)
+                    .FirstOrDefault()
+            })
+            .Select(x => new
+            {
+                x.Evidence,
+                EffectiveStatus = x.LatestDecision == "ACCEPTED" ? "VERIFIED"
+                    : x.LatestDecision == "REJECTED" ? "REJECTED"
+                    : x.LatestDecision == "CHANGES_REQUESTED" ? "PENDING"
+                    : x.Evidence.VerificationStatus
+            });
+        if (verificationStatus is not null) query = query.Where(x => x.EffectiveStatus == verificationStatus);
         var count = await query.LongCountAsync(ct);
-        var rows = await query.OrderByDescending(x => x.SubmittedAt).ThenByDescending(x => x.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var rows = await query.OrderByDescending(x => x.Evidence.SubmittedAt).ThenByDescending(x => x.Evidence.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         // A ledger reference never substitutes for file metadata/download authorization.
-        foreach (var row in rows.Where(x => x.FileId.HasValue)) await fileWorkflow.FileAsync(row.FileId!.Value, ct);
-        return new(rows.Select(Map).ToArray(), page, pageSize, count);
+        foreach (var row in rows.Where(x => x.Evidence.FileId.HasValue)) await fileWorkflow.FileAsync(row.Evidence.FileId!.Value, ct);
+        return new(rows.Select(x => Map(x.Evidence, x.EffectiveStatus)).ToArray(), page, pageSize, count);
     }
 
     private sealed record Source(long ProjectId, string Status, long? TaskId = null);
@@ -279,6 +300,7 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
     }
     private Task Audit(string action, string entity, long id, object data, CancellationToken ct) =>
         audit.RecordAsync(new(Actor, action, entity, id, new Dictionary<string, object?> { ["data"] = data }), ct);
-    private static ProjectEvidenceDto Map(ProjectEvidence x) => new(x.Id, x.ProjectId, x.SourceType, x.SourceId, x.MajorId,
-        x.MajorId is null ? "UNCLASSIFIED" : "CLASSIFIED", x.VerificationStatus, x.SubmittedBy, x.SubmittedAt, x.Notes);
+    private static ProjectEvidenceDto Map(ProjectEvidence x, string? effectiveStatus = null) => new(x.Id, x.ProjectId, x.SourceType, x.SourceId, x.MajorId,
+        x.MajorId is null ? "UNCLASSIFIED" : "CLASSIFIED", effectiveStatus ?? x.VerificationStatus, x.SubmittedBy, x.SubmittedAt, x.Notes,
+        x.SourceType == "FILE" ? $"/api/v1/files/{x.SourceId}/download" : null);
 }

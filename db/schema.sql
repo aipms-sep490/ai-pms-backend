@@ -1738,7 +1738,7 @@ BEGIN
         CONSTRAINT fk_evidence_report FOREIGN KEY(progress_report_id) REFERENCES dbo.progress_reports(id),
         CONSTRAINT fk_evidence_file FOREIGN KEY(file_id) REFERENCES dbo.files(id),
         CONSTRAINT uq_evidence_source UNIQUE(project_id,source_type,source_id,major_id),
-        CONSTRAINT ck_evidence_status CHECK(verification_status IN ('PENDING','UNKNOWN')),
+        CONSTRAINT ck_evidence_status CHECK(verification_status IN ('PENDING','UNKNOWN','VERIFIED','REJECTED')),
         CONSTRAINT ck_evidence_source CHECK(
             (CASE WHEN task_id IS NULL THEN 0 ELSE 1 END + CASE WHEN deliverable_id IS NULL THEN 0 ELSE 1 END +
              CASE WHEN meeting_id IS NULL THEN 0 ELSE 1 END + CASE WHEN progress_report_id IS NULL THEN 0 ELSE 1 END +

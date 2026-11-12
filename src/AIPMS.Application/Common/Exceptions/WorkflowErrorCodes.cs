@@ -10,6 +10,7 @@ public static class WorkflowErrorCodes
     public const string StaleConcurrencyToken = "STALE_CONCURRENCY_TOKEN";
     public const string FinalizedAssignment = "FINALIZED_ASSIGNMENT";
     public const string ArchiveNotAllowed = "ARCHIVE_NOT_ALLOWED";
+    public const string TaskDependencyBlocked = "TASK_DEPENDENCY_BLOCKED";
 
     // Deliverables
     public const string ExecutionWindowRequired = "EXECUTION_WINDOW_REQUIRED";

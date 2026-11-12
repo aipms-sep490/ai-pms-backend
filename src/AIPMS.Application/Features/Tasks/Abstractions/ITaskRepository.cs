@@ -113,6 +113,10 @@ public interface ITaskRepository
 
     Task<IEnumerable<long>> GetDependsOnTaskIdsAsync(long taskId, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<TaskDependencyBlocker>> GetBlockingDependenciesAsync(
+        long taskId,
+        CancellationToken cancellationToken);
+
     Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(
         long projectId,
         CancellationToken cancellationToken);

@@ -700,6 +700,7 @@ public sealed class StubTaskRepository : ITaskRepository
     public Task<bool> IsTaskAssigneeAsync(long taskId, long userId, CancellationToken cancellationToken) => Task.FromResult(true);
     public Task<long?> GetParentTaskIdAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult<long?>(null);
     public Task<IEnumerable<long>> GetDependsOnTaskIdsAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult<IEnumerable<long>>(Array.Empty<long>());
+    public Task<IReadOnlyList<TaskDependencyBlocker>> GetBlockingDependenciesAsync(long taskId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<TaskDependencyBlocker>>(Array.Empty<TaskDependencyBlocker>());
     public Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult(((IReadOnlyList<TaskDto>)Array.Empty<TaskDto>(), (IReadOnlyList<TaskDto>)Array.Empty<TaskDto>()));
     public Task<bool> MajorBelongsToProjectAsync(long majorId, long projectId, CancellationToken cancellationToken = default) => Task.FromResult(true);

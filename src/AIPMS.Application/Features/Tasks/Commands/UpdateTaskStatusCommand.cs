@@ -1,6 +1,7 @@
 using AIPMS.Application.Abstractions.Projects;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -74,6 +75,20 @@ public sealed class UpdateTaskStatusCommandHandler(
         if (!TaskStateMachine.CanTransition(task.Status, request.NewStatus))
         {
             throw new ConflictException($"Cannot transition task from status {task.Status} to {request.NewStatus}.");
+        }
+
+        // FINISH_TO_START is an execution guard, not only an AI advisory edge.
+        // Keep the check server-side so direct API calls cannot bypass it.
+        if (request.NewStatus is "IN_PROGRESS" or "DONE" or "COMPLETED")
+        {
+            var blockers = await repository.GetBlockingDependenciesAsync(request.TaskId, cancellationToken);
+            if (blockers.Count > 0)
+            {
+                var details = string.Join(", ", blockers.Select(x => $"#{x.TaskId} {x.Title} ({x.Status})"));
+                throw new ConflictException(
+                    $"Task is blocked by unfinished predecessor task(s): {details}.",
+                    WorkflowErrorCodes.TaskDependencyBlocked);
+            }
         }
 
         await repository.UpdateStatusAsync(
