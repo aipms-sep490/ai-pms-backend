@@ -576,6 +576,55 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
             permissions.Select(static permission => permission.ToApplication()).ToArray());
     }
 
+    public async Task<PagedResult<AccessEvent>> GetAccessEventsAsync(
+        string? search,
+        long? userId,
+        string? eventType,
+        string? outcome,
+        DateTime? fromUtc,
+        DateTime? toUtc,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var query = context.AuditLogs.AsNoTracking()
+            .Where(item => item.Action == "AUTH_LOGIN"
+                || item.Action == "AUTH_GOOGLE_LOGIN"
+                || item.Action == "AUTH_LOGOUT");
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(item => item.ActorUser != null
+                && (item.ActorUser.FullName.Contains(search) || item.ActorUser.Email.Contains(search)));
+        if (userId.HasValue) query = query.Where(item => item.ActorUserId == userId.Value);
+        if (eventType == "LOGIN") query = query.Where(item => item.Action == "AUTH_LOGIN" || item.Action == "AUTH_GOOGLE_LOGIN");
+        if (eventType == "LOGOUT") query = query.Where(item => item.Action == "AUTH_LOGOUT");
+        if (!string.IsNullOrWhiteSpace(outcome)) query = query.Where(item => item.Outcome == outcome);
+        if (fromUtc.HasValue) query = query.Where(item => item.OccurredAt >= fromUtc.Value);
+        if (toUtc.HasValue) query = query.Where(item => item.OccurredAt <= toUtc.Value);
+
+        var totalCount = await query.LongCountAsync(cancellationToken);
+        var records = await query.Include(static item => item.ActorUser)
+            .OrderByDescending(static item => item.OccurredAt)
+            .ThenByDescending(static item => item.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return new PagedResult<AccessEvent>(
+            records.Select(static item => new AccessEvent(
+                item.Id,
+                item.ActorUserId,
+                item.ActorUser?.FullName,
+                item.ActorUser?.Email,
+                item.Action == "AUTH_LOGOUT" ? "LOGOUT" : "LOGIN",
+                item.Action == "AUTH_GOOGLE_LOGIN" ? "GOOGLE" : item.Action == "AUTH_LOGIN" ? "PASSWORD" : "UNKNOWN",
+                item.Outcome,
+                item.IpAddress,
+                item.OccurredAt)).ToArray(),
+            page,
+            pageSize,
+            totalCount);
+    }
+
     public async Task<PagedResult<AuditRecord>> GetAuditLogsAsync(
         long? actorUserId,
         string? action,

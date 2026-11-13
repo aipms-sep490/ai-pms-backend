@@ -78,6 +78,17 @@ public sealed record AuditRecord(
     string? DetailsJson,
     DateTime OccurredAt);
 
+public sealed record AccessEvent(
+    long Id,
+    long? UserId,
+    string? FullName,
+    string? Email,
+    string EventType,
+    string AuthenticationMethod,
+    string Outcome,
+    string? IpAddress,
+    DateTime OccurredAt);
+
 public sealed record PermissionMatrix(
     IReadOnlyCollection<SecurityRole> Roles,
     IReadOnlyCollection<SecurityPermission> Permissions);
