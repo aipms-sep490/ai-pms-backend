@@ -38,7 +38,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         var distinctLimits = policies.Select(p => p.MaxBytes).Distinct().OrderBy(b => b).ToArray();
         Assert.Equal(4, distinctLimits.Length);
         Assert.Equal(UploadPolicies.Tier6MiB, distinctLimits[0]);   // 6 MiB
-        Assert.Equal(UploadPolicies.Tier9MiB, distinctLimits[1]);   // 9 MiB
+        Assert.Equal(UploadPolicies.Tier10MiB, distinctLimits[1]);   // 10 MiB
         Assert.Equal(UploadPolicies.Tier11MiB, distinctLimits[2]); // 11 MiB
         Assert.Equal(UploadPolicies.EffectiveFileLimit, distinctLimits[3]); // 20 MiB
 
@@ -61,8 +61,8 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     [InlineData("COLD_SUBMISSION", 11 * 1024 * 1024, "11 MiB")]
     [InlineData("RESULT_APPEAL", 11 * 1024 * 1024, "11 MiB")]
     [InlineData("CHAT_ATTACHMENT", 11 * 1024 * 1024, "11 MiB")]
-    [InlineData("ACADEMIC_ASSISTANT_ASK", 9 * 1024 * 1024, "9 MiB")]
-    [InlineData("ACADEMIC_ASSISTANT_STREAM", 9 * 1024 * 1024, "9 MiB")]
+    [InlineData("ACADEMIC_ASSISTANT_ASK", 10 * 1024 * 1024, "10 MiB/tệp; 20 MiB/tổng")]
+    [InlineData("ACADEMIC_ASSISTANT_STREAM", 10 * 1024 * 1024, "10 MiB/tệp; 20 MiB/tổng")]
     [InlineData("STUDENT_ACCOUNT_IMPORT", 6 * 1024 * 1024, "6 MiB")]
     [InlineData("STUDENT_CURRICULUM", 6 * 1024 * 1024, "6 MiB")]
     public async Task GetByParentType_ReturnsCorrectPolicy(string parentType, long expectedMaxBytes, string expectedLabel)
@@ -182,12 +182,13 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             Assert.Contains(limit, validConstants);
         }
 
-        // 4 endpoints have MultipartTransportCeiling for multipart overhead; remaining 7 match their policy MaxBytes
+        // Six endpoints use MultipartTransportCeiling for multipart overhead (including the two assistant
+        // endpoints); remaining five match their policy MaxBytes.
         var multipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartTransportCeiling);
-        Assert.Equal(4, multipartCount);
+        Assert.Equal(6, multipartCount);
 
         var directMatchCount = endpointsWithLimit.Count(e => UploadPolicies.All.Any(p => p.MaxBytes == e.Limit));
-        Assert.Equal(7, directMatchCount);
+        Assert.Equal(5, directMatchCount);
     }
 
     [Fact]

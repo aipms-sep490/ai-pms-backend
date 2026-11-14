@@ -90,7 +90,7 @@ internal sealed class DeliverableReviewService(AipmsDbContext db, AiActorScope a
         var files = version.Files.OrderBy(f => f.Id).ToArray();
         if (files.Length > 4 || files.Any(f => f.FileSizeBytes is <= 0 or > AssistantAttachmentReader.MaxFileBytes) ||
             files.Sum(f => f.FileSizeBytes) > AssistantAttachmentReader.MaxTotalBytes)
-            throw new ArgumentException("Tối đa 4 tệp, mỗi tệp 4 MB, tổng 8 MB.");
+            throw new ArgumentException("Tối đa 4 tệp, mỗi tệp 10 MB, tổng 20 MB.");
         if (files.Any(f => !new[] { ".pdf", ".docx", ".txt", ".md" }.Contains(Path.GetExtension(f.OriginalFileName).ToLowerInvariant())))
             throw new ArgumentException("Hỗ trợ PDF, DOCX, TXT và Markdown.");
         var run = new AiRun { ProjectId = projectId, ActorId = scope.Actor, Kind = "DELIVERABLE_REVIEW",
@@ -115,7 +115,7 @@ internal sealed class DeliverableReviewService(AipmsDbContext db, AiActorScope a
                     var chunk = new byte[81920]; int n;
                     while ((n = await input.ReadAsync(chunk, ct)) > 0)
                     {
-                        if (buffer.Length + n > AssistantAttachmentReader.MaxFileBytes) throw new ArgumentException("Tệp vượt quá 4 MB.");
+                        if (buffer.Length + n > AssistantAttachmentReader.MaxFileBytes) throw new ArgumentException("Tệp vượt quá 10 MB.");
                         buffer.Write(chunk, 0, n);
                     }
                     var bytes = buffer.ToArray();

@@ -14,9 +14,10 @@ public sealed record UploadPolicyDto(
 
 public static class UploadPolicies
 {
-    // The 4 distinct size tiers
+    // The published per-file size tiers. Assistant endpoints use MultipartTransportCeiling
+    // for the HTTP envelope while AssistantAttachmentReader enforces 10 MiB/file and 20 MiB/request.
     public const long Tier6MiB = 6 * 1024 * 1024;
-    public const long Tier9MiB = 9 * 1024 * 1024;
+    public const long Tier10MiB = 10 * 1024 * 1024;
     public const long Tier11MiB = 11 * 1024 * 1024;
 
     /// <summary>
@@ -35,8 +36,9 @@ public static class UploadPolicies
     // The 11 endpoint constants (reading from the tiers)
     public const long StudentAccountImportLimit = Tier6MiB;
     public const long StudentCurriculumLimit = Tier6MiB;
-    public const long AcademicAssistantAskLimit = Tier9MiB;
-    public const long AcademicAssistantStreamLimit = Tier9MiB;
+    public const long AcademicAssistantAskLimit = MultipartTransportCeiling;
+    public const long AcademicAssistantStreamLimit = MultipartTransportCeiling;
+    public const long AcademicAssistantFileLimit = Tier10MiB;
     public const long ChatAttachmentLimit = Tier11MiB;
     public const long ColdSubmissionLimit = Tier11MiB;
     public const long ResultAppealLimit = Tier11MiB;
@@ -112,8 +114,8 @@ public static class UploadPolicies
         ),
         new UploadPolicyDto(
             ParentType: "ACADEMIC_ASSISTANT_ASK",
-            MaxBytes: AcademicAssistantAskLimit,
-            MaxBytesLabel: "9 MiB",
+            MaxBytes: AcademicAssistantFileLimit,
+            MaxBytesLabel: "10 MiB/tệp; 20 MiB/tổng",
             AllowedMimeTypes: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "text/markdown"],
             AllowedExtensions: [".pdf", ".docx", ".txt", ".md"],
             MaxFilesPerRequest: 4,
@@ -121,8 +123,8 @@ public static class UploadPolicies
         ),
         new UploadPolicyDto(
             ParentType: "ACADEMIC_ASSISTANT_STREAM",
-            MaxBytes: AcademicAssistantStreamLimit,
-            MaxBytesLabel: "9 MiB",
+            MaxBytes: AcademicAssistantFileLimit,
+            MaxBytesLabel: "10 MiB/tệp; 20 MiB/tổng",
             AllowedMimeTypes: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "text/markdown"],
             AllowedExtensions: [".pdf", ".docx", ".txt", ".md"],
             MaxFilesPerRequest: 4,

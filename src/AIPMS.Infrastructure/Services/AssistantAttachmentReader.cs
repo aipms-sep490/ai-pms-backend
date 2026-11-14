@@ -14,19 +14,19 @@ internal sealed record AssistantAttachment(string Name, string MediaType, string
 
 internal static class AssistantAttachmentReader
 {
-    internal const int MaxFileBytes = 4 * 1024 * 1024;
-    internal const int MaxTotalBytes = 8 * 1024 * 1024;
+    internal const int MaxFileBytes = 10 * 1024 * 1024;
+    internal const int MaxTotalBytes = 20 * 1024 * 1024;
     private const int MaxTextLength = 20000;
 
     public static IReadOnlyList<AssistantAttachment> Read(IReadOnlyList<AssistantUpload> files, CancellationToken ct)
     {
         if (files.Count > 4 || files.Sum(f => (long)f.Content.Length) > MaxTotalBytes)
-            throw new ArgumentException("Tối đa 4 tệp, tổng dung lượng tối đa 8 MB.");
+            throw new ArgumentException("Tối đa 4 tệp, mỗi tệp tối đa 10 MB và tổng dung lượng tối đa 20 MB.");
         var result = new List<AssistantAttachment>();
         foreach (var file in files)
         {
             ct.ThrowIfCancellationRequested();
-            if (file.Content.Length is 0 or > MaxFileBytes) throw new ArgumentException("Mỗi tệp phải có nội dung và không vượt quá 4 MB.");
+            if (file.Content.Length is 0 or > MaxFileBytes) throw new ArgumentException("Mỗi tệp phải có nội dung và không vượt quá 10 MB.");
             var name = Path.GetFileName(file.FileName.Replace('\\', '/'));
             if (string.IsNullOrWhiteSpace(name) || name.Length > 200 || name.Any(char.IsControl)) throw new ArgumentException("Tên tệp không hợp lệ.");
             var extension = Path.GetExtension(name).ToLowerInvariant();

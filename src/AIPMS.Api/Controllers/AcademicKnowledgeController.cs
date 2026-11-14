@@ -51,13 +51,13 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     [HttpPost("assistant/ask-with-files")]
     [EnableRateLimiting("ai-assistant")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(UploadPolicies.AcademicAssistantAskLimit)]
-    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.AcademicAssistantAskLimit)]
+    [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
     [ProducesResponseType<AcademicAssistantResponseDto>(200)]
     public async Task<AcademicAssistantResponseDto> AskWithFiles([FromForm] AssistantFilesForm input, CancellationToken ct)
     {
-        if (input.Files.Count > 4 || input.Files.Sum(f => f.Length) > 8 * 1024 * 1024 || input.Files.Any(f => f.Length is 0 or > 4 * 1024 * 1024))
-            throw new ArgumentException("Tối đa 4 tệp, mỗi tệp 4 MB và tổng 8 MB.");
+        if (input.Files.Count > 4 || input.Files.Sum(f => f.Length) > 20 * 1024 * 1024 || input.Files.Any(f => f.Length is 0 or > 10 * 1024 * 1024))
+            throw new ArgumentException("Tối đa 4 tệp, mỗi tệp 10 MB và tổng 20 MB.");
         var files = new List<AssistantUpload>();
         foreach (var file in input.Files)
         {
@@ -92,12 +92,12 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     [EnableRateLimiting("ai-assistant")]
     [Consumes("multipart/form-data")]
     [Produces("application/x-ndjson")]
-    [RequestSizeLimit(UploadPolicies.AcademicAssistantStreamLimit)]
-    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.AcademicAssistantStreamLimit)]
+    [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
     public async Task Stream([FromForm] AssistantFilesForm input, CancellationToken ct)
     {
-        if (input.Files.Count > 4 || input.Files.Sum(f => f.Length) > 8 * 1024 * 1024 || input.Files.Any(f => f.Length is 0 or > 4 * 1024 * 1024))
-            throw new ArgumentException("Tối đa 4 tệp, mỗi tệp 4 MB và tổng 8 MB.");
+        if (input.Files.Count > 4 || input.Files.Sum(f => f.Length) > 20 * 1024 * 1024 || input.Files.Any(f => f.Length is 0 or > 10 * 1024 * 1024))
+            throw new ArgumentException("Tối đa 4 tệp, mỗi tệp 10 MB và tổng 20 MB.");
         Response.Headers.CacheControl = "no-store";
         Response.Headers["X-Accel-Buffering"] = "no";
         // Audit uses this after the response begins, so allocate its header before streaming.
