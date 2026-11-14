@@ -29,4 +29,23 @@ The seven ordered BE-16 migrations are registered in `db/e2e/migrations.json`: p
 
 FE apply now reads `GET /project-periods/{id}/review-gates/r3/schedule` or `GET /project-periods/{id}/defense-sessions` before claiming that a schedule was published. If readback fails or differs from allocations, FE clears the preview to avoid an accidental duplicate apply and asks the operator to reload the published list. Existing per-project defense screens and API routes stay available.
 
+BE apply accepts any valid nonempty subset of preview allocations in one transaction. FE requires the operator to explicitly confirm a partial publication when the preview still has unscheduled projects, then reports the remaining count after readback. The selected subset remains subject to the same BE revision and conflict checks.
+
+## Role flows completed on the working branches
+
+| Role | Entry and actions | Backend authority and readback |
+| --- | --- | --- |
+| Admin / lead-department staff | Period room planner: configure working days/holidays, view/edit room catalog, preview and publish Gate 3/4, change a future Gate 3 room/slot, review Gate 4 change requests | BE checks role, active department/organization, frozen lead-department scope, gate/window/room conflicts and concurrency tokens. FE reloads the calendar, published schedule, room catalog or request decision before success. |
+| Assigned Gate 3 chair/secretary | Review Gate queue and session script; receives Gate 3 schedule notifications | Only the BE-issued assignment authorizes the script. A room/time change is available to Admin/lead staff on the period planner, not from the script. |
+| Assigned Gate 4 chair/secretary | Notification opens `/lecturer/defense-sessions/{sessionId}`; view session, choose a catalog room/official slot, submit or withdraw a change request | `GET /api/v1/defense-sessions/{sessionId}/change-requests` and `GET /api/v1/defense-sessions/{sessionId}/change-rooms` require an active chair/secretary of that session. Room options are active and meet group + committee + 5-seat capacity. POST/withdraw still enforce all existing BE checks. |
+| Other authorized lecturer / student | Lecturer notification opens the session in read-only mode if BE grants session read; student uses the existing project defense page | The session-officer GETs return 403 for a non-chair/non-secretary; FE does not expose a change form. |
+
+The FE room presentation uses the catalog's building, floor, code, capacity and status. It does not assert physical room coordinates, area or campus geometry that the BE does not store. All 6 slot labels mirror `DefenseSchedulingRules.Slot`; BE remains authoritative for valid time, working days and capacity.
+
+The new session-scoped GET endpoints are in the offline-generated `docs/contracts/cib-v4/openapi.json`. Controlled browser tests are at `e2e/room-planner/room-planner.spec.ts`; they check publish/readback, factual room labels, 403/retry and 390px overflow. They use intercepted fixture responses, not authenticated staging data.
+
+The FE branch vendors the 48 JSON contract examples from this BE branch and updates `contract-lock.json`. The current FE CI workflow checks examples from BE `develop`; its contract-drift job will remain a dependency gate until these BE contracts reach `develop` through the separately approved merge sequence. No CI check is bypassed or weakened on the working branches.
+
+Local verification on 14/11/2026: BE Release build 0 warnings/errors; 1,312 unit tests passed; 43 focused SQL integration tests including fresh/upgrade/replay schema parity passed on Testcontainers; the updated chair-request case passed again after the final authorization/capacity assertions. FE full Vitest suite passed 2,157/2,157 (324 files), later floor-view adjustments passed 10/10 focused tests, FE production build passed, and the controlled Playwright browser cases passed 2/2. These numbers do not imply the 12 role-based staging UAT scenarios were completed.
+
 Controlled SQL and FE fixture tests are evidence for implementation, not authenticated staging UAT. Final UAT must cover Admin, lead-department staff, Gate 3 reviewers, Gate 4 chair/secretary and students; unauthorized cross-department reads, two concurrent applies, room/people overlaps, window/holiday rules, notification delivery, and published readback. Keep the planner flag off until those checks pass on the approved deployment.

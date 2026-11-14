@@ -496,23 +496,25 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
         using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
         var slot = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1);
-        long sessionId, desiredRoomId, committeeId; string committeeToken;
+        long sessionId, desiredRoomId, smallRoomId, committeeId; string committeeToken;
         await using (var db = database.CreateContext())
         {
             var currentRoom = new Room { Code = "CUR-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
                 Floor = 1, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
             var desiredRoom = new Room { Code = "NEW-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
                 Floor = 1, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            var smallRoom = new Room { Code = "SMALL-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
+                Floor = 1, Capacity = 1, CreatedAt = Now, UpdatedAt = Now };
             var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Chair committee",
                 CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
                 Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
-            db.AddRange(currentRoom, desiredRoom, committee); await db.SaveChangesAsync();
+            db.AddRange(currentRoom, desiredRoom, smallRoom, committee); await db.SaveChangesAsync();
             committeeId = committee.Id; committeeToken = committee.ConcurrencyToken.ToString("N");
             var session = new DefenseSession { ProjectId = x.S.ProjectId, CommitteeId = committee.Id,
                 RoomId = currentRoom.Id, Room = currentRoom.Code, StartAt = slot.Start.UtcDateTime,
                 EndAt = slot.End.UtcDateTime, CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now };
             db.Add(session); await db.SaveChangesAsync();
-            sessionId = session.Id; desiredRoomId = desiredRoom.Id;
+            sessionId = session.Id; desiredRoomId = desiredRoom.Id; smallRoomId = smallRoom.Id;
         }
         var assigned = await Body<CommitteeDto>(await staff.PutAsJsonAsync(
             $"/api/v1/defense-committees/{committeeId}/roles",
@@ -522,8 +524,15 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         var request = new CreateDefenseChangeRequest(desiredRoomId, slot.Start, slot.End,
             "ROOM_FACILITY_ISSUE", "The projector is unavailable in the original room.", null);
         Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync(url, request)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.GetAsync(url)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync(url)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.GetAsync($"/api/v1/defense-sessions/{sessionId}/change-rooms")).StatusCode);
         var pending = await Body<DefenseChangeRequestDto>(await chair.PostAsJsonAsync(url, request));
         Assert.Equal("PENDING", pending.Status);
+        Assert.Equal(pending.Id, Assert.Single(await Body<DefenseChangeRequestDto[]>(await chair.GetAsync(url))).Id);
+        var changeRooms = await Body<RoomDto[]>(await chair.GetAsync($"/api/v1/defense-sessions/{sessionId}/change-rooms"));
+        Assert.Contains(changeRooms, room => room.Id == desiredRoomId);
+        Assert.DoesNotContain(changeRooms, room => room.Id == smallRoomId);
         Assert.Equal(HttpStatusCode.Conflict, (await chair.PostAsJsonAsync(url, request)).StatusCode);
         var decisionUrl = $"/api/v1/defense-sessions/change-requests/{pending.Id}/decision";
         var decision = new DecideDefenseChangeRequest("APPROVED", "Approved by lead staff", pending.ConcurrencyToken);
@@ -540,6 +549,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             $"/api/v1/defense-sessions/change-requests/{second.Id}/withdraw",
             new WithdrawDefenseChangeRequest(second.ConcurrencyToken)));
         Assert.Equal("WITHDRAWN", withdrawn.Status);
+        Assert.Equal("WITHDRAWN", (await Body<DefenseChangeRequestDto[]>(await chair.GetAsync(url)))[0].Status);
         var adminList = await Body<DefenseChangeRequestDto[]>(await admin.GetAsync(
             $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/change-requests?status=WITHDRAWN"));
         Assert.Contains(adminList, r => r.Id == withdrawn.Id);

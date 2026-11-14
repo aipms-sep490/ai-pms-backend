@@ -184,6 +184,39 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
         await tx.CommitAsync(ct); return Dto(row);
     }
 
+    private async Task<DefenseSession> RequireSessionOfficer(long sessionId, CancellationToken ct)
+    {
+        var session = await Session(sessionId, ct);
+        if (!await db.Users.AsNoTracking().AnyAsync(u => u.Id == Actor && u.Status == "ACTIVE", ct)
+            || !await db.Set<DefenseCommitteeMember>().AsNoTracking().AnyAsync(m => m.CommitteeId == session.CommitteeId
+                && m.UserId == Actor && (m.Role == "CHAIR" || m.Role == "SECRETARY"), ct))
+            throw new ForbiddenException("Only the assigned chair or secretary may view schedule change requests.");
+        return session;
+    }
+
+    public async Task<IReadOnlyList<DefenseChangeRequestDto>> ListForSession(long sessionId, CancellationToken ct)
+    {
+        await RequireSessionOfficer(sessionId, ct);
+        return (await db.Set<DefenseScheduleChangeRequest>().AsNoTracking()
+            .Where(r => r.DefenseSessionId == sessionId)
+            .OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).ToArrayAsync(ct))
+            .Select(Dto).ToArray();
+    }
+
+    public async Task<IReadOnlyList<RoomDto>> RoomsForSession(long sessionId, CancellationToken ct)
+    {
+        var session = await RequireSessionOfficer(sessionId, ct);
+        var groupSize = await db.Projects.AsNoTracking().Where(p => p.Id == session.ProjectId)
+            .Select(p => p.Team.TeamMembers.Count(m => m.LeftAt == null)).SingleAsync(ct);
+        var committeeSize = await db.Set<DefenseCommitteeMember>().AsNoTracking()
+            .Where(m => m.CommitteeId == session.CommitteeId).Select(m => m.UserId).Distinct().CountAsync(ct);
+        var requiredSeats = groupSize + committeeSize + 5;
+        return await db.Set<Room>().AsNoTracking().Where(r => r.Status == "ACTIVE" && r.Capacity >= requiredSeats)
+            .OrderBy(r => r.Building).ThenBy(r => r.Floor).ThenBy(r => r.Code)
+            .Select(r => new RoomDto(r.Id, r.Code, r.Building, r.Floor, r.Capacity,
+                r.Status, r.ConcurrencyToken.ToString("N"))).ToArrayAsync(ct);
+    }
+
     public async Task<IReadOnlyList<DefenseChangeRequestDto>> List(long periodId, string? status, CancellationToken ct)
     {
         var periodOrganization = await db.ProjectPeriods.AsNoTracking().Where(p => p.Id == periodId)
