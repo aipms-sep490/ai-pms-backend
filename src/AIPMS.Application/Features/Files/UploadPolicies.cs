@@ -38,7 +38,9 @@ public static class UploadPolicies
     public const long StudentCurriculumLimit = Tier6MiB;
     public const long AcademicAssistantAskLimit = MultipartTransportCeiling;
     public const long AcademicAssistantStreamLimit = MultipartTransportCeiling;
+    public const int AcademicAssistantMaxFiles = 4;
     public const long AcademicAssistantFileLimit = Tier10MiB;
+    public const long AcademicAssistantTotalLimit = 20 * 1024 * 1024;
     public const long ChatAttachmentLimit = Tier11MiB;
     public const long ColdSubmissionLimit = Tier11MiB;
     public const long ResultAppealLimit = Tier11MiB;
@@ -118,7 +120,7 @@ public static class UploadPolicies
             MaxBytesLabel: "10 MiB/tệp; 20 MiB/tổng",
             AllowedMimeTypes: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "text/markdown"],
             AllowedExtensions: [".pdf", ".docx", ".txt", ".md"],
-            MaxFilesPerRequest: 4,
+            MaxFilesPerRequest: AcademicAssistantMaxFiles,
             RequiresVersionAnchor: false
         ),
         new UploadPolicyDto(
@@ -127,7 +129,7 @@ public static class UploadPolicies
             MaxBytesLabel: "10 MiB/tệp; 20 MiB/tổng",
             AllowedMimeTypes: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "text/markdown"],
             AllowedExtensions: [".pdf", ".docx", ".txt", ".md"],
-            MaxFilesPerRequest: 4,
+            MaxFilesPerRequest: AcademicAssistantMaxFiles,
             RequiresVersionAnchor: false
         ),
         new UploadPolicyDto(

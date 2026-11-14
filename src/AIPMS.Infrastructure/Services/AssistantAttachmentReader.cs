@@ -6,6 +6,7 @@ using System.Xml;
 using System.Xml.Linq;
 using AIPMS.Application.Features.AcademicKnowledge;
 using AIPMS.Application.Features.AiAssistant.Abstractions;
+using AIPMS.Application.Features.Files;
 using UglyToad.PdfPig;
 
 namespace AIPMS.Infrastructure.Services;
@@ -14,13 +15,14 @@ internal sealed record AssistantAttachment(string Name, string MediaType, string
 
 internal static class AssistantAttachmentReader
 {
-    internal const int MaxFileBytes = 10 * 1024 * 1024;
-    internal const int MaxTotalBytes = 20 * 1024 * 1024;
+    internal const int MaxFiles = UploadPolicies.AcademicAssistantMaxFiles;
+    internal const int MaxFileBytes = (int)UploadPolicies.AcademicAssistantFileLimit;
+    internal const int MaxTotalBytes = (int)UploadPolicies.AcademicAssistantTotalLimit;
     private const int MaxTextLength = 20000;
 
     public static IReadOnlyList<AssistantAttachment> Read(IReadOnlyList<AssistantUpload> files, CancellationToken ct)
     {
-        if (files.Count > 4 || files.Sum(f => (long)f.Content.Length) > MaxTotalBytes)
+        if (files.Count > MaxFiles || files.Sum(f => (long)f.Content.Length) > MaxTotalBytes)
             throw new ArgumentException("Tối đa 4 tệp, mỗi tệp tối đa 10 MB và tổng dung lượng tối đa 20 MB.");
         var result = new List<AssistantAttachment>();
         foreach (var file in files)

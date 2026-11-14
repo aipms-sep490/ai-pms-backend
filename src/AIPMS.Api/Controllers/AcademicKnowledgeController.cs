@@ -56,7 +56,7 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     [ProducesResponseType<AcademicAssistantResponseDto>(200)]
     public async Task<AcademicAssistantResponseDto> AskWithFiles([FromForm] AssistantFilesForm input, CancellationToken ct)
     {
-        if (input.Files.Count > 4 || input.Files.Sum(f => f.Length) > 20 * 1024 * 1024 || input.Files.Any(f => f.Length is 0 or > 10 * 1024 * 1024))
+        if (input.Files.Count > UploadPolicies.AcademicAssistantMaxFiles || input.Files.Sum(f => f.Length) > UploadPolicies.AcademicAssistantTotalLimit || input.Files.Any(f => f.Length is 0 or > UploadPolicies.AcademicAssistantFileLimit))
             throw new ArgumentException("Tối đa 4 tệp, mỗi tệp 10 MB và tổng 20 MB.");
         var files = new List<AssistantUpload>();
         foreach (var file in input.Files)
@@ -96,7 +96,7 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
     public async Task Stream([FromForm] AssistantFilesForm input, CancellationToken ct)
     {
-        if (input.Files.Count > 4 || input.Files.Sum(f => f.Length) > 20 * 1024 * 1024 || input.Files.Any(f => f.Length is 0 or > 10 * 1024 * 1024))
+        if (input.Files.Count > UploadPolicies.AcademicAssistantMaxFiles || input.Files.Sum(f => f.Length) > UploadPolicies.AcademicAssistantTotalLimit || input.Files.Any(f => f.Length is 0 or > UploadPolicies.AcademicAssistantFileLimit))
             throw new ArgumentException("Tối đa 4 tệp, mỗi tệp 10 MB và tổng 20 MB.");
         Response.Headers.CacheControl = "no-store";
         Response.Headers["X-Accel-Buffering"] = "no";
