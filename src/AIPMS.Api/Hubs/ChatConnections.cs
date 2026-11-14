@@ -6,11 +6,12 @@ using Microsoft.Extensions.Options;
 
 namespace AIPMS.Api.Hubs;
 
-public sealed class ChatConnection(string id,long userId,long passwordTicks,DateTimeOffset expires,Action abort)
+public sealed class ChatConnection(string id,long userId,long passwordTicks,IReadOnlyCollection<string> roles,DateTimeOffset expires,Action abort)
 {
     public string Id { get; }=id;
     public long UserId { get; }=userId;
     public long PasswordTicks { get; }=passwordTicks;
+    public IReadOnlyCollection<string> Roles { get; }=roles;
     public DateTimeOffset Expires { get; }=expires;
     public DateTimeOffset Touched { get; set; }
     public long? Watching { get; set; }
@@ -31,7 +32,8 @@ public sealed class ChatConnections(TimeProvider clock,IOptions<ChatSettings> op
         {
             Prune();
             if(connections.Values.Count(c=>c.UserId==user)>=options.Value.MaxConnectionsPerUser) throw new HubException("CHAT_CONNECTION_LIMIT");
-            var c=new ChatConnection(context.ConnectionId,user,pwd,DateTimeOffset.FromUnixTimeSeconds(exp),context.Abort){Touched=clock.GetUtcNow()};
+            var roles=context.User!.FindAll(ClaimTypes.Role).Select(claim=>claim.Value).ToArray();
+            var c=new ChatConnection(context.ConnectionId,user,pwd,roles,DateTimeOffset.FromUnixTimeSeconds(exp),context.Abort){Touched=clock.GetUtcNow()};
             connections.Add(c.Id,c);return c;
         }
     }
@@ -78,7 +80,7 @@ internal sealed class ChatHubFilter(ChatConnections connections,IOptions<ChatSet
         if(!options.Value.Enabled||!options.Value.RealtimeEnabled) throw new HubException("CHAT_DISABLED");
         var c=connections.Find(context.ConnectionId)??throw new HubException("CHAT_SESSION_EXPIRED");
         if(!connections.Touch(c.Id)||!await services.GetRequiredService<IAccessTokenAccountValidator>().IsValidAsync(c.UserId,
-            c.PasswordTicks==0?null:new DateTime(c.PasswordTicks,DateTimeKind.Utc),context.ConnectionAborted))
+            c.PasswordTicks==0?null:new DateTime(c.PasswordTicks,DateTimeKind.Utc),c.Roles,context.ConnectionAborted))
         { context.Abort();connections.Remove(c.Id);throw new HubException("CHAT_SESSION_EXPIRED"); }
     }
     public async Task OnConnectedAsync(HubLifetimeContext context,Func<HubLifetimeContext,Task> next)

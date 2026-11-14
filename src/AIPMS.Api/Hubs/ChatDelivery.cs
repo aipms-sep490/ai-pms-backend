@@ -11,12 +11,10 @@ public sealed class ChatDelivery(ChatConnections connections,IHubContext<ChatHub
     private async Task<ChatConnection[]> Authorized(long conversation,CancellationToken ct)
     {
         var users=await access.RecipientsAsync(conversation,ct);
-        var valid=new List<ChatConnection>();var checkedCredentials=new Dictionary<(long,long),bool>();
+        var valid=new List<ChatConnection>();
         foreach(var c in connections.Snapshot().Where(c=>users.Contains(c.UserId)))
         {
-            var key=(c.UserId,c.PasswordTicks);
-            if(!checkedCredentials.TryGetValue(key,out var ok))
-                checkedCredentials[key]=ok=await credentials.IsValidAsync(c.UserId,c.PasswordTicks==0?null:new DateTime(c.PasswordTicks,DateTimeKind.Utc),ct);
+            var ok=await credentials.IsValidAsync(c.UserId,c.PasswordTicks==0?null:new DateTime(c.PasswordTicks,DateTimeKind.Utc),c.Roles,ct);
             if(ok) valid.Add(c);else { connections.Remove(c.Id);c.Abort(); }
         }
         return valid.ToArray();

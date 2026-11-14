@@ -13,7 +13,8 @@ internal sealed class ChatCredentialGuard(IHttpContextAccessor http, IAccessToke
         var user=http.HttpContext?.User;
         if(user?.Identity?.IsAuthenticated!=true || user.FindFirstValue(ClaimTypes.NameIdentifier)!=actor.ToString(System.Globalization.CultureInfo.InvariantCulture)
             || !long.TryParse(user.FindFirstValue("pwd"),out var ticks) || ticks<0 || ticks>DateTime.MaxValue.Ticks
-            || !await validator.IsValidAsync(actor,ticks==0?null:new DateTime(ticks,DateTimeKind.Utc),ct))
+            || !await validator.IsValidAsync(actor,ticks==0?null:new DateTime(ticks,DateTimeKind.Utc),
+                user.FindAll(ClaimTypes.Role).Select(claim=>claim.Value).ToArray(),ct))
             throw new UnauthorizedException("CHAT_SESSION_EXPIRED");
     }
 }

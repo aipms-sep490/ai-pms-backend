@@ -10,4 +10,6 @@ Response page items contain `id`, `userId`, `fullName`, `email`, `eventType`, `a
 
 Before reading audit rows, the handler checks the actor's current active account and persisted Admin role. A token issued before Admin revocation cannot continue reading access events. The same check protects the general audit-log query. Responses disable caching because they contain sensitive account and network metadata.
 
+At the authentication boundary, every role claim in an access token must still have a persisted assignment. Revoking a role invalidates that token for all endpoints. The existing active-account and password-version checks remain in force.
+
 This feature reads the existing Database First schema and adds no migration or background worker. Authenticated runtime readback and role checks remain necessary before release; unit tests cover filtering, pagination, unknown actor, validation, and non-Admin denial.
