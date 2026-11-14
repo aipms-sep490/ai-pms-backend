@@ -586,6 +586,67 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         target.SourceVersion, target.LatestReviewId, decision, "Synthetic reason");
 
     [Fact]
+    public async Task Gate_one_to_three_assignments_keep_one_fixed_pair_and_exclude_the_project_supervisor()
+    {
+        using var app = new TrackingFactory(database);
+        var project = await Prepare(); var second = await Prepare(); var third = await Prepare();
+        var r3 = await AddSchedulingGates(project.S, "PLANNED");
+        await using (var db = database.CreateContext())
+        {
+            db.ProjectGateInstances.AddRange(
+                new ProjectGateInstance { ProjectId = project.S.ProjectId, TemplateId = r3.TemplateId,
+                    TemplateVersion = 1, Code = "R1", Sequence = 1, Title = "Review 1", Status = "PLANNED",
+                    ReviewEligibility = "READY", CreatedAt = Now },
+                new ProjectGateInstance { ProjectId = project.S.ProjectId, TemplateId = r3.TemplateId,
+                    TemplateVersion = 1, Code = "R2", Sequence = 2, Title = "Review 2", Status = "PLANNED",
+                    ReviewEligibility = "READY", CreatedAt = Now });
+            await db.SaveChangesAsync();
+        }
+        using var staff = app.CreateAuthenticatedClient(project.S.Scope.Users.Staff);
+        var url = "/api/v1/review-gates/assignments";
+        CreateReviewGateAssignmentRequest Request(string gate, long reviewer) =>
+            new(project.S.ProjectId.ToString(), gate, reviewer, "COMMON", null, null, null);
+        await Body<AssignedReviewItemDto>(await staff.PostAsJsonAsync(url, Request("R1", project.S.Scope.Users.NewLecturer)));
+        await Body<AssignedReviewItemDto>(await staff.PostAsJsonAsync(url, Request("R1", second.S.Scope.Users.NewLecturer)));
+        await Body<AssignedReviewItemDto>(await staff.PostAsJsonAsync(url, Request("R2", project.S.Scope.Users.NewLecturer)));
+        await Body<AssignedReviewItemDto>(await staff.PostAsJsonAsync(url, Request("R3", second.S.Scope.Users.NewLecturer)));
+        var different = await staff.PostAsJsonAsync(url, Request("R3", third.S.Scope.Users.NewLecturer));
+        Assert.Equal(HttpStatusCode.Conflict, different.StatusCode);
+        Assert.Contains("GATE_FIXED_PANEL_CONFLICT", await different.Content.ReadAsStringAsync());
+        var supervisor = await staff.PostAsJsonAsync(url, Request("R2", project.Primary));
+        Assert.Equal(HttpStatusCode.Conflict, supervisor.StatusCode);
+        Assert.Contains("REVIEWER_CONFLICT", await supervisor.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Defense_candidates_show_supervisor_as_locked_and_committee_write_rechecks_it()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        await using (var db = database.CreateContext())
+        {
+            var code = (await db.Majors.FindAsync(x.Major))!.Code;
+            var primary = await db.SupervisorProfiles.SingleAsync(p => p.UserId == x.Primary);
+            primary.IsAvailable = true;
+            primary.SupervisorExpertises.Add(new() { ExpertiseName = code });
+            var independent = new M.SupervisorProfile { UserId = x.S.Scope.Users.NewLecturer, IsAvailable = true };
+            independent.SupervisorExpertises.Add(new() { ExpertiseName = code });
+            db.Add(independent); await db.SaveChangesAsync();
+        }
+        using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        using var outsider = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
+        var path = Project(x.S.ProjectId) + "/defense-committee-candidates?page=1&pageSize=100";
+        Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(path)).StatusCode);
+        var candidates = await Body<PagedResult<DefenseCommitteeCandidateDto>>(await staff.GetAsync(path));
+        var blocked = Assert.Single(candidates.Items, c => c.UserId == x.Primary && c.MajorId == x.Major);
+        Assert.False(blocked.CanAssign); Assert.Equal("SUPERVISOR_CONFLICT", blocked.BlockReason);
+        Assert.True(Assert.Single(candidates.Items, c => c.UserId == x.S.Scope.Users.NewLecturer && c.MajorId == x.Major).CanAssign);
+        var response = await staff.PostAsJsonAsync(Project(x.S.ProjectId) + "/defense-committees",
+            new CreateCommitteeRequest("Invalid panel", [new(x.Primary, x.Major)]));
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("DEFENSE_SUPERVISOR_CONFLICT", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Exact_source_review_is_append_only_stale_safe_and_checkpoint_never_changes_project_state()
     {
         using var app = new TrackingFactory(database); var x = await Prepare(); using var primary = app.CreateAuthenticatedClient(x.Primary);
@@ -676,12 +737,19 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             {
                 var profile = await db.SupervisorProfiles.SingleAsync(p => p.UserId == item.Primary); profile.IsAvailable = true;
                 profile.SupervisorExpertises.Add(new() { ExpertiseName = (await db.Majors.FindAsync(item.Major))!.Code });
+                var evaluator = await db.SupervisorProfiles.SingleOrDefaultAsync(p => p.UserId == item.S.Scope.Users.NewLecturer);
+                if (evaluator is null) { evaluator = new M.SupervisorProfile { UserId = item.S.Scope.Users.NewLecturer, IsAvailable = true }; db.Add(evaluator); }
+                evaluator.IsAvailable = true;
+                evaluator.SupervisorExpertises.Add(new() { ExpertiseName = (await db.Majors.FindAsync(item.Major))!.Code });
             }
             await db.SaveChangesAsync();
         }
         Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", inputA)).StatusCode);
-        var ca = await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", inputA));
-        var cb = await Body<CommitteeDto>(await staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("Other", [new(b.Primary, b.Major)])));
+        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", inputA)).StatusCode);
+        var ca = await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees",
+            new CreateCommitteeRequest("Independent committee", [new(a.S.Scope.Users.NewLecturer, a.Major)])));
+        var cb = await Body<CommitteeDto>(await staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-committees",
+            new CreateCommitteeRequest("Other", [new(b.S.Scope.Users.NewLecturer, b.Major)])));
         Assert.False(ca.GrantsEvaluatorAuthority);
         var room = "E2E-" + Guid.NewGuid().ToString("N");
         var scheduleA = new ScheduleDefenseRequest(ca.Id, new(Now.AddHours(1)), new(Now.AddHours(2)), room);
@@ -821,14 +889,16 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             snapshotB.SnapshotJson = JsonSerializer.Serialize(registrationB with { OrganizationId = semesterA.OrganizationId,
                 Scope = registrationB.Scope with { LeadDepartmentId = a.S.Scope.Users.DepartmentId }, DepartmentIds = [a.S.Scope.Users.DepartmentId],
                 MajorDepartmentIds = new Dictionary<long, long> { [b.Major] = a.S.Scope.Users.DepartmentId } });
-            var profile = await db.SupervisorProfiles.SingleAsync(p => p.UserId == a.Primary); profile.IsAvailable = true;
+            (await db.Users.FindAsync(a.S.Scope.Users.NewLecturer))!.DepartmentId = a.S.Scope.Users.DepartmentId;
+            var profile = new M.SupervisorProfile { UserId = a.S.Scope.Users.NewLecturer, IsAvailable = true };
+            db.Add(profile);
             foreach (var majorId in new[] { a.Major, b.Major }) profile.SupervisorExpertises.Add(new() { ExpertiseName = (await db.Majors.FindAsync(majorId))!.Code });
             var extra = new M.Major { Code = Guid.NewGuid().ToString("N"), Name = "Design", DepartmentId = a.S.Scope.Users.DepartmentId, IsActive = true };
             db.Add(extra); await db.SaveChangesAsync(); additionalMajor = extra.Id;
         }
         using var staffA = app.CreateAuthenticatedClient(a.S.Scope.Users.Staff); using var staffB = app.CreateAuthenticatedClient(b.S.Scope.Users.Staff);
-        var committeeA = await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("A", [new(a.Primary, a.Major)])));
-        var committeeB = await Body<CommitteeDto>(await staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("B", [new(a.Primary, b.Major)])));
+        var committeeA = await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("A", [new(a.S.Scope.Users.NewLecturer, a.Major)])));
+        var committeeB = await Body<CommitteeDto>(await staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("B", [new(a.S.Scope.Users.NewLecturer, b.Major)])));
         var inputA = new ScheduleDefenseRequest(committeeA.Id, new(Now.AddHours(5)), new(Now.AddHours(6)), "A-" + Guid.NewGuid().ToString("N"));
         var inputB = inputA with { CommitteeId = committeeB.Id, Room = "B-" + Guid.NewGuid().ToString("N") };
         var responses = await Task.WhenAll(staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-sessions", inputA), staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-sessions", inputB));
@@ -847,11 +917,11 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
                 MajorDepartmentIds = new Dictionary<long, long> { [a.Major] = a.S.Scope.Users.DepartmentId, [additionalMajor] = a.S.Scope.Users.DepartmentId } });
             await db.SaveChangesAsync();
         }
-        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("Missing Design", [new(a.Primary, a.Major)]))).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("No Design expertise", [new(a.Primary, a.Major), new(a.Primary, additionalMajor)]))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("Missing Design", [new(a.S.Scope.Users.NewLecturer, a.Major)]))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("No Design expertise", [new(a.S.Scope.Users.NewLecturer, a.Major), new(a.S.Scope.Users.NewLecturer, additionalMajor)]))).StatusCode);
         await using (var db = database.CreateContext())
-        { (await db.SupervisorProfiles.SingleAsync(p => p.UserId == a.Primary)).SupervisorExpertises.Add(new() { ExpertiseName = (await db.Majors.FindAsync(additionalMajor))!.Code }); await db.SaveChangesAsync(); }
-        Assert.Equal(2, (await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("Covered", [new(a.Primary, a.Major), new(a.Primary, additionalMajor)])))).Members.Count);
+        { (await db.SupervisorProfiles.SingleAsync(p => p.UserId == a.S.Scope.Users.NewLecturer)).SupervisorExpertises.Add(new() { ExpertiseName = (await db.Majors.FindAsync(additionalMajor))!.Code }); await db.SaveChangesAsync(); }
+        Assert.Equal(2, (await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("Covered", [new(a.S.Scope.Users.NewLecturer, a.Major), new(a.S.Scope.Users.NewLecturer, additionalMajor)])))).Members.Count);
     }
 
     [Fact]

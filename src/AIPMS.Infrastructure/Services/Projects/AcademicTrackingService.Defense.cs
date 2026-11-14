@@ -21,10 +21,15 @@ internal sealed partial class AcademicTrackingService
         if (members.Count is < 1 or > 20 || members.Any(m => m is null || m.UserId <= 0 || !majors.Contains(m.MajorId))
             || members.Select(m => (m.UserId, m.MajorId)).Distinct().Count() != members.Count
             || members.Any(m => m.Role is not ("MEMBER" or "CHAIR" or "SECRETARY"))
-            || members.Count(m => m.Role == "CHAIR") > 1 || members.Count(m => m.Role == "SECRETARY") > 1)
+            || members.Count(m => m.Role == "CHAIR") > 1 || members.Count(m => m.Role == "SECRETARY") > 1
+            || members.Any(m => m.Role == "CHAIR" && members.Any(s => s.Role == "SECRETARY" && s.UserId == m.UserId)))
             throw Invalid("Committee must contain 1..20 unique scoped members and at most one chair and secretary.");
         if (majors.Except(members.Select(m => m.MajorId)).Any()) throw new ConflictException("DEFENSE_MAJOR_COVERAGE_REQUIRED", "DEFENSE_MAJOR_COVERAGE_REQUIRED");
         var users = members.Select(m => m.UserId).Distinct().ToArray();
+        if (await db.SupervisorAssignments.AsNoTracking().AnyAsync(a => a.ProjectId == access.Project.Id
+            && a.EndedAt == null && users.Contains(a.SupervisorProfile.UserId), ct))
+            throw new ConflictException("An active supervisor or mentor cannot evaluate their own project defense.",
+                "DEFENSE_SUPERVISOR_CONFLICT");
         var profiles = await db.SupervisorProfiles.AsNoTracking().Where(p => users.Contains(p.UserId) && p.IsAvailable && p.User.Status == "ACTIVE"
             && p.User.Department != null && p.User.Department.IsActive && p.User.Department.Organization.IsActive
             && p.User.UserRoleUsers.Any(r => r.Role.Code == "LECTURER"))
@@ -45,6 +50,39 @@ internal sealed partial class AcademicTrackingService
         // A transaction-owned mutex closes cross-project room/lecturer booking races.
         var result = await db.Database.SqlQueryRaw<int>("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource=N'AI_PMS_DEFENSE_SCHEDULE', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=10000; SELECT @r AS Value;").ToListAsync(ct);
         if (result.Single() < 0) throw new ConflictException("Defense schedule is busy; reload and retry.", "DEFENSE_SCHEDULE_BUSY");
+    }
+    public async Task<PagedResult<DefenseCommitteeCandidateDto>> CommitteeCandidates(long projectId, int page, int pageSize, CancellationToken ct)
+    {
+        Page(page, pageSize);
+        var access = await Scope(projectId, ct);
+        if (!access.Lead) throw new ForbiddenException("Only the frozen lead department can arrange the defense committee.");
+        var departments = access.Registration.MajorDepartmentIds!;
+        var majorIds = access.Registration.Scope.Requirements.Select(r => r.MajorId).Distinct().ToArray();
+        var majors = await db.Majors.AsNoTracking().Where(m => majorIds.Contains(m.Id) && m.IsActive)
+            .Select(m => new { m.Id, m.Code, m.Name }).ToArrayAsync(ct);
+        var departmentIds = departments.Values.Distinct().ToArray();
+        var profiles = await db.SupervisorProfiles.AsNoTracking()
+            .Where(p => p.User.DepartmentId.HasValue && departmentIds.Contains(p.User.DepartmentId.Value)
+                && p.User.Status == "ACTIVE" && p.User.Department != null && p.User.Department.IsActive
+                && p.User.Department.Organization.IsActive
+                && p.User.UserRoleUsers.Any(r => r.Role.Code == "LECTURER"))
+            .Select(p => new { p.UserId, p.User.FullName, p.User.DepartmentId, p.IsAvailable,
+                Expertise = p.SupervisorExpertises.Select(e => e.ExpertiseName).ToArray() }).ToArrayAsync(ct);
+        var supervisors = (await db.SupervisorAssignments.AsNoTracking()
+            .Where(a => a.ProjectId == projectId && a.EndedAt == null)
+            .Select(a => a.SupervisorProfile.UserId).Distinct().ToArrayAsync(ct)).ToHashSet();
+        var rows = (from major in majors
+                    from profile in profiles
+                    where profile.DepartmentId == departments[major.Id]
+                        && profile.Expertise.Any(e => string.Equals(e.Trim(), major.Code, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(e.Trim(), major.Name, StringComparison.OrdinalIgnoreCase))
+                    let reason = supervisors.Contains(profile.UserId) ? "SUPERVISOR_CONFLICT"
+                        : !profile.IsAvailable ? "PROFILE_UNAVAILABLE" : null
+                    select new DefenseCommitteeCandidateDto(profile.UserId, profile.FullName, major.Id, major.Name,
+                        reason is null, reason))
+            .OrderBy(x => x.MajorName).ThenBy(x => x.FullName).ThenBy(x => x.UserId).ToArray();
+        return new PagedResult<DefenseCommitteeCandidateDto>(rows.Skip((page - 1) * pageSize).Take(pageSize).ToArray(),
+            page, pageSize, rows.LongLength);
     }
     public Task<CommitteeDto> CreateCommittee(long projectId, CreateCommitteeRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -81,7 +119,8 @@ internal sealed partial class AcademicTrackingService
             || input.Members.Select(m => (m.UserId, m.MajorId)).Distinct().Count() != input.Members.Count
             || input.Members.Any(m => m.Role is not ("MEMBER" or "CHAIR" or "SECRETARY")
                 || !row.Members.Any(x => x.UserId == m.UserId && x.MajorId == m.MajorId))
-            || input.Members.Count(m => m.Role == "CHAIR") > 1 || input.Members.Count(m => m.Role == "SECRETARY") > 1)
+            || input.Members.Count(m => m.Role == "CHAIR") > 1 || input.Members.Count(m => m.Role == "SECRETARY") > 1
+            || input.Members.Any(m => m.Role == "CHAIR" && input.Members.Any(s => s.Role == "SECRETARY" && s.UserId == m.UserId)))
             throw Invalid("Roles must match the existing committee with at most one chair and one secretary.");
         foreach (var member in row.Members)
             member.Role = input.Members.Single(m => m.UserId == member.UserId && m.MajorId == member.MajorId).Role;
@@ -101,7 +140,7 @@ internal sealed partial class AcademicTrackingService
         var committee = await db.Set<DefenseCommittee>().Include(c => c.Members).SingleOrDefaultAsync(c => c.Id == input.CommitteeId && c.ProjectId == projectId, ct)
             ?? throw new NotFoundException("DefenseCommittee", input.CommitteeId);
         await OfflineGateEligibility.RequirePreviousGateAndWindow(db, projectId, 4, input.StartAt, input.EndAt, ct);
-        await Qualified(access, committee.Members.Select(m => new CommitteeMemberInput(m.UserId, m.MajorId)).ToArray(), ct);
+        await Qualified(access, committee.Members.Select(m => new CommitteeMemberInput(m.UserId, m.MajorId, m.Role)).ToArray(), ct);
         var users = committee.Members.Select(m => m.UserId).Distinct().ToArray();
         var room = input.Room.Trim().ToUpperInvariant(); var start = input.StartAt.UtcDateTime; var end = input.EndAt.UtcDateTime;
         var roomRecord = await db.Set<Room>().SingleOrDefaultAsync(r => r.Code == room, ct);

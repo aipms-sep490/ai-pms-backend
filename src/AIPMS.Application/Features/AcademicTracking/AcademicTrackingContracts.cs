@@ -19,6 +19,8 @@ public sealed record CheckpointDto(long Id, long ProjectId, string Title, long? 
     string ConcurrencyToken, bool IsOverdue, bool CanManage, IReadOnlyList<CheckpointDecisionDto> Decisions,
     bool TrackingOnly = true, bool BlocksAcademicWorkflow = false);
 public sealed record CommitteeMemberInput(long UserId, long MajorId, string Role = "MEMBER");
+public sealed record DefenseCommitteeCandidateDto(long UserId, string FullName, long MajorId, string MajorName,
+    bool CanAssign, string? BlockReason);
 public sealed record CreateCommitteeRequest(string Name, IReadOnlyList<CommitteeMemberInput> Members);
 public sealed record CommitteeDto(long Id, long ProjectId, string Name, IReadOnlyList<CommitteeMemberInput> Members,
     bool GrantsEvaluatorAuthority = false, string? ConcurrencyToken = null);

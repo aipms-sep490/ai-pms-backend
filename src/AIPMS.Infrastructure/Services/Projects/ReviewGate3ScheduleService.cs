@@ -92,8 +92,11 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
             { issues.Add(new(project.Id, "REVIEW_GATE_3_CLOSED")); continue; }
             var assigned = reviewers.Where(r => r.GateInstanceId == gate.Id
                 && activeReviewerIds.Contains(r.ReviewerId)).ToArray();
-            if (!assigned.Any(r => r.SessionRole == "CHAIR") || !assigned.Any(r => r.SessionRole == "SECRETARY")
-                || assigned.Select(r => r.ReviewerId).Distinct().Count() < 2)
+            if (assigned.Where(r => r.SessionRole == "CHAIR").Select(r => r.ReviewerId).Distinct().Count() != 1
+                || assigned.Where(r => r.SessionRole == "SECRETARY").Select(r => r.ReviewerId).Distinct().Count() != 1
+                || assigned.FirstOrDefault(r => r.SessionRole == "CHAIR")?.ReviewerId
+                    == assigned.FirstOrDefault(r => r.SessionRole == "SECRETARY")?.ReviewerId
+                || assigned.Select(r => r.ReviewerId).Distinct().Count() != 2)
             { issues.Add(new(project.Id, "REVIEW_GATE_3_REVIEWERS_REQUIRED")); continue; }
             var idsForGate = assigned.Select(r => r.ReviewerId).Distinct().ToArray();
             var supervisorsForProject = supervisors.Where(s => s.ProjectId == project.Id).Select(s => s.UserId).Distinct().ToArray();

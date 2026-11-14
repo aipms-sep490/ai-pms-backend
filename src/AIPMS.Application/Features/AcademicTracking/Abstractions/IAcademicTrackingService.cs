@@ -11,6 +11,7 @@ public interface IAcademicTrackingService
     Task<CheckpointDto> DecideCheckpoint(long id, DecideCheckpointRequest input, CancellationToken ct);
     Task<PagedResult<CheckpointDto>> Checkpoints(long projectId, int page, int pageSize, CancellationToken ct);
     Task<CommitteeDto> CreateCommittee(long projectId, CreateCommitteeRequest input, CancellationToken ct);
+    Task<PagedResult<DefenseCommitteeCandidateDto>> CommitteeCandidates(long projectId, int page, int pageSize, CancellationToken ct);
     Task<CommitteeDto> AssignCommitteeRoles(long id, SaveCommitteeRolesRequest input, CancellationToken ct);
     Task<PagedResult<CommitteeDto>> Committees(long projectId, int page, int pageSize, CancellationToken ct);
     Task<DefenseSessionDto> ScheduleDefense(long projectId, ScheduleDefenseRequest input, CancellationToken ct);

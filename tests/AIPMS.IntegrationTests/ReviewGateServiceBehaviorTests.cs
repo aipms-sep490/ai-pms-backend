@@ -714,6 +714,7 @@ public sealed class ReviewGateServiceBehaviorTests(ReviewGateBehaviorFixture fix
         Assert.Equal("BLOCKED", g3.ReviewEligibility);
     }
 
+
     // ==========================================
     // 16. Decide với reviewer đã REVOKED => 403 hoặc 409 (:627-630)
     // TODO(GATE-02): RequireActiveAssignment throws ConflictException (409 REVIEW_ASSIGNMENT_INACTIVE) rather than 403
