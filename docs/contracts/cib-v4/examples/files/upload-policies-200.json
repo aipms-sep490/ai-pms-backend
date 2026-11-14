@@ -156,8 +156,8 @@
       },
       {
         "parentType": "ACADEMIC_ASSISTANT_ASK",
-        "maxBytes": 9437184,
-        "maxBytesLabel": "9 MiB",
+        "maxBytes": 10485760,
+        "maxBytesLabel": "10 MiB/tệp; 20 MiB/tổng",
         "allowedMimeTypes": [
           "application/pdf",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -175,8 +175,8 @@
       },
       {
         "parentType": "ACADEMIC_ASSISTANT_STREAM",
-        "maxBytes": 9437184,
-        "maxBytesLabel": "9 MiB",
+        "maxBytes": 10485760,
+        "maxBytesLabel": "10 MiB/tệp; 20 MiB/tổng",
         "allowedMimeTypes": [
           "application/pdf",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
