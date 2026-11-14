@@ -22,6 +22,20 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     private static string Evidence(long id) => $"/api/v1/project-evidence/{id}";
 
     [Fact]
+    public async Task Staff_cannot_mark_review_gate_passed_without_two_reviewer_decisions()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        var gate = await AddGate(x.S);
+        var url = $"/api/v1/projects/{x.S.ProjectId}/review-gates/{gate.Code}/decision";
+        var response = await staff.PostAsJsonAsync(url,
+            new UpdateReviewGateDecisionRequest("PASSED", gate.ConcurrencyToken.ToString("N")));
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        await using var db = database.CreateContext();
+        Assert.Equal("IN_REVIEW", (await db.ProjectGateInstances.SingleAsync(g => g.Id == gate.Id)).Status);
+    }
+
+    [Fact]
     public async Task Lead_staff_override_requires_reason_token_and_audits_previous_decision()
     {
         using var app = new TrackingFactory(database); var x = await Prepare();

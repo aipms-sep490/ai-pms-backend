@@ -644,6 +644,9 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         await RequireGateMutationAuthority(scope, gate, token);
         if (gate.DecisionSource == "OVERRIDE") throw new ConflictException("An overridden gate requires the override workflow.");
         CheckToken(gate.ConcurrencyToken, input.ConcurrencyToken);
+        if (input.NewStatus == "PASSED" && gate.Sequence is >= 1 and <= 3)
+            throw new ConflictException("Gate 1–3 must pass through the two assigned reviewers; use the audited override workflow for an exception.",
+                "GATE_REVIEW_PANEL_REQUIRED");
         ResetOverride(gate); gate.Status = input.NewStatus;
         gate.ReviewEligibility = input.NewStatus == "REVISION_REQUIRED" ? "BLOCKED" : "READY"; gate.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync(token);
         await NotifyGateChanged(projectId, gate.Id, gate.Code, $"Gate status changed to {input.NewStatus}.", token);
