@@ -75,6 +75,26 @@ public sealed class SemesterEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Academic_Directories_Filter_Foreign_Organization_Before_Paging_And_Detail()
+    {
+        using var student = _factory.CreateAuthenticatedClient(4001, roles: AppRoles.Student);
+        using var admin = _factory.CreateAuthenticatedClient(1001, roles: AppRoles.Admin);
+
+        var semesters = await student.GetFromJsonAsync<PagedResult<SemesterDto>>("/api/v1/academic/semesters");
+        var periods = await student.GetFromJsonAsync<PagedResult<ProjectPeriodDto>>("/api/v1/academic/project-periods");
+        Assert.NotNull(semesters);
+        Assert.NotNull(periods);
+        Assert.DoesNotContain(semesters.Items, semester => semester.OrganizationId == 2);
+        Assert.DoesNotContain(periods.Items, period => period.AcademicSemesterId == 2);
+        Assert.Equal(HttpStatusCode.NotFound, (await student.GetAsync("/api/v1/academic/semesters/2")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await student.GetAsync("/api/v1/academic/project-periods/2")).StatusCode);
+
+        var allSemesters = await admin.GetFromJsonAsync<PagedResult<SemesterDto>>("/api/v1/academic/semesters");
+        Assert.NotNull(allSemesters);
+        Assert.Equal(semesters.TotalCount + 1, allSemesters.TotalCount);
+    }
+
     // ── Create Semester ───────────────────────────────────────────────────────
 
     [Fact]
@@ -403,10 +423,22 @@ public sealed class SemesterEndpointTests
             {
                 services.RemoveAll<ISemesterRepository>();
                 services.AddSingleton<ISemesterRepository>(Repository);
+                services.RemoveAll<IAcademicDirectoryScopeReader>();
+                services.AddScoped<IAcademicDirectoryScopeReader, TestDirectoryScopeReader>();
                 services.RemoveAll<IAuditTrail>();
                 services.AddSingleton<IAuditTrail, NoOpAuditTrail>();
             });
         }
+    }
+
+    private sealed class TestDirectoryScopeReader(AIPMS.Application.Abstractions.Security.ICurrentUser user)
+        : IAcademicDirectoryScopeReader
+    {
+        public Task<AcademicDirectoryScope> GetAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(user.UserId == 1001
+                ? new AcademicDirectoryScope(null, null)
+                : new AcademicDirectoryScope(user.UserId == 4002 ? 2 : 1,
+                    user.UserId == 3001 ? 1 : null));
     }
 
     public sealed class NoOpAuditTrail : IAuditTrail
@@ -436,6 +468,11 @@ public sealed class SemesterEndpointTests
                     1, 1, "FPTU", "FPT University",
                     "SEM-2026", "Academic Year 2026",
                     new DateOnly(2026, 9, 1), new DateOnly(2027, 1, 31),
+                    "DRAFT", Ts, Ts),
+                [2] = new(
+                    2, 2, "OTHER", "Other Organization",
+                    "OTHER-2026", "Other Academic Year",
+                    new DateOnly(2026, 9, 1), new DateOnly(2027, 1, 31),
                     "DRAFT", Ts, Ts)
             };
 
@@ -447,17 +484,24 @@ public sealed class SemesterEndpointTests
                     "REGISTRATION",
                     new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
                     new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+                    "DRAFT", 3, 5, 1, 5, null, null, Ts, Ts),
+                [2] = new(
+                    2, 2, "OTHER-2026", "Other Academic Year",
+                    "OTHER-REG", "Other Registration", "REGISTRATION",
+                    new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
                     "DRAFT", 3, 5, 1, 5, null, null, Ts, Ts)
             };
         }
 
         public Task<PagedResult<AcademicSemesterModel>> GetSemestersAsync(
             long? organizationId, string? search, string? status, int page, int pageSize,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default, long? authorizedOrganizationId = null)
         {
             var items = _semesters.Values
                 .Where(s =>
                     (!organizationId.HasValue || s.OrganizationId == organizationId.Value)
+                    && (!authorizedOrganizationId.HasValue || s.OrganizationId == authorizedOrganizationId.Value)
                     && (string.IsNullOrWhiteSpace(status) || s.Status == status)
                     && (string.IsNullOrWhiteSpace(search)
                         || s.Code.Contains(search, StringComparison.OrdinalIgnoreCase)
@@ -471,8 +515,10 @@ public sealed class SemesterEndpointTests
         }
 
         public Task<AcademicSemesterModel?> GetSemesterAsync(
-            long semesterId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(_semesters.GetValueOrDefault(semesterId));
+            long semesterId, CancellationToken cancellationToken = default, long? authorizedOrganizationId = null) =>
+            Task.FromResult(_semesters.GetValueOrDefault(semesterId) is { } semester
+                && (!authorizedOrganizationId.HasValue || semester.OrganizationId == authorizedOrganizationId.Value)
+                ? semester : null);
 
         public Task<bool> SemesterCodeExistsAsync(
             long organizationId, string code, long? excludedSemesterId,
@@ -522,11 +568,12 @@ public sealed class SemesterEndpointTests
 
         public Task<PagedResult<ProjectPeriodModel>> GetProjectPeriodsAsync(
             long? semesterId, string? search, string? status, string? periodType,
-            int page, int pageSize, CancellationToken cancellationToken = default)
+            int page, int pageSize, CancellationToken cancellationToken = default, long? authorizedOrganizationId = null)
         {
             var items = _periods.Values
                 .Where(p =>
                     (!semesterId.HasValue || p.AcademicSemesterId == semesterId.Value)
+                    && (!authorizedOrganizationId.HasValue || _semesters[p.AcademicSemesterId].OrganizationId == authorizedOrganizationId.Value)
                     && (string.IsNullOrWhiteSpace(status) || p.Status == status)
                     && (string.IsNullOrWhiteSpace(periodType) || p.PeriodType == periodType)
                     && (string.IsNullOrWhiteSpace(search)
@@ -541,8 +588,10 @@ public sealed class SemesterEndpointTests
         }
 
         public Task<ProjectPeriodModel?> GetProjectPeriodAsync(
-            long periodId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(_periods.GetValueOrDefault(periodId));
+            long periodId, CancellationToken cancellationToken = default, long? authorizedOrganizationId = null) =>
+            Task.FromResult(_periods.GetValueOrDefault(periodId) is { } period
+                && (!authorizedOrganizationId.HasValue || _semesters[period.AcademicSemesterId].OrganizationId == authorizedOrganizationId.Value)
+                ? period : null);
 
         public Task<bool> PeriodCodeExistsAsync(
             long semesterId, string code, long? excludedPeriodId,

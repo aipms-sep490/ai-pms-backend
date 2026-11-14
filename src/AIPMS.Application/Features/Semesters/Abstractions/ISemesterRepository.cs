@@ -13,11 +13,13 @@ public interface ISemesterRepository
         string? status,
         int page,
         int pageSize,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        long? authorizedOrganizationId = null);
 
     Task<AcademicSemesterModel?> GetSemesterAsync(
         long semesterId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        long? authorizedOrganizationId = null);
 
     Task<bool> SemesterCodeExistsAsync(
         long organizationId,
@@ -59,11 +61,13 @@ public interface ISemesterRepository
         string? periodType,
         int page,
         int pageSize,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        long? authorizedOrganizationId = null);
 
     Task<ProjectPeriodModel?> GetProjectPeriodAsync(
         long periodId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        long? authorizedOrganizationId = null);
 
     Task<bool> PeriodCodeExistsAsync(
         long semesterId,

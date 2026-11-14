@@ -10,4 +10,4 @@ public sealed record SupervisorProfileModel(long Id, long UserId, string FullNam
     IReadOnlyList<SupervisorExpertiseModel> Expertise);
 
 public sealed record SupervisorSearch(long? DepartmentId, string? Search, string? Expertise,
-    bool? IsAvailable, int Page, int PageSize);
+    bool? IsAvailable, int Page, int PageSize, long? OrganizationId = null);

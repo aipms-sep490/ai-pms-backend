@@ -29,12 +29,12 @@ internal sealed class StubSemesterRepository : ISemesterRepository
 
     public Task<PagedResult<AcademicSemesterModel>> GetSemestersAsync(
         long? organizationId, string? search, string? status, int page, int pageSize,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default, long? authorizedOrganizationId = null) =>
         Task.FromResult(new PagedResult<AcademicSemesterModel>(
             Semesters.Values.ToArray(), page, pageSize, Semesters.Count));
 
     public Task<AcademicSemesterModel?> GetSemesterAsync(
-        long semesterId, CancellationToken cancellationToken = default) =>
+        long semesterId, CancellationToken cancellationToken = default, long? authorizedOrganizationId = null) =>
         Task.FromResult(Semesters.GetValueOrDefault(semesterId));
 
     public Task<bool> SemesterCodeExistsAsync(
@@ -85,7 +85,7 @@ internal sealed class StubSemesterRepository : ISemesterRepository
 
     public Task<PagedResult<ProjectPeriodModel>> GetProjectPeriodsAsync(
         long? semesterId, string? search, string? status, string? periodType,
-        int page, int pageSize, CancellationToken cancellationToken = default)
+        int page, int pageSize, CancellationToken cancellationToken = default, long? authorizedOrganizationId = null)
     {
         var items = Periods.Values.AsEnumerable();
         if (semesterId.HasValue)
@@ -97,7 +97,7 @@ internal sealed class StubSemesterRepository : ISemesterRepository
     }
 
     public Task<ProjectPeriodModel?> GetProjectPeriodAsync(
-        long periodId, CancellationToken cancellationToken = default) =>
+        long periodId, CancellationToken cancellationToken = default, long? authorizedOrganizationId = null) =>
         Task.FromResult(Periods.GetValueOrDefault(periodId));
 
     public Task<bool> PeriodCodeExistsAsync(

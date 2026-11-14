@@ -7,7 +7,8 @@ public interface ISupervisorProfileRepository
 {
     Task<SupervisorAccount?> GetAccountAsync(long userId, CancellationToken ct);
     Task<PagedResult<SupervisorProfileModel>> SearchAsync(SupervisorSearch search, CancellationToken ct);
-    Task<SupervisorProfileModel?> GetAsync(long profileId, CancellationToken ct);
+    Task<SupervisorProfileModel?> GetAsync(long profileId, CancellationToken ct,
+        long? authorizedOrganizationId = null, long? authorizedDepartmentId = null);
     Task<SupervisorProfileModel?> GetByUserAsync(long userId, CancellationToken ct);
     Task<SupervisorProfileModel> UpsertAsync(long userId, string? bio, bool available, DateTime now, CancellationToken ct);
     Task<SupervisorProfileModel> ReplaceExpertiseAsync(long profileId,
