@@ -20,6 +20,11 @@ namespace AIPMS.Api.Controllers;
 [Route("api/v1/tasks")]
 public sealed class TasksController(ISender sender) : ControllerBase
 {
+    [HttpGet("~/api/v1/projects/{projectId:long}/task-board/summary")]
+    [ProducesResponseType<IReadOnlyList<TaskBoardStatusCount>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<TaskBoardStatusCount>>> BoardSummary(
+        long projectId, [FromQuery] long? milestoneId, [FromQuery] long? sprintId, CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new GetTaskBoardSummaryQuery(projectId, milestoneId, sprintId), cancellationToken));
     [HttpGet("{id}")]
     [ProducesResponseType<TaskDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

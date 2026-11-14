@@ -26,7 +26,10 @@ public sealed class SchemaParityTests
         var schema = await text.ReadToEndAsync();
         await SqlSchemaBootstrap.ApplyAsync(upgraded.ConnectionString, schema);
         var expected = await Inventory(fresh.ConnectionString);
-        Assert.Equal(expected, await Inventory(upgraded.ConnectionString));
+        var upgradedInventory = await Inventory(upgraded.ConnectionString);
+        Assert.True(expected.SequenceEqual(upgradedInventory),
+            "Fresh-only schema entries: " + string.Join("; ", expected.Except(upgradedInventory))
+            + " | Upgrade-only schema entries: " + string.Join("; ", upgradedInventory.Except(expected)));
         var inventoryPath = Environment.GetEnvironmentVariable("AIPMS_SCHEMA_INVENTORY_OUTPUT");
         if (!string.IsNullOrWhiteSpace(inventoryPath))
             await System.IO.File.WriteAllTextAsync(inventoryPath, System.Text.Json.JsonSerializer.Serialize(expected));

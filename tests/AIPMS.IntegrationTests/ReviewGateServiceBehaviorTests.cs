@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.IO.Compression;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.ReviewGates;
 using AIPMS.Infrastructure.Persistence.Generated;
@@ -1063,6 +1064,36 @@ public sealed class ReviewGateServiceBehaviorTests(ReviewGateBehaviorFixture fix
         Assert.False(scopeCondition.Satisfied);
     }
 
+
+    [Fact]
+    public async Task Evidence_archive_streams_latest_link_and_rejects_empty_or_out_of_scope_gate()
+    {
+        var s = fixture.Scenario;
+        await using var db = fixture.CreateContext();
+        var (project, gate, studentId) = await CreateProjectWithGate(db, s);
+        await AcademicSnapshotFixture.AddAsync(db, project.Id, s.PeriodId, s.ItDeptId, studentId, DateTime.UtcNow);
+        using var app = new TestFactory(fixture);
+        using var staff = app.CreateAuthenticatedClient(s.StaffId, roles: [AppRoles.DepartmentStaff]);
+        using var outsider = app.CreateAuthenticatedClient(s.OutsideStaffId, roles: [AppRoles.DepartmentStaff]);
+        var url = $"/api/v1/projects/{project.Id}/review-gates/{gate.Code}/evidence/archive";
+        Assert.Equal(HttpStatusCode.NotFound, (await staff.GetAsync(url)).StatusCode);
+        var requirement = Assert.Single(gate.Requirements);
+        requirement.Evidence.Add(new GateEvidence { ProjectId = project.Id, Version = 1,
+            ArtifactName = "old.txt", LinkUrl = "https://example.org/old", SubmittedBy = studentId, SubmittedAt = DateTime.UtcNow });
+        requirement.Evidence.Add(new GateEvidence { ProjectId = project.Id, Version = 2,
+            ArtifactName = "latest.txt", LinkUrl = "https://example.org/latest", SubmittedBy = studentId, SubmittedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(url)).StatusCode);
+        var response = await staff.GetAsync(url);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/zip", response.Content.Headers.ContentType?.MediaType);
+        using var bytes = new MemoryStream(await response.Content.ReadAsByteArrayAsync());
+        using var zip = new ZipArchive(bytes, ZipArchiveMode.Read);
+        var entry = Assert.Single(zip.Entries);
+        Assert.EndsWith("lien-ket-minh-chung.txt", entry.FullName);
+        using var reader = new StreamReader(entry.Open());
+        Assert.Equal("https://example.org/latest", (await reader.ReadToEndAsync()).Trim());
+    }
 
     private static async Task<long> CreateStudentAsync(AipmsDbContext db, BehaviorScenario s)
     {

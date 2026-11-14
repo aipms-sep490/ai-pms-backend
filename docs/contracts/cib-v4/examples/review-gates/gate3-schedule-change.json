@@ -1,0 +1,21 @@
+{
+  "list": {
+    "method": "GET",
+    "path": "/api/v1/project-periods/1/review-gates/r3/schedule"
+  },
+  "change": {
+    "method": "PUT",
+    "path": "/api/v1/project-periods/1/review-gates/r3/schedule/301",
+    "request": {
+      "roomId": 21,
+      "startAt": "2026-11-20T11:00:00+07:00",
+      "endAt": "2026-11-20T12:15:00+07:00",
+      "reason": "Chuyển ca theo điều phối của phòng đào tạo",
+      "concurrencyToken": "4671ad12b700477b8a8aa44e58af859d"
+    }
+  },
+  "studentAndReviewerRead": {
+    "method": "GET",
+    "path": "/api/v1/review-gates/301/session-script"
+  }
+}

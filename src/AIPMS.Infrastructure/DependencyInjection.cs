@@ -254,7 +254,12 @@ public static class DependencyInjection
         services.AddOptions<Application.Features.Appeals.AppealSettings>().BindConfiguration("Appeals");
         services.AddOptions<AIPMS.Application.Features.Evaluations.Models.RubricOptions>().BindConfiguration(AIPMS.Application.Features.Evaluations.Models.RubricOptions.SectionName);
         services.AddScoped<Application.Features.AcademicTracking.Abstractions.IAcademicTrackingService, AcademicTrackingService>();
+        services.AddScoped<AIPMS.Application.Features.AcademicTracking.Abstractions.IDefenseCatalogService, DefenseCatalogService>();
+        services.AddScoped<AIPMS.Application.Features.AcademicTracking.Abstractions.IAutoScheduleService, AutoScheduleService>();
+        services.AddScoped<AIPMS.Application.Features.AcademicTracking.Abstractions.IReviewGate3ScheduleService, ReviewGate3ScheduleService>();
+        services.AddScoped<AIPMS.Application.Features.AcademicTracking.Abstractions.IDefenseChangeRequestService, DefenseChangeRequestService>();
         services.AddScoped<AIPMS.Application.Features.ReviewGates.Abstractions.IReviewGateService, ReviewGateService>();
+        services.AddScoped<AIPMS.Application.Features.ReviewGates.Abstractions.IGateSessionScriptService, GateSessionScriptService>();
         services.AddScoped<Application.Features.WeeklyAssessments.Abstractions.IWeeklyAssessmentService, WeeklyAssessmentService>();
         services.AddScoped<Application.Features.WorkingAgreements.Abstractions.IWorkingAgreementService, WorkingAgreementService>();
         services.AddOptions<Application.Features.WorkingAgreements.WorkingAgreementSettings>().BindConfiguration("WorkingAgreement");
@@ -263,6 +268,8 @@ public static class DependencyInjection
                 "WeeklyAssessment:TimeZoneId must name an installed time zone.").ValidateOnStart();
         services.AddScoped<AIPMS.Application.Features.Cold.Abstractions.IColdSubmissionService, ColdSubmissionService>();
         services.AddScoped<Application.Features.Semesters.Abstractions.IPeriodPolicyService, PeriodPolicyService>();
+        services.AddScoped<AIPMS.Application.Features.Semesters.Abstractions.IPeriodCalendarService, PeriodCalendarService>();
+        services.AddScoped<AIPMS.Application.Features.Semesters.Abstractions.IWorkingDayCalculator, WorkingDayCalculator>();
         services.AddScoped<IProjectResultRepository, ProjectResultRepository>();
         services.AddScoped<IMilestoneRepository, MilestoneRepository>();
         services.AddScoped<IMilestoneTemplateRepository, MilestoneTemplateRepository>();
@@ -277,6 +284,7 @@ public static class DependencyInjection
         services.AddScoped<IContributionRepository, ContributionRepository>();
         services.AddScoped<Application.Features.Dashboards.Abstractions.IDashboardRepository, DashboardRepository>();
         services.AddScoped<ITaskRepository, TaskRepository>();
+        services.AddScoped<AIPMS.Application.Features.Tasks.Abstractions.ITaskBoardSummaryReader, TaskBoardSummaryReader>();
         services.AddScoped<AIPMS.Application.Features.ExecutionCapabilities.Abstractions.IExecutionCapabilityService,
             Services.ExecutionCapabilities.ExecutionCapabilityService>();
         services.AddScoped<AIPMS.Application.Features.ExecutionCapabilities.Abstractions.IProjectCapabilityService,

@@ -29,7 +29,7 @@ public sealed record StudentReviewTimelineDto(string ProjectId, string ProjectCo
 public sealed record StudentGateInstanceDto(string GateInstanceId, string Code, string Title, string Objective, string Status,
     string ReviewEligibility, bool IsRequired, DateTime? WindowStart, DateTime? WindowEnd,
     IReadOnlyList<ReviewGateBlockingReasonDto> BlockingReasons, IReadOnlyList<StudentGateRequirementDto> Requirements,
-    string ConcurrencyToken = "", decimal? Weight = null);
+    string ConcurrencyToken = "", decimal? Weight = null, string DecisionSource = "REVIEW");
 public sealed record DisciplineBranchProgressDto(string Scope, string Name, decimal? Progress, decimal? Weight = null, string? Status = null);
 public sealed record SupervisorFeedbackDto(string GateCode, string Feedback, DateTime SubmittedAt, string? SupervisorName = null);
 public sealed record AddReviewGateFeedbackRequest(string Feedback);
@@ -39,6 +39,9 @@ public sealed record StudentGateRequirementDto(string Id, string Code, string Ti
     string VerificationStatus, ReviewGateArtifactDto? LatestArtifact, string? ReviewerFeedback);
 public sealed record ReviewGateArtifactDto(int Version, string Filename, DateTime SubmittedAt, string SubmittedBy, string? Notes,
     string ContentType = "application/octet-stream", long SizeBytes = 0, string Sha256 = "", string DownloadUrl = "", string? LinkUrl = null);
+public sealed record ReviewGateArchiveEntry(long RequirementId, string RequirementCode, string RequirementTitle,
+    int Version, string ArtifactName, bool IsLink, string? LinkUrl);
+public sealed record ReviewGateArchiveManifest(string ProjectCode, string GateCode, IReadOnlyList<ReviewGateArchiveEntry> Entries);
 public sealed record SubmitReviewGateEvidenceRequest(string RequirementId, string ArtifactName, string? Notes, int ExpectedVersion,
     string? ConcurrencyToken, string? LinkUrl = null);
 public sealed record SubmitReviewGateFileRequest(string RequirementId, string? Notes, int ExpectedVersion, string? ConcurrencyToken);
@@ -51,16 +54,21 @@ public sealed record AssignedReviewItemDto(string Id, string ProjectId, string P
 public sealed record VerifyReviewGateEvidenceRequest(string RequirementId, string Decision, string? Feedback, string ConcurrencyToken);
 public sealed record SubmitReviewGateDecisionRequest(string Decision, string Notes, string ConcurrencyToken);
 public sealed record UpdateReviewGateDecisionRequest(string NewStatus, string? ConcurrencyToken);
+public sealed record OverrideReviewGateRequest(string Decision, string Reason, string ConcurrencyToken);
+public sealed record OverrideReviewGateDto(long ProjectId, string GateCode, string Status, string DecisionSource,
+    string OverriddenBy, DateTime OverriddenAt, string Reason, string ConcurrencyToken);
+public sealed record ReviewGateUserCapabilitiesDto(long ProjectId,
+    IReadOnlyList<AIPMS.Application.Features.ExecutionCapabilities.DTOs.ExecutionActionDto> Actions);
 public sealed record UpdateReviewGateScopeRequest(string NewStatus, string? ConcurrencyToken);
 public sealed record CreateReviewGateAssignmentRequest(string ProjectId, string GateCode, long ReviewerId,
-    string Scope, long? MajorId, long? StudentId, string? ConcurrencyToken);
+    string Scope, long? MajorId, long? StudentId, string? ConcurrencyToken, string SessionRole = "MEMBER");
 public sealed record RevokeReviewGateAssignmentRequest(string ConcurrencyToken, string Reason);
 
 public sealed record ProjectReviewMatrixRowDto(string ProjectId, string ProjectName, string Mode, string Major, string Dept,
     decimal TaskProgress, IReadOnlyDictionary<string, string> GateStatuses,
     IReadOnlyDictionary<string, IReadOnlyList<string>> BlockingReasons,
     IReadOnlyDictionary<string, string>? HybridScopes, IReadOnlyDictionary<string, string>? HybridScopeLabels = null,
-    bool HasTasks = true);
+    bool HasTasks = true, IReadOnlyDictionary<string, string>? GateDecisionSources = null);
 public sealed record DefenseReadinessDto(string ProjectId, string ProjectName, bool IsReady, int BlockedCount,
     IReadOnlyList<DefenseConditionDto> Conditions);
 public sealed record DefenseConditionDto(string Id, string Title, bool? Satisfied, string Detail, bool IsMandatory);
