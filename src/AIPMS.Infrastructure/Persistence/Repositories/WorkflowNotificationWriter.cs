@@ -82,6 +82,11 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
                 $"SELECT * FROM dbo.evaluation_assignments WITH (UPDLOCK, HOLDLOCK) WHERE id = {notification.SourceId}")
                 .AsNoTracking().SingleOrDefaultAsync(ct);
             if (source is null || source.Status != "ACTIVE" || source.AssignedBy != notification.ActorId) return;
+            if (source.Stage == "COLD")
+            {
+                type = "COLD_EVALUATOR_ASSIGNED";
+                title = "Complete your assigned COLD evaluation before defense scheduling";
+            }
             projectId = source.ProjectId;
             teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
             targetUser = source.EvaluatorId;

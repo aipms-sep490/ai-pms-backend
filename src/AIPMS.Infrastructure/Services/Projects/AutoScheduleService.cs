@@ -15,7 +15,7 @@ using Microsoft.EntityFrameworkCore;
 namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser current, IAuditTrail audit,
-    TimeProvider clock) : IAutoScheduleService
+    TimeProvider clock, ColdSubmissionService cold) : IAutoScheduleService
 {
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
@@ -69,7 +69,7 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
             .Where(p => projectIds.Contains(p.Id) && (p.Status == "ACTIVE" || p.Status == "FINAL_SUBMISSION"))
             .ToArrayAsync(ct);
         var committees = await db.Set<DefenseCommittee>().AsNoTracking().Include(c => c.Members)
-            .Where(c => projectIds.Contains(c.ProjectId)).OrderBy(c => c.Id).ToArrayAsync(ct);
+            .Where(c => projectIds.Contains(c.ProjectId) && c.Status == "CONFIRMED").ToArrayAsync(ct);
         var supervisors = await db.SupervisorAssignments.AsNoTracking()
             .Where(a => projectIds.Contains(a.ProjectId) && a.EndedAt == null)
             .Select(a => new { a.ProjectId, a.SupervisorProfile.UserId }).ToArrayAsync(ct);
@@ -89,8 +89,11 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
             { issues.Add(new(project.Id, "DEFENSE_GATE_WINDOW_REQUIRED")); continue; }
             if (r4.Status is "PASSED" or "FAILED" or "REJECTED")
             { issues.Add(new(project.Id, "DEFENSE_GATE_CLOSED")); continue; }
-            var committee = committees.FirstOrDefault(c => c.ProjectId == project.Id);
+            var committee = committees.SingleOrDefault(c => c.ProjectId == project.Id);
             if (committee is null) { issues.Add(new(project.Id, "DEFENSE_COMMITTEE_REQUIRED")); continue; }
+            var coldProgress = await cold.ProgressCore(project.Id, ct, system: true);
+            if (!coldProgress.Ready)
+            { issues.Add(new(project.Id, "COLD_NOT_READY:" + string.Join(',', coldProgress.Blockers))); continue; }
             var members = committee.Members.Select(m => m.UserId).Distinct().ToArray();
             candidates.Add(project.Id, new(project.Id, committee.Id,
                 majors.FirstOrDefault(m => m.ProjectId == project.Id)?.MajorId,

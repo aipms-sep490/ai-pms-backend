@@ -24,7 +24,12 @@ public sealed partial class FinalSubmissionEndpointTests
         using var evaluator = app.CreateAuthenticatedClient(s.Users.NewLecturer);
         long major;
         await using (var db = database.CreateContext())
+        {
             major = await db.ProjectMajors.Where(m => m.ProjectId == s.ProjectId).Select(m => m.MajorId).SingleAsync();
+            db.Set<DefenseCommittee>().Add(new DefenseCommittee { ProjectId = s.ProjectId, Name = "Confirmed acceptance committee",
+                Status = "CONFIRMED", Members = [new() { UserId = s.Users.NewLecturer, MajorId = major }] });
+            await db.SaveChangesAsync();
+        }
         var template = await Body<ColdTemplateDto>(await staff.PostAsJsonAsync("/api/v1/cold-report-templates",
             new CreateColdTemplateRequest(major, s.PeriodId, "Individual review", [new("REPORT", "Individual report")])));
         var coldUrl = $"/api/v1/projects/{s.ProjectId}/cold";
@@ -41,8 +46,8 @@ public sealed partial class FinalSubmissionEndpointTests
             draft = await Body<ColdSubmissionDto>(await owner.PostAsync($"/api/v1/cold-submissions/{draft.Id}/files", form));
             await Body<ColdSubmissionDto>(await owner.PostAsJsonAsync($"/api/v1/cold-submissions/{draft.Id}/submit", new ColdTokenRequest(draft.ConcurrencyToken)));
         }
-        checklist = await Body<ColdChecklistDto>(await staff.GetAsync(coldUrl + "/checklist"));
-        var locked = await Body<ColdChecklistDto>(await staff.PostAsJsonAsync(coldUrl + "/lock", new ColdTokenRequest(checklist.ConcurrencyToken)));
+        checklist = await Body<ColdChecklistDto>(await leader.GetAsync(coldUrl + "/checklist"));
+        var locked = await Body<ColdChecklistDto>(await leader.PostAsJsonAsync(coldUrl + "/lock", new ColdTokenRequest(checklist.ConcurrencyToken)));
         var final = await Body<FinalSubmissionDto>(await leader.PostAsJsonAsync(Route(s.ProjectId), ready.Input));
         var rubric = await Body<RubricDto>(await staff.PostAsJsonAsync("/api/v1/rubrics",
             new CreateRubricRequest(s.Users.DepartmentId, s.SemesterId, Guid.NewGuid().ToString("N"), "COLD rubric", null,

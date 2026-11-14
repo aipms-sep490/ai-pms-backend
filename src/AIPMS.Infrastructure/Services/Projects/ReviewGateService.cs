@@ -21,7 +21,7 @@ using Microsoft.Data.SqlClient;
 namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser current, IProjectRepository transactions,
-    IAuditTrail audit, TimeProvider clock, IFileStorage storage) : IReviewGateService
+    IAuditTrail audit, TimeProvider clock, IFileStorage storage, ColdSubmissionService cold) : IReviewGateService
 {
     private long Actor => current.UserId ?? throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
@@ -172,17 +172,28 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
 
     public async Task<IReadOnlyList<ReviewGateTemplateDto>> Templates(CancellationToken ct)
     {
-        await RequireStaff(ct);
+        var user = await RequireTemplateStaffUser(ct);
         var rows = await db.ReviewGateTemplates.AsNoTracking().Include(x => x.Gates).ThenInclude(x => x.Requirements)
             .OrderByDescending(x => x.UpdatedAt).ToArrayAsync(ct);
-        return rows.Select(Map).ToArray();
+        var visible = new List<ReviewGateTemplateDto>();
+        foreach (var row in rows)
+        {
+            try
+            {
+                await ValidateTemplateScope(user, row.Mode, row.Major, row.ProjectPeriodId, ct);
+                visible.Add(Map(row));
+            }
+            catch (ForbiddenException) { /* A template outside this department is omitted from the list. */ }
+        }
+        return visible;
     }
 
     public async Task<ReviewGateTemplateDto?> Template(long id, CancellationToken ct)
     {
-        await RequireStaff(ct);
+        var user = await RequireTemplateStaffUser(ct);
         var row = await db.ReviewGateTemplates.AsNoTracking().Include(x => x.Gates).ThenInclude(x => x.Requirements)
             .SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (row is not null) await ValidateTemplateScope(user, row.Mode, row.Major, row.ProjectPeriodId, ct);
         return row is null ? null : Map(row);
     }
 
@@ -705,6 +716,13 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             .AnyAsync(x => x.ProjectId == projectId && x.Items.Any(), ct);
         conditions.Add(new("FINAL_PACKAGE", "Hồ sơ bàn giao cuối kỳ", hasLockedPackage,
             hasLockedPackage ? "Đã khóa hồ sơ bàn giao" : "Chưa có hồ sơ bàn giao đã khóa", true));
+        var committeeConfirmed = await db.Set<DefenseCommittee>().AsNoTracking()
+            .AnyAsync(c => c.ProjectId == projectId && c.Status == "CONFIRMED", ct);
+        conditions.Add(new("DEFENSE_COMMITTEE", "Hội đồng bảo vệ", committeeConfirmed,
+            committeeConfirmed ? "Hội đồng đã xác nhận" : "Bộ môn chưa xác nhận hội đồng", true));
+        var coldProgress = await cold.ProgressCore(projectId, ct, system: true);
+        conditions.Add(new("COLD_READY", "Chấm Cold", coldProgress.Ready,
+            coldProgress.Ready ? "Gói Cold đã khóa và đủ bài chấm" : string.Join(", ", coldProgress.Blockers), true));
         var isInterdisciplinary = scope.MajorIds.Count > 1;
         if (isInterdisciplinary)
         {

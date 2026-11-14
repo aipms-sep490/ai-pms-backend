@@ -71,7 +71,7 @@ public sealed partial class ColdSubmissionEndpointTests
     {
         using var app = new ColdFactory(database);
         var s = await database.Seed(true);
-        long firstMajor, marketingMajor, marketingStudent, mentorAssignment, marketingDepartment;
+        long firstMajor, marketingMajor, marketingStudent, mentorAssignment, marketingDepartment, marketingEvaluatorId;
         await using (var db = database.CreateContext())
         {
             firstMajor = await db.ProjectMajors.Where(m => m.ProjectId == s.ProjectId).Select(m => m.MajorId).SingleAsync();
@@ -100,12 +100,22 @@ public sealed partial class ColdSubmissionEndpointTests
             var mentor = new M.SupervisorAssignment { ProjectId = s.ProjectId, SupervisorProfileId = profile.Id, SupervisorRequestId = request.Id,
                 IsPrimary = false, AssignmentType = "DISCIPLINE_MENTOR", MajorId = major.Id, AssignedAt = Now.AddDays(-1) };
             db.SupervisorAssignments.Add(mentor); await db.SaveChangesAsync(); mentorAssignment = mentor.Id;
+            var evaluator = new M.User { Email = Guid.NewGuid().ToString("N") + "@e2e.invalid", FullName = "Independent marketing evaluator",
+                PasswordHash = "unused", Status = "ACTIVE", DepartmentId = marketingDepartment,
+                UserRoleUsers = [new() { RoleId = await db.Roles.Where(r => r.Code == "LECTURER").Select(r => r.Id).SingleAsync() }] };
+            db.Users.Add(evaluator); await db.SaveChangesAsync(); marketingEvaluatorId = evaluator.Id;
+            db.Set<DefenseCommittee>().Add(new DefenseCommittee { ProjectId = s.ProjectId, Name = "Confirmed interdisciplinary committee",
+                Status = "CONFIRMED", CreatedBy = s.Scope.Users.Staff, CreatedAt = Now,
+                Members = [new() { UserId = s.Scope.Users.NewLecturer, MajorId = firstMajor },
+                    new() { UserId = marketingEvaluatorId, MajorId = marketingMajor }] });
+            await db.SaveChangesAsync();
         }
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
         using var marketingStaff = app.CreateAuthenticatedClient(s.Scope.Users.OutsideStaff);
         using var it = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         using var marketing = app.CreateAuthenticatedClient(marketingStudent);
         using var mentorClient = app.CreateAuthenticatedClient(s.Scope.Users.OtherLecturer);
+        using var marketingEvaluator = app.CreateAuthenticatedClient(marketingEvaluatorId);
         var itTemplate = await Body<ColdTemplateDto>(await staff.PostAsJsonAsync("/api/v1/cold-report-templates",
             new CreateColdTemplateRequest(firstMajor, s.PeriodId, "IT", [new("SRS", "Software requirements")])));
         var marketingTemplate = await Body<ColdTemplateDto>(await marketingStaff.PostAsJsonAsync("/api/v1/cold-report-templates",
@@ -118,7 +128,7 @@ public sealed partial class ColdSubmissionEndpointTests
         var checklist = await Body<ColdChecklistDto>(await staff.PostAsJsonAsync(ChecklistUrl(s.ProjectId), apply));
         var itItem = checklist.Items.Single(i => i.MajorId == firstMajor);
         var marketingItem = checklist.Items.Single(i => i.Scope == "MAJOR_SPECIFIC" && i.MajorId == marketingMajor);
-        Assert.Single((await Body<ColdChecklistDto>(await it.GetAsync(ChecklistUrl(s.ProjectId)))).Items);
+        Assert.Equal(3, (await Body<ColdChecklistDto>(await it.GetAsync(ChecklistUrl(s.ProjectId)))).Items.Count);
         Assert.Equal(2, (await Body<ColdChecklistDto>(await marketing.GetAsync(ChecklistUrl(s.ProjectId)))).Items.Count);
         Assert.DoesNotContain((await Body<ColdChecklistDto>(await marketingStaff.GetAsync(ChecklistUrl(s.ProjectId)))).Items, i => i.MajorId == firstMajor);
         Assert.Equal(HttpStatusCode.Forbidden, (await it.PostAsJsonAsync(DraftUrl(marketingItem.Id), new SaveColdDraftRequest(0))).StatusCode);
@@ -126,7 +136,7 @@ public sealed partial class ColdSubmissionEndpointTests
         Assert.Equal(HttpStatusCode.Forbidden, (await mentorClient.PostAsJsonAsync(DraftUrl(marketingItem.Id), new SaveColdDraftRequest(0))).StatusCode);
         var submission = await SubmitReport(marketing, marketingItem.Id);
         Assert.Equal(HttpStatusCode.OK, (await mentorClient.GetAsync(submission.Files.Single().DownloadUrl)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await it.GetAsync(submission.Files.Single().DownloadUrl)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await it.GetAsync(submission.Files.Single().DownloadUrl)).StatusCode);
         await using (var db = database.CreateContext())
         {
             (await db.SupervisorAssignments.FindAsync(mentorAssignment))!.EndedAt = Now;
@@ -139,7 +149,7 @@ public sealed partial class ColdSubmissionEndpointTests
         Assert.DoesNotContain((await Body<ColdChecklistDto>(await marketing.GetAsync(ChecklistUrl(s.ProjectId)))).Items, i => i.ReportType == "NEW_REPORT");
         await SubmitReport(it, itItem.Id);
         await SubmitReport(marketing, checklist.Items.Single(i => i.Scope == "INDIVIDUAL").Id);
-        await LockCold(staff, s.ProjectId);
+        await LockCold(it, s.ProjectId);
         var rubric = await Body<RubricDto>(await marketingStaff.PostAsJsonAsync("/api/v1/rubrics",
             new CreateRubricRequest(marketingDepartment,
                 s.Scope.SemesterId, Guid.NewGuid().ToString("N"), "Marketing report", null, [new("Research quality", null, 100, 10, 0, true)])));
@@ -151,12 +161,13 @@ public sealed partial class ColdSubmissionEndpointTests
                  new("Marketing", "MAJOR_SPECIFIC", marketingMajor, rubric.Id, 0, 0, 1, Stage: "COLD")])));
         scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{scheme.Id}/publish", new SchemeTokenRequest(scheme.ConcurrencyToken)));
         var component = scheme.Components.Single(c => c.MajorId == marketingMajor);
-        Assert.Equal(HttpStatusCode.Conflict, (await AssignCold(staff, s, component, s.Scope.Users.Lecturer)).StatusCode);
-        var assignment = await Body<EvaluationAssignmentDto>(await AssignCold(marketingStaff, s, component, s.Scope.Users.OtherLecturer));
-        var evidence = await Body<EvaluationAssignmentEvidenceDto>(await mentorClient.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await AssignCold(staff, s, component, s.Scope.Users.Lecturer)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await AssignCold(marketingStaff, s, component, s.Scope.Users.OtherLecturer)).StatusCode);
+        var assignment = await Body<EvaluationAssignmentDto>(await AssignCold(marketingStaff, s, component, marketingEvaluatorId));
+        var evidence = await Body<EvaluationAssignmentEvidenceDto>(await marketingEvaluator.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence"));
         Assert.Equal(2, evidence.Items.Count); Assert.All(evidence.Items, i => Assert.Equal(marketingMajor, i.MajorId));
-        var itFile = (await Body<ColdChecklistDto>(await it.GetAsync(ChecklistUrl(s.ProjectId)))).Items.Single().Latest!.Files.Single().Id;
-        Assert.Equal(HttpStatusCode.NotFound, (await mentorClient.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/{itFile}")).StatusCode);
+        var itFile = (await Body<ColdChecklistDto>(await it.GetAsync(ChecklistUrl(s.ProjectId)))).Items.Single(i => i.MajorId == firstMajor).Latest!.Files.Single().Id;
+        Assert.Equal(HttpStatusCode.NotFound, (await marketingEvaluator.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence/files/{itFile}")).StatusCode);
         var progress = await Body<ColdProgressDto>(await marketingStaff.GetAsync($"/api/v1/projects/{s.ProjectId}/cold/progress"));
         Assert.All(progress.Grading, g => Assert.Equal(marketingMajor, g.MajorId));
         Assert.Single(progress.Grading);

@@ -16,7 +16,7 @@ internal static class ColdEvaluationBinding
 {
     internal static bool Includes(string scope, long? major, long? student, ColdChecklistItem item) => scope switch
     {
-        "COMMON" => true,
+        "COMMON" => item.Scope == "COMMON",
         "MAJOR_SPECIFIC" => major.HasValue && item.MajorId == major,
         "INDIVIDUAL" => major.HasValue && student.HasValue && item.MajorId == major && item.StudentId == student,
         _ => false
@@ -39,7 +39,9 @@ internal static class ColdEvaluationBinding
     internal static ColdEvidenceBinding Capture(ColdEvidenceSet data, string scope, long? major, long? student)
     {
         var package = data.Package;
-        var items = data.Items.Where(i => Includes(scope, major, student, i)).ToArray();
+        // Preserve already frozen packages created before COMMON checklist targets existed.
+        var legacyCommon = scope == "COMMON" && data.Items.All(i => i.Scope != "COMMON");
+        var items = data.Items.Where(i => legacyCommon || Includes(scope, major, student, i)).ToArray();
         var ids = items.Select(i => i.Id).ToHashSet();
         var rows = data.Submissions.Where(s => ids.Contains(s.ChecklistItemId)).ToArray();
         if (rows.Length == 0 || rows.Any(r => r.Files.Count == 0)
@@ -55,7 +57,10 @@ internal static class ColdEvaluationBinding
     }
 
     internal static async Task<ColdEvidenceBinding> Validate(AipmsDbContext db, EvaluationAssignment assignment, CancellationToken ct)
-        => Validate(await Load(db, assignment.ProjectId, ct), assignment);
+    {
+        await DefenseCommitteeAuthority.RequirePinnedAsync(db, assignment, ct);
+        return Validate(await Load(db, assignment.ProjectId, ct), assignment);
+    }
 
     internal static ColdEvidenceBinding Validate(ColdEvidenceSet data, EvaluationAssignment assignment)
     {

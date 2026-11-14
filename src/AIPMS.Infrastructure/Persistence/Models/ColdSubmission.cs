@@ -36,7 +36,7 @@ public sealed class ColdChecklistItem
     public string Name { get; set; } = "";
     public bool Required { get; set; }
     public string Scope { get; set; } = "";
-    public long MajorId { get; set; }
+    public long? MajorId { get; set; }
     public long? StudentId { get; set; }
 }
 public sealed class ColdSubmission

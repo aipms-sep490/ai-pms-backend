@@ -24,6 +24,8 @@ public partial class AipmsDbContext
         });
         b.Entity<DefenseCommittee>(e => {
             e.ToTable("defense_committees"); e.HasKey(x => x.Id); e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);
+            e.HasIndex(x => x.ProjectId, "ux_defense_committee_confirmed").IsUnique().HasFilter("[status] = 'CONFIRMED'");
             e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasMany(x => x.Members).WithOne().HasForeignKey(x => x.CommitteeId).OnDelete(DeleteBehavior.NoAction);
         });

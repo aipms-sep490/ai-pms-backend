@@ -41,6 +41,8 @@ public sealed class DefenseCommittee
     public long Id { get; set; }
     public long ProjectId { get; set; }
     public string Name { get; set; } = "";
+    public string Status { get; set; } = "DRAFT";
+    public int Version { get; set; } = 1;
     public long CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; }
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();

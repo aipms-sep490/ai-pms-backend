@@ -13,6 +13,7 @@ public interface IAcademicTrackingService
     Task<CommitteeDto> CreateCommittee(long projectId, CreateCommitteeRequest input, CancellationToken ct);
     Task<PagedResult<DefenseCommitteeCandidateDto>> CommitteeCandidates(long projectId, int page, int pageSize, CancellationToken ct);
     Task<CommitteeDto> AssignCommitteeRoles(long id, SaveCommitteeRolesRequest input, CancellationToken ct);
+    Task<CommitteeDto> ConfirmCommittee(long id, ConfirmCommitteeRequest input, CancellationToken ct);
     Task<PagedResult<CommitteeDto>> Committees(long projectId, int page, int pageSize, CancellationToken ct);
     Task<DefenseSessionDto> ScheduleDefense(long projectId, ScheduleDefenseRequest input, CancellationToken ct);
     Task<DefenseSessionDto> CancelDefense(long id, CancelDefenseRequest input, CancellationToken ct);

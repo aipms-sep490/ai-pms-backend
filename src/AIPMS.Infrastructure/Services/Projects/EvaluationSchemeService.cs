@@ -23,7 +23,7 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvaluationDraftRepository evaluations,
     IProjectResultRepository results, IFinalSubmissionRepository submissions, ICurrentUser current,
-    IAuditTrail audit, IPublisher publisher, TimeProvider clock) : IEvaluationSchemeService
+    IAuditTrail audit, IPublisher publisher, TimeProvider clock, ColdSubmissionService cold) : IEvaluationSchemeService
 {
     public async Task<AIPMS.Application.Common.Models.PagedResult<EligibleEvaluatorDto>> CandidatesAsync(long projectId, long periodId,
         long componentId, string? scope, long? majorId, long? studentId, int page, int pageSize, CancellationToken ct)
@@ -45,14 +45,20 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         if (project.Status != "FINAL_SUBMISSION" || !await evaluations.HasLockedSubmissionAsync(projectId, ct))
             throw new ConflictException("A locked final-submission package is required.", WorkflowErrorCodes.FinalPackageRequired);
         if (component.Stage == "COLD") await ColdEvaluationBinding.Capture(db, projectId, component.Scope, component.MajorId, studentId, ct);
+        if ((component.Stage is "COLD" or "DEFENSE") && !await db.Set<DefenseCommittee>().AnyAsync(
+            c => c.ProjectId == projectId && c.Status == "CONFIRMED", ct))
+            throw new ConflictException("Confirm the defense committee before assigning evaluators.", "DEFENSE_COMMITTEE_REQUIRED");
         var department = await db.Rubrics.Where(r => r.Id == component.RubricId).Select(r => r.DepartmentId!.Value).SingleAsync(ct);
         var slots = db.Set<EvaluationAssignment>().Where(a => a.ComponentId == componentId && a.StudentId == studentId && a.Status == "ACTIVE");
         if (await slots.CountAsync(ct) >= component.RequiredEvaluators) return new([], page, pageSize, 0);
         var query = db.Users.AsNoTracking().Where(u => u.Status == "ACTIVE" && u.DepartmentId == department
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive && u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER")
-            && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.IsPrimary && a.AssignmentType == "PRIMARY"
-                && a.EndedAt == null && a.SupervisorProfile.UserId == u.Id)
+            && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == u.Id)
             && !slots.Any(a => a.EvaluatorId == u.Id));
+        if (component.Stage is "COLD" or "DEFENSE")
+            query = query.Where(u => db.Set<DefenseCommitteeMember>().Any(m => m.UserId == u.Id
+                && (component.Scope == "COMMON" || m.MajorId == component.MajorId)
+                && db.Set<DefenseCommittee>().Any(c => c.Id == m.CommitteeId && c.ProjectId == projectId && c.Status == "CONFIRMED")));
         if (Weights(component) is { } configured)
         {
             var weightedIds = configured.Select(w => w.EvaluatorId).ToArray();
@@ -318,11 +324,13 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             && a.StudentId == input.StudentId && a.Status == "ACTIVE");
         if (await assignments.AnyAsync(a => a.EvaluatorId == input.EvaluatorId, ct) || await assignments.CountAsync(ct) >= component.RequiredEvaluators)
             throw new ConflictException("The evaluator already occupies this slot or the component is fully assigned.");
+        var committee = component.Stage is "COLD" or "DEFENSE"
+            ? await DefenseCommitteeAuthority.RequireAsync(db, projectId, input.EvaluatorId, component.Scope, component.MajorId, ct) : null;
         var cold = component.Stage == "COLD" ? await ColdEvaluationBinding.Capture(db, projectId, component.Scope, component.MajorId, input.StudentId, ct) : null;
         var packageId = await db.Set<FinalSubmission>().Where(s => s.ProjectId == projectId).Select(s => s.Id).SingleAsync(ct);
         return new(component.Id, scheme.Id, component.Scope, component.MajorId, input.StudentId, component.RubricId,
             scheme.PolicyVersionId.Value, JsonSerializer.Serialize(new { Scheme = Map(scheme), component, input.StudentId,
-                FinalSubmissionId = packageId, EvaluatorSource = input.EvaluationType, Cold = cold }), component.Stage, cold?.PackageId);
+                FinalSubmissionId = packageId, EvaluatorSource = input.EvaluationType, Committee = committee, Cold = cold }), component.Stage, cold?.PackageId);
     }
     public async Task EnsureWritableAsync(EvaluationAssignmentRecord assignment, CancellationToken ct)
     {
@@ -337,6 +345,16 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         if (assignment.Scope == "INDIVIDUAL" && (!assignment.StudentId.HasValue
             || !JsonSerializer.Deserialize<SchemeStudent[]>(scheme.StudentsJson)!.Any(s => s.StudentId == assignment.StudentId && s.MajorId == assignment.MajorId)))
             throw new ConflictException("Individual assignment is outside the frozen roster.");
+        if (assignment.Stage is "COLD" or "DEFENSE") await DefenseCommitteeAuthority.RequirePinnedAsync(db,
+            await db.Set<EvaluationAssignment>().AsNoTracking().SingleAsync(a => a.Id == assignment.Id, ct), ct);
+        if (assignment.Stage == "DEFENSE")
+        {
+            var readiness = await cold.ProgressCore(assignment.ProjectId, ct, system: true);
+            if (!readiness.Ready) throw new ConflictException("Complete COLD before defense grading: " + string.Join(", ", readiness.Blockers), "COLD_NOT_READY");
+            if (!await db.Set<DefenseSession>().AnyAsync(s => s.ProjectId == assignment.ProjectId && s.Status == "SCHEDULED"
+                && db.Set<DefenseCommittee>().Any(c => c.Id == s.CommitteeId && c.Status == "CONFIRMED"), ct))
+                throw new ConflictException("Schedule defense before grading its rubric.", "DEFENSE_SESSION_REQUIRED");
+        }
         if (assignment.Stage == "COLD") await ColdEvaluationBinding.Validate(db,
             await db.Set<EvaluationAssignment>().AsNoTracking().SingleAsync(a => a.Id == assignment.Id, ct), ct);
     }

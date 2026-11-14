@@ -38,18 +38,22 @@ internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluati
         new(Actor, action, entity, id, new Dictionary<string, object?> { ["snapshot"] = data }), ct);
 
     private sealed record Access(EvaluationActor Actor, EvaluationProject Project, RegistrationEvidence Registration,
-        bool Lead, bool Primary, long? StudentMajor, IReadOnlyList<long> MentorMajors)
+        bool Lead, bool Primary, bool Leader, long? StudentMajor, IReadOnlyList<long> MentorMajors, bool Internal)
     {
-        public bool Reads(ColdChecklistItem item) => Lead || Primary
-            || Actor.IsStaff && Registration.MajorDepartmentIds!.GetValueOrDefault(item.MajorId) == Actor.DepartmentId
-            || MentorMajors.Contains(item.MajorId)
-            || StudentMajor == item.MajorId && (item.Scope == "MAJOR_SPECIFIC" || item.StudentId == Actor.Id);
-        public bool Writes(ColdChecklistItem item) => StudentMajor == item.MajorId
-            && (item.Scope == "MAJOR_SPECIFIC" || item.StudentId == Actor.Id);
+        public bool Reads(ColdChecklistItem item) => Internal || Lead || Primary || Leader
+            || item.Scope == "COMMON" && (StudentMajor.HasValue || MentorMajors.Count > 0
+                || Actor.IsStaff && Registration.DepartmentIds.Contains(Actor.DepartmentId ?? 0))
+            || item.MajorId.HasValue && (Actor.IsStaff && Registration.MajorDepartmentIds!.GetValueOrDefault(item.MajorId.Value) == Actor.DepartmentId
+                || MentorMajors.Contains(item.MajorId.Value)
+                || StudentMajor == item.MajorId && (item.Scope == "MAJOR_SPECIFIC" || item.StudentId == Actor.Id));
+        public bool Writes(ColdChecklistItem item) => item.Scope == "COMMON" ? Leader
+            : item.MajorId.HasValue && StudentMajor == item.MajorId
+                && (item.Scope == "MAJOR_SPECIFIC" || item.StudentId == Actor.Id);
     }
-    private async Task<Access> Scope(long projectId, ColdPackage? package, CancellationToken ct)
+    private async Task<Access> Scope(long projectId, ColdPackage? package, CancellationToken ct, bool system = false)
     {
-        var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
+        var actor = system ? new EvaluationActor(0, null, true, false, false)
+            : await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
         var project = await evaluations.GetProjectAsync(projectId, ct) ?? throw new NotFoundException("Project", projectId);
         if (!project.ActiveScope) throw new ForbiddenException("Active frozen academic scope is required.");
         var json = package?.RegistrationSnapshotJson ?? await db.Set<ProjectRegistrationSnapshot>().Where(s => s.ProjectId == projectId)
@@ -58,19 +62,21 @@ internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluati
         if (registration is null || registration.Members.Count == 0) throw new ConflictException("Frozen COLD targets are unknown.");
         var lead = actor.IsStaff && actor.DepartmentId == registration.Scope.LeadDepartmentId;
         var assignments = await db.SupervisorAssignments.AsNoTracking().Where(a => a.ProjectId == projectId && a.EndedAt == null
-            && a.SupervisorProfile.UserId == Actor && actor.IsLecturer).Select(a => new { a.IsPrimary, a.AssignmentType, a.MajorId }).ToArrayAsync(ct);
-        var isStudent = await db.TeamMembers.AnyAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId && m.UserId == Actor
+            && a.SupervisorProfile.UserId == actor.Id && actor.IsLecturer).Select(a => new { a.IsPrimary, a.AssignmentType, a.MajorId }).ToArrayAsync(ct);
+        var isStudent = await db.TeamMembers.AnyAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId && m.UserId == actor.Id
             && m.LeftAt == null && m.User.Status == "ACTIVE" && m.User.AcademicProfileStatus == "VERIFIED"
             && m.User.Department != null && m.User.Department.IsActive && m.User.Department.Organization.IsActive
             && m.User.UserRoleUsers.Any(r => r.Role.Code == "STUDENT"), ct);
-        var studentMajor = isStudent ? registration.Members.SingleOrDefault(m => m.UserId == Actor)?.MajorId : null;
+        var studentMajor = isStudent ? registration.Members.SingleOrDefault(m => m.UserId == actor.Id)?.MajorId : null;
+        var leader = isStudent && await db.TeamMembers.AnyAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId
+            && m.UserId == actor.Id && m.IsLeader && m.LeftAt == null, ct);
         var primary = assignments.Any(a => a.IsPrimary && a.AssignmentType == "PRIMARY");
         var mentorMajors = assignments.Where(a => a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId.HasValue)
             .Select(a => a.MajorId!.Value).ToArray();
-        if (!lead && !primary && studentMajor is null && mentorMajors.Length == 0
+        if (!system && !lead && !primary && studentMajor is null && mentorMajors.Length == 0
             && !(actor.IsStaff && registration.DepartmentIds.Contains(actor.DepartmentId ?? 0)))
             throw new ForbiddenException("COLD access requires an active project/academic assignment.");
-        return new(actor, project, registration, lead, primary, studentMajor, mentorMajors);
+        return new(actor, project, registration, lead, primary, leader, studentMajor, mentorMajors, system);
     }
     private async Task WriteWindow(ColdPackage package, Access access, CancellationToken ct)
     {
@@ -194,12 +200,20 @@ internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluati
             if (!templates.TryGetValue(target.TemplateId, out var template) || template.ProjectPeriodId != period.Id
                 || (template.MajorId.HasValue && !access.Registration.Scope.Requirements.Any(r => r.MajorId == template.MajorId.Value)))
                 throw new ConflictException("Template is outside the frozen project/period scope.");
-            if (target.Scope is not ("MAJOR_SPECIFIC" or "INDIVIDUAL") || (target.Scope == "INDIVIDUAL") != target.StudentId.HasValue
-                || (target.StudentId.HasValue && template.MajorId.HasValue && !access.Registration.Members.Any(m => m.UserId == target.StudentId && m.MajorId == template.MajorId.Value)))
+            if (template.MajorId is null)
+            {
+                if (template.Scope != "COMMON" || target.Scope != "COMMON" || target.StudentId.HasValue
+                    || !await db.Users.AnyAsync(u => u.Id == template.CreatedBy
+                        && u.DepartmentId == access.Registration.Scope.LeadDepartmentId, ct))
+                    throw Invalid("A COMMON template must belong to the frozen lead department and target the whole project.");
+            }
+            else if (target.Scope is not ("MAJOR_SPECIFIC" or "INDIVIDUAL")
+                || (target.Scope == "INDIVIDUAL") != target.StudentId.HasValue
+                || (target.StudentId.HasValue && !access.Registration.Members.Any(m => m.UserId == target.StudentId && m.MajorId == template.MajorId.Value)))
                 throw Invalid("Specify a major target or a matching individual from the frozen roster.");
             foreach (var report in TemplateDto(template).Reports)
                 items.Add(new() { TemplateId = template.Id, TemplateVersion = template.Version, ReportType = report.Code, Name = report.Name,
-                    Required = report.Required, Scope = target.Scope, MajorId = template.MajorId.GetValueOrDefault(), StudentId = target.StudentId });
+                    Required = report.Required, Scope = target.Scope, MajorId = template.MajorId, StudentId = target.StudentId });
         }
         if (items.Count > 100 || items.Select(i => (i.ReportType, i.MajorId, i.StudentId)).Distinct().Count() != items.Count)
             throw Invalid("A project checklist supports at most 100 distinct report/major/student targets.");
@@ -223,7 +237,7 @@ internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluati
         var latest = await db.Set<ColdSubmission>().Include(s => s.Files).Where(s => ids.Contains(s.ChecklistItemId)
             && !db.Set<ColdSubmission>().Any(n => n.ChecklistItemId == s.ChecklistItemId && n.Version > s.Version)).ToDictionaryAsync(s => s.ChecklistItemId, ct);
         var blockers = new List<string>();
-        if (!access.Lead) blockers.Add("LEAD_DEPARTMENT_REQUIRED");
+        if (!access.Leader) blockers.Add("LEADER_REQUIRED");
         if (package.Status == "LOCKED") blockers.Add("COLD_PACKAGE_LOCKED");
         if (access.Project.Status is not ("ACTIVE" or "FINAL_SUBMISSION")) blockers.Add("PROJECT_READ_ONLY");
         foreach (var item in items)

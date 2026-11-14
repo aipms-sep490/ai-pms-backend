@@ -12,10 +12,24 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class ColdSubmissionService
 {
-    public Task<ColdProgressDto> Progress(long projectId, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
+    public Task<ColdProgressDto> Progress(long projectId, CancellationToken ct) =>
+        evaluations.InTransactionAsync(async () =>
+        {
+            var visible = await ProgressCore(projectId, ct);
+            var all = await ProgressCore(projectId, ct, system: true);
+            return visible with { Ready = all.Ready,
+                Blockers = all.Ready ? visible.Blockers : visible.Blockers.Concat(["COLD_PROJECT_NOT_READY"]).Distinct().ToArray() };
+        }, ct);
+
+    internal async Task<ColdProgressDto> ProgressCore(long projectId, CancellationToken ct, bool system = false)
     {
-        var package = await Package(projectId, ct);
-        var access = await Scope(projectId, package, ct);
+        var package = await db.Set<ColdPackage>().SingleOrDefaultAsync(p => p.ProjectId == projectId, ct);
+        if (package is null)
+        {
+            await Scope(projectId, null, ct, system);
+            return new ColdProgressDto(projectId, "MISSING", 0, 0, 0, false, ["COLD_PACKAGE_REQUIRED"], []);
+        }
+        var access = await Scope(projectId, package, ct, system);
         var checklist = await ChecklistDto(package, access, ct);
         var scheme = await db.Set<EvaluationScheme>().AsNoTracking().Include(s => s.Components)
             .SingleOrDefaultAsync(s => s.ProjectId == projectId && s.Status == "PUBLISHED", ct);
@@ -25,7 +39,7 @@ internal sealed partial class ColdSubmissionService
         if (scheme is null) blockers.Add("COLD_SCHEME_REQUIRED");
         else
         {
-            var components = scheme.Components.Where(c => c.Stage == "COLD" && (access.Lead || access.Primary
+            var components = scheme.Components.Where(c => c.Stage == "COLD" && (access.Internal || access.Lead || access.Primary || access.Leader
                 || c.Scope == "COMMON" && access.StudentMajor.HasValue
                 || c.MajorId.HasValue && (access.MentorMajors.Contains(c.MajorId.Value) || access.StudentMajor == c.MajorId
                     || access.Actor.IsStaff && access.Registration.MajorDepartmentIds!.GetValueOrDefault(c.MajorId.Value) == access.Actor.DepartmentId)))
@@ -56,6 +70,7 @@ internal sealed partial class ColdSubmissionService
                         if (evidence is null || final?.Status != "FINALIZED" || final.Finalization is null) continue;
                         try
                         {
+                            await DefenseCommitteeAuthority.RequirePinnedAsync(db, assignment, ct);
                             var binding = ColdEvaluationBinding.Validate(evidence, assignment);
                             if (assignment.Scope == c.Scope && assignment.MajorId == c.MajorId && assignment.RubricId == c.RubricId
                                 && assignment.PolicyVersionId == scheme.PolicyVersionId && assignment.ProjectPeriodId == scheme.ProjectPeriodId
@@ -64,7 +79,10 @@ internal sealed partial class ColdSubmissionService
                                 && final.Finalization.Evidence.ColdPackageId == binding.PackageId && final.Finalization.Evidence.ColdEvidenceHash == binding.Hash
                                 && (final.Finalization.Evidence.ColdSubmissionIds ?? []).SequenceEqual(binding.SubmissionIds)) complete.Add(final);
                         }
+                        catch (ConflictException ex) when (ex.Code is "DEFENSE_COMMITTEE_REQUIRED" or "DEFENSE_COMMITTEE_BINDING_REQUIRED" or "DEFENSE_COMMITTEE_CHANGED" or "DEFENSE_SUPERVISOR_CONFLICT")
+                        { blockers.Add($"COLD_COMMITTEE_INVALID:{assignment.Id}"); }
                         catch (ConflictException) { blockers.Add($"COLD_EVIDENCE_CHANGED:{assignment.Id}"); }
+                        catch (ForbiddenException) { blockers.Add($"COLD_COMMITTEE_INVALID:{assignment.Id}"); }
                     }
                     decimal? score = null;
                     if (assigned.Length == c.RequiredEvaluators && complete.Count == c.RequiredEvaluators)
@@ -85,5 +103,5 @@ internal sealed partial class ColdSubmissionService
         return new ColdProgressDto(projectId, package.Status, checklist.Items.Count,
             checklist.Items.Count(i => i.Latest?.Status is "SUBMITTED" or "LOCKED"), checklist.Items.Count(i => i.Latest?.Status == "LOCKED"),
             blockers.Count == 0, blockers, rows);
-    }, ct);
+    }
 }

@@ -23,7 +23,8 @@ public sealed record DefenseCommitteeCandidateDto(long UserId, string FullName, 
     bool CanAssign, string? BlockReason);
 public sealed record CreateCommitteeRequest(string Name, IReadOnlyList<CommitteeMemberInput> Members);
 public sealed record CommitteeDto(long Id, long ProjectId, string Name, IReadOnlyList<CommitteeMemberInput> Members,
-    bool GrantsEvaluatorAuthority = false, string? ConcurrencyToken = null);
+    bool GrantsEvaluatorAuthority = false, string? ConcurrencyToken = null, string Status = "DRAFT", int Version = 1);
+public sealed record ConfirmCommitteeRequest(string ConcurrencyToken);
 public sealed record SaveCommitteeRolesRequest(IReadOnlyList<CommitteeMemberInput> Members, string ConcurrencyToken);
 public sealed record ScheduleDefenseRequest(long CommitteeId, DateTimeOffset StartAt, DateTimeOffset EndAt, string Room);
 public sealed record CancelDefenseRequest(string ConcurrencyToken, string Reason);

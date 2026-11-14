@@ -266,7 +266,9 @@ public static class DependencyInjection
         services.AddOptions<Application.Features.WeeklyAssessments.WeeklyAssessmentSettings>().BindConfiguration("WeeklyAssessment")
             .Validate(s => { if (string.IsNullOrWhiteSpace(s.TimeZoneId)) return false; try { _ = TimeZoneInfo.FindSystemTimeZoneById(s.TimeZoneId); return true; } catch (TimeZoneNotFoundException) { return false; } catch (InvalidTimeZoneException) { return false; } },
                 "WeeklyAssessment:TimeZoneId must name an installed time zone.").ValidateOnStart();
-        services.AddScoped<AIPMS.Application.Features.Cold.Abstractions.IColdSubmissionService, ColdSubmissionService>();
+        services.AddScoped<ColdSubmissionService>();
+        services.AddScoped<AIPMS.Application.Features.Cold.Abstractions.IColdSubmissionService>(p => p.GetRequiredService<ColdSubmissionService>());
+        services.AddScoped<AIPMS.Application.Features.Evaluations.Abstractions.IRubricWorkbookService, RubricWorkbookService>();
         services.AddScoped<Application.Features.Semesters.Abstractions.IPeriodPolicyService, PeriodPolicyService>();
         services.AddScoped<AIPMS.Application.Features.Semesters.Abstractions.IPeriodCalendarService, PeriodCalendarService>();
         services.AddScoped<AIPMS.Application.Features.Semesters.Abstractions.IWorkingDayCalculator, WorkingDayCalculator>();

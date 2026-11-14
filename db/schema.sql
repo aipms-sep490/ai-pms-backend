@@ -2946,12 +2946,12 @@ BEGIN
  CREATE TABLE dbo.cold_checklist_items (
   id bigint IDENTITY PRIMARY KEY, package_id bigint NOT NULL, template_id bigint NOT NULL,
   template_version int NOT NULL, report_type varchar(80) NOT NULL, name nvarchar(200) NOT NULL,
-  required bit NOT NULL, scope varchar(20) NOT NULL, major_id bigint NOT NULL, student_id bigint NULL,
+  required bit NOT NULL, scope varchar(20) NOT NULL, major_id bigint NULL, student_id bigint NULL,
   CONSTRAINT fk_cold_item_package FOREIGN KEY(package_id) REFERENCES dbo.cold_packages(id),
   CONSTRAINT fk_cold_item_template FOREIGN KEY(template_id) REFERENCES dbo.cold_report_templates(id),
   CONSTRAINT fk_cold_item_major FOREIGN KEY(major_id) REFERENCES dbo.majors(id),
   CONSTRAINT fk_cold_item_student FOREIGN KEY(student_id) REFERENCES dbo.users(id),
-  CONSTRAINT ck_cold_item_target CHECK((scope='MAJOR_SPECIFIC' AND student_id IS NULL) OR (scope='INDIVIDUAL' AND student_id IS NOT NULL)),
+  CONSTRAINT ck_cold_item_target CHECK((scope='COMMON' AND major_id IS NULL AND student_id IS NULL) OR (scope='MAJOR_SPECIFIC' AND major_id IS NOT NULL AND student_id IS NULL) OR (scope='INDIVIDUAL' AND major_id IS NOT NULL AND student_id IS NOT NULL)),
   CONSTRAINT uq_cold_item_target UNIQUE(package_id,report_type,major_id,student_id));
 END;
 IF OBJECT_ID('dbo.cold_submissions','U') IS NULL
@@ -3098,9 +3098,13 @@ IF OBJECT_ID('dbo.defense_committees','U') IS NULL
 BEGIN
  CREATE TABLE dbo.defense_committees(
   id bigint IDENTITY PRIMARY KEY, project_id bigint NOT NULL, name nvarchar(200) NOT NULL, created_by bigint NOT NULL, created_at datetime2(0) NOT NULL,
+  status varchar(20) NOT NULL CONSTRAINT df_defense_committee_status DEFAULT 'DRAFT',
+  version int NOT NULL CONSTRAINT df_defense_committee_version DEFAULT 1,
+  CONSTRAINT ck_defense_committee_status CHECK(status IN ('DRAFT','CONFIRMED','SUPERSEDED')),
   CONSTRAINT fk_defense_committee_project FOREIGN KEY(project_id) REFERENCES dbo.projects(id),
   CONSTRAINT fk_defense_committee_creator FOREIGN KEY(created_by) REFERENCES dbo.users(id));
  CREATE INDEX ix_defense_committee_project ON dbo.defense_committees(project_id,id);
+ CREATE UNIQUE INDEX ux_defense_committee_confirmed ON dbo.defense_committees(project_id) WHERE status = 'CONFIRMED';
 END;
 IF OBJECT_ID('dbo.defense_committee_members','U') IS NULL
  CREATE TABLE dbo.defense_committee_members(

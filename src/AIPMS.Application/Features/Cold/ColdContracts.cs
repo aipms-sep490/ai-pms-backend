@@ -12,11 +12,11 @@ public sealed record ApplyColdChecklistRequest(long ProjectPeriodId, DateTimeOff
 public sealed record ColdTokenRequest(string ConcurrencyToken);
 public sealed record SaveColdDraftRequest(int ExpectedLatestVersion, string? Note = null, string? ConcurrencyToken = null);
 public sealed record ColdFileDto(long Id, string FileName, string ContentType, long SizeBytes, string Sha256, string DownloadUrl);
-public sealed record ColdSubmissionDto(long Id, long ChecklistItemId, long ProjectId, string ReportType, string Scope, long MajorId,
+public sealed record ColdSubmissionDto(long Id, long ChecklistItemId, long ProjectId, string ReportType, string Scope, long? MajorId,
     long? StudentId, int Version, string Status, string? Note, long CreatedBy, DateTime CreatedAt, DateTime? SubmittedAt,
     DateTime? LockedAt, string ConcurrencyToken, IReadOnlyList<ColdFileDto> Files);
 public sealed record ColdChecklistItemDto(long Id, long TemplateId, int TemplateVersion, string ReportType, string Name,
-    bool Required, string Scope, long MajorId, long? StudentId, ColdSubmissionDto? Latest, bool CanWrite);
+    bool Required, string Scope, long? MajorId, long? StudentId, ColdSubmissionDto? Latest, bool CanWrite);
 public sealed record ColdChecklistDto(long Id, long ProjectId, long ProjectPeriodId, DateTime Deadline, string Status,
     string ConcurrencyToken, DateTime? LockedAt, bool CanLock, IReadOnlyList<string> Blockers, IReadOnlyList<ColdChecklistItemDto> Items);
 

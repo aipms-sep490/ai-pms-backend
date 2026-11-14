@@ -72,6 +72,13 @@ internal sealed partial class EvaluationSchemeService
             : await db.Set<StudentResult>().AnyAsync(r => r.ProjectId == projectId && r.StudentId == studentId, ct)) blockers.Add("ALREADY_PUBLISHED");
         var allAssignments = await db.Set<EvaluationAssignment>().AsNoTracking().Where(a => a.ProjectId == projectId && a.Status == "ACTIVE"
             && a.ComponentId != null).OrderBy(a => a.Id).ToListAsync(ct);
+        var invalidCommitteeAssignments = new HashSet<long>();
+        foreach (var assignment in allAssignments.Where(a => a.Stage is "COLD" or "DEFENSE"))
+        {
+            try { await DefenseCommitteeAuthority.RequirePinnedAsync(db, assignment, ct); }
+            catch (ConflictException) { invalidCommitteeAssignments.Add(assignment.Id); blockers.Add($"COMMITTEE_BINDING_INVALID:{assignment.Id}"); }
+            catch (ForbiddenException) { invalidCommitteeAssignments.Add(assignment.Id); blockers.Add($"COMMITTEE_MEMBER_INVALID:{assignment.Id}"); }
+        }
         // Batch immutable finalizations once. Never recompute history from mutable rubric/detail rows.
         var finalizations = await (from state in db.Set<EvaluationDraftState>().AsNoTracking()
             join finalization in db.Set<EvaluationFinalization>().AsNoTracking() on state.EvaluationId equals finalization.EvaluationId
@@ -109,6 +116,7 @@ internal sealed partial class EvaluationSchemeService
             var explicitWeights = Weights(component);
             foreach (var assignment in assignments)
             {
+                if (invalidCommitteeAssignments.Contains(assignment.Id)) continue;
                 var evaluation = finalized.GetValueOrDefault(assignment.Id);
                 if (evaluation?.Finalization is null || evaluation.Status != "FINALIZED")
                 { blockers.Add($"EVALUATION_NOT_FINALIZED:{assignment.Id}"); continue; }

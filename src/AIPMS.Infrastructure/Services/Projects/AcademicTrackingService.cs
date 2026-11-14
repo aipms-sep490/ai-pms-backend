@@ -20,7 +20,8 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class AcademicTrackingService(AipmsDbContext db, IEvaluationDraftRepository transactions,
-    ICurrentUser current, IAuditTrail audit, TimeProvider clock, DeliverableWorkflow fileWorkflow) : IAcademicTrackingService
+    ICurrentUser current, IAuditTrail audit, TimeProvider clock, DeliverableWorkflow fileWorkflow,
+    ColdSubmissionService cold) : IAcademicTrackingService
 {
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
