@@ -1,4 +1,6 @@
-# Access geography: gated contract proposal (GEO-01)
+# Access geography: cancelled historical proposal (GEO-01)
+
+**Status: CANCELLED on 14/11/2026 by user direction.** This file is retained only to explain the earlier design discussion. It is not an active contract, implementation plan or permission to collect location data. No map, location inference or online count is in scope.
 
 **Status: PROPOSED, no endpoint, no map data.** The user confirmed that an approved location source and retention policy are not yet available. The existing `GET /api/v1/security/access-events` remains Admin-only and exposes audit time, outcome and network IP only. It does not establish location or online presence.
 
