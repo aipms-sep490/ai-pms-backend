@@ -576,6 +576,13 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
             permissions.Select(static permission => permission.ToApplication()).ToArray());
     }
 
+    public Task<bool> IsActiveAdministratorAsync(long userId, CancellationToken cancellationToken = default) =>
+        context.UserRoles.AsNoTracking().AnyAsync(
+            assignment => assignment.UserId == userId
+                && assignment.Role.Code == AppRoles.Admin
+                && assignment.User.Status == "ACTIVE",
+            cancellationToken);
+
     public async Task<PagedResult<AccessEvent>> GetAccessEventsAsync(
         string? search,
         long? userId,

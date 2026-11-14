@@ -10,6 +10,7 @@ namespace AIPMS.Api.Controllers;
 
 [ApiController]
 [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 [Route("api/v1/security/access-events")]
 public sealed class AccessEventsController(ISender sender) : ControllerBase
 {

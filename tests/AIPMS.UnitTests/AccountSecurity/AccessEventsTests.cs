@@ -1,6 +1,7 @@
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
+using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.AccountSecurity.Abstractions;
 using AIPMS.Application.Features.AccountSecurity.Models;
 using AIPMS.Application.Features.AccountSecurity.Queries;
@@ -58,6 +59,66 @@ public sealed class AccessEventsTests
     }
 
     [Fact]
+    public async Task AccessEvents_Denies_Revoked_Admin_Token_Before_Reading_Audit()
+    {
+        var repository = new RecordingRepository { ActiveAdmin = false };
+        var handler = new GetAccessEventsQueryHandler(repository,
+            new AccountSecurityAccessService(new CurrentUser([AppRoles.Admin])));
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(
+            new GetAccessEventsQuery(null, null, null, null, null, null), CancellationToken.None));
+        Assert.False(repository.WasRead);
+    }
+
+    [Fact]
+    public async Task AuditLogs_Denies_Revoked_Admin_Token_Before_Reading_Audit()
+    {
+        var repository = new RecordingRepository { ActiveAdmin = false };
+        var handler = new GetAuditLogsQueryHandler(repository,
+            new AccountSecurityAccessService(new CurrentUser([AppRoles.Admin])));
+
+        await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(
+            new GetAuditLogsQuery(null, null, null, null, null, null), CancellationToken.None));
+        Assert.False(repository.WasRead);
+    }
+
+    [Fact]
+    public async Task Active_Persisted_Admin_Can_Read_Both_Audit_Views()
+    {
+        var repository = new RecordingRepository { ActiveAdmin = true };
+        var access = new AccountSecurityAccessService(new CurrentUser([AppRoles.Admin]));
+        var events = new GetAccessEventsQueryHandler(repository, access);
+        var logs = new GetAuditLogsQueryHandler(repository, access);
+
+        await events.Handle(new GetAccessEventsQuery(null, null, null, null, null, null), CancellationToken.None);
+        await logs.Handle(new GetAuditLogsQuery(null, null, null, null, null, null), CancellationToken.None);
+
+        Assert.Equal(2, repository.ReadCount);
+    }
+
+    [Fact]
+    public async Task Repository_Requires_Active_Persisted_Admin_Role()
+    {
+        await using var db = new AipmsDbContext(new DbContextOptionsBuilder<AipmsDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        db.Users.Add(new User { Id = 1, Email = "admin@example.test", FullName = "Admin",
+            PasswordHash = "hash", Status = "ACTIVE" });
+        db.Roles.Add(new Role { Id = 2, Code = AppRoles.Admin, Name = "Administrator" });
+        db.UserRoles.Add(new UserRole { UserId = 1, RoleId = 2, AssignedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+
+        var repository = new AccountSecurityRepository(db);
+        Assert.True(await repository.IsActiveAdministratorAsync(1));
+        db.UserRoles.Remove(Assert.Single(db.UserRoles));
+        await db.SaveChangesAsync();
+        Assert.False(await repository.IsActiveAdministratorAsync(1));
+        db.UserRoles.Add(new UserRole { UserId = 1, RoleId = 2, AssignedAt = DateTime.UtcNow });
+        db.Users.Single().Status = "INACTIVE";
+        await db.SaveChangesAsync();
+        Assert.False(await repository.IsActiveAdministratorAsync(1));
+    }
+
+    [Fact]
     public void Validator_Rejects_Unknown_Event_And_Reversed_Dates()
     {
         var validator = new GetAccessEventsQueryValidator();
@@ -82,18 +143,25 @@ public sealed class AccessEventsTests
 
     private sealed class RecordingRepository : IAuditLogRepository
     {
-        public bool WasRead { get; private set; }
+        public int ReadCount { get; private set; }
+        public bool WasRead => ReadCount > 0;
+        public bool ActiveAdmin { get; init; }
+        public Task<bool> IsActiveAdministratorAsync(long userId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(ActiveAdmin);
         public Task<PagedResult<AccessEvent>> GetAccessEventsAsync(string? search, long? userId, string? eventType,
             string? outcome, DateTime? fromUtc, DateTime? toUtc, int page, int pageSize,
             CancellationToken cancellationToken = default)
         {
-            WasRead = true;
+            ReadCount++;
             return Task.FromResult(new PagedResult<AccessEvent>([], page, pageSize, 0));
         }
 
         public Task<PagedResult<AuditRecord>> GetAuditLogsAsync(long? actorUserId, string? action,
             string? entityType, string? outcome, DateTime? fromUtc, DateTime? toUtc, int page,
-            int pageSize, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new PagedResult<AuditRecord>([], page, pageSize, 0));
+            int pageSize, CancellationToken cancellationToken = default)
+        {
+            ReadCount++;
+            return Task.FromResult(new PagedResult<AuditRecord>([], page, pageSize, 0));
+        }
     }
 }
