@@ -9,6 +9,8 @@ public interface IReviewGateService
 {
     Task<IReadOnlyList<ReviewGateTemplateDto>> Templates(CancellationToken ct);
     Task<ReviewGateTemplateDto?> Template(long id, CancellationToken ct);
+    Task<byte[]> ExportTemplateWorkbook(long id, CancellationToken ct);
+    Task<GateWorkbookPreview> PreviewTemplateWorkbook(long id, byte[] content, CancellationToken ct);
     Task<ReviewGateTemplateDto> SaveTemplate(SaveReviewGateTemplateRequest request, long? id, CancellationToken ct);
     Task<ReviewGateTemplateDto> PublishTemplate(long id, PublishReviewGateTemplateRequest? request, CancellationToken ct);
     Task<StudentReviewTimelineDto> Timeline(long projectId, CancellationToken ct);

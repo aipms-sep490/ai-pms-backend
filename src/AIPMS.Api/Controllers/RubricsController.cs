@@ -1,5 +1,6 @@
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Evaluations.Commands;
+using AIPMS.Application.Features.Evaluations.Abstractions;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Queries;
 using MediatR;
@@ -17,8 +18,29 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(403)]
 [ProducesResponseType<ProblemDetails>(404)]
 [ProducesResponseType<ProblemDetails>(409)]
-public sealed class RubricsController(ISender sender) : ControllerBase
+public sealed class RubricsController(ISender sender, IRubricWorkbookService workbooks) : ControllerBase
 {
+    [HttpGet("{id:long}/workbook")]
+    [Produces("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")]
+    public async Task<IActionResult> DownloadWorkbook(long id, CancellationToken ct) => File(
+        await workbooks.ExportAsync(id, ct),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        $"rubric-{id}.xlsx");
+
+    [HttpPost("{id:long}/workbook/preview")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 6 * 1024 * 1024)]
+    [ProducesResponseType<RubricWorkbookPreview>(200)]
+    public async Task<RubricWorkbookPreview> PreviewWorkbook(long id, IFormFile file, CancellationToken ct)
+    {
+        if (file is null || file.Length is 0 or > 5 * 1024 * 1024
+            || !file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("A valid XLSX workbook up to 5 MiB is required.");
+        using var buffer = new MemoryStream();
+        await file.CopyToAsync(buffer, ct);
+        return await workbooks.PreviewAsync(id, buffer.ToArray(), ct);
+    }
     [HttpGet]
     [ProducesResponseType<PagedResult<RubricDto>>(200)]
     public async Task<ActionResult<PagedResult<RubricDto>>> List([FromQuery] long? departmentId = null,

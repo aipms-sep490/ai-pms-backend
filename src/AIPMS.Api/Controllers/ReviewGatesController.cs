@@ -21,6 +21,23 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public async Task<ActionResult<IReadOnlyList<ReviewGateTemplateDto>>> Templates(CancellationToken ct) => Ok(await service.Templates(ct));
     [HttpGet("api/v1/academic/gate-templates/{id:long}")]
     public async Task<ActionResult<ReviewGateTemplateDto>> Template(long id, CancellationToken ct) => (await service.Template(id, ct)) is { } row ? Ok(row) : NotFound();
+    [HttpGet("api/v1/academic/gate-templates/{id:long}/workbook")]
+    public async Task<IActionResult> TemplateWorkbook(long id, CancellationToken ct) => File(
+        await service.ExportTemplateWorkbook(id, ct),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"gate-template-{id}.xlsx");
+    [HttpPost("api/v1/academic/gate-templates/{id:long}/workbook/preview")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 6 * 1024 * 1024)]
+    public async Task<ActionResult<GateWorkbookPreview>> PreviewTemplateWorkbook(long id, IFormFile file, CancellationToken ct)
+    {
+        if (file is null || file.Length is 0 or > 5 * 1024 * 1024
+            || !file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            return BadRequest("Choose an XLSX workbook up to 5 MiB.");
+        using var buffer = new MemoryStream();
+        await file.CopyToAsync(buffer, ct);
+        return Ok(await service.PreviewTemplateWorkbook(id, buffer.ToArray(), ct));
+    }
     [HttpPost("api/v1/academic/gate-templates")]
     public async Task<ActionResult<ReviewGateTemplateDto>> CreateTemplate(SaveReviewGateTemplateRequest request, CancellationToken ct) => Ok(await service.SaveTemplate(request, null, ct));
     [HttpPut("api/v1/academic/gate-templates/{id:long}")]
