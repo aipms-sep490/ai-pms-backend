@@ -77,5 +77,6 @@
   "20261108_publish_gate3_schedules.sql",
   "20261112_reconcile_project_evidence_status.sql",
   "20261114_cold_common_checklist.sql",
-  "20261114_confirm_defense_committees.sql"
+  "20261114_confirm_defense_committees.sql",
+  "20261115_department_document_templates.sql"
 ]

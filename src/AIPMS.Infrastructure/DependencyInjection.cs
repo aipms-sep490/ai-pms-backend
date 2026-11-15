@@ -74,6 +74,8 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore, AiRunStore>();
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiAssistantService, RecordedAiAssistantService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IAcademicKnowledgeService, AcademicKnowledgeService>();
+        services.AddScoped<AIPMS.Application.Features.DepartmentDocuments.Abstractions.IDepartmentDocumentService, DepartmentDocumentService>();
+        services.AddScoped<AIPMS.Application.Features.Files.Abstractions.IOfficePreviewService, OfficePreviewService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IWorkflowAssistanceService, WorkflowAssistanceService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IDeliverableReviewService, DeliverableReviewService>();
         services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
