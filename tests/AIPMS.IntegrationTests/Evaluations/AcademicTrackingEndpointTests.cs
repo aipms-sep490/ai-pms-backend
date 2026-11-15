@@ -447,6 +447,18 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         var limited = await Body<AutoSchedulePreviewDto>(await admin.PostAsJsonAsync(url, input));
         Assert.Single(limited.Allocations);
         Assert.Equal(1, limited.Allocations.Single().SlotNumber);
+        await using (var db = database.CreateContext())
+        {
+            var committee = await db.Set<DefenseCommittee>().SingleAsync(c => c.ProjectId == x.S.ProjectId && c.Status == "CONFIRMED");
+            committee.Status = "SUPERSEDED";
+            committee.ConcurrencyToken = Guid.NewGuid();
+            await db.SaveChangesAsync();
+        }
+        var staleApply = await admin.PostAsJsonAsync(url.Replace("/preview", "/apply"),
+            new AutoScheduleApplyRequest(limited.Allocations, limited.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Conflict, staleApply.StatusCode);
+        await using (var verify = database.CreateContext())
+            Assert.False(await verify.Set<DefenseSession>().AnyAsync(s => s.ProjectId == x.S.ProjectId && s.Status == "SCHEDULED"));
     }
 
     [Fact]
@@ -848,6 +860,10 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         Assert.False(ca.GrantsEvaluatorAuthority);
         ca = await Body<CommitteeDto>(await staffA.PostAsJsonAsync($"/api/v1/defense-committees/{ca.Id}/confirm", new ConfirmCommitteeRequest(ca.ConcurrencyToken!)));
         cb = await Body<CommitteeDto>(await staffB.PostAsJsonAsync($"/api/v1/defense-committees/{cb.Id}/confirm", new ConfirmCommitteeRequest(cb.ConcurrencyToken!)));
+        var beforeCold = await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-sessions",
+            new ScheduleDefenseRequest(ca.Id, new(Now.AddHours(1)), new(Now.AddHours(2)), "COLD-BLOCKED-" + Guid.NewGuid().ToString("N")));
+        Assert.Equal(HttpStatusCode.Conflict, beforeCold.StatusCode);
+        Assert.Contains("COLD_NOT_READY", await beforeCold.Content.ReadAsStringAsync());
         await CompleteCold(app, a.S, a.Major, a.S.Scope.Users.NewLecturer);
         await CompleteCold(app, b.S, b.Major, b.S.Scope.Users.NewLecturer);
         var room = "E2E-" + Guid.NewGuid().ToString("N");
