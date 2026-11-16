@@ -17,6 +17,15 @@ public sealed class ExceptionHandlingMiddleware(
         }
         catch (Exception exception)
         {
+            if (context.RequestAborted.IsCancellationRequested)
+            {
+                // No problem response can be delivered after the client disconnects.
+                if (!context.Response.HasStarted) context.Response.StatusCode = 499;
+                logger.LogDebug("Client disconnected during {Method} {Path}: {ExceptionType}",
+                    context.Request.Method, context.Request.Path, exception.GetType().Name);
+                return;
+            }
+
             if (context.Response.HasStarted)
             {
                 logger.LogWarning(
