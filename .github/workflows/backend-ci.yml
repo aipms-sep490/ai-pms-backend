@@ -3,7 +3,7 @@ name: Backend CI
 on:
   pull_request:
   push:
-    branches: [main, develop]
+    branches: [main, develop, feat/be-access-audit-20261113]
 
 jobs:
   build-and-test:
