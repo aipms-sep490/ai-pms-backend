@@ -46,9 +46,9 @@ public sealed partial class PolicyEvaluationEndpointTests
         }
         var evidenceLog = new ApiAcceptanceEvidence("E-demo-golden");
         using var app = new EvaluationFactory(database) { AcceptanceEvidence = evidenceLog }; using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff); using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
-        var components = new List<SchemeComponentInput> { new("Common", "COMMON", null, s.RubricId, 50, 50, 1) };
-        for (var i = 0; i < 3; i++) { components.Add(new("Major " + i, "MAJOR_SPECIFIC", majors[i], rubrics[i], i == 0 ? 16.6666m : 16.6667m, 30, 1));
-            components.Add(new("Individual " + i, "INDIVIDUAL", majors[i], rubrics[i], 0, 20, 1)); }
+        var components = new List<SchemeComponentInput> { new("Common", "COMMON", null, s.RubricId, 50, 50, 1, Stage: "ON_GOING") };
+        for (var i = 0; i < 3; i++) { components.Add(new("Major " + i, "MAJOR_SPECIFIC", majors[i], rubrics[i], i == 0 ? 16.6666m : 16.6667m, 30, 1, Stage: "ON_GOING"));
+            components.Add(new("Individual " + i, "INDIVIDUAL", majors[i], rubrics[i], 0, 20, 1, Stage: "ON_GOING")); }
         var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", new SaveEvaluationSchemeRequest(s.ProjectId, s.PeriodId, "V5 demo golden", 5, components,
             Policy: new(Formula: "DEMO_50_30_20"))));
         scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{scheme.Id}/publish", new SchemeTokenRequest(scheme.ConcurrencyToken)));

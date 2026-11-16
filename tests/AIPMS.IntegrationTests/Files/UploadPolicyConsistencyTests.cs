@@ -130,7 +130,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             }
         }
 
-        Assert.Equal(11, endpointsWithLimit.Count);
+        Assert.Equal(15, endpointsWithLimit.Count);
 
         foreach (var (method, limit) in endpointsWithLimit)
         {
@@ -140,7 +140,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     }
 
     [Fact]
-    public void ReflectionConsistency_All11ControllersMatchUploadPoliciesConstants()
+    public void ReflectionConsistency_All15EndpointsMatchUploadPoliciesConstants()
     {
         var controllerAssembly = typeof(UploadPoliciesController).Assembly;
         var controllerTypes = controllerAssembly.GetTypes()
@@ -161,8 +161,8 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             }
         }
 
-        // Exactly 11 endpoints must have [RequestSizeLimit]
-        Assert.Equal(11, endpointsWithLimit.Count);
+        // All file, workbook, and preview endpoints must have [RequestSizeLimit].
+        Assert.Equal(15, endpointsWithLimit.Count);
 
         // Every endpoint's limit must match a recognized constant in UploadPolicies
         var validConstants = new[]
@@ -182,12 +182,12 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             Assert.Contains(limit, validConstants);
         }
 
-        // 4 endpoints have MultipartTransportCeiling for multipart overhead; remaining 7 match their policy MaxBytes
+        // Five file endpoints allow multipart overhead; the other ten use their published size tiers.
         var multipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartTransportCeiling);
-        Assert.Equal(4, multipartCount);
+        Assert.Equal(5, multipartCount);
 
         var directMatchCount = endpointsWithLimit.Count(e => UploadPolicies.All.Any(p => p.MaxBytes == e.Limit));
-        Assert.Equal(7, directMatchCount);
+        Assert.Equal(10, directMatchCount);
     }
 
     [Fact]

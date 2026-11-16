@@ -306,7 +306,8 @@ public sealed partial class FinalSubmissionEndpointTests(FinalSubmissionDraftDat
         {
             var rubricId = (await db.ProjectPeriods.FindAsync(periodId))!.RubricId!.Value;
             var schemeDraft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
-                new SaveEvaluationSchemeRequest(s.ProjectId, periodId, "Access test scheme", 5, [new("Final quality", "COMMON", null, rubricId, 100, 100, 1)])));
+                new SaveEvaluationSchemeRequest(s.ProjectId, periodId, "Access test scheme", 5,
+                    [new("Final quality", "COMMON", null, rubricId, 100, 100, 1, Stage: "ON_GOING")])));
             var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{schemeDraft.Id}/publish", new SchemeTokenRequest(schemeDraft.ConcurrencyToken)));
             input = input with { Scope = "COMMON", ComponentId = scheme.Components.Single().Id };
         }

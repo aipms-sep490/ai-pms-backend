@@ -27,7 +27,8 @@ public sealed partial class FinalSubmissionEndpointTests
         {
             major = await db.ProjectMajors.Where(m => m.ProjectId == s.ProjectId).Select(m => m.MajorId).SingleAsync();
             db.Set<DefenseCommittee>().Add(new DefenseCommittee { ProjectId = s.ProjectId, Name = "Confirmed acceptance committee",
-                Status = "CONFIRMED", Members = [new() { UserId = s.Users.NewLecturer, MajorId = major }] });
+                Status = "CONFIRMED", CreatedBy = s.Users.Staff, CreatedAt = Now,
+                Members = [new() { UserId = s.Users.NewLecturer, MajorId = major }] });
             await db.SaveChangesAsync();
         }
         var template = await Body<ColdTemplateDto>(await staff.PostAsJsonAsync("/api/v1/cold-report-templates",

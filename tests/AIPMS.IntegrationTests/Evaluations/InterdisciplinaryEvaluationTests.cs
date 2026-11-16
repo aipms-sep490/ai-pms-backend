@@ -53,11 +53,11 @@ public sealed partial class PolicyEvaluationEndpointTests
         using var studentA = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         using var studentB = app.CreateAuthenticatedClient(secondStudent);
         var input = new SaveEvaluationSchemeRequest(s.ProjectId, s.PeriodId, "Two departments", 5,
-            [new("Common", "COMMON", null, s.RubricId, 40, 40, 2),
-             new("Software", "MAJOR_SPECIFIC", firstMajor, s.RubricId, 30, 40, 1),
-             new("Business", "MAJOR_SPECIFIC", secondMajor, secondRubric, 30, 40, 1),
-             new("Student software", "INDIVIDUAL", firstMajor, s.RubricId, 0, 20, 1),
-             new("Student business", "INDIVIDUAL", secondMajor, secondRubric, 0, 20, 1)],
+            [new("Common", "COMMON", null, s.RubricId, 40, 40, 2, Stage: "ON_GOING"),
+             new("Software", "MAJOR_SPECIFIC", firstMajor, s.RubricId, 30, 40, 1, Stage: "ON_GOING"),
+             new("Business", "MAJOR_SPECIFIC", secondMajor, secondRubric, 30, 40, 1, Stage: "ON_GOING"),
+             new("Student software", "INDIVIDUAL", firstMajor, s.RubricId, 0, 20, 1, Stage: "ON_GOING"),
+             new("Student business", "INDIVIDUAL", secondMajor, secondRubric, 0, 20, 1, Stage: "ON_GOING")],
              Policy: new(false, "APPROVED", "SYNTHETIC-REGRESSION-ONLY", CalculationVersion: "LEGACY_V1"));
         Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync("/api/v1/evaluation-schemes", input)).StatusCode);
         var draft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", input));

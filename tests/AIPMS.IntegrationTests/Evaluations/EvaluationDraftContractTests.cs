@@ -25,7 +25,7 @@ public sealed class EvaluationDraftContractTests(EvaluationDraftDatabaseFixture 
     private async Task<(EvaluationScenario Scenario, EvaluationAssignment Assignment, EvaluationScheme Scheme, EvaluationSchemeComponent Component, string ArchCode, string TestCode)> SeedModernAssignment(
         bool isDemo = false, string approvalStatus = "APPROVED")
     {
-        var s = await database.Seed();
+        var s = await database.Seed(confirmedCommittee: true);
         await using var db = database.CreateContext();
 
         var archCode = $"RC_ARCH_{Guid.NewGuid():N}";
@@ -123,7 +123,14 @@ public sealed class EvaluationDraftContractTests(EvaluationDraftDatabaseFixture 
             Scope = "COMMON",
             ComponentId = component.Id,
             PolicyVersionId = policy.Id,
-            ScopeSnapshotJson = "{}",
+            ScopeSnapshotJson = JsonSerializer.Serialize(new
+            {
+                Committee = new
+                {
+                    CommitteeId = await db.Set<DefenseCommittee>().Where(c => c.ProjectId == s.ProjectId && c.Status == "CONFIRMED").Select(c => c.Id).SingleAsync(),
+                    Version = 1
+                }
+            }),
             Stage = "DEFENSE"
         };
         db.Set<EvaluationAssignment>().Add(assignment);

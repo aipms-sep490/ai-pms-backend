@@ -119,7 +119,7 @@ public sealed class CalendarV5EndpointTests(EvaluationDraftDatabaseFixture datab
     [Fact]
     public async Task Evaluator_sees_own_authoritative_window_without_project_work_and_revocation_removes_it()
     {
-        using var app = new EvaluationFactory(database); var s = await database.Seed(true);
+        using var app = new EvaluationFactory(database); var s = await database.Seed(true, confirmedCommittee: true);
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff); using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
         var scheme = await Read<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
             new SaveEvaluationSchemeRequest(s.ProjectId, s.PeriodId, "Calendar demo", 5, [new("Common", "COMMON", null, s.RubricId, 100, 100, 1)])));
