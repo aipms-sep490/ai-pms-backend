@@ -58,7 +58,7 @@ Mỗi màn hình, bảng dữ liệu và panel tương tác bắt buộc phải 
 ---
 
 ## 6. Tiêu Chuẩn Thiết Kế, Thương Hiệu và Tiếp Cận (AIPMS Brand & Accessibility Standards)
-1. **Bản sắc Thương hiệu:** Sử dụng thống nhất bộ nhận diện AIPMS: Logo chính thức, Mascot cáo học thuật năng động, bảng màu Academic Light (`#F6FAFE` canvas, `#0868B8` primary, `#F17F06` secondary, `#107C41` success).
+1. **Bản sắc Thương hiệu:** Sử dụng thống nhất logo AIPMS và Mascot cáo học thuật. Theo yêu cầu cập nhật, giao diện lấy cảm hứng từ bảng màu FAMS: nền sáng `#F8F9FB`, cam nhận diện `#F37021`, cam hành động đạt tương phản chữ trắng `#C2410C`, xanh lá thành công `#0B7B52`, xanh dương/tím/đỏ là các màu phụ và trạng thái. Không sao chép nguyên mẫu FAMS; giữ cấu trúc và nghiệp vụ AIPMS.
 2. **Kỷ luật Design Tokens:**
    - Tuyệt đối không hardcode mã màu hex hoặc `rgba()` vào CSS/TSX khi đã có token trong design system.
    - Sử dụng CSS variables: `var(--color-*)` và `color-mix(in oklab, var(--token) N%, transparent)`.
