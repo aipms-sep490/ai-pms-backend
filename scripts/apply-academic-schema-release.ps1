@@ -15,6 +15,7 @@ $scripts = @(
     '20261030_add_rubric_scope_fields.sql',
     '20261113_prepare_defense_committee_columns.sql',
     '20261114_confirm_defense_committees.sql',
+    '20261114_cold_common_checklist.sql',
     '20261115_department_document_templates.sql'
 )
 

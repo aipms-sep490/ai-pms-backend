@@ -34,6 +34,8 @@ $requirements = @(
     [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.rubrics'; Name = 'ck_rubrics_evaluation_scope'; Migration = '20261030_add_rubric_scope_fields.sql' }
     [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.rubrics'; Name = 'ck_rubrics_scope_major'; Migration = '20261030_add_rubric_scope_fields.sql' }
     [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.rubrics'; Name = 'ck_rubrics_effective_range'; Migration = '20261030_add_rubric_scope_fields.sql' }
+    [pscustomobject]@{ Kind = 'NullableColumn'; Object = 'dbo.cold_checklist_items'; Column = 'major_id'; Migration = '20261114_cold_common_checklist.sql' }
+    [pscustomobject]@{ Kind = 'CheckAllowsCommon'; Object = 'dbo.cold_checklist_items'; Name = 'ck_cold_item_target'; Migration = '20261114_cold_common_checklist.sql' }
     [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.department_document_templates'; Name = 'pk_department_document_templates'; Migration = '20261115_department_document_templates.sql' }
     [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.department_document_templates'; Name = 'ux_department_document_templates_version'; Migration = '20261115_department_document_templates.sql' }
     [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.department_document_templates'; Name = 'ix_department_document_templates_scope'; Migration = '20261115_department_document_templates.sql' }
@@ -65,13 +67,15 @@ try {
                 $command.CommandText = switch ($requirement.Kind) {
                     'Table' { "SELECT CASE WHEN OBJECT_ID(@object, N'U') IS NULL THEN 0 ELSE 1 END" }
                     'Column' { 'SELECT CASE WHEN COL_LENGTH(@object, @column) IS NULL THEN 0 ELSE 1 END' }
+                    'NullableColumn' { "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(@object, N'U') AND name = @column AND is_nullable = 1) THEN 1 ELSE 0 END" }
                     'Index' { "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(@object, N'U') AND name = @name AND is_disabled = 0) THEN 1 ELSE 0 END" }
                     'ForeignKey' { "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID(@object, N'U') AND name = @name AND is_disabled = 0 AND is_not_trusted = 0) THEN 1 ELSE 0 END" }
                     'Check' { "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(@object, N'U') AND name = @name AND is_disabled = 0 AND is_not_trusted = 0) THEN 1 ELSE 0 END" }
+                    'CheckAllowsCommon' { "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(@object, N'U') AND name = @name AND is_disabled = 0 AND is_not_trusted = 0 AND definition LIKE '%COMMON%') THEN 1 ELSE 0 END" }
                 }
                 [void]$command.Parameters.AddWithValue('@object', $requirement.Object)
-                if ($requirement.Kind -eq 'Column') { [void]$command.Parameters.AddWithValue('@column', $requirement.Column) }
-                if ($requirement.Kind -in @('Index', 'ForeignKey', 'Check')) { [void]$command.Parameters.AddWithValue('@name', $requirement.Name) }
+                if ($requirement.Kind -in @('Column', 'NullableColumn')) { [void]$command.Parameters.AddWithValue('@column', $requirement.Column) }
+                if ($requirement.Kind -in @('Index', 'ForeignKey', 'Check', 'CheckAllowsCommon')) { [void]$command.Parameters.AddWithValue('@name', $requirement.Name) }
                 if ([int]$command.ExecuteScalar() -ne 1) { $missing += $requirement }
             } finally { $command.Dispose() }
         }
@@ -86,7 +90,7 @@ try {
 if ($missing.Count -gt 0) {
     Write-Output "NOT_READY: $($missing.Count) required academic schema objects are absent."
     $missing | Sort-Object Migration, Object, Column | ForEach-Object {
-        $name = if ($_.Kind -eq 'Table') { $_.Object } elseif ($_.Kind -eq 'Column') { "$($_.Object).$($_.Column)" } else { "$($_.Object).$($_.Name)" }
+        $name = if ($_.Kind -eq 'Table') { $_.Object } elseif ($_.Kind -in @('Column', 'NullableColumn')) { "$($_.Object).$($_.Column)" } else { "$($_.Object).$($_.Name)" }
         Write-Output "MISSING $name -> db/changes/$($_.Migration)"
     }
     exit 2
