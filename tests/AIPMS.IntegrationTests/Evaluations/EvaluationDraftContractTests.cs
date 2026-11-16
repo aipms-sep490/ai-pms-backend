@@ -23,7 +23,7 @@ public sealed class EvaluationDraftContractTests(EvaluationDraftDatabaseFixture 
     ];
 
     private async Task<(EvaluationScenario Scenario, EvaluationAssignment Assignment, EvaluationScheme Scheme, EvaluationSchemeComponent Component, string ArchCode, string TestCode)> SeedModernAssignment(
-        bool isDemo = false, string approvalStatus = "APPROVED")
+        bool isDemo = false, string approvalStatus = "APPROVED", string stage = "DEFENSE")
     {
         var s = await database.Seed(confirmedCommittee: true);
         await using var db = database.CreateContext();
@@ -102,7 +102,7 @@ public sealed class EvaluationDraftContractTests(EvaluationDraftDatabaseFixture 
             ProjectWeightPercent = 30.0m,
             StudentWeightPercent = 30.0m,
             RequiredEvaluators = 1,
-            Stage = "DEFENSE"
+            Stage = stage
         };
         db.Set<EvaluationSchemeComponent>().Add(component);
         await db.SaveChangesAsync();
@@ -131,7 +131,7 @@ public sealed class EvaluationDraftContractTests(EvaluationDraftDatabaseFixture 
                     Version = 1
                 }
             }),
-            Stage = "DEFENSE"
+            Stage = stage
         };
         db.Set<EvaluationAssignment>().Add(assignment);
         await db.SaveChangesAsync();
@@ -310,7 +310,7 @@ public sealed class EvaluationDraftContractTests(EvaluationDraftDatabaseFixture 
     [Fact]
     public async Task EvaluationDraft_CreateAndSaveDraft_ReflectsNewContractFields()
     {
-        var (s, assignment, _, _, archCode, _) = await SeedModernAssignment(isDemo: false, approvalStatus: "APPROVED");
+        var (s, assignment, _, _, archCode, _) = await SeedModernAssignment(isDemo: false, approvalStatus: "APPROVED", stage: "ON_GOING");
 
         using var app = new EvaluationFactory(database);
         using var lecturer = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
@@ -322,7 +322,7 @@ public sealed class EvaluationDraftContractTests(EvaluationDraftDatabaseFixture 
         Assert.NotNull(draft);
 
         // Verify draft header fields
-        Assert.Equal("DEFENSE", draft.Stage);
+        Assert.Equal("ON_GOING", draft.Stage);
         Assert.Equal(30.0m, draft.ComponentStudentWeightPercent);
         Assert.Equal("APPROVED", draft.SchemeApprovalStatus);
         Assert.False(draft.SchemeIsDemo);
@@ -348,7 +348,7 @@ public sealed class EvaluationDraftContractTests(EvaluationDraftDatabaseFixture 
         Assert.Equal(HttpStatusCode.OK, saveRes.StatusCode);
         var savedDraft = await saveRes.Content.ReadFromJsonAsync<EvaluationDraftDto>(JsonOpts);
         Assert.NotNull(savedDraft);
-        Assert.Equal("DEFENSE", savedDraft.Stage);
+        Assert.Equal("ON_GOING", savedDraft.Stage);
         Assert.Equal(30.0m, savedDraft.ComponentStudentWeightPercent);
         Assert.Equal("APPROVED", savedDraft.SchemeApprovalStatus);
         Assert.False(savedDraft.SchemeIsDemo);
@@ -359,7 +359,7 @@ public sealed class EvaluationDraftContractTests(EvaluationDraftDatabaseFixture 
         Assert.Equal(HttpStatusCode.OK, getRes.StatusCode);
         var getDraft = await getRes.Content.ReadFromJsonAsync<EvaluationDraftDto>(JsonOpts);
         Assert.NotNull(getDraft);
-        Assert.Equal("DEFENSE", getDraft.Stage);
+        Assert.Equal("ON_GOING", getDraft.Stage);
         Assert.Equal(30.0m, getDraft.ComponentStudentWeightPercent);
         Assert.Equal("APPROVED", getDraft.SchemeApprovalStatus);
         Assert.False(getDraft.SchemeIsDemo);
