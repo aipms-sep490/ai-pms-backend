@@ -56,7 +56,8 @@ internal static class SqlSchemaBootstrap
             // Only these historical scripts contain a known database selector.
             if (name is "20260825_add_account_security.sql" or "20260825_add_project_metadata_tags.sql")
                 sql = Regex.Replace(sql, @"^USE \[AI_PMS\];[^\r\n]*\r?$", "", RegexOptions.Multiline | RegexOptions.IgnoreCase);
-            await ExecuteOnConnectionAsync(connection, sql, ct);
+            try { await ExecuteOnConnectionAsync(connection, sql, ct); }
+            catch (SqlException ex) { throw new InvalidOperationException($"Migration {name} failed during isolated schema bootstrap.", ex); }
         }
     }
 

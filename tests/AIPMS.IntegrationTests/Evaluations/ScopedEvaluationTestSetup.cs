@@ -49,9 +49,9 @@ public sealed partial class EvaluationDraftEndpointTests
             await db.SaveChangesAsync();
             var rubricId = (await db.ProjectPeriods.FindAsync(s.PeriodId))!.RubricId!.Value;
             SchemeComponentInput[] components = firstWeight.HasValue ?
-                [new("First", "COMMON", null, rubricId, firstWeight.Value, firstWeight.Value, 1), new("Second", "COMMON", null, rubricId, 100-firstWeight.Value, 100-firstWeight.Value, 1)] :
-                single ? [new("First", "COMMON", null, rubricId, 100, 100, 1)] :
-                [new("First", "COMMON", null, rubricId, 60, 60, 1), new("Second", "COMMON", null, rubricId, 30, 30, 1), new("Supervisor", "COMMON", null, rubricId, 10, 10, 1)];
+                [new("First", "COMMON", null, rubricId, firstWeight.Value, firstWeight.Value, 1, Stage: "ON_GOING"), new("Second", "COMMON", null, rubricId, 100-firstWeight.Value, 100-firstWeight.Value, 1, Stage: "ON_GOING")] :
+                single ? [new("First", "COMMON", null, rubricId, 100, 100, 1, Stage: "ON_GOING")] :
+                [new("First", "COMMON", null, rubricId, 60, 60, 1, Stage: "ON_GOING"), new("Second", "COMMON", null, rubricId, 30, 30, 1, Stage: "ON_GOING"), new("Supervisor", "COMMON", null, rubricId, 10, 10, 1, Stage: "ON_GOING")];
             var draft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
                 new SaveEvaluationSchemeRequest(s.ProjectId, s.PeriodId, "Regression scoped scheme", threshold, components,
                     Policy: new(false, "APPROVED", "SYNTHETIC-REGRESSION-ONLY", CalculationVersion: "LEGACY_V1"))));
