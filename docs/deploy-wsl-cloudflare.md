@@ -68,12 +68,8 @@ it. Maintain a verified database backup separately before changing that service.
 
 ## 3. Preserve shared file storage and keys
 
-`deploy/wsl/.env` contains paths only, not secrets. Its default upload bind mount
-is the Windows backend's existing local storage directory:
-
-```text
-/mnt/c/Users/khaih/AppData/Local/AIPMS/private-files
-```
+`deploy/wsl/.env` contains paths only, not secrets. Set `AIPMS_FILES_PATH`
+to the existing Local-provider upload directory shared by API instances.
 
 Both backend instances must read/write this same directory while using the same
 database. An empty replacement volume would make existing file metadata point
@@ -81,6 +77,11 @@ to missing files. Ensure the directory exists and UID 1000 can access it. If the
 Windows API uses a custom `FileStorage:RootPath`, change `AIPMS_FILES_PATH` to its
 WSL path before starting. This setup assumes the verified Local storage provider;
 do not switch to Drive without migrating/configuring the matching file store.
+The compose service sets `FileStorage__RootPath=/var/lib/aipms/files` so the API
+always writes Local-provider files to the mounted directory rather than to the
+container's private default. Before deployment, verify `AIPMS_FILES_PATH`
+points to the actual existing upload directory on that host; the placeholder
+in `.env.example` is not a deployable default.
 
 Docker named volumes `aipms_keys` and `aipms_logs` persist keys/logs across API
 rebuilds. The container root filesystem is read-only. Never use `down -v` for

@@ -45,6 +45,8 @@ public static class UploadPolicies
     public const long ReviewGateEvidenceLimit = EffectiveFileLimit;
     public const long StudentQualificationLimit = EffectiveFileLimit;
     public const long UserAvatarLimit = 2 * 1024 * 1024;
+    // Leave room for multipart headers while enforcing the 2 MiB image limit in the validator.
+    public const long UserAvatarTransportLimit = 3 * 1024 * 1024;
 
     public static readonly IReadOnlyList<UploadPolicyDto> All = new[]
     {

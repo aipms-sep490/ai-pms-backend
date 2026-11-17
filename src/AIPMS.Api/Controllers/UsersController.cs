@@ -33,7 +33,7 @@ public sealed class UsersController(ISender sender, IUserAvatarService avatars) 
     }
 
     [HttpPost("me/avatar"), Consumes("multipart/form-data")]
-    [RequestSizeLimit(3 * 1024 * 1024)]
+    [RequestSizeLimit(UploadPolicies.UserAvatarTransportLimit)]
     [RequestFormLimits(MultipartBodyLengthLimit = 3 * 1024 * 1024)]
     public async Task<ActionResult<UserAvatarDto>> UploadMyAvatar([FromForm] UserAvatarUploadForm form, CancellationToken ct)
     {
