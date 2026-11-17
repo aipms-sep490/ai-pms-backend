@@ -44,9 +44,19 @@ public static class UploadPolicies
     public const long ProjectFileLimit = EffectiveFileLimit;
     public const long ReviewGateEvidenceLimit = EffectiveFileLimit;
     public const long StudentQualificationLimit = EffectiveFileLimit;
+    public const long UserAvatarLimit = 2 * 1024 * 1024;
 
     public static readonly IReadOnlyList<UploadPolicyDto> All = new[]
     {
+        new UploadPolicyDto(
+            ParentType: "USER_AVATAR",
+            MaxBytes: UserAvatarLimit,
+            MaxBytesLabel: "2 MiB",
+            AllowedMimeTypes: ["image/png", "image/jpeg"],
+            AllowedExtensions: [".png", ".jpg", ".jpeg"],
+            MaxFilesPerRequest: 1,
+            RequiresVersionAnchor: true
+        ),
         new UploadPolicyDto(
             ParentType: "REVIEW_GATE_EVIDENCE",
             MaxBytes: ReviewGateEvidenceLimit,

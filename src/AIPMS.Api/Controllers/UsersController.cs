@@ -1,6 +1,10 @@
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.AccountSecurity.Commands;
+using AIPMS.Application.Features.AccountSecurity.Abstractions;
+using AIPMS.Application.Features.Deliverables.Models;
+using AIPMS.Application.Features.Files;
+using System.ComponentModel.DataAnnotations;
 using AIPMS.Application.Features.AccountSecurity.DTOs;
 using AIPMS.Application.Features.AccountSecurity.Queries;
 using MediatR;
@@ -12,8 +16,36 @@ namespace AIPMS.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1/users")]
-public sealed class UsersController(ISender sender) : ControllerBase
+public sealed class UsersController(ISender sender, IUserAvatarService avatars) : ControllerBase
 {
+    [HttpGet("me/avatar/metadata")]
+    public async Task<ActionResult<UserAvatarDto>> GetMyAvatarMetadata(CancellationToken ct) =>
+        Ok(await avatars.GetMetadata(ct));
+
+    [HttpGet("me/avatar")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> GetMyAvatar(CancellationToken ct)
+    {
+        var file = await avatars.Download(ct);
+        Response.Headers.XContentTypeOptions = "nosniff";
+        Response.Headers.CacheControl = "no-store";
+        return File(file.Content, file.ContentType);
+    }
+
+    [HttpPost("me/avatar"), Consumes("multipart/form-data")]
+    [RequestSizeLimit(3 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 3 * 1024 * 1024)]
+    public async Task<ActionResult<UserAvatarDto>> UploadMyAvatar([FromForm] UserAvatarUploadForm form, CancellationToken ct)
+    {
+        await using var content = form.File.OpenReadStream();
+        return Ok(await avatars.Upload(new UploadContent(form.File.FileName, form.File.ContentType,
+            form.File.Length, content), form.ConcurrencyToken, ct));
+    }
+
+    [HttpPost("me/avatar/remove")]
+    public async Task<ActionResult<UserAvatarDto>> RemoveMyAvatar(UserAvatarRemoveRequest request, CancellationToken ct) =>
+        Ok(await avatars.Remove(request.ConcurrencyToken, ct));
+
     [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
     [HttpGet]
     [ProducesResponseType<PagedResult<UserAccountDto>>(StatusCodes.Status200OK)]
@@ -176,3 +208,11 @@ public sealed class UsersController(ISender sender) : ControllerBase
         CancellationToken cancellationToken) =>
         Ok(await sender.Send(new SetUserStatusCommand(userId, status), cancellationToken));
 }
+
+public sealed class UserAvatarUploadForm
+{
+    [Required] public IFormFile File { get; init; } = null!;
+    public string? ConcurrencyToken { get; init; }
+}
+
+public sealed record UserAvatarRemoveRequest(string? ConcurrencyToken);

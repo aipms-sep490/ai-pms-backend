@@ -235,6 +235,8 @@ public static class DependencyInjection
             string.Equals(sp.GetRequiredService<IConfiguration>()["FileStorage:Provider"], "GoogleDrive", StringComparison.OrdinalIgnoreCase)
                 ? new GoogleDriveFileStorage(sp.GetRequiredService<IConfiguration>())
                 : new LocalFileStorage(sp.GetRequiredService<IConfiguration>()));
+        services.AddScoped<AIPMS.Application.Features.AccountSecurity.Abstractions.IUserAvatarService,
+            Services.AccountSecurity.UserAvatarService>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IProjectRequirementsService, ProjectRequirementsService>();
         services.AddScoped<Application.Features.Disciplines.Abstractions.IDisciplineService, DisciplineService>();
