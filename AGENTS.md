@@ -2,7 +2,7 @@
 
 ## Quy tắc Quản trị Kỹ thuật Chung (Bắt buộc cho cả FE & BE)
 Toàn bộ kỹ sư và agent khi làm việc trên Backend bắt buộc phải tuân thủ nghiêm ngặt **8 Quy tắc Quản trị Kỹ thuật Chung** được đồng bộ tại:
-[AI_PMS_SHARED_GOVERNANCE_RULES.md](file:///F:/AI-PMS/ai-pms-backend-access-audit-20261113/docs/rules/AI_PMS_SHARED_GOVERNANCE_RULES.md)
+[AI_PMS_SHARED_GOVERNANCE_RULES.md](docs/rules/AI_PMS_SHARED_GOVERNANCE_RULES.md)
 
 ### Tóm lược 8 quy tắc cốt lõi:
 1. **Thứ tự nguồn thẩm quyền:** Yêu cầu người dùng → Business rule/DB/BE contract → FE representation → Ảnh tham khảo. Backend là nguồn thẩm quyền tối cao về mô hình dữ liệu, quyền, state machine và công thức điểm.
@@ -16,12 +16,8 @@ Toàn bộ kỹ sư và agent khi làm việc trên Backend bắt buộc phải 
 
 ---
 
-## Nhánh cho từng task & Ngoại lệ chỉ định trực tiếp
-- **Chỉ định trực tiếp cho Task Hiện tại:**
-  - Nhánh BE được chỉ định duy nhất: `feat/be-access-audit-20261113`.
-  - Đây là ngoại lệ trực tiếp của người dùng đối với quy tắc "task mới tạo nhánh mới". Tuyệt đối không tạo nhánh thay thế.
-  - Chỉ commit và push lên đúng nhánh `feat/be-access-audit-20261113`.
-  - Không tạo PR, không merge, không rebase/reset hoặc đưa code lên `develop`.
-- **Ranh giới PR #145 (BE-16):**
-  - Không âm thầm mang code từ PR #145 (phòng/lịch bảo vệ) sang nhánh này.
-  - Không gọi API branch-only như thể đã có trên `develop`.
+## Quy trình nhánh và merge
+- Bắt đầu task mới từ `origin/develop` đã fetch, trừ khi người dùng chỉ định nhánh khác.
+- Kiểm tra trạng thái checkout, commit gốc, nhánh remote và CI trước khi push hoặc merge; giữ nguyên thay đổi chưa commit của người khác.
+- Chỉ merge khi người dùng yêu cầu. Xác minh đúng head, kiểm tra phụ thuộc nhánh/PR, giải quyết xung đột và chạy test trên kết quả tích hợp trước khi cập nhật `develop`.
+- Không force push, reset hay stash để ép checkout sạch. Không mô tả API chỉ có trên nhánh tính năng như đã có trên `develop`.

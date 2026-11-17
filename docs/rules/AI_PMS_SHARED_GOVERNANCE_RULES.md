@@ -1,7 +1,7 @@
 # AI-PMS Quy tắc Làm việc và Quản trị Kỹ thuật Chung (FE & BE)
 # AI-PMS Shared Governance and Engineering Rules
 
-Tài liệu này xác lập bộ quy tắc làm việc chuẩn mực, bắt buộc và có thể truy vết đồng thời trên toàn bộ mã nguồn Frontend (`feat/fe-fresearch-reference-20261113`) và Backend (`feat/be-access-audit-20261113`).
+Tài liệu này xác lập bộ quy tắc làm việc chuẩn mực, bắt buộc và có thể truy vết đồng thời trên toàn bộ mã nguồn Frontend và Backend, bao gồm cả các nhánh tích hợp.
 Mọi thành viên, kỹ sư và agent khi tham gia phát triển hệ thống AIPMS bắt buộc phải tuân thủ nghiêm ngặt 8 quy tắc nền tảng dưới đây.
 
 ---
@@ -97,8 +97,10 @@ Mọi tài liệu, báo cáo tiến độ và commit log phải phân định mi
 ## Quy trình Kiểm tra Đồng bộ Hai Repo (Drift Check)
 Để đảm bảo bản rule này luôn đồng nhất 100% giữa FE và BE, sử dụng lệnh kiểm tra hash trong PowerShell:
 ```powershell
-$feHash = (Get-FileHash -Algorithm SHA256 "F:\AI-PMS\ai-pms-frontend-fresearch-20261113\docs\rules\AI_PMS_SHARED_GOVERNANCE_RULES.md").Hash
-$beHash = (Get-FileHash -Algorithm SHA256 "F:\AI-PMS\ai-pms-backend-access-audit-20261113\docs\rules\AI_PMS_SHARED_GOVERNANCE_RULES.md").Hash
+$frontendRepo = Read-Host 'Đường dẫn repo Frontend'
+$backendRepo = Read-Host 'Đường dẫn repo Backend'
+$feHash = (Get-FileHash -Algorithm SHA256 (Join-Path $frontendRepo 'docs/rules/AI_PMS_SHARED_GOVERNANCE_RULES.md')).Hash
+$beHash = (Get-FileHash -Algorithm SHA256 (Join-Path $backendRepo 'docs/rules/AI_PMS_SHARED_GOVERNANCE_RULES.md')).Hash
 if ($feHash -eq $beHash) {
     Write-Host " [PASS] Shared Governance Rules are strictly synchronized ($feHash)" -ForegroundColor Green
 } else {
