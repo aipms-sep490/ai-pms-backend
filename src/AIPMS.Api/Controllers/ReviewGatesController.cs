@@ -7,6 +7,9 @@ using Microsoft.AspNetCore.Mvc;
 using System.ComponentModel.DataAnnotations;
 using AIPMS.Application.Features.Deliverables.Models;
 using AIPMS.Application.Features.Deliverables.DTOs;
+using System.IO.Compression;
+using System.Text;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace AIPMS.Api.Controllers;
 
@@ -62,6 +65,10 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public async Task<ActionResult<AssignedReviewItemDto>> Revoke(long assignmentId, RevokeReviewGateAssignmentRequest request, CancellationToken ct) => Ok(await service.Revoke(assignmentId, request, ct));
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/decision")]
     public async Task<ActionResult<ProjectReviewMatrixRowDto>> UpdateDecision(long projectId, string gateCode, UpdateReviewGateDecisionRequest request, CancellationToken ct) => Ok(await service.UpdateDecision(projectId, gateCode, request, ct));
+    [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/override")]
+    public async Task<ActionResult<OverrideReviewGateDto>> OverrideDecision(long projectId, string gateCode, OverrideReviewGateRequest request, CancellationToken ct) => Ok(await service.OverrideDecision(projectId, gateCode, request, ct));
+    [HttpGet("api/v1/users/me/capabilities")]
+    public Task<ReviewGateUserCapabilitiesDto> OverrideCapability([FromQuery] long projectId, CancellationToken ct) => service.OverrideCapability(projectId, ct);
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/scopes/{scope}")]
     public async Task<ActionResult<ProjectReviewMatrixRowDto>> UpdateScope(long projectId, string scope, UpdateReviewGateScopeRequest request, CancellationToken ct) => Ok(await service.UpdateScope(projectId, scope, request, ct));
     [HttpGet("api/v1/departments/review-gates/matrix")]
@@ -79,6 +86,45 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         Response.Headers.CacheControl = "no-store";
         return File(file.Content, file.ContentType, file.FileName);
+    }
+
+    [HttpGet("api/v1/projects/{projectId:long}/review-gates/{gateCode}/evidence/archive")]
+    public async Task EvidenceArchive(long projectId, string gateCode, CancellationToken ct)
+    {
+        var manifest = await service.ArchiveManifest(projectId, gateCode, ct);
+        var fileName = $"{SafeZipName(manifest.ProjectCode)}_{SafeZipName(manifest.GateCode)}_Evidence_{DateTime.UtcNow:yyyyMMdd}.zip";
+        Response.ContentType = "application/zip";
+        Response.Headers.ContentDisposition = $"attachment; filename=\"{fileName}\"";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        Response.Headers.CacheControl = "no-store";
+        // ZipArchive writes its central directory synchronously on dispose; file payloads are copied asynchronously.
+        var bodyControl = HttpContext.Features.Get<IHttpBodyControlFeature>();
+        if (bodyControl is not null) bodyControl.AllowSynchronousIO = true;
+        using var archive = new ZipArchive(Response.Body, ZipArchiveMode.Create, leaveOpen: true);
+        foreach (var item in manifest.Entries)
+        {
+            var folder = $"{SafeZipName(item.RequirementCode)}_{SafeZipName(item.RequirementTitle)}_{item.RequirementId}";
+            var entryName = item.IsLink ? "lien-ket-minh-chung.txt"
+                : $"v{item.Version}_{SafeZipName(item.ArtifactName)}";
+            var entry = archive.CreateEntry($"{folder}/{entryName}", CompressionLevel.Fastest);
+            await using var destination = entry.Open();
+            if (item.IsLink)
+            {
+                var link = Encoding.UTF8.GetBytes(item.LinkUrl! + "\n");
+                await destination.WriteAsync(link, ct);
+            }
+            else
+            {
+                var file = await service.DownloadEvidence(projectId, gateCode, item.RequirementId, item.Version, ct);
+                await using (file.Content) await file.Content.CopyToAsync(destination, ct);
+            }
+        }
+    }
+
+    private static string SafeZipName(string value)
+    {
+        var clean = new string(value.Take(100).Select(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '-' ? c : '_').ToArray());
+        return string.IsNullOrWhiteSpace(clean) || clean is "." or ".." ? "evidence" : clean;
     }
 }
 

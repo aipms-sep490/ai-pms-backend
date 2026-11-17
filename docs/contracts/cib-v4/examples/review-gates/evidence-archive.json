@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/12/review-gates/R2/evidence/archive",
+  "response": {
+    "status": 200,
+    "contentType": "application/zip",
+    "contentDisposition": "attachment; filename=\"PRJ-2026-012_R2_Evidence_20261120.zip\"",
+    "body": "binary ZIP stream"
+  }
+}

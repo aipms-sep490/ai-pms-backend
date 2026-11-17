@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/v1/project-periods/1/defense-sessions?date=2026-11-20",
+  "response": [{
+    "id": 101, "projectId": 12, "projectCode": "PRJ-2026-012", "projectTitle": "AI-PMS",
+    "committeeId": 1, "committeeName": "Hoi dong 1", "roomId": 1, "roomCode": "A-201",
+    "slotNumber": 1, "startAt": "2026-11-20T08:00:00+07:00", "endAt": "2026-11-20T09:15:00+07:00",
+    "status": "SCHEDULED", "concurrencyToken": "d5b8a9eaf50a4c4d91be2e8497a76740", "canCancel": true
+  }]
+}

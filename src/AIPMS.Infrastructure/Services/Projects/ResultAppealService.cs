@@ -133,6 +133,7 @@ internal sealed partial class ResultAppealService(AipmsDbContext db, IEvaluation
                 actions.Add("REJECT");
                 if (row.Proposal == "AMEND" && blockers.Count == 0) { actions.Add("PREVIEW"); actions.Add("ACCEPT"); }
             }
+            if (row.RequestedBy == Actor && row.Status == "PENDING" && row.Source == "STUDENT_APPEAL") actions.Add("WITHDRAW");
             if (row.RequestedBy == Actor && row.Status == "PENDING" && blockers.Count == 0)
             {
                 await LoadWindows(row.WindowId.HasValue ? [row.WindowId.Value] : [], ct);

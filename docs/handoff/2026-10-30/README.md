@@ -1,5 +1,7 @@
 # BÀN GIAO ĐỢT 30/10/2026 — AI-PMS
 
+> Lưu trữ lịch sử: các thứ tự và trạng thái bên dưới chỉ đúng tại thời điểm 30/10/2026. Prompt copy/paste cho agent đã được bỏ khỏi cây file vì chứa SHA và bước khởi động cũ; bản gốc vẫn có trong Git history. Bàn giao Gate 3/4 hiện hành ở [đây](../BE16_GATE3_GATE4_FE_E2E_UAT_20261108.md).
+
 **Mục tiêu đợt này:** hệ thống **chạy thật được một kỳ**. Không làm bản demo dùng một lần.
 
 **Baseline:** BE `14eecc7a04a1b91bb4c491c5ca85b09edbb99f94` · FE `e8e9801c401bc810ce19299748c332af4f36aec0` — cả hai CI xanh, 0 PR mở, chốt lúc viết tài liệu.
@@ -15,7 +17,6 @@
 | **`CAU_HOI_BO_MON_2026-10-30.md`** | Bộ môn / hội đồng học vụ | 8 quyết định. Hai cái đầu **chặn BE viết dòng code đầu tiên** của ba ticket rubric |
 | **`RUBRIC_DESIGN_2026-10-30.md`** | Bộ môn + cả hai dev | Thiết kế rubric 4 mốc, ma trận trọng số, phân công giảng viên. Trạng thái `PROPOSED` |
 | **`COVERAGE_MATRIX_2026-10-30.md`** | Cả hai dev | 116 ID (34 REQ · 36 FL · 32 WF · 14 T) — cái gì dùng lại, cái gì mở rộng, cái gì chờ |
-| **`PROMPT_KICKOFF.md`** | Người điều phối | Prompt copy-paste nếu giao cho AI coding agent |
 
 ---
 

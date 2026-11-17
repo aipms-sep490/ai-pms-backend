@@ -39,6 +39,9 @@ public sealed class AcademicTrackingController(IAcademicTrackingService service)
     [HttpPost("api/v1/projects/{projectId:long}/defense-committees")]
     [ProducesResponseType<CommitteeDto>(200)]
     public Task<CommitteeDto> CreateCommittee(long projectId, CreateCommitteeRequest request, CancellationToken ct) => service.CreateCommittee(projectId, request, ct);
+    [HttpPut("api/v1/defense-committees/{id:long}/roles")]
+    [ProducesResponseType<CommitteeDto>(200)]
+    public Task<CommitteeDto> AssignCommitteeRoles(long id, SaveCommitteeRolesRequest request, CancellationToken ct) => service.AssignCommitteeRoles(id, request, ct);
     [HttpGet("api/v1/projects/{projectId:long}/defense-committees")]
     [ProducesResponseType<PagedResult<CommitteeDto>>(200)]
     public Task<PagedResult<CommitteeDto>> Committees(long projectId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) => service.Committees(projectId, page, pageSize, ct);

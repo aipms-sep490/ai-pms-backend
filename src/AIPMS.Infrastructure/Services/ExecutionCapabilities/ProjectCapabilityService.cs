@@ -40,6 +40,13 @@ internal sealed class ProjectCapabilityService(AipmsDbContext db, ICurrentUser c
             : "LEAD_DEPARTMENT_REQUIRED";
         var actions = basics.Actions.ToList();
         actions.AddRange(await agreements.Capabilities(projectId, ct));
+        var canOverrideGate = project.ActiveScope && project.LeadDepartmentId.HasValue
+            && await db.Users.AsNoTracking().AnyAsync(u => u.Id == actorId && u.Status == "ACTIVE"
+                && u.DepartmentId == project.LeadDepartmentId
+                && u.Department != null && u.Department.IsActive
+                && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"), ct);
+        actions.Add(Action("CAN_OVERRIDE_GATE", canOverrideGate,
+            project.ActiveScope ? "LEAD_DEPARTMENT_STAFF_REQUIRED" : "ACADEMIC_SCOPE_UNKNOWN_OR_INACTIVE"));
         actions.Add(Action("manage_evaluation_scheme", lead && writable, reason));
         actions.Add(Action("manage_evaluators", scoped && writable && scheme?.Status == "PUBLISHED"
             && periods.Contains(scheme.ProjectPeriodId), !scoped ? "ACADEMIC_COMPONENT_SCOPE_REQUIRED"

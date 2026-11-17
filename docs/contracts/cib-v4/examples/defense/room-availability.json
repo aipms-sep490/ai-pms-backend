@@ -1,0 +1,6 @@
+{
+  "method": "GET",
+  "path": "/api/v1/project-periods/1/rooms/availability?date=2026-11-20&startAt=08:00&endAt=09:15",
+  "response": [{ "id": 2, "code": "A-202", "building": "Toa Alpha", "floor": 2,
+    "capacity": 45, "status": "ACTIVE", "concurrencyToken": "4671ad12b700477b8a8aa44e58af859d" }]
+}

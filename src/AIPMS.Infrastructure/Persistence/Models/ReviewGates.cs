@@ -62,6 +62,10 @@ public sealed class ProjectGateInstance
     public string Title { get; set; } = "";
     public string Objective { get; set; } = "";
     public string Status { get; set; } = "PLANNED";
+    public string DecisionSource { get; set; } = "REVIEW";
+    public long? OverriddenBy { get; set; }
+    public DateTime? OverriddenAt { get; set; }
+    public string? OverrideReason { get; set; }
     public string ReviewEligibility { get; set; } = "BLOCKED";
     public bool Required { get; set; } = true;
     public bool BlockNextGate { get; set; } = true;
@@ -123,6 +127,7 @@ public sealed class GateReviewerAssignment
     public long? MajorId { get; set; }
     public long? StudentId { get; set; }
     public string Status { get; set; } = "PENDING_REVIEW";
+    public string SessionRole { get; set; } = "MEMBER";
     public string? LatestDecision { get; set; }
     public string? ReviewerNotes { get; set; }
     public DateTime? RevokedAt { get; set; }

@@ -1,0 +1,16 @@
+{
+  "method": "POST",
+  "path": "/api/v1/projects/12/result/correction-requests/101/withdraw",
+  "request": {
+    "concurrencyToken": "d5b8a9eaf50a4c4d91be2e8497a76740",
+    "reason": "I need to attach the corrected test report before resubmitting."
+  },
+  "response": {
+    "id": 101,
+    "projectId": 12,
+    "status": "WITHDRAWN",
+    "decisionReason": "I need to attach the corrected test report before resubmitting.",
+    "allowedActions": ["READ"],
+    "concurrencyToken": "4671ad12b700477b8a8aa44e58af859d"
+  }
+}

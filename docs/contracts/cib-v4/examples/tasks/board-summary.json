@@ -1,0 +1,12 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/12/task-board/summary?milestoneId=5",
+  "response": [
+    { "status": "TODO", "count": 14 },
+    { "status": "IN_PROGRESS", "count": 5 },
+    { "status": "BLOCKED", "count": 2 },
+    { "status": "IN_REVIEW", "count": 3 },
+    { "status": "DONE", "count": 38 },
+    { "status": "CANCELLED", "count": 1 }
+  ]
+}

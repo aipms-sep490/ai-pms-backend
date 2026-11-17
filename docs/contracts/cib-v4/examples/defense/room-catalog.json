@@ -1,0 +1,20 @@
+{
+  "list": {
+    "method": "GET",
+    "path": "/api/v1/rooms?building=Toa%20Alpha&status=ACTIVE&minCapacity=30",
+    "response": [{ "id": 1, "code": "A-201", "building": "Toa Alpha", "floor": 2,
+      "capacity": 40, "status": "ACTIVE", "concurrencyToken": "d5b8a9eaf50a4c4d91be2e8497a76740" }]
+  },
+  "create": {
+    "method": "POST",
+    "path": "/api/v1/rooms",
+    "request": { "code": "A-201", "building": "Toa Alpha", "floor": 2, "capacity": 40, "status": "ACTIVE" }
+  },
+  "update": {
+    "method": "PUT",
+    "path": "/api/v1/rooms/1",
+    "request": { "code": "A-201", "building": "Toa Alpha", "floor": 2, "capacity": 45,
+      "status": "ACTIVE", "concurrencyToken": "d5b8a9eaf50a4c4d91be2e8497a76740" }
+  },
+  "deactivate": { "method": "DELETE", "path": "/api/v1/rooms/1?concurrencyToken=d5b8a9eaf50a4c4d91be2e8497a76740" }
+}

@@ -43,6 +43,7 @@ public sealed class DefenseCommittee
     public string Name { get; set; } = "";
     public long CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; }
+    public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
     public ICollection<DefenseCommitteeMember> Members { get; set; } = [];
 }
 public sealed class DefenseCommitteeMember
@@ -50,6 +51,7 @@ public sealed class DefenseCommitteeMember
     public long CommitteeId { get; set; }
     public long UserId { get; set; }
     public long MajorId { get; set; }
+    public string Role { get; set; } = "MEMBER";
 }
 public sealed class DefenseSession
 {
@@ -59,6 +61,8 @@ public sealed class DefenseSession
     public DateTime StartAt { get; set; }
     public DateTime EndAt { get; set; }
     public string Room { get; set; } = "";
+    public long? RoomId { get; set; }
+    public Room? RoomRecord { get; set; }
     public string Status { get; set; } = "SCHEDULED";
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
     public long CreatedBy { get; set; }

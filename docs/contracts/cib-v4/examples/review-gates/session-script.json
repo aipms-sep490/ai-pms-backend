@@ -1,0 +1,35 @@
+{
+  "ticket": "BE-16-07",
+  "save": {
+    "method": "PUT",
+    "path": "/api/v1/review-gates/101/session-script",
+    "request": {
+      "mode": "ONLINE",
+      "roomId": null,
+      "liveKitRoomName": "vm-project12-r2",
+      "scheduledStartAt": "2026-11-20T08:00:00+07:00",
+      "scheduledEndAt": "2026-11-20T09:15:00+07:00",
+      "actualStartAt": null,
+      "actualEndAt": null,
+      "presences": [],
+      "agendaStages": [{ "stage": "Hỏi đáp", "durationMinutes": 30, "status": "PENDING" }],
+      "qaLog": [],
+      "remediationItems": [{ "id": "fix-1", "title": "Nộp lại sơ đồ kiến trúc", "assignee": "Nhóm đề tài", "dueDate": "2026-11-27", "required": true, "workingDaysToComplete": 5 }],
+      "generalNotes": "Biên bản chuẩn bị",
+      "verdict": "PENDING",
+      "signedBySecretary": null,
+      "signedByChair": null,
+      "concurrencyToken": null
+    }
+  },
+  "sync": {
+    "method": "POST",
+    "path": "/api/v1/review-gates/101/livekit-presence/sync",
+    "request": {
+      "sessionId": "123",
+      "participants": [{ "userId": 45, "joinedAt": "2026-11-20T08:00:00+07:00", "leftAt": null, "durationMinutes": 45 }],
+      "concurrencyToken": "c60ec55e2d88462a9142491fa3d4fd18"
+    },
+    "note": "Server reads signed LiveKit webhook projections; submitted participant timestamps are not trusted."
+  }
+}
