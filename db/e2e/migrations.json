@@ -74,5 +74,11 @@
   "20261107_add_review_gate_override.sql",
   "20261107_add_gate_session_scripts.sql",
   "20261107_allow_withdrawn_appeals.sql",
-  "20261108_publish_gate3_schedules.sql"
+  "20261108_publish_gate3_schedules.sql",
+  "20261112_reconcile_project_evidence_status.sql",
+  "20261113_prepare_defense_committee_columns.sql",
+  "20261114_cold_common_checklist.sql",
+  "20261114_confirm_defense_committees.sql",
+  "20261115_department_document_templates.sql",
+  "20261117_user_avatars.sql"
 ]

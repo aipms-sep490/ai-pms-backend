@@ -4,6 +4,10 @@ namespace AIPMS.Application.Features.Evaluations.Services;
 
 public static class AcademicAuthority
 {
+    // Reading project assignments supports admin oversight; assignment mutations still require department scope.
+    public static bool CanReadAssignments(EvaluationActor actor, EvaluationProject project) =>
+        actor.IsAdmin || HasScope(actor, project);
+
     public static bool IsLead(EvaluationActor actor, EvaluationProject project) =>
         actor.IsStaff && actor.DepartmentId.HasValue && actor.DepartmentId == project.LeadDepartmentId
         && HasScope(actor, project);

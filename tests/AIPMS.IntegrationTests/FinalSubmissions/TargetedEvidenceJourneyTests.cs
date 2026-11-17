@@ -69,9 +69,9 @@ public sealed partial class FinalSubmissionEndpointTests
             new SubmitFinalSubmissionRequest(draft.ConcurrencyToken, requirements.ConcurrencyToken!)));
         var schemeDraft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
             new SaveEvaluationSchemeRequest(s.ProjectId, periodId, "Targeted evidence", 5,
-                [new("Common", "COMMON", null, rubricId, 50, 50, 1),
-                 new("Major", "MAJOR_SPECIFIC", major, rubricId, 50, 30, 1),
-                 new("Individual", "INDIVIDUAL", major, rubricId, 0, 20, 1)])));
+                [new("Common", "COMMON", null, rubricId, 50, 50, 1, Stage: "ON_GOING"),
+                 new("Major", "MAJOR_SPECIFIC", major, rubricId, 50, 30, 1, Stage: "ON_GOING"),
+                 new("Individual", "INDIVIDUAL", major, rubricId, 0, 20, 1, Stage: "ON_GOING")])));
         var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{schemeDraft.Id}/publish",
             new SchemeTokenRequest(schemeDraft.ConcurrencyToken)));
         var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/evaluation-assignments",

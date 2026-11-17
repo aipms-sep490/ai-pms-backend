@@ -10,6 +10,7 @@ namespace AIPMS.Api.Controllers;
 
 [ApiController]
 [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 [Route("api/v1/security/audit-logs")]
 public sealed class AuditLogsController(ISender sender) : ControllerBase
 {

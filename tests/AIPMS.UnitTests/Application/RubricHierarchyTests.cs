@@ -36,7 +36,7 @@ public sealed class RubricHierarchyTests
     [Fact]
     public void Dto_and_new_version_input_keep_all_descendants_and_sibling_order()
     {
-        var tree = Tree().AsEnumerable().Reverse().ToArray();
+        var tree = Enumerable.Reverse(Tree()).ToArray();
         var rubric = new RubricRecord(1, 1, 1, "R", "Rubric", null, "DRAFT", 1, 1,
             Guid.NewGuid().ToString(), false, DateTime.UtcNow, DateTime.UtcNow, tree);
         var dto = rubric.ToDto();

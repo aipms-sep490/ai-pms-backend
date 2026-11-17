@@ -79,6 +79,21 @@ public sealed class AccountSecurityHandlerTests
         Assert.Contains(result.Errors, static error => error.PropertyName == "Password");
     }
 
+    [Theory]
+    [InlineData(AppRoles.Admin)]
+    [InlineData(AppRoles.DepartmentStaff)]
+    [InlineData(AppRoles.Lecturer)]
+    [InlineData(AppRoles.Student)]
+    public void Account_creation_and_role_assignment_accept_only_global_roles(string code) =>
+        GlobalAccountRoleGuard.RequireAssignable(code);
+
+    [Theory]
+    [InlineData("EVALUATOR")]
+    [InlineData("SUPERVISOR")]
+    [InlineData("COMMITTEE_MEMBER")]
+    public void Account_creation_rejects_resource_roles(string code) =>
+        Assert.Throws<ConflictException>(() => GlobalAccountRoleGuard.RequireAssignable(code));
+
     private static AccountUser CreateAdmin(string status = "ACTIVE") =>
         new(
             1,

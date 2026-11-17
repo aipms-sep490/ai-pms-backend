@@ -49,8 +49,9 @@ public sealed class CreateUserAccountCommandHandler(
         var roleIds = request.RoleIds.Distinct().ToArray();
         foreach (var roleId in roleIds)
         {
-            _ = await roleRepository.GetRoleAsync(roleId, cancellationToken)
+            var role = await roleRepository.GetRoleAsync(roleId, cancellationToken)
                 ?? throw new NotFoundException("Role", roleId);
+            GlobalAccountRoleGuard.RequireAssignable(role.Code);
         }
 
         var utcNow = timeProvider.GetUtcNow().UtcDateTime;
@@ -142,8 +143,9 @@ public sealed class ImportUserAccountsCommandHandler(
             {
                 if (verifiedRoleIds.Add(roleId))
                 {
-                    _ = await roleRepository.GetRoleAsync(roleId, cancellationToken)
+                    var role = await roleRepository.GetRoleAsync(roleId, cancellationToken)
                         ?? throw new NotFoundException("Role", roleId);
+                    GlobalAccountRoleGuard.RequireAssignable(role.Code);
                 }
             }
         }
@@ -388,6 +390,15 @@ public sealed class SetUserStatusCommandHandler(
 
 public sealed record AssignUserRoleCommand(long UserId, long RoleId) : IRequest;
 
+internal static class GlobalAccountRoleGuard
+{
+    internal static void RequireAssignable(string code)
+    {
+        if (code is not (AppRoles.Admin or AppRoles.DepartmentStaff or AppRoles.Lecturer or AppRoles.Student))
+            throw new ConflictException("Resource roles must be assigned through their project or evaluation workflow.");
+    }
+}
+
 public sealed class AssignUserRoleCommandHandler(
     IUserAccountRepository userRepository,
     IRolePermissionRepository roleRepository,
@@ -405,8 +416,7 @@ public sealed class AssignUserRoleCommandHandler(
         var role = await roleRepository.GetRoleAsync(request.RoleId, cancellationToken)
             ?? throw new NotFoundException("Role", request.RoleId);
 
-        if (role.Code is not (AppRoles.Admin or AppRoles.DepartmentStaff or AppRoles.Lecturer or AppRoles.Student))
-            throw new ConflictException("Resource roles must be assigned through their project or evaluation workflow.");
+        GlobalAccountRoleGuard.RequireAssignable(role.Code);
 
         if (await userRepository.UserHasRoleAsync(
             request.UserId, role.Code, cancellationToken))

@@ -96,6 +96,7 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
         public Task<bool> IsValidAsync(
             long userId,
             DateTime? passwordChangedAtUtc,
+            IReadOnlyCollection<string> claimedRoles,
             CancellationToken cancellationToken = default) => Task.FromResult(true);
     }
 }

@@ -30,10 +30,41 @@ public sealed partial class ColdSubmissionEndpointTests
         return await Body<EvaluationDraftDto>(await evaluator.PutAsJsonAsync($"/api/v1/evaluations/{draft.Id}/draft",
             new SaveEvaluationDraftRequest(draft.ConcurrencyToken, "Synthetic COLD score", [new(s.Criteria[0], score, null), new(s.Criteria[1], score * 2, null)])));
     }
-    private static async Task<ColdChecklistDto> LockCold(HttpClient staff, long projectId)
+    private static async Task<ColdChecklistDto> LockCold(HttpClient leader, long projectId)
     {
-        var checklist = await Body<ColdChecklistDto>(await staff.GetAsync(ChecklistUrl(projectId)));
-        return await Body<ColdChecklistDto>(await staff.PostAsJsonAsync(LockUrl(projectId), new ColdTokenRequest(checklist.ConcurrencyToken)));
+        var checklist = await Body<ColdChecklistDto>(await leader.GetAsync(ChecklistUrl(projectId)));
+        return await Body<ColdChecklistDto>(await leader.PostAsJsonAsync(LockUrl(projectId), new ColdTokenRequest(checklist.ConcurrencyToken)));
+    }
+
+    [Fact]
+    public async Task Only_the_effective_committee_member_can_receive_and_keep_a_cold_assignment()
+    {
+        using var app = new ColdFactory(database);
+        var (s, checklist, template) = await Prepare(app, finalPackage: true);
+        using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
+        using var leader = app.CreateAuthenticatedClient(s.Scope.Users.Student);
+        using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
+        await SubmitReport(leader, checklist.Items.Single().Id);
+        await LockCold(leader, s.ProjectId);
+        var scheme = await ColdScheme(staff, s, template.MajorId!.Value);
+        var component = scheme.Components.Single(c => c.Stage == "COLD");
+        await using (var db = database.CreateContext())
+        {
+            var committee = await db.Set<DefenseCommittee>().Include(c => c.Members).SingleAsync(c => c.ProjectId == s.ProjectId);
+            db.Remove(committee.Members.Single(m => m.UserId == s.Scope.Users.NewLecturer));
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await AssignCold(staff, s, component, s.Scope.Users.NewLecturer)).StatusCode);
+        var assignment = await Body<EvaluationAssignmentDto>(await AssignCold(staff, s, component, s.Scope.Users.Lecturer));
+        Assert.Equal(HttpStatusCode.OK, (await evaluator.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence")).StatusCode);
+        await using (var db = database.CreateContext())
+        {
+            var committee = await db.Set<DefenseCommittee>().SingleAsync(c => c.ProjectId == s.ProjectId);
+            committee.Status = "SUPERSEDED";
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await evaluator.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await evaluator.PostAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evaluation", null)).StatusCode);
     }
 
     [Theory]
@@ -52,7 +83,7 @@ public sealed partial class ColdSubmissionEndpointTests
         var component = scheme.Components.Single(c => c.Stage == "COLD");
         Assert.Equal(HttpStatusCode.Conflict, (await AssignCold(staff, s, component, s.Scope.Users.Lecturer)).StatusCode);
         var submitted = await SubmitReport(student, checklist.Items.Single().Id);
-        var locked = await LockCold(staff, s.ProjectId);
+        var locked = await LockCold(student, s.ProjectId);
         await using (var db = database.CreateContext())
         {
             var primary = await db.SupervisorAssignments.Where(a => a.ProjectId == s.ProjectId && a.IsPrimary && a.EndedAt == null)
@@ -92,7 +123,7 @@ public sealed partial class ColdSubmissionEndpointTests
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
         using var second = app.CreateAuthenticatedClient(s.Scope.Users.NewLecturer);
-        await SubmitReport(student, checklist.Items.Single().Id); await LockCold(staff, s.ProjectId);
+        await SubmitReport(student, checklist.Items.Single().Id); await LockCold(student, s.ProjectId);
         var scheme = await ColdScheme(staff, s, template.MajorId!.Value, required: 2, mapped: mapped);
         var cold = scheme.Components.Single(c => c.Stage == "COLD");
         var progressUrl = $"/api/v1/projects/{s.ProjectId}/cold/progress";
@@ -112,6 +143,16 @@ public sealed partial class ColdSubmissionEndpointTests
         Assert.Equal(mapped, progress.Grading.Single().ContributesToResult);
         var defense = scheme.Components.Single(c => c.Stage == "DEFENSE");
         var d = await Body<EvaluationAssignmentDto>(await AssignCold(staff, s, defense, s.Scope.Users.Lecturer));
+        Assert.Equal(HttpStatusCode.Conflict, (await evaluator.PostAsync($"/api/v1/evaluation-assignments/{d.Id}/evaluation", null)).StatusCode);
+        await using (var scheduling = database.CreateContext())
+        {
+            var committeeId = await scheduling.Set<DefenseCommittee>().Where(c => c.ProjectId == s.ProjectId && c.Status == "CONFIRMED")
+                .Select(c => c.Id).SingleAsync();
+            scheduling.Set<DefenseSession>().Add(new() { ProjectId = s.ProjectId, CommitteeId = committeeId,
+                StartAt = Now.AddHours(1), EndAt = Now.AddHours(2), Room = "TEST-COLD-DEFENSE",
+                CreatedBy = s.Scope.Users.Staff, CreatedAt = Now });
+            await scheduling.SaveChangesAsync();
+        }
         var draft = await ScoreCold(evaluator, s, d.Id, 8);
         await Body<EvaluationDraftDto>(await evaluator.PostAsJsonAsync($"/api/v1/evaluations/{draft.Id}/finalize", new { draft.ConcurrencyToken }));
         var preview = await Body<ProjectResultPreviewDto>(await staff.GetAsync($"/api/v1/projects/{s.ProjectId}/result/preview"));
@@ -130,7 +171,7 @@ public sealed partial class ColdSubmissionEndpointTests
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
-        await SubmitReport(student, checklist.Items.Single().Id); await LockCold(staff, s.ProjectId);
+        await SubmitReport(student, checklist.Items.Single().Id); await LockCold(student, s.ProjectId);
         var scheme = await ColdScheme(staff, s, template.MajorId!.Value);
         var assignment = await Body<EvaluationAssignmentDto>(await AssignCold(staff, s, scheme.Components.Single(c => c.Stage == "COLD"), s.Scope.Users.Lecturer));
         var draft = await ScoreCold(evaluator, s, assignment.Id, 7);
@@ -156,7 +197,7 @@ public sealed partial class ColdSubmissionEndpointTests
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
-        var submitted = await SubmitReport(student, checklist.Items.Single().Id); await LockCold(staff, s.ProjectId);
+        var submitted = await SubmitReport(student, checklist.Items.Single().Id); await LockCold(student, s.ProjectId);
         var scheme = await ColdScheme(staff, s, template.MajorId!.Value);
         var assignment = await Body<EvaluationAssignmentDto>(await AssignCold(staff, s, scheme.Components.Single(c => c.Stage == "COLD"), s.Scope.Users.Lecturer));
         var draft = await ScoreCold(evaluator, s, assignment.Id, 8);

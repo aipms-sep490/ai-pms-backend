@@ -8,13 +8,23 @@ namespace AIPMS.Infrastructure.Identity;
 internal sealed class AccessTokenAccountValidator(AipmsDbContext context)
     : IAccessTokenAccountValidator
 {
-    public Task<bool> IsValidAsync(
+    public async Task<bool> IsValidAsync(
         long userId,
         DateTime? passwordChangedAtUtc,
-        CancellationToken cancellationToken = default) =>
-        context.Users.AsNoTracking().AnyAsync(
-            user => user.Id == userId
+        IReadOnlyCollection<string> claimedRoles,
+        CancellationToken cancellationToken = default)
+    {
+        var account = await context.Users.AsNoTracking()
+            .Where(user => user.Id == userId
                 && user.Status == "ACTIVE"
-                && user.PasswordChangedAt == passwordChangedAtUtc,
-            cancellationToken);
+                && user.PasswordChangedAt == passwordChangedAtUtc)
+            .Select(user => new
+            {
+                Roles = user.UserRoleUsers.Select(assignment => assignment.Role.Code).ToArray()
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return account is not null && claimedRoles.All(role =>
+            account.Roles.Contains(role, StringComparer.Ordinal));
+    }
 }

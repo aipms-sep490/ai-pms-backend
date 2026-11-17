@@ -56,7 +56,7 @@ public sealed partial class PolicyEvaluationEndpointTests
         var input = Input(s, major) with {
             Policy = new(false, "APPROVED", "SYNTHETIC-V2-TEST-ONLY"),
             Components = [new("Weighted common", "COMMON", null, s.RubricId, 100, 100, 2,
-                [new(s.Scope.Users.Lecturer, 75), new(s.Scope.Users.NewLecturer, 25)])] };
+                [new(s.Scope.Users.Lecturer, 75), new(s.Scope.Users.NewLecturer, 25)], Stage: "ON_GOING")] };
         var draft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", input));
         var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{draft.Id}/publish", new SchemeTokenRequest(draft.ConcurrencyToken)));
         var component = scheme.Components.Single();

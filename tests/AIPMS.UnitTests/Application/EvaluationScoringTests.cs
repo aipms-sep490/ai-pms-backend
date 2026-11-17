@@ -48,7 +48,7 @@ public sealed class EvaluationScoringTests
     {
         var scores = new[] { Score(1, 50, 100, 80.01m), Score(2, 50, 100, 80.09m) };
         Assert.Equal(8.01m, EvaluationScoring.Preview(scores, 10).Total);
-        Assert.Equal(8.01m, EvaluationScoring.Preview(scores.AsEnumerable().Reverse().ToArray(), 10).Total);
+        Assert.Equal(8.01m, EvaluationScoring.Preview(Enumerable.Reverse(scores).ToArray(), 10).Total);
     }
 
     [Theory]

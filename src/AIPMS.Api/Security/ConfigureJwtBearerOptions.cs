@@ -67,10 +67,11 @@ internal sealed class ConfigureJwtBearerOptions(IOptions<JwtSettings> settings)
                     passwordVersionTicks == 0
                         ? null
                         : new DateTime(passwordVersionTicks, DateTimeKind.Utc),
+                    context.Principal!.FindAll(ClaimTypes.Role).Select(claim => claim.Value).ToArray(),
                     context.HttpContext.RequestAborted);
                 if (!isValid)
                 {
-                    context.Fail("The account is inactive or its credentials have changed.");
+                    context.Fail("The account is inactive, its credentials changed, or a token role was revoked.");
                 }
             }
         };

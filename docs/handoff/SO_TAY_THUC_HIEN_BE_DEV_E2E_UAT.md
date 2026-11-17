@@ -45,7 +45,7 @@
 - **Thư mục làm việc:** `F:\AI-PMS\ai-pms-backend-be16-20261107`
 - **Nhánh (Branch):** `feat/be-period-rooms-defense-workflow-20261107`
 - **HEAD Commit:** `17af0a7` (Đi trước `origin/develop` 18 commit).
-- **Trạng thái:** Sạch (Clean working tree). 
+- **Trạng thái:** Sạch (Clean working tree).
 - **Kiểm thử đã xác nhận:** Unit tests **1.298 / 1.298 passed (100%)** bao gồm các quy tắc kiểm tra hội đồng Gate 1-3 cố định và tính kế thừa Gate 4; integration trọng tâm trên SQL Server cô lập **19/19** (Academic Tracking) và **33/33** (Review Gate).
 
 ### 1.2. Frontend Repository
@@ -240,8 +240,8 @@ BEGIN
         CONSTRAINT FK_gate_script_room FOREIGN KEY(room_id) REFERENCES dbo.rooms(id),
         CONSTRAINT CK_gate_script_mode CHECK (mode IN ('ONLINE','OFFLINE')),
         CONSTRAINT CK_gate_script_mode_target CHECK (
-            (mode='ONLINE' AND live_kit_room_name IS NOT NULL AND room_id IS NULL) 
-            OR 
+            (mode='ONLINE' AND live_kit_room_name IS NOT NULL AND room_id IS NULL)
+            OR
             (mode='OFFLINE' AND room_id IS NOT NULL AND live_kit_room_name IS NULL)
         )
     );
@@ -332,9 +332,9 @@ COMMIT TRANSACTION;
 DEV hãy chạy câu lệnh SQL kiểm tra sau trong SSMS / DBeaver / sqlcmd để xác nhận 100% đối tượng đã tồn tại:
 
 ```sql
-SELECT 
-    'project_period_calendars' AS TableName, 
-    COUNT(*) AS ObjectExists 
+SELECT
+    'project_period_calendars' AS TableName,
+    COUNT(*) AS ObjectExists
 FROM sys.tables WHERE name = 'project_period_calendars'
 UNION ALL
 SELECT 'rooms', COUNT(*) FROM sys.tables WHERE name = 'rooms'
@@ -343,13 +343,13 @@ SELECT 'gate_session_scripts', COUNT(*) FROM sys.tables WHERE name = 'gate_sessi
 UNION ALL
 SELECT 'defense_schedule_change_requests', COUNT(*) FROM sys.tables WHERE name = 'defense_schedule_change_requests'
 UNION ALL
-SELECT 'defense_sessions.room_id', COUNT(*) FROM sys.columns 
+SELECT 'defense_sessions.room_id', COUNT(*) FROM sys.columns
 WHERE object_id = OBJECT_ID('dbo.defense_sessions') AND name = 'room_id'
 UNION ALL
-SELECT 'project_gate_instances.decision_source', COUNT(*) FROM sys.columns 
+SELECT 'project_gate_instances.decision_source', COUNT(*) FROM sys.columns
 WHERE object_id = OBJECT_ID('dbo.project_gate_instances') AND name = 'decision_source'
 UNION ALL
-SELECT 'gate_session_scripts.published_at', COUNT(*) FROM sys.columns 
+SELECT 'gate_session_scripts.published_at', COUNT(*) FROM sys.columns
 WHERE object_id = OBJECT_ID('dbo.gate_session_scripts') AND name = 'published_at';
 ```
 > **Yêu cầu:** Tất cả các dòng trả về đều phải có giá trị `ObjectExists = 1`.
@@ -370,7 +370,7 @@ WHERE object_id = OBJECT_ID('dbo.gate_session_scripts') AND name = 'published_at
 Fixture UAT hiện có 6 phòng mẫu thuộc các tầng 2, 3, 4 ở trạng thái `ACTIVE`, sức chứa $\ge 15$. Mã `ALPHA/BETA/GAMMA` chưa được xác nhận là mã phòng vật lý của trường:
 ```sql
 INSERT INTO dbo.rooms (code, building, floor, capacity, status)
-VALUES 
+VALUES
     (N'ALPHA_201', N'Alpha Building', 2, 35, 'ACTIVE'),
     (N'ALPHA_202', N'Alpha Building', 2, 40, 'ACTIVE'),
     (N'BETA_301',  N'Beta Building',  3, 30, 'ACTIVE'),

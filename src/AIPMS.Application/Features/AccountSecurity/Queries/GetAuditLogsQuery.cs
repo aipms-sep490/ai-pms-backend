@@ -1,4 +1,5 @@
 using AIPMS.Application.Common.Models;
+using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.AccountSecurity.Abstractions;
 using AIPMS.Application.Features.AccountSecurity.DTOs;
 using AIPMS.Application.Features.AccountSecurity.Services;
@@ -26,6 +27,8 @@ public sealed class GetAuditLogsQueryHandler(
         CancellationToken cancellationToken)
     {
         accessService.EnsureAdministrator();
+        if (!await repository.IsActiveAdministratorAsync(accessService.ActorUserId, cancellationToken))
+            throw new ForbiddenException("Administrator access is no longer active.");
         var result = await repository.GetAuditLogsAsync(
             request.ActorUserId,
             request.Action?.Trim(),

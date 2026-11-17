@@ -11,6 +11,7 @@ namespace AIPMS.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 [Route("api/v1/academic/semesters")]
 public sealed class SemestersController(ISender sender) : ControllerBase
 {

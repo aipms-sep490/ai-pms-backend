@@ -21,7 +21,7 @@ public sealed class EvaluationDraftDatabaseFixture : IAsyncLifetime
     public Task DisposeAsync() => rubricDatabase.DisposeAsync();
     public Task Migrate() => FinalSubmissions.FinalSubmissionTestMigration.Apply(ConnectionString);
 
-    public async Task<EvaluationScenario> Seed(bool lockedSubmission = true)
+    public async Task<EvaluationScenario> Seed(bool lockedSubmission = true, bool confirmedCommittee = false)
     {
         var s = await rubricDatabase.Seed();
         await using var db = CreateContext();
@@ -82,6 +82,24 @@ public sealed class EvaluationDraftDatabaseFixture : IAsyncLifetime
             UserId = student.Id, IsLeader = true });
         await db.SaveChangesAsync();
         await AcademicSnapshotFixture.AddAsync(db, project.Id, period.Id, s.Users.DepartmentId, student.Id, Now.AddDays(-1));
+        if (confirmedCommittee)
+        {
+            db.Set<DefenseCommittee>().Add(new()
+            {
+                ProjectId = project.Id,
+                Name = "Confirmed evaluation fixture committee",
+                Status = "CONFIRMED",
+                Version = 1,
+                CreatedBy = s.Users.Staff,
+                CreatedAt = Now.AddDays(-1),
+                Members =
+                [
+                    new() { UserId = s.Users.Lecturer, MajorId = project.ProjectMajors.Single().MajorId },
+                    new() { UserId = s.Users.NewLecturer, MajorId = project.ProjectMajors.Single().MajorId }
+                ]
+            });
+            await db.SaveChangesAsync();
+        }
         return new(s, project.Id, period.Id, rubric.Id, rubric.RubricCriteria.OrderBy(c => c.SortOrder).Select(c => c.Id).ToArray());
     }
 }

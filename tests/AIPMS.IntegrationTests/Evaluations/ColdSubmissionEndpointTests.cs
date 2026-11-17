@@ -34,6 +34,11 @@ public sealed partial class ColdSubmissionEndpointTests(EvaluationDraftDatabaseF
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
         await using var db = database.CreateContext();
         var major = await db.ProjectMajors.Where(m => m.ProjectId == s.ProjectId).Select(m => m.MajorId).SingleAsync();
+        db.Set<DefenseCommittee>().Add(new DefenseCommittee { ProjectId = s.ProjectId, Name = "Confirmed test committee",
+            Status = "CONFIRMED", CreatedBy = s.Scope.Users.Staff, CreatedAt = Now,
+            Members = [new() { UserId = s.Scope.Users.Lecturer, MajorId = major },
+                new() { UserId = s.Scope.Users.NewLecturer, MajorId = major }] });
+        await db.SaveChangesAsync();
         var template = await Body<ColdTemplateDto>(await staff.PostAsJsonAsync("/api/v1/cold-report-templates",
             new CreateColdTemplateRequest(major, s.PeriodId, "Configured major report", [new("REPORT", "Major report")])));
         var checklist = await Body<ColdChecklistDto>(await staff.PostAsJsonAsync(ChecklistUrl(s.ProjectId),
@@ -55,6 +60,30 @@ public sealed partial class ColdSubmissionEndpointTests(EvaluationDraftDatabaseF
         return await Body<ColdSubmissionDto>(await student.PostAsJsonAsync(SubmitUrl(draft.Id), new ColdTokenRequest(draft.ConcurrencyToken)));
     }
 
+    [Fact]
+    public async Task Common_checklist_is_shared_and_only_the_active_leader_submits_and_locks_it()
+    {
+        using var app = new ColdFactory(database);
+        var s = await database.Seed(false);
+        using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
+        using var leader = app.CreateAuthenticatedClient(s.Scope.Users.Student);
+        var template = await Body<ColdTemplateDto>(await staff.PostAsJsonAsync("/api/v1/cold-report-templates",
+            new CreateColdTemplateRequest(null, s.PeriodId, "Shared report", [new("COMMON", "Shared summary")], "COMMON")));
+        var checklist = await Body<ColdChecklistDto>(await staff.PostAsJsonAsync(ChecklistUrl(s.ProjectId),
+            new ApplyColdChecklistRequest(s.PeriodId, new(Now.AddHours(4)), [new(template.Id, "COMMON")])));
+        var item = Assert.Single(checklist.Items);
+        Assert.Equal("COMMON", item.Scope);
+        Assert.Null(item.MajorId);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PostAsJsonAsync(DraftUrl(item.Id), new SaveColdDraftRequest(0))).StatusCode);
+        Assert.False((await Body<ColdChecklistDto>(await leader.GetAsync(ChecklistUrl(s.ProjectId)))).CanLock);
+        await SubmitReport(leader, item.Id);
+        Assert.False((await Body<ColdChecklistDto>(await staff.GetAsync(ChecklistUrl(s.ProjectId)))).CanLock);
+        checklist = await Body<ColdChecklistDto>(await leader.GetAsync(ChecklistUrl(s.ProjectId)));
+        Assert.True(checklist.CanLock);
+        Assert.Equal("LOCKED", (await Body<ColdChecklistDto>(await leader.PostAsJsonAsync(LockUrl(s.ProjectId),
+            new ColdTokenRequest(checklist.ConcurrencyToken)))).Status);
+    }
+
     [Theory]
     [InlineData("MAJOR_SPECIFIC")]
     [InlineData("INDIVIDUAL")]
@@ -72,11 +101,12 @@ public sealed partial class ColdSubmissionEndpointTests(EvaluationDraftDatabaseF
         Assert.Equal("SUBMITTED", first.Status);
         var second = await SubmitReport(student, item.Id, first.Version);
         Assert.Equal(2, second.Version);
-        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await student.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken))).StatusCode);
-        checklist = await Body<ColdChecklistDto>(await staff.GetAsync(ChecklistUrl(s.ProjectId)));
+        checklist = await Body<ColdChecklistDto>(await student.GetAsync(ChecklistUrl(s.ProjectId)));
         Assert.True(checklist.CanLock);
-        checklist = await Body<ColdChecklistDto>(await staff.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken)));
+        checklist = await Body<ColdChecklistDto>(await student.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken)));
         Assert.Equal("LOCKED", checklist.Status);
         Assert.Equal(second.Id, checklist.Items.Single().Latest!.Id);
         Assert.Equal("LOCKED", checklist.Items.Single().Latest!.Status);
@@ -121,9 +151,9 @@ public sealed partial class ColdSubmissionEndpointTests(EvaluationDraftDatabaseF
         var submitted = await Task.WhenAll(student.PostAsJsonAsync(SubmitUrl(draft.Id), new ColdTokenRequest(draft.ConcurrencyToken)),
             student.PostAsJsonAsync(SubmitUrl(draft.Id), new ColdTokenRequest(draft.ConcurrencyToken)));
         Assert.Single(submitted, r => r.IsSuccessStatusCode); Assert.Single(submitted, r => r.StatusCode == HttpStatusCode.Conflict);
-        checklist = await Body<ColdChecklistDto>(await staff.GetAsync(ChecklistUrl(s.ProjectId)));
-        var locked = await Task.WhenAll(staff.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken)),
-            staff.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken)));
+        checklist = await Body<ColdChecklistDto>(await student.GetAsync(ChecklistUrl(s.ProjectId)));
+        var locked = await Task.WhenAll(student.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken)),
+            student.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken)));
         Assert.Single(locked, r => r.IsSuccessStatusCode); Assert.Single(locked, r => r.StatusCode == HttpStatusCode.Conflict);
     }
 
@@ -161,12 +191,12 @@ public sealed partial class ColdSubmissionEndpointTests(EvaluationDraftDatabaseF
         Assert.Equal(HttpStatusCode.Conflict, (await student.PostAsJsonAsync(SubmitUrl(draft.Id), new ColdTokenRequest(draft.ConcurrencyToken))).StatusCode);
         app.Clock.Now = Now;
         draft = await Body<ColdSubmissionDto>(await student.PostAsJsonAsync(SubmitUrl(draft.Id), new ColdTokenRequest(draft.ConcurrencyToken)));
-        checklist = await Body<ColdChecklistDto>(await staff.GetAsync(ChecklistUrl(s.ProjectId)));
+        checklist = await Body<ColdChecklistDto>(await student.GetAsync(ChecklistUrl(s.ProjectId)));
         app.FailAction = "COLD_PACKAGE_LOCKED";
-        Assert.Equal(HttpStatusCode.InternalServerError, (await staff.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken))).StatusCode);
+        Assert.Equal(HttpStatusCode.InternalServerError, (await student.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken))).StatusCode);
         app.FailAction = null;
         app.Storage.Objects.Clear();
-        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await student.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken))).StatusCode);
         await using var db = database.CreateContext();
         Assert.Equal("OPEN", (await db.Set<ColdPackage>().FindAsync(checklist.Id))!.Status);
         Assert.Equal("SUBMITTED", (await db.Set<ColdSubmission>().FindAsync(draft.Id))!.Status);
@@ -185,7 +215,7 @@ public sealed partial class ColdSubmissionEndpointTests(EvaluationDraftDatabaseF
         Assert.Equal(HttpStatusCode.Forbidden, (await outside.GetAsync(ChecklistUrl(s.ProjectId))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await outside.PostAsJsonAsync("/api/v1/cold-report-templates",
             new CreateColdTemplateRequest(template.MajorId, s.PeriodId, "Outsider", [new("REPORT", "No")]))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PostAsJsonAsync(LockUrl(s.ProjectId), new ColdTokenRequest(checklist.ConcurrencyToken))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await staff.GetAsync($"/api/v1/cold-report-templates?majorId={template.MajorId}&projectPeriodId={s.PeriodId}&pageSize=101")).StatusCode);
         await using (var db = database.CreateContext()) { (await db.Projects.FindAsync(s.ProjectId))!.Status = "ARCHIVED"; await db.SaveChangesAsync(); }
         Assert.Equal(HttpStatusCode.Conflict, (await student.PostAsJsonAsync(DraftUrl(checklist.Items.Single().Id), new SaveColdDraftRequest(0))).StatusCode);

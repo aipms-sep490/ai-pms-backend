@@ -30,9 +30,11 @@ internal sealed class PeriodCalendarService(AipmsDbContext db, ICurrentUser curr
             ?? throw new NotFoundException("ProjectPeriod", id);
         var user = await db.Users.AsNoTracking().Where(u => u.Id == Actor && u.Status == "ACTIVE")
             .Select(u => new { Org = u.Department == null ? (long?)null : u.Department.OrganizationId,
+                ActiveDepartment = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive,
                 Admin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"),
-                Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF" || r.Role.Code == "DEPARTMENT_HEAD") })
+                Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF") })
             .SingleOrDefaultAsync(ct) ?? throw new ForbiddenException();
+        if (!user.Admin && !user.ActiveDepartment) throw new ForbiddenException();
         if (write && !(user.Admin || user.Staff && user.Org == period.OrganizationId))
             throw new ForbiddenException("Academic period calendar management requires authorized staff.");
         if (!write && !user.Admin && user.Org != period.OrganizationId) throw new ForbiddenException();

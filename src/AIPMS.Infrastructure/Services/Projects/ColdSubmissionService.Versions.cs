@@ -23,7 +23,7 @@ internal sealed partial class ColdSubmissionService
         await evaluations.LockProjectAsync(projectId, ct);
         var (item, package) = await Item(itemId, ct);
         var access = await Scope(projectId, package, ct);
-        if (!access.Writes(item)) throw new ForbiddenException("Students can submit only for their frozen major or own individual target.");
+        if (!access.Writes(item)) throw new ForbiddenException("Only the project leader may submit COMMON reports; students may submit their frozen major or own individual reports.");
         await WriteWindow(package, access, ct);
         if (input.ExpectedLatestVersion < 0 || input.Note?.Length > 2000) throw Invalid("Invalid expected version or note longer than 2000 characters.");
         var latest = await db.Set<ColdSubmission>().Include(s => s.Files).Where(s => s.ChecklistItemId == item.Id).OrderByDescending(s => s.Version).FirstOrDefaultAsync(ct);
@@ -141,7 +141,7 @@ internal sealed partial class ColdSubmissionService
         await evaluations.LockProjectAsync(projectId, ct);
         var package = await Package(projectId, ct);
         var access = await Scope(projectId, package, ct);
-        if (!access.Lead) throw new ForbiddenException("Only the frozen lead department locks COLD evidence.");
+        if (!access.Leader) throw new ForbiddenException("Only the active project leader locks COLD evidence.");
         Token(package.ConcurrencyToken, token);
         var checklist = await ChecklistDto(package, access, ct);
         if (!checklist.CanLock) throw new ConflictException(string.Join(", ", checklist.Blockers));

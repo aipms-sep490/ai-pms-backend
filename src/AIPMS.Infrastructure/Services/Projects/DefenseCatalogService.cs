@@ -25,9 +25,11 @@ internal sealed class DefenseCatalogService(AipmsDbContext db, ICurrentUser curr
         var user = await db.Users.AsNoTracking().Where(u => u.Id == Actor && u.Status == "ACTIVE")
             .Select(u => new { u.DepartmentId,
                 OrganizationId = u.Department == null ? (long?)null : u.Department.OrganizationId,
+                ActiveDepartment = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive,
                 Admin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"),
-                Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF" || r.Role.Code == "DEPARTMENT_HEAD") })
+                Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF") })
             .SingleOrDefaultAsync(ct) ?? throw new ForbiddenException();
+        if (!user.Admin && !user.ActiveDepartment) throw new ForbiddenException();
         return (user.Admin, user.Staff, user.OrganizationId, user.DepartmentId);
     }
     private async Task Staff(CancellationToken ct)

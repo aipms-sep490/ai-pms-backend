@@ -1,14 +1,21 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using AIPMS.Application.Abstractions.Auditing;
+using AIPMS.Application.Abstractions.Storage;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.AcademicTracking;
+using AIPMS.Application.Features.Cold;
+using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.ReviewGates;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.IntegrationTests.Evaluations;
@@ -20,6 +27,48 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     { Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync()); return (await response.Content.ReadFromJsonAsync<T>())!; }
     private static string Project(long id) => $"/api/v1/projects/{id}";
     private static string Evidence(long id) => $"/api/v1/project-evidence/{id}";
+
+    [Fact]
+    public async Task Committee_requires_explicit_confirmation_and_rejects_stale_tokens()
+    {
+        using var app = new TrackingFactory(database);
+        var s = await database.Seed(true);
+        long major;
+        await using (var db = database.CreateContext())
+        {
+            major = await db.ProjectMajors.Where(m => m.ProjectId == s.ProjectId).Select(m => m.MajorId).SingleAsync();
+            var code = (await db.Majors.FindAsync(major))!.Code;
+            var profile = new M.SupervisorProfile { UserId = s.Scope.Users.NewLecturer, IsAvailable = true,
+                SupervisorExpertises = [new() { ExpertiseName = code }] };
+            db.SupervisorProfiles.Add(profile);
+            await db.SaveChangesAsync();
+        }
+        using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
+        var draft = await Body<CommitteeDto>(await staff.PostAsJsonAsync(Project(s.ProjectId) + "/defense-committees",
+            new CreateCommitteeRequest("Independent panel", [new(s.Scope.Users.NewLecturer, major)])));
+        Assert.Equal("DRAFT", draft.Status);
+        Assert.False(draft.GrantsEvaluatorAuthority);
+        var url = $"/api/v1/defense-committees/{draft.Id}/confirm";
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url, new ConfirmCommitteeRequest("stale"))).StatusCode);
+        var confirmed = await Body<CommitteeDto>(await staff.PostAsJsonAsync(url, new ConfirmCommitteeRequest(draft.ConcurrencyToken!)));
+        Assert.Equal("CONFIRMED", confirmed.Status);
+        Assert.True(confirmed.GrantsEvaluatorAuthority);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url, new ConfirmCommitteeRequest(draft.ConcurrencyToken!))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Staff_cannot_mark_review_gate_passed_without_two_reviewer_decisions()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        var gate = await AddGate(x.S);
+        var url = $"/api/v1/projects/{x.S.ProjectId}/review-gates/{gate.Code}/decision";
+        var response = await staff.PostAsJsonAsync(url,
+            new UpdateReviewGateDecisionRequest("PASSED", gate.ConcurrencyToken.ToString("N")));
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        await using var db = database.CreateContext();
+        Assert.Equal("IN_REVIEW", (await db.ProjectGateInstances.SingleAsync(g => g.Id == gate.Id)).Status);
+    }
 
     [Fact]
     public async Task Lead_staff_override_requires_reason_token_and_audits_previous_decision()
@@ -260,9 +309,32 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     }
 
     [Fact]
-    public async Task Auto_schedule_preview_is_read_only_and_apply_rechecks_revision_under_lock()
+    public async Task Inactive_staff_department_cannot_read_rooms_or_manage_period_schedules()
     {
         using var app = new TrackingFactory(database); var x = await Prepare();
+        using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        await using (var db = database.CreateContext())
+        {
+            var departmentId = await db.Users.Where(u => u.Id == x.S.Scope.Users.Staff)
+                .Select(u => u.DepartmentId).SingleAsync();
+            (await db.Departments.SingleAsync(d => d.Id == departmentId)).IsActive = false;
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync("/api/v1/rooms")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync($"/api/v1/project-periods/{x.S.PeriodId}/calendar")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync($"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync($"/api/v1/project-periods/{x.S.PeriodId}/review-gates/r3/schedule")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync($"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/change-requests")).StatusCode);
+        var request = new AutoSchedulePreviewRequest(new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 14), [1]);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PostAsJsonAsync(
+            $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/auto-schedule/preview", request)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Auto_schedule_preview_is_read_only_and_apply_rechecks_revision_under_lock()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare(finalPackage: true);
         await AddSchedulingGates(x.S);
         using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
         using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
@@ -273,10 +345,11 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             var room = new Room { Code = "AUTO-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
                 Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
             var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Auto committee",
-                CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
+                Status = "CONFIRMED", CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
                 Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
             db.AddRange(room, committee); await db.SaveChangesAsync(); roomId = room.Id;
         }
+        await CompleteCold(app, x.S, x.Major, x.S.Scope.Users.NewLecturer);
         var url = $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/auto-schedule";
         var request = new AutoSchedulePreviewRequest(new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 14), [roomId]);
         Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync(url + "/preview", request)).StatusCode);
@@ -311,7 +384,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     [Fact]
     public async Task Auto_schedule_avoids_room_and_reviewer_occupied_by_offline_gate()
     {
-        using var app = new TrackingFactory(database); var x = await Prepare();
+        using var app = new TrackingFactory(database); var x = await Prepare(finalPackage: true);
         var gate = await AddSchedulingGates(x.S);
         using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
         long roomId;
@@ -320,7 +393,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             var room = new Room { Code = "GATE-BOOK-" + Guid.NewGuid().ToString("N")[..8],
                 Building = "Test", Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
             var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Defense committee",
-                CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
+                Status = "CONFIRMED", CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
                 Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
             var slot = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1);
             db.AddRange(room, committee); await db.SaveChangesAsync(); roomId = room.Id;
@@ -331,6 +404,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
                 ScheduledEndAt = slot.End, CreatedAt = slot.Start, UpdatedAt = slot.Start });
             await db.SaveChangesAsync();
         }
+        await CompleteCold(app, x.S, x.Major, x.S.Scope.Users.NewLecturer);
         var url = $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/auto-schedule/preview";
         var preview = await Body<AutoSchedulePreviewDto>(await admin.PostAsJsonAsync(url,
             new AutoSchedulePreviewRequest(new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 14), [roomId])));
@@ -343,7 +417,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     [Fact]
     public async Task Auto_schedule_requires_passed_R3_and_a_configured_R4_window()
     {
-        using var app = new TrackingFactory(database); var x = await Prepare();
+        using var app = new TrackingFactory(database); var x = await Prepare(finalPackage: true);
         await AddSchedulingGates(x.S, "REVISION_REQUIRED");
         using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
         long roomId;
@@ -352,10 +426,11 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             var room = new Room { Code = "ELIG-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
                 Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
             var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Defense",
-                CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
+                Status = "CONFIRMED", CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
                 Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
             db.AddRange(room, committee); await db.SaveChangesAsync(); roomId = room.Id;
         }
+        await CompleteCold(app, x.S, x.Major, x.S.Scope.Users.NewLecturer);
         var url = $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/auto-schedule/preview";
         var input = new AutoSchedulePreviewRequest(new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 14), [roomId]);
         var blocked = await Body<AutoSchedulePreviewDto>(await admin.PostAsJsonAsync(url, input));
@@ -372,6 +447,18 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         var limited = await Body<AutoSchedulePreviewDto>(await admin.PostAsJsonAsync(url, input));
         Assert.Single(limited.Allocations);
         Assert.Equal(1, limited.Allocations.Single().SlotNumber);
+        await using (var db = database.CreateContext())
+        {
+            var committee = await db.Set<DefenseCommittee>().SingleAsync(c => c.ProjectId == x.S.ProjectId && c.Status == "CONFIRMED");
+            committee.Status = "SUPERSEDED";
+            committee.ConcurrencyToken = Guid.NewGuid();
+            await db.SaveChangesAsync();
+        }
+        var staleApply = await admin.PostAsJsonAsync(url.Replace("/preview", "/apply"),
+            new AutoScheduleApplyRequest(limited.Allocations, limited.ConcurrencyToken));
+        Assert.Equal(HttpStatusCode.Conflict, staleApply.StatusCode);
+        await using (var verify = database.CreateContext())
+            Assert.False(await verify.Set<DefenseSession>().AnyAsync(s => s.ProjectId == x.S.ProjectId && s.Status == "SCHEDULED"));
     }
 
     [Fact]
@@ -473,23 +560,25 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
         using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
         var slot = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1);
-        long sessionId, desiredRoomId, committeeId; string committeeToken;
+        long sessionId, desiredRoomId, smallRoomId, committeeId; string committeeToken;
         await using (var db = database.CreateContext())
         {
             var currentRoom = new Room { Code = "CUR-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
                 Floor = 1, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
             var desiredRoom = new Room { Code = "NEW-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
                 Floor = 1, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
+            var smallRoom = new Room { Code = "SMALL-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
+                Floor = 1, Capacity = 1, CreatedAt = Now, UpdatedAt = Now };
             var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Chair committee",
                 CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
                 Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
-            db.AddRange(currentRoom, desiredRoom, committee); await db.SaveChangesAsync();
+            db.AddRange(currentRoom, desiredRoom, smallRoom, committee); await db.SaveChangesAsync();
             committeeId = committee.Id; committeeToken = committee.ConcurrencyToken.ToString("N");
             var session = new DefenseSession { ProjectId = x.S.ProjectId, CommitteeId = committee.Id,
                 RoomId = currentRoom.Id, Room = currentRoom.Code, StartAt = slot.Start.UtcDateTime,
                 EndAt = slot.End.UtcDateTime, CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now };
             db.Add(session); await db.SaveChangesAsync();
-            sessionId = session.Id; desiredRoomId = desiredRoom.Id;
+            sessionId = session.Id; desiredRoomId = desiredRoom.Id; smallRoomId = smallRoom.Id;
         }
         var assigned = await Body<CommitteeDto>(await staff.PutAsJsonAsync(
             $"/api/v1/defense-committees/{committeeId}/roles",
@@ -499,8 +588,15 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         var request = new CreateDefenseChangeRequest(desiredRoomId, slot.Start, slot.End,
             "ROOM_FACILITY_ISSUE", "The projector is unavailable in the original room.", null);
         Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync(url, request)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.GetAsync(url)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync(url)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.GetAsync($"/api/v1/defense-sessions/{sessionId}/change-rooms")).StatusCode);
         var pending = await Body<DefenseChangeRequestDto>(await chair.PostAsJsonAsync(url, request));
         Assert.Equal("PENDING", pending.Status);
+        Assert.Equal(pending.Id, Assert.Single(await Body<DefenseChangeRequestDto[]>(await chair.GetAsync(url))).Id);
+        var changeRooms = await Body<RoomDto[]>(await chair.GetAsync($"/api/v1/defense-sessions/{sessionId}/change-rooms"));
+        Assert.Contains(changeRooms, room => room.Id == desiredRoomId);
+        Assert.DoesNotContain(changeRooms, room => room.Id == smallRoomId);
         Assert.Equal(HttpStatusCode.Conflict, (await chair.PostAsJsonAsync(url, request)).StatusCode);
         var decisionUrl = $"/api/v1/defense-sessions/change-requests/{pending.Id}/decision";
         var decision = new DecideDefenseChangeRequest("APPROVED", "Approved by lead staff", pending.ConcurrencyToken);
@@ -517,6 +613,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             $"/api/v1/defense-sessions/change-requests/{second.Id}/withdraw",
             new WithdrawDefenseChangeRequest(second.ConcurrencyToken)));
         Assert.Equal("WITHDRAWN", withdrawn.Status);
+        Assert.Equal("WITHDRAWN", (await Body<DefenseChangeRequestDto[]>(await chair.GetAsync(url)))[0].Status);
         var adminList = await Body<DefenseChangeRequestDto[]>(await admin.GetAsync(
             $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/change-requests?status=WITHDRAWN"));
         Assert.Contains(adminList, r => r.Id == withdrawn.Id);
@@ -535,9 +632,9 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             && n.RelatedEntityId == sessionId));
         Assert.True(await verify.AuditLogs.AnyAsync(a => a.Action == "DEFENSE_CHANGE_APPROVED" && a.EntityId == pending.Id.ToString()));
     }
-    private async Task<(EvaluationScenario S, long Primary, long Major, long Evidence, long Task)> Prepare()
+    private async Task<(EvaluationScenario S, long Primary, long Major, long Evidence, long Task)> Prepare(bool finalPackage = false)
     {
-        var s = await database.Seed(false); await using var db = database.CreateContext();
+        var s = await database.Seed(finalPackage); await using var db = database.CreateContext();
         var assignment = await db.SupervisorAssignments.Include(a => a.SupervisorProfile).SingleAsync(a => a.ProjectId == s.ProjectId);
         var major = await db.ProjectMajors.Where(m => m.ProjectId == s.ProjectId).Select(m => m.MajorId).SingleAsync();
         var task = new M.Task { Title = "Synthetic task", Status = "TODO", CreatedBy = s.Scope.Users.Student,
@@ -549,8 +646,112 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         db.ProjectEvidence.Add(evidence); await db.SaveChangesAsync();
         return (s, assignment.SupervisorProfile.UserId, major, evidence.Id, task.Id);
     }
+
+    private async Task CompleteCold(TrackingFactory app, EvaluationScenario scenario, long majorId, long evaluatorId)
+    {
+        using var staff = app.CreateAuthenticatedClient(scenario.Scope.Users.Staff);
+        using var leader = app.CreateAuthenticatedClient(scenario.Scope.Users.Student);
+        using var evaluator = app.CreateAuthenticatedClient(evaluatorId);
+        var template = await Body<ColdTemplateDto>(await staff.PostAsJsonAsync("/api/v1/cold-report-templates",
+            new CreateColdTemplateRequest(majorId, scenario.PeriodId, "Schedule readiness report", [new("REPORT", "Final report")])));
+        var checklist = await Body<ColdChecklistDto>(await staff.PostAsJsonAsync(Project(scenario.ProjectId) + "/cold/checklist",
+            new ApplyColdChecklistRequest(scenario.PeriodId, new(Now.AddHours(4)), [new(template.Id, "MAJOR_SPECIFIC")])));
+        var item = Assert.Single(checklist.Items);
+        var draft = await Body<ColdSubmissionDto>(await leader.PostAsJsonAsync($"/api/v1/cold-checklist-items/{item.Id}/draft",
+            new SaveColdDraftRequest(0, "Synthetic schedule evidence")));
+        using (var form = new MultipartFormDataContent())
+        {
+            var payload = new ByteArrayContent(Encoding.UTF8.GetBytes("%PDF-1.7\nSynthetic schedule evidence"));
+            payload.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+            form.Add(payload, "file", "schedule.pdf");
+            form.Add(new StringContent(draft.ConcurrencyToken), "concurrencyToken");
+            draft = await Body<ColdSubmissionDto>(await leader.PostAsync($"/api/v1/cold-submissions/{draft.Id}/files", form));
+        }
+        await Body<ColdSubmissionDto>(await leader.PostAsJsonAsync($"/api/v1/cold-submissions/{draft.Id}/submit",
+            new ColdTokenRequest(draft.ConcurrencyToken)));
+        checklist = await Body<ColdChecklistDto>(await leader.GetAsync(Project(scenario.ProjectId) + "/cold/checklist"));
+        await Body<ColdChecklistDto>(await leader.PostAsJsonAsync(Project(scenario.ProjectId) + "/cold/lock",
+            new ColdTokenRequest(checklist.ConcurrencyToken)));
+        var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes",
+            new SaveEvaluationSchemeRequest(scenario.ProjectId, scenario.PeriodId, "Schedule readiness scheme", 5,
+                [new("Defense", "COMMON", null, scenario.RubricId, 100, 100, 1),
+                 new("Cold", "MAJOR_SPECIFIC", majorId, scenario.RubricId, 0, 0, 1, Stage: "COLD")])));
+        scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{scheme.Id}/publish",
+            new SchemeTokenRequest(scheme.ConcurrencyToken)));
+        var component = scheme.Components.Single(c => c.Stage == "COLD");
+        var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync(Project(scenario.ProjectId) + "/evaluation-assignments",
+            new AssignEvaluatorRequest(evaluatorId, scenario.PeriodId, "COMMITTEE", "MAJOR_SPECIFIC", majorId, null, component.Id)));
+        var evaluation = await Body<EvaluationDraftDto>(await evaluator.PostAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evaluation", null));
+        evaluation = await Body<EvaluationDraftDto>(await evaluator.PutAsJsonAsync($"/api/v1/evaluations/{evaluation.Id}/draft",
+            new SaveEvaluationDraftRequest(evaluation.ConcurrencyToken, "Cold complete",
+                [new(scenario.Criteria[0], 8, null), new(scenario.Criteria[1], 16, null)])));
+        await Body<EvaluationDraftDto>(await evaluator.PostAsJsonAsync($"/api/v1/evaluations/{evaluation.Id}/finalize",
+            new { evaluation.ConcurrencyToken }));
+        Assert.True((await Body<ColdProgressDto>(await staff.GetAsync(Project(scenario.ProjectId) + "/cold/progress"))).Ready);
+    }
     private static ReviewEvidenceRequest Review(EvidenceReviewTarget target, string decision = "ACCEPTED") => new(target.SourceVersionId,
         target.SourceVersion, target.LatestReviewId, decision, "Synthetic reason");
+
+    [Fact]
+    public async Task Gate_one_to_three_assignments_keep_one_fixed_pair_and_exclude_the_project_supervisor()
+    {
+        using var app = new TrackingFactory(database);
+        var project = await Prepare(); var second = await Prepare(); var third = await Prepare();
+        var r3 = await AddSchedulingGates(project.S, "PLANNED");
+        await using (var db = database.CreateContext())
+        {
+            db.ProjectGateInstances.AddRange(
+                new ProjectGateInstance { ProjectId = project.S.ProjectId, TemplateId = r3.TemplateId,
+                    TemplateVersion = 1, Code = "R1", Sequence = 1, Title = "Review 1", Status = "PLANNED",
+                    ReviewEligibility = "READY", CreatedAt = Now },
+                new ProjectGateInstance { ProjectId = project.S.ProjectId, TemplateId = r3.TemplateId,
+                    TemplateVersion = 1, Code = "R2", Sequence = 2, Title = "Review 2", Status = "PLANNED",
+                    ReviewEligibility = "READY", CreatedAt = Now });
+            await db.SaveChangesAsync();
+        }
+        using var staff = app.CreateAuthenticatedClient(project.S.Scope.Users.Staff);
+        var url = "/api/v1/review-gates/assignments";
+        CreateReviewGateAssignmentRequest Request(string gate, long reviewer) =>
+            new(project.S.ProjectId.ToString(), gate, reviewer, "COMMON", null, null, null);
+        await Body<AssignedReviewItemDto>(await staff.PostAsJsonAsync(url, Request("R1", project.S.Scope.Users.NewLecturer)));
+        await Body<AssignedReviewItemDto>(await staff.PostAsJsonAsync(url, Request("R1", second.S.Scope.Users.NewLecturer)));
+        await Body<AssignedReviewItemDto>(await staff.PostAsJsonAsync(url, Request("R2", project.S.Scope.Users.NewLecturer)));
+        await Body<AssignedReviewItemDto>(await staff.PostAsJsonAsync(url, Request("R3", second.S.Scope.Users.NewLecturer)));
+        var different = await staff.PostAsJsonAsync(url, Request("R3", third.S.Scope.Users.NewLecturer));
+        Assert.Equal(HttpStatusCode.Conflict, different.StatusCode);
+        Assert.Contains("GATE_FIXED_PANEL_CONFLICT", await different.Content.ReadAsStringAsync());
+        var supervisor = await staff.PostAsJsonAsync(url, Request("R2", project.Primary));
+        Assert.Equal(HttpStatusCode.Conflict, supervisor.StatusCode);
+        Assert.Contains("REVIEWER_CONFLICT", await supervisor.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Defense_candidates_show_supervisor_as_locked_and_committee_write_rechecks_it()
+    {
+        using var app = new TrackingFactory(database); var x = await Prepare();
+        await using (var db = database.CreateContext())
+        {
+            var code = (await db.Majors.FindAsync(x.Major))!.Code;
+            var primary = await db.SupervisorProfiles.SingleAsync(p => p.UserId == x.Primary);
+            primary.IsAvailable = true;
+            primary.SupervisorExpertises.Add(new() { ExpertiseName = code });
+            var independent = new M.SupervisorProfile { UserId = x.S.Scope.Users.NewLecturer, IsAvailable = true };
+            independent.SupervisorExpertises.Add(new() { ExpertiseName = code });
+            db.Add(independent); await db.SaveChangesAsync();
+        }
+        using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
+        using var outsider = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
+        var path = Project(x.S.ProjectId) + "/defense-committee-candidates?page=1&pageSize=100";
+        Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(path)).StatusCode);
+        var candidates = await Body<PagedResult<DefenseCommitteeCandidateDto>>(await staff.GetAsync(path));
+        var blocked = Assert.Single(candidates.Items, c => c.UserId == x.Primary && c.MajorId == x.Major);
+        Assert.False(blocked.CanAssign); Assert.Equal("SUPERVISOR_CONFLICT", blocked.BlockReason);
+        Assert.True(Assert.Single(candidates.Items, c => c.UserId == x.S.Scope.Users.NewLecturer && c.MajorId == x.Major).CanAssign);
+        var response = await staff.PostAsJsonAsync(Project(x.S.ProjectId) + "/defense-committees",
+            new CreateCommitteeRequest("Invalid panel", [new(x.Primary, x.Major)]));
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("DEFENSE_SUPERVISOR_CONFLICT", await response.Content.ReadAsStringAsync());
+    }
 
     [Fact]
     public async Task Exact_source_review_is_append_only_stale_safe_and_checkpoint_never_changes_project_state()
@@ -631,7 +832,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     [Fact]
     public async Task Lead_schedules_qualified_committee_concurrent_room_booking_and_explicit_cancellation()
     {
-        using var app = new TrackingFactory(database); var a = await Prepare(); var b = await Prepare();
+        using var app = new TrackingFactory(database); var a = await Prepare(finalPackage: true); var b = await Prepare(finalPackage: true);
         await AddSchedulingGates(a.S); await AddSchedulingGates(b.S);
         using var staffA = app.CreateAuthenticatedClient(a.S.Scope.Users.Staff); using var staffB = app.CreateAuthenticatedClient(b.S.Scope.Users.Staff);
         using var admin = app.CreateAuthenticatedClient(a.S.Scope.Users.Admin);
@@ -643,13 +844,28 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             {
                 var profile = await db.SupervisorProfiles.SingleAsync(p => p.UserId == item.Primary); profile.IsAvailable = true;
                 profile.SupervisorExpertises.Add(new() { ExpertiseName = (await db.Majors.FindAsync(item.Major))!.Code });
+                var evaluator = await db.SupervisorProfiles.SingleOrDefaultAsync(p => p.UserId == item.S.Scope.Users.NewLecturer);
+                if (evaluator is null) { evaluator = new M.SupervisorProfile { UserId = item.S.Scope.Users.NewLecturer, IsAvailable = true }; db.Add(evaluator); }
+                evaluator.IsAvailable = true;
+                evaluator.SupervisorExpertises.Add(new() { ExpertiseName = (await db.Majors.FindAsync(item.Major))!.Code });
             }
             await db.SaveChangesAsync();
         }
         Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", inputA)).StatusCode);
-        var ca = await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", inputA));
-        var cb = await Body<CommitteeDto>(await staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("Other", [new(b.Primary, b.Major)])));
+        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", inputA)).StatusCode);
+        var ca = await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees",
+            new CreateCommitteeRequest("Independent committee", [new(a.S.Scope.Users.NewLecturer, a.Major)])));
+        var cb = await Body<CommitteeDto>(await staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-committees",
+            new CreateCommitteeRequest("Other", [new(b.S.Scope.Users.NewLecturer, b.Major)])));
         Assert.False(ca.GrantsEvaluatorAuthority);
+        ca = await Body<CommitteeDto>(await staffA.PostAsJsonAsync($"/api/v1/defense-committees/{ca.Id}/confirm", new ConfirmCommitteeRequest(ca.ConcurrencyToken!)));
+        cb = await Body<CommitteeDto>(await staffB.PostAsJsonAsync($"/api/v1/defense-committees/{cb.Id}/confirm", new ConfirmCommitteeRequest(cb.ConcurrencyToken!)));
+        var beforeCold = await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-sessions",
+            new ScheduleDefenseRequest(ca.Id, new(Now.AddHours(1)), new(Now.AddHours(2)), "COLD-BLOCKED-" + Guid.NewGuid().ToString("N")));
+        Assert.Equal(HttpStatusCode.Conflict, beforeCold.StatusCode);
+        Assert.Contains("COLD_NOT_READY", await beforeCold.Content.ReadAsStringAsync());
+        await CompleteCold(app, a.S, a.Major, a.S.Scope.Users.NewLecturer);
+        await CompleteCold(app, b.S, b.Major, b.S.Scope.Users.NewLecturer);
         var room = "E2E-" + Guid.NewGuid().ToString("N");
         var scheduleA = new ScheduleDefenseRequest(ca.Id, new(Now.AddHours(1)), new(Now.AddHours(2)), room);
         await using (var db = database.CreateContext())
@@ -679,7 +895,9 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         Assert.Equal("CANCELLED", session.Status);
         Assert.Equal(HttpStatusCode.Conflict, (await owner.PostAsJsonAsync($"/api/v1/defense-sessions/{session.Id}/cancel", cancel)).StatusCode);
         await using var verify = database.CreateContext();
-        Assert.Empty(await verify.Set<EvaluationAssignment>().Where(e => e.ProjectId == a.S.ProjectId || e.ProjectId == b.S.ProjectId).ToArrayAsync());
+        var retainedCold = await verify.Set<EvaluationAssignment>().Where(e => e.ProjectId == a.S.ProjectId || e.ProjectId == b.S.ProjectId).ToArrayAsync();
+        Assert.Equal(2, retainedCold.Length);
+        Assert.All(retainedCold, assignment => Assert.Equal("COLD", assignment.Stage));
         Assert.Equal("FINAL_SUBMISSION", (await verify.Projects.FindAsync(a.S.ProjectId))!.Status);
         var notifications = await verify.Notifications.Where(n => n.RelatedEntityType == "DEFENSE_SESSION" && n.RelatedEntityId == session.Id).ToArrayAsync();
         Assert.Equal(2, notifications.Length);
@@ -746,7 +964,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     [Fact]
     public async Task Committee_member_can_read_only_schedule_and_qualification_is_rechecked()
     {
-        using var app = new TrackingFactory(database); var a = await Prepare(); var b = await Prepare();
+        using var app = new TrackingFactory(database); var a = await Prepare(finalPackage: true); var b = await Prepare();
         await AddSchedulingGates(a.S); await AddSchedulingGates(b.S);
         using var staffA = app.CreateAuthenticatedClient(a.S.Scope.Users.Staff); using var staffB = app.CreateAuthenticatedClient(b.S.Scope.Users.Staff);
         await using (var db = database.CreateContext())
@@ -758,6 +976,8 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         }
         var committee = await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees",
             new CreateCommitteeRequest("Independent lecturer committee", [new(a.S.Scope.Users.NewLecturer, a.Major)])));
+        await Body<CommitteeDto>(await staffA.PostAsJsonAsync($"/api/v1/defense-committees/{committee.Id}/confirm", new ConfirmCommitteeRequest(committee.ConcurrencyToken!)));
+        await CompleteCold(app, a.S, a.Major, a.S.Scope.Users.NewLecturer);
         using var lecturer = app.CreateAuthenticatedClient(a.S.Scope.Users.NewLecturer);
         var input = new ScheduleDefenseRequest(committee.Id, new(Now.AddHours(3)), new(Now.AddHours(4)), "MEMBER-" + Guid.NewGuid().ToString("N"));
         var session = await Body<DefenseSessionDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-sessions", input));
@@ -774,7 +994,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     [Fact]
     public async Task Lecturer_conflict_cross_project_and_interdisciplinary_coverage_fail_closed()
     {
-        using var app = new TrackingFactory(database); var a = await Prepare(); var b = await Prepare(); long additionalMajor;
+        using var app = new TrackingFactory(database); var a = await Prepare(finalPackage: true); var b = await Prepare(finalPackage: true); long additionalMajor;
         await AddSchedulingGates(a.S); await AddSchedulingGates(b.S);
         await using (var db = database.CreateContext())
         {
@@ -783,19 +1003,27 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             (await db.AcademicSemesters.FindAsync(b.S.Scope.SemesterId))!.OrganizationId = semesterA.OrganizationId;
             (await db.Majors.FindAsync(b.Major))!.DepartmentId = a.S.Scope.Users.DepartmentId;
             (await db.Users.FindAsync(b.S.Scope.Users.Staff))!.DepartmentId = a.S.Scope.Users.DepartmentId;
+            (await db.Users.FindAsync(b.S.Scope.Users.Student))!.DepartmentId = a.S.Scope.Users.DepartmentId;
+            (await db.Rubrics.FindAsync(b.S.RubricId))!.DepartmentId = a.S.Scope.Users.DepartmentId;
             var snapshotB = await db.Set<ProjectRegistrationSnapshot>().SingleAsync(s => s.ProjectId == b.S.ProjectId);
             var registrationB = JsonSerializer.Deserialize<AIPMS.Application.Features.Projects.DTOs.RegistrationEvidence>(snapshotB.SnapshotJson)!;
             snapshotB.SnapshotJson = JsonSerializer.Serialize(registrationB with { OrganizationId = semesterA.OrganizationId,
                 Scope = registrationB.Scope with { LeadDepartmentId = a.S.Scope.Users.DepartmentId }, DepartmentIds = [a.S.Scope.Users.DepartmentId],
                 MajorDepartmentIds = new Dictionary<long, long> { [b.Major] = a.S.Scope.Users.DepartmentId } });
-            var profile = await db.SupervisorProfiles.SingleAsync(p => p.UserId == a.Primary); profile.IsAvailable = true;
+            (await db.Users.FindAsync(a.S.Scope.Users.NewLecturer))!.DepartmentId = a.S.Scope.Users.DepartmentId;
+            var profile = new M.SupervisorProfile { UserId = a.S.Scope.Users.NewLecturer, IsAvailable = true };
+            db.Add(profile);
             foreach (var majorId in new[] { a.Major, b.Major }) profile.SupervisorExpertises.Add(new() { ExpertiseName = (await db.Majors.FindAsync(majorId))!.Code });
             var extra = new M.Major { Code = Guid.NewGuid().ToString("N"), Name = "Design", DepartmentId = a.S.Scope.Users.DepartmentId, IsActive = true };
             db.Add(extra); await db.SaveChangesAsync(); additionalMajor = extra.Id;
         }
         using var staffA = app.CreateAuthenticatedClient(a.S.Scope.Users.Staff); using var staffB = app.CreateAuthenticatedClient(b.S.Scope.Users.Staff);
-        var committeeA = await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("A", [new(a.Primary, a.Major)])));
-        var committeeB = await Body<CommitteeDto>(await staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("B", [new(a.Primary, b.Major)])));
+        var committeeA = await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("A", [new(a.S.Scope.Users.NewLecturer, a.Major)])));
+        var committeeB = await Body<CommitteeDto>(await staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("B", [new(a.S.Scope.Users.NewLecturer, b.Major)])));
+        await Body<CommitteeDto>(await staffA.PostAsJsonAsync($"/api/v1/defense-committees/{committeeA.Id}/confirm", new ConfirmCommitteeRequest(committeeA.ConcurrencyToken!)));
+        await Body<CommitteeDto>(await staffB.PostAsJsonAsync($"/api/v1/defense-committees/{committeeB.Id}/confirm", new ConfirmCommitteeRequest(committeeB.ConcurrencyToken!)));
+        await CompleteCold(app, a.S, a.Major, a.S.Scope.Users.NewLecturer);
+        await CompleteCold(app, b.S, b.Major, a.S.Scope.Users.NewLecturer);
         var inputA = new ScheduleDefenseRequest(committeeA.Id, new(Now.AddHours(5)), new(Now.AddHours(6)), "A-" + Guid.NewGuid().ToString("N"));
         var inputB = inputA with { CommitteeId = committeeB.Id, Room = "B-" + Guid.NewGuid().ToString("N") };
         var responses = await Task.WhenAll(staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-sessions", inputA), staffB.PostAsJsonAsync(Project(b.S.ProjectId) + "/defense-sessions", inputB));
@@ -814,11 +1042,11 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
                 MajorDepartmentIds = new Dictionary<long, long> { [a.Major] = a.S.Scope.Users.DepartmentId, [additionalMajor] = a.S.Scope.Users.DepartmentId } });
             await db.SaveChangesAsync();
         }
-        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("Missing Design", [new(a.Primary, a.Major)]))).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("No Design expertise", [new(a.Primary, a.Major), new(a.Primary, additionalMajor)]))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("Missing Design", [new(a.S.Scope.Users.NewLecturer, a.Major)]))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("No Design expertise", [new(a.S.Scope.Users.NewLecturer, a.Major), new(a.S.Scope.Users.NewLecturer, additionalMajor)]))).StatusCode);
         await using (var db = database.CreateContext())
-        { (await db.SupervisorProfiles.SingleAsync(p => p.UserId == a.Primary)).SupervisorExpertises.Add(new() { ExpertiseName = (await db.Majors.FindAsync(additionalMajor))!.Code }); await db.SaveChangesAsync(); }
-        Assert.Equal(2, (await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("Covered", [new(a.Primary, a.Major), new(a.Primary, additionalMajor)])))).Members.Count);
+        { (await db.SupervisorProfiles.SingleAsync(p => p.UserId == a.S.Scope.Users.NewLecturer)).SupervisorExpertises.Add(new() { ExpertiseName = (await db.Majors.FindAsync(additionalMajor))!.Code }); await db.SaveChangesAsync(); }
+        Assert.Equal(2, (await Body<CommitteeDto>(await staffA.PostAsJsonAsync(Project(a.S.ProjectId) + "/defense-committees", new CreateCommitteeRequest("Covered", [new(a.S.Scope.Users.NewLecturer, a.Major), new(a.S.Scope.Users.NewLecturer, additionalMajor)])))).Members.Count);
     }
 
     [Fact]
@@ -839,14 +1067,28 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
     private sealed class TrackingFactory(EvaluationDraftDatabaseFixture database) : EvaluationFactory(database)
     {
         public bool FailAudit { get; set; }
+        private readonly TrackingStorage storage = new();
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
             builder.ConfigureServices(services => {
+                services.RemoveAll<IFileStorage>(); services.AddSingleton<IFileStorage>(storage);
                 var existing = services.Single(d => d.ServiceType == typeof(IAuditTrail)); services.Remove(existing);
                 services.AddScoped<IAuditTrail>(p => new TrackingAudit((IAuditTrail)ActivatorUtilities.CreateInstance(p, existing.ImplementationType!), this));
             });
         }
+    }
+    private sealed class TrackingStorage : IFileStorage
+    {
+        private readonly ConcurrentDictionary<string, byte[]> content = new();
+        public async Task WriteAsync(string key, Stream stream, CancellationToken ct)
+        {
+            using var buffer = new MemoryStream(); await stream.CopyToAsync(buffer, ct);
+            if (!content.TryAdd(key, buffer.ToArray())) throw new IOException("Duplicate test object.");
+        }
+        public Task<Stream> OpenReadAsync(string key, CancellationToken ct) => content.TryGetValue(key, out var bytes)
+            ? Task.FromResult<Stream>(new MemoryStream(bytes, writable: false)) : throw new FileNotFoundException();
+        public Task DeleteAsync(string key, CancellationToken ct) { content.TryRemove(key, out _); return Task.CompletedTask; }
     }
     private sealed class TrackingAudit(IAuditTrail inner, TrackingFactory app) : IAuditTrail
     {

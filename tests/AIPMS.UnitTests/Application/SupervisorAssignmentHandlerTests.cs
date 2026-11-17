@@ -172,7 +172,8 @@ public sealed class SupervisorAssignmentHandlerTests
     private sealed class Profiles(SupervisorAccount account) : ISupervisorProfileRepository
     {
         public Task<SupervisorAccount?> GetAccountAsync(long id, CancellationToken ct) => Task.FromResult<SupervisorAccount?>(account);
-        public Task<SupervisorProfileModel?> GetAsync(long id, CancellationToken ct) => throw new NotSupportedException();
+        public Task<SupervisorProfileModel?> GetAsync(long id, CancellationToken ct,
+            long? authorizedOrganizationId = null, long? authorizedDepartmentId = null) => throw new NotSupportedException();
         public Task<SupervisorProfileModel?> GetByUserAsync(long id, CancellationToken ct) => throw new NotSupportedException();
         public Task<PagedResult<SupervisorProfileModel>> SearchAsync(SupervisorSearch search, CancellationToken ct) => throw new NotSupportedException();
         public Task<SupervisorProfileModel> UpsertAsync(long id, string? bio, bool available, DateTime now, CancellationToken ct) => throw new NotSupportedException();

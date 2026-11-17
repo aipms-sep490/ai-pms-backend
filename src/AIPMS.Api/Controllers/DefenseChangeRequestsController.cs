@@ -21,6 +21,14 @@ public sealed class DefenseChangeRequestsController(IDefenseChangeRequestService
     public Task<DefenseChangeRequestDto> Withdraw(long id, WithdrawDefenseChangeRequest input, CancellationToken ct) =>
         changes.Withdraw(id, input, ct);
 
+    [HttpGet("api/v1/defense-sessions/{sessionId:long}/change-requests")]
+    public Task<IReadOnlyList<DefenseChangeRequestDto>> ListForSession(long sessionId, CancellationToken ct) =>
+        changes.ListForSession(sessionId, ct);
+
+    [HttpGet("api/v1/defense-sessions/{sessionId:long}/change-rooms")]
+    public Task<IReadOnlyList<RoomDto>> RoomsForSession(long sessionId, CancellationToken ct) =>
+        changes.RoomsForSession(sessionId, ct);
+
     [HttpGet("api/v1/project-periods/{id:long}/defense-sessions/change-requests")]
     public Task<IReadOnlyList<DefenseChangeRequestDto>> List(long id, [FromQuery] string? status, CancellationToken ct) =>
         changes.List(id, status, ct);

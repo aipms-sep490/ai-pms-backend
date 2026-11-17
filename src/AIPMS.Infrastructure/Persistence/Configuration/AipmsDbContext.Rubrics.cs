@@ -22,6 +22,8 @@ public partial class AipmsDbContext
         ConfigureResultAppeals(modelBuilder);
         ConfigureIndustry(modelBuilder);
         ConfigureAcademicTracking(modelBuilder);
+        ConfigureDepartmentDocumentTemplates(modelBuilder);
+        ConfigureUserAvatars(modelBuilder);
         ConfigureReviewGates(modelBuilder);
         ConfigureGateSessionScripts(modelBuilder);
         ConfigureMeetingCollaboration(modelBuilder);

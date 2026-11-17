@@ -37,7 +37,7 @@ public sealed class CibV4AcceptanceFoundationTests(EvaluationDraftDatabaseFixtur
 
     private async Task<(EvaluationScenario Scenario, long Major)> SeedAsync()
     {
-        var s = await database.Seed(lockedSubmission: true);
+        var s = await database.Seed(lockedSubmission: true, confirmedCommittee: true);
         await using var db = database.CreateContext();
         var project = await db.Projects.Include(p => p.Team).Include(p => p.ProjectMajors).SingleAsync(p => p.Id == s.ProjectId);
         var major = project.ProjectMajors.Single().MajorId;

@@ -54,6 +54,7 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
         if (!await db.Users.AsNoTracking().AnyAsync(u => u.Id == Actor && u.Status == "ACTIVE"
             && (u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN")
                 || u.DepartmentId == department && u.Department != null && u.Department.IsActive
+                    && u.Department.Organization.IsActive
                     && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF")), ct))
             throw new ForbiddenException("Only Admin or academic staff of the lead department may decide this request.");
     }
@@ -183,14 +184,53 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
         await tx.CommitAsync(ct); return Dto(row);
     }
 
+    private async Task<DefenseSession> RequireSessionOfficer(long sessionId, CancellationToken ct)
+    {
+        var session = await Session(sessionId, ct);
+        if (!await db.Users.AsNoTracking().AnyAsync(u => u.Id == Actor && u.Status == "ACTIVE", ct)
+            || !await db.Set<DefenseCommitteeMember>().AsNoTracking().AnyAsync(m => m.CommitteeId == session.CommitteeId
+                && m.UserId == Actor && (m.Role == "CHAIR" || m.Role == "SECRETARY"), ct))
+            throw new ForbiddenException("Only the assigned chair or secretary may view schedule change requests.");
+        return session;
+    }
+
+    public async Task<IReadOnlyList<DefenseChangeRequestDto>> ListForSession(long sessionId, CancellationToken ct)
+    {
+        await RequireSessionOfficer(sessionId, ct);
+        return (await db.Set<DefenseScheduleChangeRequest>().AsNoTracking()
+            .Where(r => r.DefenseSessionId == sessionId)
+            .OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).ToArrayAsync(ct))
+            .Select(Dto).ToArray();
+    }
+
+    public async Task<IReadOnlyList<RoomDto>> RoomsForSession(long sessionId, CancellationToken ct)
+    {
+        var session = await RequireSessionOfficer(sessionId, ct);
+        var groupSize = await db.Projects.AsNoTracking().Where(p => p.Id == session.ProjectId)
+            .Select(p => p.Team.TeamMembers.Count(m => m.LeftAt == null)).SingleAsync(ct);
+        var committeeSize = await db.Set<DefenseCommitteeMember>().AsNoTracking()
+            .Where(m => m.CommitteeId == session.CommitteeId).Select(m => m.UserId).Distinct().CountAsync(ct);
+        var requiredSeats = groupSize + committeeSize + 5;
+        return await db.Set<Room>().AsNoTracking().Where(r => r.Status == "ACTIVE" && r.Capacity >= requiredSeats)
+            .OrderBy(r => r.Building).ThenBy(r => r.Floor).ThenBy(r => r.Code)
+            .Select(r => new RoomDto(r.Id, r.Code, r.Building, r.Floor, r.Capacity,
+                r.Status, r.ConcurrencyToken.ToString("N"))).ToArrayAsync(ct);
+    }
+
     public async Task<IReadOnlyList<DefenseChangeRequestDto>> List(long periodId, string? status, CancellationToken ct)
     {
-        if (!await db.ProjectPeriods.AnyAsync(p => p.Id == periodId, ct)) throw new NotFoundException("ProjectPeriod", periodId);
+        var periodOrganization = await db.ProjectPeriods.AsNoTracking().Where(p => p.Id == periodId)
+            .Select(p => (long?)p.AcademicSemester.OrganizationId).SingleOrDefaultAsync(ct)
+            ?? throw new NotFoundException("ProjectPeriod", periodId);
         var user = await db.Users.AsNoTracking().Where(u => u.Id == Actor && u.Status == "ACTIVE")
-            .Select(u => new { u.DepartmentId, Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"),
+            .Select(u => new { u.DepartmentId,
+                OrganizationId = u.Department == null ? (long?)null : u.Department.OrganizationId,
+                ActiveDepartment = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive,
+                Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"),
                 Admin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN") })
             .SingleOrDefaultAsync(ct) ?? throw new ForbiddenException();
-        if (!user.Admin && (!user.Staff || !user.DepartmentId.HasValue)) throw new ForbiddenException();
+        if (!user.Admin && (!user.Staff || !user.ActiveDepartment || !user.DepartmentId.HasValue
+            || user.OrganizationId != periodOrganization)) throw new ForbiddenException();
         if (status is not null and not ("PENDING" or "APPROVED" or "REJECTED" or "WITHDRAWN"))
             throw Invalid("Unknown change request status.");
         var projects = db.Set<ProjectRegistrationSnapshot>().AsNoTracking().Where(s => s.ProjectPeriodId == periodId

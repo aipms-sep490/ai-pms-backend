@@ -306,7 +306,7 @@ public sealed partial class PolicyEvaluationEndpointTests
     {
         var (s, _) = await Seed(); using var app = new IndustryFactory(database, realAccountValidation:true);
         app.Clock.Now = new DateTime(DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond, DateTimeKind.Utc);
-        using var admin = app.CreateAuthenticatedClient(s.Scope.Users.Admin);
+        using var admin = app.CreateAuthenticatedClient(s.Scope.Users.Admin, roles: ["ADMIN"]);
         var invited = await InviteIndustry(app, admin); using var browser = IndustryBrowser(app);
         var login = await Body<LoginResponse>(await browser.PostAsJsonAsync(EnrollRoot + "/enroll", Enrollment(await IndustryChallenge(browser), invited.Invite, invited.Secret)));
         using var expert = app.CreateClient(); expert.DefaultRequestHeaders.Authorization = new("Bearer", login.AccessToken);

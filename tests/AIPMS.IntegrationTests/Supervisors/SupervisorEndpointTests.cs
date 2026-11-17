@@ -5,7 +5,9 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Supervisors.DTOs;
+using AIPMS.Application.Features.Semesters.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
+using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Persistence.Repositories;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -14,6 +16,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Task = System.Threading.Tasks.Task;
 
 namespace AIPMS.IntegrationTests.Supervisors;
 
@@ -45,6 +48,94 @@ public sealed class SupervisorEndpointTests(SupervisorDatabaseFixture database) 
         Assert.Equal("Original", detail.Bio);
         Assert.Equal(HttpStatusCode.BadRequest, (await student.GetAsync("/api/v1/supervisors?pageSize=101")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await student.GetAsync("/api/v1/supervisors/9223372036854775807")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Academic_directories_enforce_persisted_organization_and_department_on_sql()
+    {
+        var s = await database.SeedAsync();
+        long foreignProfileId, sameOrganizationProfileId, foreignSemesterId, foreignPeriodId, ownSemesterId, ownPeriodId;
+        string uniqueSearch;
+        await using (var context = database.CreateContext())
+        {
+            var suffix = Guid.NewGuid().ToString("N");
+            uniqueSearch = suffix;
+            var ownDepartment = await context.Departments.SingleAsync(d => d.Id == s.DepartmentId);
+            var foreignOrganization = new Organization { Code = $"ORG_{suffix}", Name = "Foreign", IsActive = true };
+            var foreignDepartment = new Department { Code = $"D_{suffix}", Name = "Foreign", IsActive = true, Organization = foreignOrganization };
+            var lecturerRoleId = await context.Roles.Where(r => r.Code == AppRoles.Lecturer).Select(r => r.Id).SingleAsync();
+            var foreignLecturer = new User
+            {
+                Email = $"lecturer-{suffix}@example.test", FullName = $"Foreign lecturer {suffix}", PasswordHash = "unused",
+                Status = "ACTIVE", AcademicProfileStatus = "VERIFIED", Department = foreignDepartment,
+                UserRoleUsers = [new() { RoleId = lecturerRoleId }]
+            };
+            var foreignProfile = new SupervisorProfile { User = foreignLecturer, IsAvailable = true };
+            var sameOrganizationProfile = new SupervisorProfile
+            {
+                UserId = s.OtherLecturer, IsAvailable = true, Bio = $"Same organization {suffix}"
+            };
+            context.SupervisorProfiles.AddRange(foreignProfile, sameOrganizationProfile);
+            var ownSemester = new AcademicSemester
+            {
+                OrganizationId = ownDepartment.OrganizationId, Code = $"OWN_{suffix}", Name = "Own semester",
+                StartDate = new DateOnly(2026, 1, 1), EndDate = new DateOnly(2026, 6, 1), Status = "ACTIVE"
+            };
+            var foreignSemester = new AcademicSemester
+            {
+                Organization = foreignOrganization, Code = $"FOREIGN_{suffix}", Name = "Foreign semester",
+                StartDate = new DateOnly(2026, 1, 1), EndDate = new DateOnly(2026, 6, 1), Status = "ACTIVE"
+            };
+            var ownPeriod = new ProjectPeriod
+            {
+                AcademicSemester = ownSemester, Code = $"OWN_{suffix}", Name = "Own period",
+                PeriodType = "REGISTRATION", Status = "ACTIVE", StartAt = DateTime.UtcNow,
+                EndAt = DateTime.UtcNow.AddDays(30)
+            };
+            var foreignPeriod = new ProjectPeriod
+            {
+                AcademicSemester = foreignSemester, Code = $"FOREIGN_{suffix}", Name = "Foreign period",
+                PeriodType = "REGISTRATION", Status = "ACTIVE", StartAt = DateTime.UtcNow,
+                EndAt = DateTime.UtcNow.AddDays(30)
+            };
+            context.ProjectPeriods.AddRange(ownPeriod, foreignPeriod);
+            await context.SaveChangesAsync();
+            (foreignProfileId, sameOrganizationProfileId, foreignSemesterId, foreignPeriodId, ownSemesterId, ownPeriodId) =
+                (foreignProfile.Id, sameOrganizationProfile.Id, foreignSemester.Id, foreignPeriod.Id, ownSemester.Id, ownPeriod.Id);
+        }
+
+        using var app = new SupervisorFactory(database);
+        using var student = app.CreateAuthenticatedClient(s.Student, roles: AppRoles.Student);
+        using var staff = app.CreateAuthenticatedClient(s.Staff, roles: AppRoles.DepartmentStaff);
+        using var admin = app.CreateAuthenticatedClient(s.Admin, roles: AppRoles.Admin);
+
+        var studentSupervisors = await Body<PagedResult<SupervisorProfileDto>>(await student.GetAsync("/api/v1/supervisors?pageSize=100"));
+        Assert.DoesNotContain(studentSupervisors.Items, p => p.Id == foreignProfileId);
+        Assert.Equal(0, (await Body<PagedResult<SupervisorProfileDto>>(await student.GetAsync($"/api/v1/supervisors?search={uniqueSearch}"))).TotalCount);
+        Assert.Equal(1, (await Body<PagedResult<SupervisorProfileDto>>(await admin.GetAsync($"/api/v1/supervisors?search={uniqueSearch}"))).TotalCount);
+        Assert.Equal(HttpStatusCode.NotFound, (await student.GetAsync($"/api/v1/supervisors/{foreignProfileId}")).StatusCode);
+        var staffSupervisors = await Body<PagedResult<SupervisorProfileDto>>(await staff.GetAsync("/api/v1/supervisors?pageSize=100"));
+        Assert.Contains(staffSupervisors.Items, p => p.Id == s.ProfileId);
+        Assert.All(staffSupervisors.Items, p => Assert.Equal(s.DepartmentId, p.DepartmentId));
+        Assert.Equal(HttpStatusCode.NotFound, (await staff.GetAsync($"/api/v1/supervisors/{foreignProfileId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await student.GetAsync($"/api/v1/supervisors/{sameOrganizationProfileId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await staff.GetAsync($"/api/v1/supervisors/{sameOrganizationProfileId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync($"/api/v1/supervisors/{foreignProfileId}")).StatusCode);
+
+        var studentSemesterPage = await Body<PagedResult<SemesterDto>>(await student.GetAsync($"/api/v1/academic/semesters?search={uniqueSearch}"));
+        var adminSemesterPage = await Body<PagedResult<SemesterDto>>(await admin.GetAsync($"/api/v1/academic/semesters?search={uniqueSearch}"));
+        Assert.Equal(1, studentSemesterPage.TotalCount);
+        Assert.Equal(2, adminSemesterPage.TotalCount);
+        var studentPeriodPage = await Body<PagedResult<ProjectPeriodDto>>(await student.GetAsync($"/api/v1/academic/project-periods?search={uniqueSearch}"));
+        var adminPeriodPage = await Body<PagedResult<ProjectPeriodDto>>(await admin.GetAsync($"/api/v1/academic/project-periods?search={uniqueSearch}"));
+        Assert.Equal(1, studentPeriodPage.TotalCount);
+        Assert.Equal(2, adminPeriodPage.TotalCount);
+
+        Assert.Equal(HttpStatusCode.OK, (await student.GetAsync($"/api/v1/academic/semesters/{ownSemesterId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await student.GetAsync($"/api/v1/academic/semesters/{foreignSemesterId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await student.GetAsync($"/api/v1/academic/project-periods/{ownPeriodId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await student.GetAsync($"/api/v1/academic/project-periods/{foreignPeriodId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync($"/api/v1/academic/project-periods/{foreignPeriodId}")).StatusCode);
     }
 
     [Fact]
@@ -138,8 +229,12 @@ public sealed class SupervisorEndpointTests(SupervisorDatabaseFixture database) 
         }
         using var app = new SupervisorFactory(database);
         using var student = app.CreateAuthenticatedClient(s.Student);
-        Assert.Equal(HttpStatusCode.NotFound, (await student.GetAsync($"/api/v1/supervisors/{s.ProfileId}")).StatusCode);
-        var page = await Body<PagedResult<SupervisorProfileDto>>(await student.GetAsync($"/api/v1/supervisors?departmentId={s.DepartmentId}"));
+        if (change == "department")
+            Assert.Equal(HttpStatusCode.Forbidden, (await student.GetAsync($"/api/v1/supervisors/{s.ProfileId}")).StatusCode);
+        using var admin = app.CreateAuthenticatedClient(s.Admin, roles: AppRoles.Admin);
+        var reader = change == "department" ? admin : student;
+        Assert.Equal(HttpStatusCode.NotFound, (await reader.GetAsync($"/api/v1/supervisors/{s.ProfileId}")).StatusCode);
+        var page = await Body<PagedResult<SupervisorProfileDto>>(await reader.GetAsync($"/api/v1/supervisors?departmentId={s.DepartmentId}"));
         Assert.Empty(page.Items);
     }
 

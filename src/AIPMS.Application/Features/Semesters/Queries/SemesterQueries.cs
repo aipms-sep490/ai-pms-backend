@@ -1,5 +1,6 @@
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
+using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Semesters.Abstractions;
 using AIPMS.Application.Features.Semesters.DTOs;
 using MediatR;
@@ -15,20 +16,22 @@ public sealed record GetSemestersQuery(
     int Page = 1,
     int PageSize = 20) : IRequest<PagedResult<SemesterDto>>;
 
-public sealed class GetSemestersQueryHandler(ISemesterRepository repository)
+public sealed class GetSemestersQueryHandler(ISemesterRepository repository, IAcademicDirectoryScopeReader scopeReader)
     : IRequestHandler<GetSemestersQuery, PagedResult<SemesterDto>>
 {
     public async Task<PagedResult<SemesterDto>> Handle(
         GetSemestersQuery request,
         CancellationToken cancellationToken)
     {
+        var scope = await scopeReader.GetAsync(cancellationToken);
         var result = await repository.GetSemestersAsync(
             request.OrganizationId,
             request.Search?.Trim(),
             request.Status,
             request.Page,
             request.PageSize,
-            cancellationToken);
+            cancellationToken,
+            scope.OrganizationId);
 
         return new PagedResult<SemesterDto>(
             result.Items.Select(static s => s.ToDto()).ToArray(),
@@ -42,16 +45,18 @@ public sealed class GetSemestersQueryHandler(ISemesterRepository repository)
 
 public sealed record GetSemesterByIdQuery(long SemesterId) : IRequest<SemesterDto>;
 
-public sealed class GetSemesterByIdQueryHandler(ISemesterRepository repository)
+public sealed class GetSemesterByIdQueryHandler(ISemesterRepository repository, IAcademicDirectoryScopeReader scopeReader)
     : IRequestHandler<GetSemesterByIdQuery, SemesterDto>
 {
     public async Task<SemesterDto> Handle(
         GetSemesterByIdQuery request,
         CancellationToken cancellationToken)
     {
+        var scope = await scopeReader.GetAsync(cancellationToken);
         var semester = await repository.GetSemesterAsync(
             request.SemesterId,
-            cancellationToken);
+            cancellationToken,
+            scope.OrganizationId);
 
         return semester?.ToDto()
             ?? throw new NotFoundException("AcademicSemester", request.SemesterId);
@@ -68,13 +73,14 @@ public sealed record GetProjectPeriodsQuery(
     int Page = 1,
     int PageSize = 20) : IRequest<PagedResult<ProjectPeriodDto>>;
 
-public sealed class GetProjectPeriodsQueryHandler(ISemesterRepository repository)
+public sealed class GetProjectPeriodsQueryHandler(ISemesterRepository repository, IAcademicDirectoryScopeReader scopeReader)
     : IRequestHandler<GetProjectPeriodsQuery, PagedResult<ProjectPeriodDto>>
 {
     public async Task<PagedResult<ProjectPeriodDto>> Handle(
         GetProjectPeriodsQuery request,
         CancellationToken cancellationToken)
     {
+        var scope = await scopeReader.GetAsync(cancellationToken);
         var result = await repository.GetProjectPeriodsAsync(
             request.SemesterId,
             request.Search?.Trim(),
@@ -82,7 +88,8 @@ public sealed class GetProjectPeriodsQueryHandler(ISemesterRepository repository
             request.PeriodType,
             request.Page,
             request.PageSize,
-            cancellationToken);
+            cancellationToken,
+            scope.OrganizationId);
 
         return new PagedResult<ProjectPeriodDto>(
             result.Items.Select(static p => p.ToDto()).ToArray(),
@@ -96,16 +103,18 @@ public sealed class GetProjectPeriodsQueryHandler(ISemesterRepository repository
 
 public sealed record GetProjectPeriodByIdQuery(long PeriodId) : IRequest<ProjectPeriodDto>;
 
-public sealed class GetProjectPeriodByIdQueryHandler(ISemesterRepository repository)
+public sealed class GetProjectPeriodByIdQueryHandler(ISemesterRepository repository, IAcademicDirectoryScopeReader scopeReader)
     : IRequestHandler<GetProjectPeriodByIdQuery, ProjectPeriodDto>
 {
     public async Task<ProjectPeriodDto> Handle(
         GetProjectPeriodByIdQuery request,
         CancellationToken cancellationToken)
     {
+        var scope = await scopeReader.GetAsync(cancellationToken);
         var period = await repository.GetProjectPeriodAsync(
             request.PeriodId,
-            cancellationToken);
+            cancellationToken,
+            scope.OrganizationId);
 
         return period?.ToDto()
             ?? throw new NotFoundException("ProjectPeriod", request.PeriodId);

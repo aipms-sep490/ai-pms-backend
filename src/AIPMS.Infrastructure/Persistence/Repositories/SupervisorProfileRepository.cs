@@ -34,6 +34,8 @@ internal sealed class SupervisorProfileRepository(AipmsDbContext context) : ISup
     public async Task<PagedResult<SupervisorProfileModel>> SearchAsync(SupervisorSearch search, CancellationToken ct)
     {
         var query = DirectoryQuery();
+        if (search.OrganizationId.HasValue)
+            query = query.Where(p => p.User.Department!.OrganizationId == search.OrganizationId.Value);
         if (search.DepartmentId.HasValue) query = query.Where(p => p.User.DepartmentId == search.DepartmentId);
         if (!string.IsNullOrWhiteSpace(search.Search)) query = query.Where(p => p.User.FullName.Contains(search.Search));
         if (!string.IsNullOrWhiteSpace(search.Expertise))
@@ -45,8 +47,11 @@ internal sealed class SupervisorProfileRepository(AipmsDbContext context) : ISup
         return new(items.Select(p => p.ToApplication()).ToArray(), search.Page, search.PageSize, count);
     }
 
-    public async Task<SupervisorProfileModel?> GetAsync(long profileId, CancellationToken ct) =>
-        (await DirectoryQuery().SingleOrDefaultAsync(p => p.Id == profileId, ct))?.ToApplication();
+    public async Task<SupervisorProfileModel?> GetAsync(long profileId, CancellationToken ct,
+        long? authorizedOrganizationId = null, long? authorizedDepartmentId = null) =>
+        (await DirectoryQuery().SingleOrDefaultAsync(p => p.Id == profileId
+            && (!authorizedOrganizationId.HasValue || p.User.Department!.OrganizationId == authorizedOrganizationId.Value)
+            && (!authorizedDepartmentId.HasValue || p.User.DepartmentId == authorizedDepartmentId.Value), ct))?.ToApplication();
 
     public async Task<SupervisorProfileModel?> GetByUserAsync(long userId, CancellationToken ct) =>
         (await DirectoryQuery().SingleOrDefaultAsync(p => p.UserId == userId, ct))?.ToApplication();

@@ -25,22 +25,23 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     [Theory]
     [InlineData("/api/v1/upload-policies")]
     [InlineData("/v1/upload-policies")]
-    public async Task GetAll_ReturnsExactly11Policies_WithCorrectTieredLimits(string url)
+    public async Task GetAll_ReturnsExactly12Policies_WithCorrectTieredLimits(string url)
     {
         var response = await _client.GetAsync(url);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var policies = await response.Content.ReadFromJsonAsync<IReadOnlyList<UploadPolicyDto>>();
         Assert.NotNull(policies);
-        Assert.Equal(11, policies.Count);
+        Assert.Equal(12, policies.Count);
 
-        // Verify the 4 distinct size tiers exist across the 11 policies
+        // Verify the avatar limit and the four current file size tiers.
         var distinctLimits = policies.Select(p => p.MaxBytes).Distinct().OrderBy(b => b).ToArray();
-        Assert.Equal(4, distinctLimits.Length);
-        Assert.Equal(UploadPolicies.Tier6MiB, distinctLimits[0]);   // 6 MiB
-        Assert.Equal(UploadPolicies.Tier10MiB, distinctLimits[1]);   // 10 MiB
-        Assert.Equal(UploadPolicies.Tier11MiB, distinctLimits[2]); // 11 MiB
-        Assert.Equal(UploadPolicies.EffectiveFileLimit, distinctLimits[3]); // 20 MiB
+        Assert.Equal(5, distinctLimits.Length);
+        Assert.Equal(UploadPolicies.UserAvatarLimit, distinctLimits[0]); // 2 MiB
+        Assert.Equal(UploadPolicies.Tier6MiB, distinctLimits[1]);   // 6 MiB
+        Assert.Equal(UploadPolicies.Tier10MiB, distinctLimits[2]);  // 10 MiB
+        Assert.Equal(UploadPolicies.Tier11MiB, distinctLimits[3]); // 11 MiB
+        Assert.Equal(UploadPolicies.EffectiveFileLimit, distinctLimits[4]); // 20 MiB
 
         foreach (var policy in policies)
         {
@@ -65,6 +66,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     [InlineData("ACADEMIC_ASSISTANT_STREAM", 10 * 1024 * 1024, "10 MiB/tệp; 20 MiB/tổng")]
     [InlineData("STUDENT_ACCOUNT_IMPORT", 6 * 1024 * 1024, "6 MiB")]
     [InlineData("STUDENT_CURRICULUM", 6 * 1024 * 1024, "6 MiB")]
+    [InlineData("USER_AVATAR", 2 * 1024 * 1024, "2 MiB")]
     public async Task GetByParentType_ReturnsCorrectPolicy(string parentType, long expectedMaxBytes, string expectedLabel)
     {
         var response = await _client.GetAsync($"/api/v1/upload-policies/{parentType}");
@@ -130,17 +132,17 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             }
         }
 
-        Assert.Equal(11, endpointsWithLimit.Count);
+        Assert.Equal(16, endpointsWithLimit.Count);
 
         foreach (var (method, limit) in endpointsWithLimit)
         {
-            Assert.True(limit >= UploadPolicies.Tier6MiB);
+            Assert.True(limit >= UploadPolicies.UserAvatarTransportLimit);
             Assert.True(limit == UploadPolicies.MultipartTransportCeiling || limit <= UploadPolicies.Tier11MiB);
         }
     }
 
     [Fact]
-    public void ReflectionConsistency_All11ControllersMatchUploadPoliciesConstants()
+    public void ReflectionConsistency_All16EndpointsMatchUploadPoliciesConstants()
     {
         var controllerAssembly = typeof(UploadPoliciesController).Assembly;
         var controllerTypes = controllerAssembly.GetTypes()
@@ -161,13 +163,14 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             }
         }
 
-        // Exactly 11 endpoints must have [RequestSizeLimit]
-        Assert.Equal(11, endpointsWithLimit.Count);
+        // All file, workbook, and preview endpoints must have [RequestSizeLimit].
+        Assert.Equal(16, endpointsWithLimit.Count);
 
         // Every endpoint's limit must match a recognized constant in UploadPolicies
         var validConstants = new[]
         {
             UploadPolicies.StudentAccountImportLimit,
+            UploadPolicies.UserAvatarTransportLimit,
             UploadPolicies.StudentCurriculumLimit,
             UploadPolicies.AcademicAssistantAskLimit,
             UploadPolicies.AcademicAssistantStreamLimit,
@@ -182,13 +185,14 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             Assert.Contains(limit, validConstants);
         }
 
-        // Six endpoints use MultipartTransportCeiling for multipart overhead (including the two assistant
-        // endpoints); remaining five match their policy MaxBytes.
+        // Seven endpoints allow multipart overhead, eight match a published file tier,
+        // and the avatar route reserves 1 MiB beyond its 2 MiB file limit.
         var multipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartTransportCeiling);
-        Assert.Equal(6, multipartCount);
+        Assert.Equal(7, multipartCount);
 
         var directMatchCount = endpointsWithLimit.Count(e => UploadPolicies.All.Any(p => p.MaxBytes == e.Limit));
-        Assert.Equal(5, directMatchCount);
+        Assert.Equal(8, directMatchCount);
+        Assert.Single(endpointsWithLimit, e => e.Limit == UploadPolicies.UserAvatarTransportLimit);
     }
 
     [Fact]

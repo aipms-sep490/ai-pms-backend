@@ -237,7 +237,7 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         var actor = await Actor(ct);
         if (projectId.HasValue)
         {
-            if (!Manages(actor, await Project(projectId.Value, ct))) throw new ForbiddenException();
+            if (!AcademicAuthority.CanReadAssignments(actor, await Project(projectId.Value, ct))) throw new ForbiddenException();
         }
         else if (!actor.IsLecturer) throw new ForbiddenException();
         var result = await repository.ListAssignmentsAsync(projectId, actor, status, page, size, ct);

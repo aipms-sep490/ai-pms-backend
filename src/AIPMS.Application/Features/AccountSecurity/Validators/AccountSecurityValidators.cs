@@ -287,6 +287,27 @@ public sealed class GetAuditLogsQueryValidator : AbstractValidator<GetAuditLogsQ
     }
 }
 
+public sealed class GetAccessEventsQueryValidator : AbstractValidator<GetAccessEventsQuery>
+{
+    public GetAccessEventsQueryValidator()
+    {
+        this.AddPagingRules(static query => query.Page, static query => query.PageSize);
+        RuleFor(static query => query.Search).MaximumLength(255);
+        RuleFor(static query => query.UserId).GreaterThan(0).When(static query => query.UserId.HasValue);
+        RuleFor(static query => query.EventType)
+            .Must(static value => value is not null && new[] { "LOGIN", "LOGOUT" }
+                .Contains(value.Trim().ToUpperInvariant(), StringComparer.Ordinal))
+            .When(static query => !string.IsNullOrWhiteSpace(query.EventType));
+        RuleFor(static query => query.Outcome)
+            .Must(static value => value is not null && new[] { "SUCCESS", "FAILURE", "DENIED" }
+                .Contains(value.Trim().ToUpperInvariant(), StringComparer.Ordinal))
+            .When(static query => !string.IsNullOrWhiteSpace(query.Outcome));
+        RuleFor(static query => query)
+            .Must(static query => !query.FromUtc.HasValue || !query.ToUtc.HasValue || query.FromUtc <= query.ToUtc)
+            .WithMessage("FromUtc must be before or equal to ToUtc.");
+    }
+}
+
 internal static class AccountSecurityValidationRules
 {
     public static IRuleBuilderOptions<T, string> SecurityCode<T>(

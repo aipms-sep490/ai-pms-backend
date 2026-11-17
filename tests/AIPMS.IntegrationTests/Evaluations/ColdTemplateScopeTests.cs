@@ -13,6 +13,20 @@ public sealed class ColdTemplateScopeTests(EvaluationDraftDatabaseFixture databa
     private static DateTime Now => EvaluationDraftDatabaseFixture.Now;
 
     [Fact]
+    public async Task Common_checklist_schema_change_is_repeatable_and_keeps_nullable_major()
+    {
+        var sql = await File.ReadAllTextAsync(Path.Combine(SqlSchemaBootstrap.Root, "db", "changes", "20261114_cold_common_checklist.sql"));
+        await SqlSchemaBootstrap.ExecuteAsync(database.ConnectionString, sql);
+        await SqlSchemaBootstrap.ExecuteAsync(database.ConnectionString, sql);
+        await using var db = database.CreateContext();
+        var nullable = await db.Database.SqlQueryRaw<int>("""
+            SELECT CONVERT(int, is_nullable) AS Value FROM sys.columns
+            WHERE object_id = OBJECT_ID('dbo.cold_checklist_items') AND name = 'major_id'
+            """).SingleAsync();
+        Assert.Equal(1, nullable);
+    }
+
+    [Fact]
     public async Task CreateTemplate_CommonScope_NullMajor_Returns201Created()
     {
         var s = await database.Seed(lockedSubmission: false);

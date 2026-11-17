@@ -14,7 +14,7 @@ public sealed class ProjectResultTests
     {
         ResultContributionDto[] inputs = [new(1, 10, 100, 1000, 50, 5, "a"), new(2, 20, 200, 1000, 50, 5.01m, "b")];
         Assert.Equal(5.01m, ResultScoring.Total(inputs, 5.01m));
-        Assert.Equal(5.01m, ResultScoring.Total(inputs.AsEnumerable().Reverse().ToArray(), 5.01m));
+        Assert.Equal(5.01m, ResultScoring.Total(Enumerable.Reverse(inputs).ToArray(), 5.01m));
         Assert.Throws<ConflictException>(() => ResultScoring.Total([inputs[0], inputs[0]], 5));
         Assert.Throws<ConflictException>(() => ResultScoring.Total([inputs[0]], 5));
         Assert.Throws<ConflictException>(() => ResultScoring.Total([inputs[0] with { Score = 11 }, inputs[1]], 5));

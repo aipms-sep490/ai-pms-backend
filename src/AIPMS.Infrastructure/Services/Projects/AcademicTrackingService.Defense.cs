@@ -11,7 +11,8 @@ internal sealed partial class AcademicTrackingService
 {
     private static CommitteeDto CommitteeDto(DefenseCommittee row) => new(row.Id, row.ProjectId, row.Name,
         row.Members.OrderBy(m => m.MajorId).ThenBy(m => m.UserId).Select(m => new CommitteeMemberInput(m.UserId, m.MajorId, m.Role)).ToArray(),
-        ConcurrencyToken: row.ConcurrencyToken.ToString("N"));
+        GrantsEvaluatorAuthority: row.Status == "CONFIRMED", ConcurrencyToken: row.ConcurrencyToken.ToString("N"),
+        Status: row.Status, Version: row.Version);
     private DefenseSessionDto DefenseDto(DefenseSession row, Access? access) => new(row.Id, row.ProjectId, row.CommitteeId,
         Utc(row.StartAt), Utc(row.EndAt), row.Room, row.Status, row.ConcurrencyToken.ToString("N"), row.CancellationReason,
         access is { Lead: true, Writable: true } && row.Status == "SCHEDULED" && row.StartAt > Now);
@@ -21,10 +22,15 @@ internal sealed partial class AcademicTrackingService
         if (members.Count is < 1 or > 20 || members.Any(m => m is null || m.UserId <= 0 || !majors.Contains(m.MajorId))
             || members.Select(m => (m.UserId, m.MajorId)).Distinct().Count() != members.Count
             || members.Any(m => m.Role is not ("MEMBER" or "CHAIR" or "SECRETARY"))
-            || members.Count(m => m.Role == "CHAIR") > 1 || members.Count(m => m.Role == "SECRETARY") > 1)
+            || members.Count(m => m.Role == "CHAIR") > 1 || members.Count(m => m.Role == "SECRETARY") > 1
+            || members.Any(m => m.Role == "CHAIR" && members.Any(s => s.Role == "SECRETARY" && s.UserId == m.UserId)))
             throw Invalid("Committee must contain 1..20 unique scoped members and at most one chair and secretary.");
         if (majors.Except(members.Select(m => m.MajorId)).Any()) throw new ConflictException("DEFENSE_MAJOR_COVERAGE_REQUIRED", "DEFENSE_MAJOR_COVERAGE_REQUIRED");
         var users = members.Select(m => m.UserId).Distinct().ToArray();
+        if (await db.SupervisorAssignments.AsNoTracking().AnyAsync(a => a.ProjectId == access.Project.Id
+            && a.EndedAt == null && users.Contains(a.SupervisorProfile.UserId), ct))
+            throw new ConflictException("An active supervisor or mentor cannot evaluate their own project defense.",
+                "DEFENSE_SUPERVISOR_CONFLICT");
         var profiles = await db.SupervisorProfiles.AsNoTracking().Where(p => users.Contains(p.UserId) && p.IsAvailable && p.User.Status == "ACTIVE"
             && p.User.Department != null && p.User.Department.IsActive && p.User.Department.Organization.IsActive
             && p.User.UserRoleUsers.Any(r => r.Role.Code == "LECTURER"))
@@ -46,6 +52,39 @@ internal sealed partial class AcademicTrackingService
         var result = await db.Database.SqlQueryRaw<int>("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource=N'AI_PMS_DEFENSE_SCHEDULE', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=10000; SELECT @r AS Value;").ToListAsync(ct);
         if (result.Single() < 0) throw new ConflictException("Defense schedule is busy; reload and retry.", "DEFENSE_SCHEDULE_BUSY");
     }
+    public async Task<PagedResult<DefenseCommitteeCandidateDto>> CommitteeCandidates(long projectId, int page, int pageSize, CancellationToken ct)
+    {
+        Page(page, pageSize);
+        var access = await Scope(projectId, ct);
+        if (!access.Lead) throw new ForbiddenException("Only the frozen lead department can arrange the defense committee.");
+        var departments = access.Registration.MajorDepartmentIds!;
+        var majorIds = access.Registration.Scope.Requirements.Select(r => r.MajorId).Distinct().ToArray();
+        var majors = await db.Majors.AsNoTracking().Where(m => majorIds.Contains(m.Id) && m.IsActive)
+            .Select(m => new { m.Id, m.Code, m.Name }).ToArrayAsync(ct);
+        var departmentIds = departments.Values.Distinct().ToArray();
+        var profiles = await db.SupervisorProfiles.AsNoTracking()
+            .Where(p => p.User.DepartmentId.HasValue && departmentIds.Contains(p.User.DepartmentId.Value)
+                && p.User.Status == "ACTIVE" && p.User.Department != null && p.User.Department.IsActive
+                && p.User.Department.Organization.IsActive
+                && p.User.UserRoleUsers.Any(r => r.Role.Code == "LECTURER"))
+            .Select(p => new { p.UserId, p.User.FullName, p.User.DepartmentId, p.IsAvailable,
+                Expertise = p.SupervisorExpertises.Select(e => e.ExpertiseName).ToArray() }).ToArrayAsync(ct);
+        var supervisors = (await db.SupervisorAssignments.AsNoTracking()
+            .Where(a => a.ProjectId == projectId && a.EndedAt == null)
+            .Select(a => a.SupervisorProfile.UserId).Distinct().ToArrayAsync(ct)).ToHashSet();
+        var rows = (from major in majors
+                    from profile in profiles
+                    where profile.DepartmentId == departments[major.Id]
+                        && profile.Expertise.Any(e => string.Equals(e.Trim(), major.Code, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(e.Trim(), major.Name, StringComparison.OrdinalIgnoreCase))
+                    let reason = supervisors.Contains(profile.UserId) ? "SUPERVISOR_CONFLICT"
+                        : !profile.IsAvailable ? "PROFILE_UNAVAILABLE" : null
+                    select new DefenseCommitteeCandidateDto(profile.UserId, profile.FullName, major.Id, major.Name,
+                        reason is null, reason))
+            .OrderBy(x => x.MajorName).ThenBy(x => x.FullName).ThenBy(x => x.UserId).ToArray();
+        return new PagedResult<DefenseCommitteeCandidateDto>(rows.Skip((page - 1) * pageSize).Take(pageSize).ToArray(),
+            page, pageSize, rows.LongLength);
+    }
     public Task<CommitteeDto> CreateCommittee(long projectId, CreateCommitteeRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
         await transactions.LockProjectAsync(projectId, ct); var access = await Scope(projectId, ct);
@@ -53,7 +92,8 @@ internal sealed partial class AcademicTrackingService
         Write(access, null);
         if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Length > 200 || input.Members is null) throw Invalid("A name and scoped committee members are required.");
         await Qualified(access, input.Members, ct);
-        var row = new DefenseCommittee { ProjectId = projectId, Name = input.Name.Trim(), CreatedBy = Actor, CreatedAt = Now,
+        var version = (await db.Set<DefenseCommittee>().Where(c => c.ProjectId == projectId).MaxAsync(c => (int?)c.Version, ct) ?? 0) + 1;
+        var row = new DefenseCommittee { ProjectId = projectId, Name = input.Name.Trim(), Version = version, CreatedBy = Actor, CreatedAt = Now,
             Members = input.Members.Select(m => new DefenseCommitteeMember { UserId = m.UserId, MajorId = m.MajorId, Role = m.Role }).ToArray() };
         db.Add(row); await db.SaveChangesAsync(ct); await Audit("DEFENSE_COMMITTEE_CREATED", "DEFENSE_COMMITTEE", row.Id, new { projectId, members = input.Members }, ct);
         return CommitteeDto(row);
@@ -77,11 +117,13 @@ internal sealed partial class AcademicTrackingService
         Write(access, null);
         var row = await db.Set<DefenseCommittee>().Include(c => c.Members).SingleAsync(c => c.Id == id, ct);
         CheckToken(row.ConcurrencyToken, input.ConcurrencyToken);
+        if (row.Status != "DRAFT") throw new ConflictException("Only a draft committee can change roles.", "DEFENSE_COMMITTEE_CONFIRMED");
         if (input.Members is null || input.Members.Count != row.Members.Count
             || input.Members.Select(m => (m.UserId, m.MajorId)).Distinct().Count() != input.Members.Count
             || input.Members.Any(m => m.Role is not ("MEMBER" or "CHAIR" or "SECRETARY")
                 || !row.Members.Any(x => x.UserId == m.UserId && x.MajorId == m.MajorId))
-            || input.Members.Count(m => m.Role == "CHAIR") > 1 || input.Members.Count(m => m.Role == "SECRETARY") > 1)
+            || input.Members.Count(m => m.Role == "CHAIR") > 1 || input.Members.Count(m => m.Role == "SECRETARY") > 1
+            || input.Members.Any(m => m.Role == "CHAIR" && input.Members.Any(s => s.Role == "SECRETARY" && s.UserId == m.UserId)))
             throw Invalid("Roles must match the existing committee with at most one chair and one secretary.");
         foreach (var member in row.Members)
             member.Role = input.Members.Single(m => m.UserId == member.UserId && m.MajorId == member.MajorId).Role;
@@ -89,6 +131,36 @@ internal sealed partial class AcademicTrackingService
         await db.SaveChangesAsync(ct);
         await Audit("DEFENSE_COMMITTEE_ROLES_UPDATED", "DEFENSE_COMMITTEE", id,
             new { projectId, members = input.Members }, ct);
+        return CommitteeDto(row);
+    }, ct);
+    public Task<CommitteeDto> ConfirmCommittee(long id, ConfirmCommitteeRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
+    {
+        var projectId = await db.Set<DefenseCommittee>().Where(c => c.Id == id).Select(c => (long?)c.ProjectId).SingleOrDefaultAsync(ct)
+            ?? throw new NotFoundException("DefenseCommittee", id);
+        await transactions.LockProjectAsync(projectId, ct);
+        var access = await Scope(projectId, ct);
+        if (!access.Lead) throw new ForbiddenException();
+        Write(access, null);
+        var row = await db.Set<DefenseCommittee>().Include(c => c.Members).SingleAsync(c => c.Id == id, ct);
+        CheckToken(row.ConcurrencyToken, input.ConcurrencyToken);
+        if (row.Status != "DRAFT") throw new ConflictException("Only a draft committee can be confirmed.", "DEFENSE_COMMITTEE_NOT_DRAFT");
+        if (!await db.Set<FinalSubmission>().AnyAsync(s => s.ProjectId == projectId, ct))
+            throw new ConflictException("Lock the final package before confirming a defense committee.", "FINAL_PACKAGE_REQUIRED");
+        await Qualified(access, row.Members.Select(m => new CommitteeMemberInput(m.UserId, m.MajorId, m.Role)).ToArray(), ct);
+        var current = await db.Set<DefenseCommittee>().SingleOrDefaultAsync(c => c.ProjectId == projectId && c.Status == "CONFIRMED", ct);
+        if (current is not null)
+        {
+            if (await db.Set<EvaluationAssignment>().AnyAsync(a => a.ProjectId == projectId && a.Stage == "COLD" && a.Status == "ACTIVE", ct)
+                || await db.Set<DefenseSession>().AnyAsync(s => s.ProjectId == projectId && s.Status == "SCHEDULED", ct))
+                throw new ConflictException("Resolve active COLD assignments and defense sessions before replacing this committee.", "DEFENSE_COMMITTEE_IN_USE");
+            current.Status = "SUPERSEDED";
+            current.ConcurrencyToken = Guid.NewGuid();
+            await db.SaveChangesAsync(ct);
+        }
+        row.Status = "CONFIRMED";
+        row.ConcurrencyToken = Guid.NewGuid();
+        await db.SaveChangesAsync(ct);
+        await Audit("DEFENSE_COMMITTEE_CONFIRMED", "DEFENSE_COMMITTEE", id, new { projectId, row.Version, members = row.Members.Select(m => new { m.UserId, m.MajorId }) }, ct);
         return CommitteeDto(row);
     }, ct);
     public Task<DefenseSessionDto> ScheduleDefense(long projectId, ScheduleDefenseRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
@@ -100,8 +172,11 @@ internal sealed partial class AcademicTrackingService
             || input.StartAt.Year > 2200 || string.IsNullOrWhiteSpace(input.Room) || input.Room.Trim().Length > 50) throw Invalid("A future 1-second to 8-hour session at whole-second precision and explicit room code are required.");
         var committee = await db.Set<DefenseCommittee>().Include(c => c.Members).SingleOrDefaultAsync(c => c.Id == input.CommitteeId && c.ProjectId == projectId, ct)
             ?? throw new NotFoundException("DefenseCommittee", input.CommitteeId);
+        if (committee.Status != "CONFIRMED") throw new ConflictException("Confirm the effective committee before scheduling defense.", "DEFENSE_COMMITTEE_REQUIRED");
         await OfflineGateEligibility.RequirePreviousGateAndWindow(db, projectId, 4, input.StartAt, input.EndAt, ct);
-        await Qualified(access, committee.Members.Select(m => new CommitteeMemberInput(m.UserId, m.MajorId)).ToArray(), ct);
+        var coldProgress = await cold.ProgressCore(projectId, ct, system: true);
+        if (!coldProgress.Ready) throw new ConflictException("COLD is not ready: " + string.Join(", ", coldProgress.Blockers), "COLD_NOT_READY");
+        await Qualified(access, committee.Members.Select(m => new CommitteeMemberInput(m.UserId, m.MajorId, m.Role)).ToArray(), ct);
         var users = committee.Members.Select(m => m.UserId).Distinct().ToArray();
         var room = input.Room.Trim().ToUpperInvariant(); var start = input.StartAt.UtcDateTime; var end = input.EndAt.UtcDateTime;
         var roomRecord = await db.Set<Room>().SingleOrDefaultAsync(r => r.Code == room, ct);

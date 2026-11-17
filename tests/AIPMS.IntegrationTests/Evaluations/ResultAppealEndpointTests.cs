@@ -268,8 +268,9 @@ public sealed partial class PolicyEvaluationEndpointTests
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         using var marketingStudent = app.CreateAuthenticatedClient(otherStudent);
         var draft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", Input(s, major) with { Components = [
-            new("Common", "COMMON", null, s.RubricId, 50, 50, 1), new("IT", "MAJOR_SPECIFIC", major, s.RubricId, 25, 50, 1),
-            new("Marketing", "MAJOR_SPECIFIC", otherMajor, otherRubric, 25, 50, 1)] }));
+            new("Common", "COMMON", null, s.RubricId, 50, 50, 1, Stage: "ON_GOING"),
+            new("IT", "MAJOR_SPECIFIC", major, s.RubricId, 25, 50, 1, Stage: "ON_GOING"),
+            new("Marketing", "MAJOR_SPECIFIC", otherMajor, otherRubric, 25, 50, 1, Stage: "ON_GOING")] }));
         var scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{draft.Id}/publish", new SchemeTokenRequest(draft.ConcurrencyToken)));
         foreach (var c in scheme.Components)
         {

@@ -188,7 +188,8 @@ public sealed class SupervisorProfileTests
         public SupervisorProfileModel? Profile { get; set; }
         public bool InTransaction { get; private set; }
         public Task<SupervisorAccount?> GetAccountAsync(long id, CancellationToken ct) => Task.FromResult(Accounts.GetValueOrDefault(id));
-        public Task<SupervisorProfileModel?> GetAsync(long id, CancellationToken ct) => Task.FromResult(Profile);
+        public Task<SupervisorProfileModel?> GetAsync(long id, CancellationToken ct,
+            long? authorizedOrganizationId = null, long? authorizedDepartmentId = null) => Task.FromResult(Profile);
         public Task<SupervisorProfileModel?> GetByUserAsync(long id, CancellationToken ct) => Task.FromResult(Profile);
         public Task<PagedResult<SupervisorProfileModel>> SearchAsync(SupervisorSearch search, CancellationToken ct) =>
             Task.FromResult(new PagedResult<SupervisorProfileModel>(Profile is null ? [] : [Profile], search.Page, search.PageSize, Profile is null ? 0 : 1));

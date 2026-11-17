@@ -87,7 +87,7 @@ public sealed partial class EvaluationAssignmentEvidenceEndpointTests(Evaluation
         long? studentId = null,
         string status = "ACTIVE")
     {
-        var s = await database.Seed(lockedSubmission: true);
+        var s = await database.Seed(lockedSubmission: true, confirmedCommittee: true);
         await using var db = database.CreateContext();
         var project = await db.Projects.Include(p => p.Team).Include(p => p.ProjectMajors).SingleAsync(p => p.Id == s.ProjectId);
         var defaultMajor = project.ProjectMajors.Single().MajorId;

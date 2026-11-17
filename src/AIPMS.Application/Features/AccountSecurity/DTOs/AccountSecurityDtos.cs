@@ -99,6 +99,17 @@ public sealed record AuditRecordDto(
     string? DetailsJson,
     DateTime OccurredAt);
 
+public sealed record AccessEventDto(
+    long Id,
+    long? UserId,
+    string? FullName,
+    string? Email,
+    string EventType,
+    string AuthenticationMethod,
+    string Outcome,
+    string? IpAddress,
+    DateTime OccurredAt);
+
 internal static class AccountSecurityDtoMapper
 {
     public static UserAccountDto ToDto(this AccountUser user) =>

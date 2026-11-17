@@ -50,6 +50,7 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
         services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.IStudentRosterService, Services.StudentRosters.StudentRosterService>();
+        services.AddScoped<AIPMS.Application.Common.Security.IAcademicDirectoryScopeReader, Services.AcademicDirectoryScopeReader>();
         services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.IStudentAccountImportService, Services.StudentRosters.StudentAccountImportService>();
         services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.ITeamRosterExportService, Services.StudentRosters.TeamRosterExportService>();
         services.AddOptions<AIPMS.Application.Features.Chat.ChatSettings>().BindConfiguration("Chat").ValidateDataAnnotations().ValidateOnStart();
@@ -73,6 +74,8 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore, AiRunStore>();
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiAssistantService, RecordedAiAssistantService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IAcademicKnowledgeService, AcademicKnowledgeService>();
+        services.AddScoped<AIPMS.Application.Features.DepartmentDocuments.Abstractions.IDepartmentDocumentService, DepartmentDocumentService>();
+        services.AddScoped<AIPMS.Application.Features.Files.Abstractions.IOfficePreviewService, OfficePreviewService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IWorkflowAssistanceService, WorkflowAssistanceService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IDeliverableReviewService, DeliverableReviewService>();
         services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
@@ -232,6 +235,8 @@ public static class DependencyInjection
             string.Equals(sp.GetRequiredService<IConfiguration>()["FileStorage:Provider"], "GoogleDrive", StringComparison.OrdinalIgnoreCase)
                 ? new GoogleDriveFileStorage(sp.GetRequiredService<IConfiguration>())
                 : new LocalFileStorage(sp.GetRequiredService<IConfiguration>()));
+        services.AddScoped<AIPMS.Application.Features.AccountSecurity.Abstractions.IUserAvatarService,
+            Services.AccountSecurity.UserAvatarService>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IProjectRequirementsService, ProjectRequirementsService>();
         services.AddScoped<Application.Features.Disciplines.Abstractions.IDisciplineService, DisciplineService>();
@@ -265,7 +270,9 @@ public static class DependencyInjection
         services.AddOptions<Application.Features.WeeklyAssessments.WeeklyAssessmentSettings>().BindConfiguration("WeeklyAssessment")
             .Validate(s => { if (string.IsNullOrWhiteSpace(s.TimeZoneId)) return false; try { _ = TimeZoneInfo.FindSystemTimeZoneById(s.TimeZoneId); return true; } catch (TimeZoneNotFoundException) { return false; } catch (InvalidTimeZoneException) { return false; } },
                 "WeeklyAssessment:TimeZoneId must name an installed time zone.").ValidateOnStart();
-        services.AddScoped<AIPMS.Application.Features.Cold.Abstractions.IColdSubmissionService, ColdSubmissionService>();
+        services.AddScoped<ColdSubmissionService>();
+        services.AddScoped<AIPMS.Application.Features.Cold.Abstractions.IColdSubmissionService>(p => p.GetRequiredService<ColdSubmissionService>());
+        services.AddScoped<AIPMS.Application.Features.Evaluations.Abstractions.IRubricWorkbookService, RubricWorkbookService>();
         services.AddScoped<Application.Features.Semesters.Abstractions.IPeriodPolicyService, PeriodPolicyService>();
         services.AddScoped<AIPMS.Application.Features.Semesters.Abstractions.IPeriodCalendarService, PeriodCalendarService>();
         services.AddScoped<AIPMS.Application.Features.Semesters.Abstractions.IWorkingDayCalculator, WorkingDayCalculator>();

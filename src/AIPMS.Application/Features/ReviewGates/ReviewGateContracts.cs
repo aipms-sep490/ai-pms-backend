@@ -11,6 +11,9 @@ public sealed record ReviewGateDefinitionInput(string Code, int Sequence, string
 public sealed record SaveReviewGateTemplateRequest(long? ProjectPeriodId, string Code, string Name, string Mode,
     string Major, string Version, string? ConcurrencyToken, IReadOnlyList<ReviewGateDefinitionInput> Gates);
 public sealed record PublishReviewGateTemplateRequest(string? ConcurrencyToken);
+public sealed record GateWorkbookIssue(string Cell, string Message);
+public sealed record GateWorkbookPreview(SaveReviewGateTemplateRequest? Draft,
+    IReadOnlyList<GateWorkbookIssue> Issues, IReadOnlyList<string> Changes);
 public sealed record ReviewGateTemplateDto(string Id, long? ProjectPeriodId, string Code, string Name, string Mode,
     string Major, string Status, string Version, string ConcurrencyToken, int GatesCount,
     IReadOnlyList<ReviewGateDefinitionDto> Gates);

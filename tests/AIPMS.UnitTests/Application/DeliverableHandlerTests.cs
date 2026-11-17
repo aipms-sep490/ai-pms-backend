@@ -151,7 +151,8 @@ public sealed class DeliverableHandlerTests
         public SupervisorAccount Actor { get; set; } = new(10, 1, true, true, [AppRoles.Student]);
         public Task<SupervisorAccount?> GetAccountAsync(long userId, CancellationToken ct) => Task.FromResult<SupervisorAccount?>(Actor);
         public Task<PagedResult<SupervisorProfileModel>> SearchAsync(SupervisorSearch search, CancellationToken ct) => throw new NotSupportedException();
-        public Task<SupervisorProfileModel?> GetAsync(long profileId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<SupervisorProfileModel?> GetAsync(long profileId, CancellationToken ct,
+            long? authorizedOrganizationId = null, long? authorizedDepartmentId = null) => throw new NotSupportedException();
         public Task<SupervisorProfileModel?> GetByUserAsync(long userId, CancellationToken ct) => throw new NotSupportedException();
         public Task<SupervisorProfileModel> UpsertAsync(long userId, string? bio, bool available, DateTime now, CancellationToken ct) => throw new NotSupportedException();
         public Task<SupervisorProfileModel> ReplaceExpertiseAsync(long profileId, IReadOnlyList<SupervisorExpertiseModel> expertise, DateTime now, CancellationToken ct) => throw new NotSupportedException();

@@ -3,7 +3,7 @@ name: Backend CI
 on:
   pull_request:
   push:
-    branches: [main, develop]
+    branches: [main, develop, feat/be-access-audit-20261113]
 
 jobs:
   build-and-test:
@@ -30,6 +30,7 @@ jobs:
           ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=AI_PMS;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"
           AIPMS_TEST_SQL_CONNECTION: "Server=localhost,1433;Database=master;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"
           AIPMS_ACCEPTANCE_OUTPUT: "${{ runner.temp }}/v5-acceptance"
+      - run: docker build -t aipms-api:ci .
       - name: Verify expansion lifecycle evidence
         shell: pwsh
         run: ./scripts/verify-v5-expansion-evidence.ps1 -Directory "${{ runner.temp }}/v5-acceptance"

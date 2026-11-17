@@ -23,12 +23,16 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         string? status,
         int page,
         int pageSize,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long? authorizedOrganizationId = null)
     {
         var query = context.AcademicSemesters
             .AsNoTracking()
             .Include(static s => s.Organization)
             .AsQueryable();
+
+        if (authorizedOrganizationId.HasValue)
+            query = query.Where(s => s.OrganizationId == authorizedOrganizationId.Value);
 
         if (organizationId.HasValue)
         {
@@ -68,12 +72,14 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
     public async Task<AcademicSemesterModel?> GetSemesterAsync(
         long semesterId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long? authorizedOrganizationId = null)
     {
         var entity = await context.AcademicSemesters
             .AsNoTracking()
             .Include(static s => s.Organization)
-            .SingleOrDefaultAsync(s => s.Id == semesterId, cancellationToken);
+            .SingleOrDefaultAsync(s => s.Id == semesterId
+                && (!authorizedOrganizationId.HasValue || s.OrganizationId == authorizedOrganizationId.Value), cancellationToken);
 
         return entity?.ToApplication(entity.Organization.Code, entity.Organization.Name);
     }
@@ -308,12 +314,16 @@ internal sealed class SemesterRepository(AipmsDbContext context)
         string? periodType,
         int page,
         int pageSize,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long? authorizedOrganizationId = null)
     {
         var query = context.ProjectPeriods
             .AsNoTracking()
             .Include(static p => p.AcademicSemester)
             .AsQueryable();
+
+        if (authorizedOrganizationId.HasValue)
+            query = query.Where(p => p.AcademicSemester.OrganizationId == authorizedOrganizationId.Value);
 
         if (semesterId.HasValue)
         {
@@ -357,12 +367,14 @@ internal sealed class SemesterRepository(AipmsDbContext context)
 
     public async Task<ProjectPeriodModel?> GetProjectPeriodAsync(
         long periodId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long? authorizedOrganizationId = null)
     {
         var entity = await context.ProjectPeriods
             .AsNoTracking()
             .Include(static p => p.AcademicSemester)
-            .SingleOrDefaultAsync(p => p.Id == periodId, cancellationToken);
+            .SingleOrDefaultAsync(p => p.Id == periodId
+                && (!authorizedOrganizationId.HasValue || p.AcademicSemester.OrganizationId == authorizedOrganizationId.Value), cancellationToken);
 
         return entity?.ToApplication();
     }
