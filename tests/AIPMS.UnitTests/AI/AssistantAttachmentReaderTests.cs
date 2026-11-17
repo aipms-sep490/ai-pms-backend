@@ -36,6 +36,27 @@ public sealed class AssistantAttachmentReaderTests
     }
 
     [Fact]
+    public void AcceptsConfiguredFileAndRequestBoundaries()
+    {
+        static byte[] Png(int length)
+        {
+            var bytes = new byte[length];
+            new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }.CopyTo(bytes, 0);
+            return bytes;
+        }
+
+        var files = new[]
+        {
+            new AssistantUpload("first.png", Png(AssistantAttachmentReader.MaxFileBytes)),
+            new AssistantUpload("second.png", Png(AssistantAttachmentReader.MaxFileBytes))
+        };
+
+        var result = AssistantAttachmentReader.Read(files, default);
+        Assert.Equal(2, result.Count);
+        Assert.All(result, attachment => Assert.Equal("image/png", attachment.MediaType));
+    }
+
+    [Fact]
     public void ExtractsDocxParagraphsWithoutFollowingExternalEntities()
     {
         byte[] Docx(string xml)

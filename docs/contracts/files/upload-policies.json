@@ -10,6 +10,22 @@
     "status": 200,
     "body": [
       {
+        "parentType": "USER_AVATAR",
+        "maxBytes": 2097152,
+        "maxBytesLabel": "2 MiB",
+        "allowedMimeTypes": [
+          "image/png",
+          "image/jpeg"
+        ],
+        "allowedExtensions": [
+          ".png",
+          ".jpg",
+          ".jpeg"
+        ],
+        "maxFilesPerRequest": 1,
+        "requiresVersionAnchor": true
+      },
+      {
         "parentType": "REVIEW_GATE_EVIDENCE",
         "maxBytes": 20971520,
         "maxBytesLabel": "20 MiB",
@@ -156,8 +172,8 @@
       },
       {
         "parentType": "ACADEMIC_ASSISTANT_ASK",
-        "maxBytes": 9437184,
-        "maxBytesLabel": "9 MiB",
+        "maxBytes": 10485760,
+        "maxBytesLabel": "10 MiB/tệp; 20 MiB/tổng",
         "allowedMimeTypes": [
           "application/pdf",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -175,8 +191,8 @@
       },
       {
         "parentType": "ACADEMIC_ASSISTANT_STREAM",
-        "maxBytes": 9437184,
-        "maxBytesLabel": "9 MiB",
+        "maxBytes": 10485760,
+        "maxBytesLabel": "10 MiB/tệp; 20 MiB/tổng",
         "allowedMimeTypes": [
           "application/pdf",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

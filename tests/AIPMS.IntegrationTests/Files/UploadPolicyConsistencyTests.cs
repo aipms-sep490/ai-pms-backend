@@ -34,12 +34,12 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         Assert.NotNull(policies);
         Assert.Equal(12, policies.Count);
 
-        // Verify the avatar limit and the existing four file size tiers.
+        // Verify the avatar limit and the four current file size tiers.
         var distinctLimits = policies.Select(p => p.MaxBytes).Distinct().OrderBy(b => b).ToArray();
         Assert.Equal(5, distinctLimits.Length);
         Assert.Equal(UploadPolicies.UserAvatarLimit, distinctLimits[0]); // 2 MiB
         Assert.Equal(UploadPolicies.Tier6MiB, distinctLimits[1]);   // 6 MiB
-        Assert.Equal(UploadPolicies.Tier9MiB, distinctLimits[2]);   // 9 MiB
+        Assert.Equal(UploadPolicies.Tier10MiB, distinctLimits[2]);  // 10 MiB
         Assert.Equal(UploadPolicies.Tier11MiB, distinctLimits[3]); // 11 MiB
         Assert.Equal(UploadPolicies.EffectiveFileLimit, distinctLimits[4]); // 20 MiB
 
@@ -62,8 +62,8 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     [InlineData("COLD_SUBMISSION", 11 * 1024 * 1024, "11 MiB")]
     [InlineData("RESULT_APPEAL", 11 * 1024 * 1024, "11 MiB")]
     [InlineData("CHAT_ATTACHMENT", 11 * 1024 * 1024, "11 MiB")]
-    [InlineData("ACADEMIC_ASSISTANT_ASK", 9 * 1024 * 1024, "9 MiB")]
-    [InlineData("ACADEMIC_ASSISTANT_STREAM", 9 * 1024 * 1024, "9 MiB")]
+    [InlineData("ACADEMIC_ASSISTANT_ASK", 10 * 1024 * 1024, "10 MiB/tệp; 20 MiB/tổng")]
+    [InlineData("ACADEMIC_ASSISTANT_STREAM", 10 * 1024 * 1024, "10 MiB/tệp; 20 MiB/tổng")]
     [InlineData("STUDENT_ACCOUNT_IMPORT", 6 * 1024 * 1024, "6 MiB")]
     [InlineData("STUDENT_CURRICULUM", 6 * 1024 * 1024, "6 MiB")]
     [InlineData("USER_AVATAR", 2 * 1024 * 1024, "2 MiB")]
@@ -185,13 +185,13 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             Assert.Contains(limit, validConstants);
         }
 
-        // Five file endpoints allow multipart overhead, ten use their published tiers,
-        // and the avatar route reserves 1 MiB for multipart overhead.
+        // Seven endpoints allow multipart overhead, eight match a published file tier,
+        // and the avatar route reserves 1 MiB beyond its 2 MiB file limit.
         var multipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartTransportCeiling);
-        Assert.Equal(5, multipartCount);
+        Assert.Equal(7, multipartCount);
 
         var directMatchCount = endpointsWithLimit.Count(e => UploadPolicies.All.Any(p => p.MaxBytes == e.Limit));
-        Assert.Equal(10, directMatchCount);
+        Assert.Equal(8, directMatchCount);
         Assert.Single(endpointsWithLimit, e => e.Limit == UploadPolicies.UserAvatarTransportLimit);
     }
 
