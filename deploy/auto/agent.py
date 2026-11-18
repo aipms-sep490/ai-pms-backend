@@ -319,6 +319,8 @@ class Agent:
                     if dry_run:
                         detail["status"] = "eligible_dry_run"
                     else:
+                        if shutil.disk_usage(self.root).free < 5 * 1024 ** 3:
+                            raise Blocked("Less than 5 GiB free; rotate old release artifacts before deploying")
                         attempts = self.root / (name + "-attempt.json")
                         attempt = json.loads(attempts.read_text()) if attempts.exists() else {}
                         if attempt.get("revision") == revision and attempt.get("failed"):
@@ -330,9 +332,14 @@ class Agent:
                         # Recheck the current branch and CI after the potentially long build.
                         if self.mirror(target)[1] != revision or not self.ci(target, revision):
                             raise Blocked("Candidate was superseded or CI changed; skip stale deployment")
+                        counterpart = frontend if name == "api" else backend
+                        counterpart_revision = fe_revision if name == "api" else be_revision
+                        if self.current(counterpart) != counterpart_revision:
+                            raise Blocked("Counterpart changed during build; recheck release compatibility")
                         self.deploy(target, revision, image, release, previous)
                         write_json(attempts, {"revision": revision, "failed": False, "completedAt": now()})
                         detail["status"] = "deployed"
+                        detail["running"] = revision
                 status["services"][name] = detail
             except Exception as error:
                 status["services"][name] = {"status": "blocked", "candidate": revision,

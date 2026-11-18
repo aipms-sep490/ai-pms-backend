@@ -29,6 +29,8 @@ The installer freezes the current Compose hashes, 25 FE flags, API URL and uploa
 
 Enable user lingering if this machine should run the timer without an open WSL shell (`loginctl enable-linger khaine161`, administrator operation). Windows must be awake, WSL/Docker/tunnel must run and internet must be available. This is the same availability requirement as the current website, not an external always-on server.
 
+On the current host, user lingering is enabled and the Windows scheduled task `AIPMS-AutoDeploy-WSL` starts the timer at login without a visible terminal. It uses `C:\Users\khaih\AppData\Local\AIPMS\Start-AutoDeploy.ps1`. It does not change Windows sleep settings or run before user login.
+
 ## Inspect, pause and resume
 
 ```bash
@@ -45,10 +47,14 @@ After resolving a failed build, inspect `api-attempt.json`/`frontend-attempt.jso
 
 Backups and images are retained rather than automatically pruned. Monitor disk capacity and rotate verified old backups/images manually. The agent does not restore SQL on application rollback, because it never applies schema/data migrations. Every accepted version must remain compatible with the current database and Drive metadata.
 
+New builds stop when less than 5 GiB remains on the deployment state filesystem. Build source and dependency directories are removed only inside the agent's own disposable builds directory.
+
 ## Validation
 
 ```bash
 python3 -m unittest discover -s deploy/auto -p test_agent.py -v
+# Explicit opt-in: isolated Docker containers only, no production SQL or services.
+python3 deploy/auto/test_runtime_rollback.py
 ```
 
 Tests cover exact successful-CI selection, stale reruns, pending checks, migration guards, flag/API preservation, environment preservation, failed-health rollback and interrupted-transaction recovery. Runtime verification is recorded separately: dry-run GitHub selection, systemd execution, real image build, actual replacement, metadata/health and rollback evidence. Unit fixtures are not browser UAT.
