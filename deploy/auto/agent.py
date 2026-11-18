@@ -170,7 +170,7 @@ class Agent:
         path.mkdir(mode=0o700)
         archive = self.git(mirror, "archive", revision)
         # Git emits only tracked source. tar rejects unsafe paths by default.
-        result = subprocess.run(["tar", "-xf", "-", "-C", str(path)], input=archive, capture_output=True)
+        result = subprocess.run(["tar", "--no-same-owner", "--same-permissions", "-xf", "-", "-C", str(path)], input=archive, capture_output=True)
         if result.returncode:
             raise Blocked("Source extraction failed")
         return path

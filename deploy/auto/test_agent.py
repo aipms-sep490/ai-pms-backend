@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 
 spec = importlib.util.spec_from_file_location("deploy_agent", Path(__file__).with_name("agent.py"))
@@ -121,6 +122,27 @@ class ReleaseGuards(unittest.TestCase):
             self.assertFalse(instance.ci(target, SHA))
             check.update(status="completed", conclusion="failure")
             self.assertFalse(instance.ci(target, SHA))
+
+    def test_source_archive_keeps_non_root_runtime_files_readable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repository"
+            repo.mkdir()
+            subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+            (repo / "nginx.conf").write_text("events {}")
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                            "commit", "-m", "fixture"], check=True, capture_output=True)
+            revision = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"]).decode().strip()
+            instance = agent.Agent({"stateDirectory": str(root / "state")})
+            previous_umask = agent.os.umask(0o077)
+            try:
+                workspace = instance.workspace({"service": "frontend"}, repo / ".git", revision)
+            finally:
+                agent.os.umask(previous_umask)
+            mode = (workspace / "nginx.conf").stat().st_mode & 0o777
+            self.assertEqual(mode & 0o044, 0o044)
+            self.assertEqual(mode & 0o002, 0)
 
 
 if __name__ == "__main__":
