@@ -7,4 +7,6 @@ public static class MeetingGovernanceRules
     public static bool IsActionStatus(string status) => status is "OPEN" or "IN_PROGRESS" or "DONE" or "CANCELLED";
     public static bool CanTransitionAction(string before, string after) => IsActionStatus(after)
         && (before == after || before is "OPEN" or "IN_PROGRESS");
+    public static bool IsDueAtValidForNewAction(DateTime? dueAt, DateTime nowUtc) =>
+        !dueAt.HasValue || dueAt.Value > nowUtc;
 }

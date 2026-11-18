@@ -98,6 +98,11 @@ public sealed class UpdateProjectActionItemCommandHandler(
         }
 
         var now = clock.GetUtcNow().UtcDateTime;
+        if (req.DueAt != existing.DueAt && !AIPMS.Domain.Meetings.MeetingGovernanceRules.IsDueAtValidForNewAction(req.DueAt, now))
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["dueAt"] = ["Due date must be in the future."]
+            });
         return await repository.UpdateDetailsAsync(
             id,
             req.Title,

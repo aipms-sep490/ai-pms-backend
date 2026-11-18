@@ -25,4 +25,16 @@ public sealed class MeetingGovernanceRulesTests
     [InlineData("OPEN", "UNKNOWN", false)]
     public void Terminal_actions_cannot_be_reopened(string before, string after, bool allowed)
         => Assert.Equal(allowed, MeetingGovernanceRules.CanTransitionAction(before, after));
+
+    [Fact]
+    public void Action_due_at_validation_rejects_past_and_allows_future()
+    {
+        var now = new DateTime(2026, 11, 18, 12, 0, 0, DateTimeKind.Utc);
+
+        Assert.True(MeetingGovernanceRules.IsDueAtValidForNewAction(null, now));
+        Assert.True(MeetingGovernanceRules.IsDueAtValidForNewAction(now.AddMinutes(1), now));
+        Assert.False(MeetingGovernanceRules.IsDueAtValidForNewAction(now, now));
+        Assert.False(MeetingGovernanceRules.IsDueAtValidForNewAction(now.AddMinutes(-1), now));
+        Assert.False(MeetingGovernanceRules.IsDueAtValidForNewAction(now.AddDays(-2), now));
+    }
 }
