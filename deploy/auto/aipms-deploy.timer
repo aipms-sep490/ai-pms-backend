@@ -1,0 +1,12 @@
+[Unit]
+Description=Check AIPMS develop for tested releases
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+AccuracySec=15s
+Persistent=true
+Unit=aipms-deploy.service
+
+[Install]
+WantedBy=timers.target
