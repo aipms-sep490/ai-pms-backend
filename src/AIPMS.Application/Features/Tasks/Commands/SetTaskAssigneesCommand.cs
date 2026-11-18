@@ -61,6 +61,11 @@ public sealed class SetTaskAssigneesCommandHandler(
         }
 
         // Validate all assignees belong to the project team
+        if (task.Status is "IN_REVIEW" or "DONE" or "CANCELLED")
+        {
+            throw new ConflictException("Không thể thay đổi phân công khi công việc đang chờ nghiệm thu, đã hoàn thành hoặc đã hủy. Hãy mở lại công việc theo quyền được cấp trước khi điều chỉnh.", WorkflowErrorCodes.TaskAssigneesLocked);
+        }
+
         foreach (var userId in request.AssigneeUserIds)
         {
             if (!await repository.IsUserActiveTeamMemberAsync(projectId, userId, cancellationToken))
@@ -85,7 +90,9 @@ public sealed class SetTaskAssigneesCommandHandler(
                 {
                     ["projectId"] = projectId,
                     ["milestoneId"] = task.MilestoneId,
-                    ["assigneeCount"] = request.AssigneeUserIds.Count
+                    ["assigneeCount"] = request.AssigneeUserIds.Count,
+                    ["oldAssigneeUserIds"] = task.Assignees.Select(x => x.UserId).Order().ToArray(),
+                    ["newAssigneeUserIds"] = request.AssigneeUserIds.Distinct().Order().ToArray()
                 }),
             cancellationToken);
 

@@ -4,7 +4,10 @@ public sealed record DeliverableDto(long Id, long ProjectId, long? MilestoneId, 
     string? Description, string? DeliverableType, DateTime? DueAt, string Status, long CreatedBy, int LatestVersion,
     string? EvidenceScope = null, long? TargetMajorId = null, long? TargetStudentId = null);
 public sealed record ProjectFileDto(long Id, string ParentType, long ParentId, string FileName,
-    string ContentType, long SizeBytes, string Sha256, long UploadedBy, DateTime CreatedAt);
+    string ContentType, long SizeBytes, string Sha256, long UploadedBy, DateTime CreatedAt)
+{
+    public bool CanDelete { get; init; }
+}
 public sealed record DeliverableVersionDto(long Id, long DeliverableId, int VersionNumber, long SubmittedBy,
     string? Note, string Status, DateTime SubmittedAt, IReadOnlyList<ProjectFileDto> Files);
 public sealed record DeliverableFeedbackDto(long Id, long ProjectId, long VersionId, long AssignmentId,

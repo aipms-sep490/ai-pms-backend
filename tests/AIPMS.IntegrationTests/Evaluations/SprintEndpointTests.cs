@@ -167,7 +167,7 @@ public sealed class SprintEndpointTests(EvaluationDraftDatabaseFixture database)
         var chart = await Body<SprintBurndownDto>(await leader.GetAsync(Url(x.S.ProjectId) + $"/{s.Id}/burndown"));
         Assert.Equal(new[] { 3, 8, 8, 0 }, chart.Points.Select(p => p.RemainingPoints));
         Assert.Equal(Now, chart.HistoryStartsAt); Assert.Equal(Now.AddDays(3), chart.Points.Last().At);
-        clock.At = Now.AddDays(4); await Body<TaskDto>(await leader.PutAsJsonAsync($"/api/v1/tasks/{t.Id}/status", new UpdateTaskStatusCommand(t.Id, "IN_PROGRESS", null, t.ConcurrencyToken)));
+        clock.At = Now.AddDays(4); await Body<TaskDto>(await leader.PutAsJsonAsync($"/api/v1/tasks/{t.Id}/status", new UpdateTaskStatusCommand(t.Id, "IN_PROGRESS", "Post-sprint review requires additional work", t.ConcurrencyToken)));
         var historical = await Body<SprintBurndownDto>(await leader.GetAsync(Url(x.S.ProjectId) + $"/{s.Id}/burndown"));
         Assert.Equal(chart.Points, historical.Points);
         Assert.Equal(HttpStatusCode.Conflict, (await leader.DeleteAsync($"/api/v1/tasks/{t.Id}")).StatusCode);
