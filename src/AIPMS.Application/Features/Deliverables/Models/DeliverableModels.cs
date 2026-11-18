@@ -7,7 +7,9 @@ public sealed record DeliverableProject(long Id, long SemesterId, string Status,
 public sealed record FileParent(string Type, long Id, long ProjectId, string Status, long OwnerId);
 public sealed record StoredProjectFile(ProjectFileDto Dto, string StorageKey, long ProjectId, int ParentCount);
 public sealed record UploadContent(string FileName, string ContentType, long Length, Stream Content);
-public sealed record ValidatedUpload(string FileName, string ContentType, byte[] Bytes, string Sha256);
+public record UploadMetadata(string FileName, string ContentType, long Length, string Sha256);
+public sealed record ValidatedUpload(string FileName, string ContentType, byte[] Bytes, string Sha256)
+    : UploadMetadata(FileName, ContentType, Bytes.LongLength, Sha256);
 public sealed record DeliverableSearch(long ProjectId, string? Status, string? Search, int Page, int PageSize,
     long? MilestoneId = null, string? DeliverableType = null);
 public sealed record FileSearch(long ProjectId, string? Search, int Page, int PageSize,

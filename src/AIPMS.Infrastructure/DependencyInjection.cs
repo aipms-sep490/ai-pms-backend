@@ -229,6 +229,10 @@ public static class DependencyInjection
         services.AddScoped<ISupervisorRequestRepository, SupervisorRequestRepository>();
         services.AddScoped<ISupervisorAssignmentRepository, SupervisorAssignmentRepository>();
         services.AddScoped<IDeliverableRepository, DeliverableRepository>();
+        services.AddSingleton<ProjectFileUploadSessionStore>();
+        services.AddSingleton<AIPMS.Application.Features.Files.Abstractions.IProjectFileUploadSessions>(sp => sp.GetRequiredService<ProjectFileUploadSessionStore>());
+        services.AddScoped<ProjectFileUploadProcessor>();
+        services.AddHostedService<ProjectFileUploadWorker>();
         services.AddScoped<IFinalSubmissionDraftRepository, FinalSubmissionDraftRepository>();
         services.AddScoped<IFinalSubmissionRepository, FinalSubmissionRepository>();
         services.AddSingleton<IFileStorage>(sp =>

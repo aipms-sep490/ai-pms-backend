@@ -34,14 +34,15 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         Assert.NotNull(policies);
         Assert.Equal(12, policies.Count);
 
-        // Verify the avatar limit and the four current file size tiers.
+        // Verify existing tiers remain unchanged and project files alone advertise resumable 500 MiB.
         var distinctLimits = policies.Select(p => p.MaxBytes).Distinct().OrderBy(b => b).ToArray();
-        Assert.Equal(5, distinctLimits.Length);
+        Assert.Equal(6, distinctLimits.Length);
         Assert.Equal(UploadPolicies.UserAvatarLimit, distinctLimits[0]); // 2 MiB
         Assert.Equal(UploadPolicies.Tier6MiB, distinctLimits[1]);   // 6 MiB
         Assert.Equal(UploadPolicies.Tier10MiB, distinctLimits[2]);  // 10 MiB
         Assert.Equal(UploadPolicies.Tier11MiB, distinctLimits[3]); // 11 MiB
         Assert.Equal(UploadPolicies.EffectiveFileLimit, distinctLimits[4]); // 20 MiB
+        Assert.Equal(UploadPolicies.ProjectFileLimit, distinctLimits[5]); // 500 MiB, chunked
 
         foreach (var policy in policies)
         {
@@ -57,7 +58,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     [Theory]
     [InlineData("REVIEW_GATE_EVIDENCE", 20 * 1024 * 1024, "20 MiB")]
     [InlineData("DELIVERABLE_VERSION", 20 * 1024 * 1024, "20 MiB")]
-    [InlineData("PROJECT_FILE", 20 * 1024 * 1024, "20 MiB")]
+    [InlineData("PROJECT_FILE", 500 * 1024 * 1024, "500 MiB")]
     [InlineData("STUDENT_QUALIFICATION", 20 * 1024 * 1024, "20 MiB")]
     [InlineData("COLD_SUBMISSION", 11 * 1024 * 1024, "11 MiB")]
     [InlineData("RESULT_APPEAL", 11 * 1024 * 1024, "11 MiB")]
@@ -107,8 +108,24 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     public void PublishedMaxBytes_NeverExceeds_EffectiveValidatorCeiling()
     {
         foreach (var policy in UploadPolicies.All)
-            Assert.True(policy.MaxBytes <= UploadValidator.MaxBytes,
-                $"{policy.ParentType} công bố {policy.MaxBytes} nhưng UploadValidator chặn ở {UploadValidator.MaxBytes}.");
+        {
+            if (policy.ParentType == "PROJECT_FILE")
+            {
+                Assert.Equal(500L * 1024 * 1024, policy.MaxBytes);
+                Assert.Equal(UploadPolicies.ProjectFileChunkSize, policy.ChunkSizeBytes);
+                Assert.Equal(UploadValidator.MaxBytes, policy.SingleRequestMaxBytes);
+                Assert.Equal(UploadPolicies.ProjectFileChunkSize,
+                    ((IRequestSizeLimitMetadata)typeof(ProjectFileUploadSessionsController).GetMethod("Append")!
+                        .GetCustomAttribute<RequestSizeLimitAttribute>()!).MaxRequestBodySize);
+            }
+            else
+            {
+                Assert.True(policy.MaxBytes <= UploadValidator.MaxBytes,
+                    $"{policy.ParentType} công bố {policy.MaxBytes} nhưng UploadValidator chặn ở {UploadValidator.MaxBytes}.");
+                Assert.Null(policy.ChunkSizeBytes);
+                Assert.Null(policy.SingleRequestMaxBytes);
+            }
+        }
     }
 
     [Fact]
@@ -132,10 +149,15 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             }
         }
 
-        Assert.Equal(16, endpointsWithLimit.Count);
+        Assert.Equal(18, endpointsWithLimit.Count);
 
         foreach (var (method, limit) in endpointsWithLimit)
         {
+            if (method.DeclaringType == typeof(ProjectFileUploadSessionsController))
+            {
+                Assert.Equal(method.Name == "Create" ? 16 * 1024 : UploadPolicies.ProjectFileChunkSize, limit);
+                continue;
+            }
             Assert.True(limit >= UploadPolicies.UserAvatarTransportLimit);
             Assert.True(limit == UploadPolicies.MultipartTransportCeiling || limit <= UploadPolicies.Tier11MiB);
         }
@@ -164,7 +186,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         }
 
         // All file, workbook, and preview endpoints must have [RequestSizeLimit].
-        Assert.Equal(16, endpointsWithLimit.Count);
+        Assert.Equal(18, endpointsWithLimit.Count);
 
         // Every endpoint's limit must match a recognized constant in UploadPolicies
         var validConstants = new[]
@@ -177,7 +199,9 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             UploadPolicies.ChatAttachmentLimit,
             UploadPolicies.ColdSubmissionLimit,
             UploadPolicies.ResultAppealLimit,
-            UploadPolicies.MultipartTransportCeiling
+            UploadPolicies.MultipartTransportCeiling,
+            UploadPolicies.ProjectFileChunkSize,
+            16 * 1024
         };
 
         foreach (var (method, limit) in endpointsWithLimit)
@@ -193,6 +217,10 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         var directMatchCount = endpointsWithLimit.Count(e => UploadPolicies.All.Any(p => p.MaxBytes == e.Limit));
         Assert.Equal(8, directMatchCount);
         Assert.Single(endpointsWithLimit, e => e.Limit == UploadPolicies.UserAvatarTransportLimit);
+        Assert.Single(endpointsWithLimit, e => e.Limit == UploadPolicies.ProjectFileChunkSize
+            && e.Method.DeclaringType == typeof(ProjectFileUploadSessionsController) && e.Method.Name == "Append");
+        Assert.Single(endpointsWithLimit, e => e.Limit == 16 * 1024
+            && e.Method.DeclaringType == typeof(ProjectFileUploadSessionsController) && e.Method.Name == "Create");
     }
 
     [Fact]

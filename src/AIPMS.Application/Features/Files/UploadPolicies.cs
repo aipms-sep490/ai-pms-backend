@@ -9,7 +9,9 @@ public sealed record UploadPolicyDto(
     IReadOnlyList<string> AllowedMimeTypes,
     IReadOnlyList<string> AllowedExtensions,
     int MaxFilesPerRequest,
-    bool RequiresVersionAnchor
+    bool RequiresVersionAnchor,
+    long? ChunkSizeBytes = null,
+    long? SingleRequestMaxBytes = null
 );
 
 public static class UploadPolicies
@@ -45,7 +47,8 @@ public static class UploadPolicies
     public const long ColdSubmissionLimit = Tier11MiB;
     public const long ResultAppealLimit = Tier11MiB;
     public const long DeliverableVersionLimit = EffectiveFileLimit;
-    public const long ProjectFileLimit = EffectiveFileLimit;
+    public const long ProjectFileLimit = 500L * 1024 * 1024;
+    public const long ProjectFileChunkSize = 4L * 1024 * 1024;
     public const long ReviewGateEvidenceLimit = EffectiveFileLimit;
     public const long StudentQualificationLimit = EffectiveFileLimit;
     public const long UserAvatarLimit = 2 * 1024 * 1024;
@@ -84,11 +87,13 @@ public static class UploadPolicies
         new UploadPolicyDto(
             ParentType: "PROJECT_FILE",
             MaxBytes: ProjectFileLimit,
-            MaxBytesLabel: "20 MiB",
+            MaxBytesLabel: "500 MiB",
             AllowedMimeTypes: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/zip", "image/png", "image/jpeg"],
             AllowedExtensions: [".pdf", ".docx", ".zip", ".png", ".jpg", ".jpeg"],
             MaxFilesPerRequest: 1,
-            RequiresVersionAnchor: false
+            RequiresVersionAnchor: false,
+            ChunkSizeBytes: ProjectFileChunkSize,
+            SingleRequestMaxBytes: EffectiveFileLimit
         ),
         new UploadPolicyDto(
             ParentType: "STUDENT_QUALIFICATION",

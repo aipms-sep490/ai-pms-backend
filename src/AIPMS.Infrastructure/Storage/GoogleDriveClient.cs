@@ -21,7 +21,8 @@ internal sealed class GoogleDriveClient : IGoogleDriveClient, IDisposable
         });
         var credential = new UserCredential(flow, "aipms-drive", new Google.Apis.Auth.OAuth2.Responses.TokenResponse { RefreshToken = settings.RefreshToken });
         drive = new DriveService(new BaseClientService.Initializer { HttpClientInitializer = credential, ApplicationName = "AI-PMS" });
-        drive.HttpClient.Timeout = TimeSpan.FromSeconds(settings.TimeoutSeconds);
+        // Each storage operation supplies its own short metadata or longer transfer deadline.
+        drive.HttpClient.Timeout = TimeSpan.FromSeconds(Math.Max(settings.TimeoutSeconds, settings.TransferTimeoutSeconds));
     }
     public async Task<IReadOnlyList<string>> FindAsync(string folderId, string key, CancellationToken ct)
     {
@@ -43,7 +44,9 @@ internal sealed class GoogleDriveClient : IGoogleDriveClient, IDisposable
     }
     public async Task DownloadAsync(string id, Stream output, CancellationToken ct)
     {
-        var result = await drive.Files.Get(id).DownloadAsync(output, ct);
+        var request = drive.Files.Get(id);
+        request.MediaDownloader.ChunkSize = 256 * 1024;
+        var result = await request.DownloadAsync(output, ct);
         if (result.Status != Google.Apis.Download.DownloadStatus.Completed)
             throw result.Exception ?? new IOException("Drive download did not complete.");
     }
