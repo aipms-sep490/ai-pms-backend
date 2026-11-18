@@ -204,7 +204,8 @@ public sealed class UpdateProjectPeriodCommandHandler(
     ISemesterRepository repository,
     SemesterAccessService accessService,
     IAuditTrail auditTrail,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    AIPMS.Application.Features.Projects.Abstractions.IExecutionWindowService? executionWindowService = null)
     : IRequestHandler<UpdateProjectPeriodCommand, ProjectPeriodDto>
 {
     public async Task<ProjectPeriodDto> Handle(
@@ -242,6 +243,16 @@ public sealed class UpdateProjectPeriodCommandHandler(
         {
             throw new ConflictException(
                 $"Project Period window ({request.StartAt:yyyy-MM-dd} - {request.EndAt:yyyy-MM-dd}) must fall within parent Academic Semester window ({semester.StartDate:yyyy-MM-dd} - {semester.EndDate:yyyy-MM-dd}).");
+        }
+
+        // If modifying an EXECUTION period, validate impact on existing milestones and tasks (BUG A3, A4)
+        if (executionWindowService is not null && (existing.PeriodType == "EXECUTION" || request.PeriodType == "EXECUTION"))
+        {
+            await executionWindowService.ValidateExecutionWindowUpdateImpactAsync(
+                request.PeriodId,
+                request.StartAt,
+                request.EndAt,
+                cancellationToken);
         }
 
         var code = request.Code.Trim().ToUpperInvariant();

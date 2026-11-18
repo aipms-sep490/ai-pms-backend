@@ -55,8 +55,21 @@ public sealed class MilestonesAndTasksEndpointTests : IClassFixture<MilestonesAn
 
                 services.RemoveAll<IProjectAccessService>();
                 services.AddSingleton<IProjectAccessService, AllowAllProjectAccessService>();
+
+                services.RemoveAll<AIPMS.Application.Features.Projects.Abstractions.IExecutionWindowService>();
+                services.AddSingleton<AIPMS.Application.Features.Projects.Abstractions.IExecutionWindowService, NoOpExecutionWindowService>();
             });
         }
+    }
+
+    private sealed class NoOpExecutionWindowService : AIPMS.Application.Features.Projects.Abstractions.IExecutionWindowService
+    {
+        public Task<AIPMS.Application.Features.Projects.Abstractions.ExecutionWindowInfo?> GetExecutionWindowAsync(long projectId, CancellationToken ct = default) =>
+            Task.FromResult<AIPMS.Application.Features.Projects.Abstractions.ExecutionWindowInfo?>(new AIPMS.Application.Features.Projects.Abstractions.ExecutionWindowInfo(1, "EXEC", "Execution", DateTime.UtcNow.AddMonths(-1), DateTime.UtcNow.AddMonths(1)));
+        public Task ValidateTaskDatesAsync(long projectId, long milestoneId, DateTime? startAt, DateTime? dueAt, CancellationToken ct = default) => Task.CompletedTask;
+        public Task ValidateMilestoneDatesAsync(long projectId, DateOnly? startDate, DateOnly? dueDate, long? excludeMilestoneId = null, CancellationToken ct = default) => Task.CompletedTask;
+        public Task ValidateMilestoneDateUpdateImpactAsync(long milestoneId, DateOnly? newStartDate, DateOnly? newDueDate, CancellationToken ct = default) => Task.CompletedTask;
+        public Task ValidateExecutionWindowUpdateImpactAsync(long projectPeriodId, DateTime newStartAt, DateTime newEndAt, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private readonly MilestoneWebApplicationFactory _factory;
@@ -491,6 +504,12 @@ public class TestMilestoneRepo : IMilestoneRepository
     public Task<bool> HasTasksAsync(long milestoneId, CancellationToken cancellationToken) => Task.FromResult(false);
 
     public Task<bool> IsProjectLeaderOrSupervisorAsync(long projectId, long userId, CancellationToken cancellationToken) => Task.FromResult(true);
+
+    public Task<bool> MilestoneBelongsToProjectAsync(long milestoneId, long projectId, CancellationToken cancellationToken) => Task.FromResult(true);
+    public Task AcquireProjectDependencyLockAsync(long projectId, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task AddDependencyAsync(long milestoneId, long dependsOnMilestoneId, string dependencyType, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task RemoveDependencyAsync(long milestoneId, long dependsOnMilestoneId, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task<IReadOnlyList<long>> GetDependsOnMilestoneIdsAsync(long milestoneId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<long>>(Array.Empty<long>());
 
     public Task<IReadOnlyList<MilestoneProgressDto>> GetMilestoneProgressAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<MilestoneProgressDto>>(Array.Empty<MilestoneProgressDto>());

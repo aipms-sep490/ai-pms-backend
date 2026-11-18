@@ -48,6 +48,7 @@ public interface IReportingCycleRepository
         string? latePolicy,
         Guid? expectedToken,
         DateTime now,
+        string? reportType = null,
         Func<ReportingCycleDto, Task>? onUpdated = null,
         CancellationToken cancellationToken = default);
 

@@ -25,6 +25,17 @@ public static class WorkflowErrorCodes
     public const string MilestoneNotInProject = "MILESTONE_NOT_IN_PROJECT";
     public const string DeliverableHasSubmittedHistory = "DELIVERABLE_HAS_SUBMITTED_HISTORY";
 
+    // Milestones, Tasks & Execution Window
+    public const string TaskOutsideMilestone = "TASK_OUTSIDE_MILESTONE";
+    public const string TaskOutsideExecutionWindow = "TASK_OUTSIDE_EXECUTION_WINDOW";
+    public const string MilestoneOutsideExecutionWindow = "MILESTONE_OUTSIDE_EXECUTION_WINDOW";
+    public const string ParentDateConflict = "PARENT_DATE_CONFLICT";
+    public const string MilestoneDependencyCycle = "MILESTONE_DEPENDENCY_CYCLE";
+    public const string MilestoneDependencyOrderViolation = "MILESTONE_DEPENDENCY_ORDER_VIOLATION";
+    public const string MilestoneDependencyNotSelf = "MILESTONE_DEPENDENCY_NOT_SELF";
+    public const string MilestoneDependencySameProject = "MILESTONE_DEPENDENCY_SAME_PROJECT";
+    public const string ReportDeadlineInvalid = "REPORT_DEADLINE_INVALID";
+
     // Progress Reports
     public const string ReportAlreadyExistsForCycle = "REPORT_ALREADY_EXISTS_FOR_CYCLE";
     public const string ReportAlreadyExistsForPeriod = "REPORT_ALREADY_EXISTS_FOR_PERIOD";

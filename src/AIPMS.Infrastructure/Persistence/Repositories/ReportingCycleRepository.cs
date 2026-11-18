@@ -162,6 +162,7 @@ public sealed class ReportingCycleRepository(AipmsDbContext context) : IReportin
         string? latePolicy,
         Guid? expectedToken,
         DateTime now,
+        string? reportType = null,
         Func<ReportingCycleDto, Task>? onUpdated = null,
         CancellationToken cancellationToken = default)
     {
@@ -202,12 +203,40 @@ public sealed class ReportingCycleRepository(AipmsDbContext context) : IReportin
 
         var newStart = periodStart ?? entity.PeriodStart;
         var newEnd = periodEnd ?? entity.PeriodEnd;
+        var newDeadline = deadline ?? entity.Deadline;
 
         if (newEnd <= newStart)
             throw new ValidationException(new System.Collections.Generic.Dictionary<string, string[]>
             {
                 ["periodEnd"] = ["Period end must be strictly after period start."]
             });
+
+        if (newDeadline < newEnd)
+            throw new ValidationException(new System.Collections.Generic.Dictionary<string, string[]>
+            {
+                ["deadline"] = ["Deadline must be greater than or equal to period end."]
+            });
+
+        var targetReportType = !string.IsNullOrWhiteSpace(reportType)
+            ? reportType.Trim().ToUpperInvariant()
+            : entity.ReportType;
+
+        if (targetReportType != "WEEKLY" && targetReportType != "MONTHLY")
+            throw new ValidationException(new System.Collections.Generic.Dictionary<string, string[]>
+            {
+                ["reportType"] = ["Report type must be either WEEKLY or MONTHLY."]
+            });
+
+        if (targetReportType != entity.ReportType)
+        {
+            if (await HasLinkedReportAsync(id, cancellationToken))
+                throw new ConflictException("Cannot change report type of a reporting cycle with linked progress reports.");
+
+            if (await ExistsOverlapAsync(entity.ProjectId, targetReportType, newStart, newEnd, id, cancellationToken))
+                throw new ConflictException("Reporting cycle overlaps with an existing cycle of the same report type.");
+
+            entity.ReportType = targetReportType;
+        }
 
         if (periodStart.HasValue || periodEnd.HasValue)
         {

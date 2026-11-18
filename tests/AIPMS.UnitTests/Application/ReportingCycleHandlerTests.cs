@@ -123,13 +123,14 @@ public sealed class ReportingCycleHandlerTests
             return Task.FromResult(new PagedResult<ReportingCycleDto>(list, page, pageSize, list.Count));
         }
 
-        public async Task<ReportingCycleDto> UpdateAsync(long id, DateTime? periodStart, DateTime? periodEnd, DateTime? deadline, string? latePolicy, Guid? expectedToken, DateTime now, Func<ReportingCycleDto, Task>? onUpdated = null, CancellationToken cancellationToken = default)
+        public async Task<ReportingCycleDto> UpdateAsync(long id, DateTime? periodStart, DateTime? periodEnd, DateTime? deadline, string? latePolicy, Guid? expectedToken, DateTime now, string? reportType = null, Func<ReportingCycleDto, Task>? onUpdated = null, CancellationToken cancellationToken = default)
         {
             var idx = Cycles.FindIndex(c => c.Id == id);
             if (idx == -1) throw new NotFoundException("ReportingCycle", id);
             var prev = Cycles[idx];
             var updated = prev with
             {
+                ReportType = reportType ?? prev.ReportType,
                 PeriodStart = periodStart ?? prev.PeriodStart,
                 PeriodEnd = periodEnd ?? prev.PeriodEnd,
                 Deadline = deadline ?? prev.Deadline,
@@ -479,5 +480,159 @@ public sealed class ReportingCycleHandlerTests
 
         Assert.Equal(startUtc.UtcDateTime, result.PeriodStart);
         Assert.Equal(DateTimeKind.Utc, result.PeriodStart.Kind);
+    }
+
+    [Fact]
+    public async Task CreateReportingCycle_DeadlineBeforePeriodEnd_ThrowsValidationException()
+    {
+        var repo = new FakeReportingCycleRepository();
+        var user = new FakeCurrentUser();
+        var handler = new CreateReportingCycleCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var req = new CreateReportingCycleRequest(
+            "WEEKLY",
+            new DateTimeOffset(2026, 11, 12, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 11, 30, 23, 59, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 11, 23, 23, 59, 0, TimeSpan.Zero), // Deadline before periodEnd!
+            "FLAG");
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(new CreateReportingCycleCommand(1, req), CancellationToken.None));
+
+        Assert.Contains(ex.Errors.Keys, k => k.Equals("Deadline", StringComparison.OrdinalIgnoreCase) || k == string.Empty);
+    }
+
+    [Fact]
+    public async Task CreateReportingCycle_DeadlineEqualsPeriodEnd_Succeeds()
+    {
+        var repo = new FakeReportingCycleRepository();
+        var user = new FakeCurrentUser();
+        var handler = new CreateReportingCycleCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var end = new DateTimeOffset(2026, 11, 30, 23, 59, 0, TimeSpan.Zero);
+        var req = new CreateReportingCycleRequest(
+            "WEEKLY",
+            new DateTimeOffset(2026, 11, 12, 0, 0, 0, TimeSpan.Zero),
+            end,
+            end, // Deadline == PeriodEnd
+            "FLAG");
+
+        var result = await handler.Handle(new CreateReportingCycleCommand(1, req), CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.Equal(end.UtcDateTime, result.Deadline);
+    }
+
+    [Fact]
+    public async Task CreateReportingCycle_DeadlineAfterPeriodEnd_Succeeds()
+    {
+        var repo = new FakeReportingCycleRepository();
+        var user = new FakeCurrentUser();
+        var handler = new CreateReportingCycleCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var end = new DateTimeOffset(2026, 11, 30, 23, 59, 0, TimeSpan.Zero);
+        var req = new CreateReportingCycleRequest(
+            "WEEKLY",
+            new DateTimeOffset(2026, 11, 12, 0, 0, 0, TimeSpan.Zero),
+            end,
+            new DateTimeOffset(2026, 12, 1, 23, 59, 0, TimeSpan.Zero), // Deadline > PeriodEnd
+            "FLAG");
+
+        var result = await handler.Handle(new CreateReportingCycleCommand(1, req), CancellationToken.None);
+        Assert.NotNull(result);
+        Assert.True(result.Deadline >= result.PeriodEnd);
+    }
+
+    [Fact]
+    public async Task UpdateReportingCycle_DeadlineBeforePeriodEnd_ThrowsValidationException()
+    {
+        var repo = new FakeReportingCycleRepository();
+        var user = new FakeCurrentUser();
+        var createHandler = new CreateReportingCycleCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var created = await createHandler.Handle(new CreateReportingCycleCommand(1, new CreateReportingCycleRequest(
+            "WEEKLY",
+            new DateTimeOffset(2026, 11, 12, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 11, 30, 23, 59, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 12, 1, 23, 59, 0, TimeSpan.Zero), "FLAG", null)), CancellationToken.None);
+
+        var updateHandler = new UpdateReportingCycleCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var updateReq = new UpdateReportingCycleRequest(
+            Deadline: new DateTimeOffset(2026, 11, 25, 0, 0, 0, TimeSpan.Zero)); // earlier than End (11/30)
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() =>
+            updateHandler.Handle(new UpdateReportingCycleCommand(1, created.Id, updateReq), CancellationToken.None));
+
+        Assert.Contains(ex.Errors.Keys, k => k.Equals("Deadline", StringComparison.OrdinalIgnoreCase) || k == string.Empty);
+    }
+
+    [Fact]
+    public async Task UpdateReportingCycle_ChangeReportType_Succeeds()
+    {
+        var repo = new FakeReportingCycleRepository();
+        var user = new FakeCurrentUser();
+        var createHandler = new CreateReportingCycleCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var created = await createHandler.Handle(new CreateReportingCycleCommand(1, new CreateReportingCycleRequest(
+            "WEEKLY",
+            new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 11, 30, 23, 59, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 12, 1, 23, 59, 0, TimeSpan.Zero), "FLAG", null)), CancellationToken.None);
+
+        var updateHandler = new UpdateReportingCycleCommandHandler(
+            repo,
+            new StubProgressRepo(),
+            new FakeProjectAccessService(),
+            new FakeProjectExecutionGuard(),
+            user,
+            new FakeAuditTrail(),
+            new FakeTimeProvider(DateTime.UtcNow));
+
+        var updateReq = new UpdateReportingCycleRequest(ReportType: "MONTHLY");
+
+        var updated = await updateHandler.Handle(new UpdateReportingCycleCommand(1, created.Id, updateReq), CancellationToken.None);
+        Assert.Equal("MONTHLY", updated.ReportType);
     }
 }

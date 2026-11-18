@@ -11,6 +11,7 @@ using AIPMS.Application.Features.Tasks.Abstractions;
 using AIPMS.Application.Features.Tasks.DTOs;
 using AIPMS.Application.Features.Disciplines.Abstractions;
 using AIPMS.Application.Features.Disciplines.DTOs;
+using AIPMS.Application.Features.Projects.Abstractions;
 using MediatR;
 
 namespace AIPMS.Application.Features.Tasks.Commands;
@@ -32,6 +33,7 @@ public sealed class CreateTaskCommandHandler(
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
     IAuditTrail auditTrail,
+    IExecutionWindowService? executionWindowService = null,
     IDisciplineService? disciplines = null)
     : IRequestHandler<CreateTaskCommand, TaskDto>
 {
@@ -63,6 +65,17 @@ public sealed class CreateTaskCommandHandler(
         if (!await repository.IsProjectLeaderOrSupervisorAsync(projectId, actorUserId, cancellationToken))
         {
             throw new ForbiddenException("You are not authorized to create tasks for this project.");
+        }
+
+        // Validate task dates against milestone and project execution window
+        if (executionWindowService is not null)
+        {
+            await executionWindowService.ValidateTaskDatesAsync(
+                projectId,
+                request.MilestoneId,
+                request.StartAt,
+                request.DueAt,
+                cancellationToken);
         }
 
         // Validate parent task (must exist and belong to the same project)

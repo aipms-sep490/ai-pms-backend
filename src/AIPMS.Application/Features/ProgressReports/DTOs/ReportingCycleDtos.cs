@@ -32,4 +32,5 @@ public sealed record UpdateReportingCycleRequest(
     DateTimeOffset? PeriodEnd = null,
     DateTimeOffset? Deadline = null,
     string? LatePolicy = null,
+    string? ReportType = null,
     string? ConcurrencyToken = null);

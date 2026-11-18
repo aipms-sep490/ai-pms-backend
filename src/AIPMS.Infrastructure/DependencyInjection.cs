@@ -219,6 +219,7 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.Calendar.Abstractions.ICalendarService,
             Services.Projects.CalendarService>();
         services.AddScoped<IProjectExecutionGuard, ProjectExecutionGuard>();
+        services.AddScoped<IExecutionWindowService, ExecutionWindowService>();
         services.AddScoped<IProjectActivationService, ProjectActivationService>();
         services.AddScoped<IAcademicStructureRepository, AcademicStructureRepository>();
         services.AddScoped<IAcademicProfileRepository, AcademicProfileRepository>();
