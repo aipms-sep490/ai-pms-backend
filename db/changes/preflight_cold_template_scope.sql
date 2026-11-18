@@ -73,19 +73,24 @@ BEGIN
     -- If scope column exists, check existing scope distributions
     IF COL_LENGTH(N'dbo.cold_report_templates', N'scope') IS NOT NULL
     BEGIN
-        SELECT 
-            ISNULL(scope, N'<NULL>') AS [ScopeValue],
-            COUNT(*) AS [RowCount],
-            SUM(CASE WHEN major_id IS NULL THEN 1 ELSE 0 END) AS [NullMajorCount],
-            SUM(CASE WHEN major_id IS NOT NULL THEN 1 ELSE 0 END) AS [NonNullMajorCount]
-        FROM dbo.cold_report_templates
-        GROUP BY scope;
+        EXEC sp_executesql N'
+            SELECT 
+                ISNULL(scope, N''<NULL>'') AS [ScopeValue],
+                COUNT(*) AS [RowCount],
+                SUM(CASE WHEN major_id IS NULL THEN 1 ELSE 0 END) AS [NullMajorCount],
+                SUM(CASE WHEN major_id IS NOT NULL THEN 1 ELSE 0 END) AS [NonNullMajorCount]
+            FROM dbo.cold_report_templates
+            GROUP BY scope;
+        ';
 
         -- Check for any rows that would violate ck_cold_template_scope_major
         DECLARE @ConflictingScopeMajorCount INT = 0;
-        SELECT @ConflictingScopeMajorCount = COUNT(*) 
-        FROM dbo.cold_report_templates 
-        WHERE scope = 'COMMON' AND major_id IS NOT NULL;
+        EXEC sp_executesql N'
+            SELECT @ConflictingScopeMajorCount = COUNT(*) 
+            FROM dbo.cold_report_templates 
+            WHERE scope = ''COMMON'' AND major_id IS NOT NULL;',
+            N'@ConflictingScopeMajorCount INT OUTPUT',
+            @ConflictingScopeMajorCount OUTPUT;
 
         IF @ConflictingScopeMajorCount > 0
             PRINT '>> WARNING: Found ' + CAST(@ConflictingScopeMajorCount AS VARCHAR(10)) + ' rows with scope=COMMON and non-null major_id!';
@@ -94,9 +99,12 @@ BEGIN
 
         -- Check for any rows with invalid scope string
         DECLARE @InvalidScopeCount INT = 0;
-        SELECT @InvalidScopeCount = COUNT(*) 
-        FROM dbo.cold_report_templates 
-        WHERE scope IS NOT NULL AND scope NOT IN ('COMMON', 'MAJOR_SPECIFIC', 'INDIVIDUAL');
+        EXEC sp_executesql N'
+            SELECT @InvalidScopeCount = COUNT(*) 
+            FROM dbo.cold_report_templates 
+            WHERE scope IS NOT NULL AND scope NOT IN (''COMMON'', ''MAJOR_SPECIFIC'', ''INDIVIDUAL'');',
+            N'@InvalidScopeCount INT OUTPUT',
+            @InvalidScopeCount OUTPUT;
 
         IF @InvalidScopeCount > 0
             PRINT '>> WARNING: Found ' + CAST(@InvalidScopeCount AS VARCHAR(10)) + ' rows with invalid scope strings!';
