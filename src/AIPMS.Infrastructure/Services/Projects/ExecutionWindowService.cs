@@ -341,16 +341,16 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
         var conflictingMilestones = await context.Milestones
             .AsNoTracking()
             .Where(m => projectIds.Contains(m.ProjectId) &&
-                ((m.StartDate.HasValue && m.StartDate.Value < newStartDate) ||
-                 (m.DueDate.HasValue && m.DueDate.Value > newDueDate)))
+                ((m.StartDate.HasValue && (m.StartDate.Value < newStartDate || m.StartDate.Value > newDueDate)) ||
+                 (m.DueDate.HasValue && (m.DueDate.Value < newStartDate || m.DueDate.Value > newDueDate))))
             .Select(m => $"#{m.Id} '{m.Title}' ({m.StartDate:yyyy-MM-dd} - {m.DueDate:yyyy-MM-dd})")
             .ToListAsync(ct);
 
         var conflictingTasks = await context.Tasks
             .AsNoTracking()
             .Where(t => projectIds.Contains(t.Milestone.ProjectId) &&
-                ((t.StartAt.HasValue && t.StartAt.Value < newStartAt) ||
-                 (t.DueAt.HasValue && t.DueAt.Value > newEndAt)))
+                ((t.StartAt.HasValue && (t.StartAt.Value < newStartAt || t.StartAt.Value > newEndAt)) ||
+                 (t.DueAt.HasValue && (t.DueAt.Value < newStartAt || t.DueAt.Value > newEndAt))))
             .Select(t => $"#{t.Id} '{t.Title}' (due: {t.DueAt:yyyy-MM-dd})")
             .ToListAsync(ct);
 

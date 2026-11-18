@@ -379,4 +379,30 @@ public sealed class MilestoneAndTaskBusinessRulesTests
         Assert.Equal(WorkflowErrorCodes.ParentDateConflict, ex.Code);
         Assert.Contains(m2Id.ToString(), ex.Message);
     }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task Execution_window_edit_protects_both_boundaries_of_single_date_children(bool milestone, bool startOnly)
+    {
+        await using var db = CreateInMemoryDbContext();
+        var (projectId, _, m1Id, _) = await SeedProjectWithExecutionWindowAsync(db);
+        foreach (var row in await db.Milestones.ToListAsync()) { row.StartDate = null; row.DueDate = null; }
+        var outside = startOnly ? new DateTime(2026, 11, 29, 8, 0, 0) : new DateTime(2026, 11, 2, 8, 0, 0);
+        if (milestone)
+        {
+            var row = await db.Milestones.FindAsync(m1Id);
+            row!.StartDate = startOnly ? DateOnly.FromDateTime(outside) : null;
+            row.DueDate = startOnly ? null : DateOnly.FromDateTime(outside);
+        }
+        else db.Tasks.Add(new TaskEntity { Id = 501, MilestoneId = m1Id, Title = "One date",
+            StartAt = startOnly ? outside : null, DueAt = startOnly ? null : outside, Status = "TODO", Priority = "MEDIUM" });
+        await db.SaveChangesAsync();
+        var error = await Assert.ThrowsAsync<ConflictException>(() => new ExecutionWindowService(db)
+            .ValidateExecutionWindowUpdateImpactAsync(100, new DateTime(2026, 11, 10), new DateTime(2026, 11, 25)));
+        Assert.Equal(WorkflowErrorCodes.ParentDateConflict, error.Code);
+        Assert.Contains(milestone ? $"#{m1Id}" : "#501", error.Message);
+    }
 }
