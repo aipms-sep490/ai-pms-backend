@@ -116,6 +116,10 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
             row = new() { MeetingId = meetingId, CreatedBy = Actor, CreatedAt = now };
             db.MeetingActionItems.Add(row);
         }
+        if (!actionId.HasValue && !MeetingGovernanceRules.IsDueAtValidForNewAction(input.DueAt, now))
+            throw Invalid("Due date must be in the future.");
+        if (actionId.HasValue && input.DueAt != row.DueAt && !MeetingGovernanceRules.IsDueAtValidForNewAction(input.DueAt, now))
+            throw Invalid("Due date must be in the future.");
         var definitionChanged = !actionId.HasValue || row.Title != input.Title.Trim() || row.Description != input.Description?.Trim()
             || row.AssigneeUserId != input.AssigneeUserId || row.DueAt != input.DueAt;
         if (meeting.NotesLockedAt.HasValue && definitionChanged) throw new ConflictException("Locked action definitions cannot be changed; progress updates remain available.");
