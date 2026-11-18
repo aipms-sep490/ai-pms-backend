@@ -20,6 +20,13 @@ All routes require authentication and send `Cache-Control: no-store`.
 - `POST /api/v1/topics/{id}/publish`: publish with `concurrencyToken`.
 - `POST /api/v1/topics/{id}/close`: close/withdraw with token and a required
   reason. A published topic keeps its publication audit fields.
+- `POST /api/v1/topics/ai-similarity-check`: a current student team leader can
+  request an advisory AI comparison before saving a proposal. The request
+  includes `teamId`, draft content and `projectId` when a draft project exists.
+  The response keeps the deterministic `exactMatch`/`similar` result and adds
+  `generationStatus` (`COMPLETED`, `FALLBACK` or `INSUFFICIENT_DATA`), grounded
+  matches with verbatim excerpts, counts and a limitation note. AI never
+  replaces duplicate guards and never blocks saving or submitting.
 
 ## Content and scope
 
@@ -53,6 +60,15 @@ are re-read in the same serializable transaction as the status update and audit.
 The response includes persisted major/department references, publication/close
 metadata, a concurrency token and `matchesMyMajor` for student readers. Backend
 commands still recheck scope, policy and token; listing is advisory.
+
+The AI comparison is scoped to the student's organization and the team's lead
+department, using published catalogue topics and limited metadata from approved,
+active or completed projects in the three latest registration periods. Private
+project problem statements, objectives and expected outputs are not sent to the
+model. Each call is bounded to twelve selected candidates and uses the existing
+`ai-assistant` rate limit. Provider failure, timeout or ungrounded output is
+reported as `FALLBACK`; it must not be interpreted as proof of uniqueness. The
+endpoint is read-only and records a count/status audit entry.
 
 ## Selection and period policy
 
