@@ -40,6 +40,7 @@ public class AipmsWebApplicationFactory : WebApplicationFactory<Program>
                 ["VideoMeeting:Enabled"] = "false",
                 ["GoogleAuth:Enabled"] = "false",
                 ["PasswordRecovery:Enabled"] = "false",
+                ["FileStorage:UploadSessionsPath"] = Path.Combine(Path.GetTempPath(), "aipms-upload-endpoint-tests", Guid.NewGuid().ToString("N")),
                 ["Observability:LogFilePath"] = Path.Combine(
                     Path.GetTempPath(),
                     "aipms-tests-.log")

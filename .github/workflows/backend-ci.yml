@@ -25,6 +25,10 @@ jobs:
           dotnet-version: 8.0.x
       - run: dotnet restore AIPMS.sln
       - run: dotnet build AIPMS.sln --configuration Release --no-restore -warnaserror
+      - name: Verify committed OpenAPI before the full SQL suite
+        run: dotnet test tests/AIPMS.IntegrationTests/AIPMS.IntegrationTests.csproj --configuration Release --no-build --filter FullyQualifiedName~CibV4AcceptanceFoundationTests.OpenApi_specification_artifact_is_generated_and_covers_cib_v4_routes
+        env:
+          AIPMS_TEST_SQL_CONNECTION: "Server=localhost,1433;Database=master;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"
       - run: dotnet test AIPMS.sln --configuration Release --no-build
         env:
           ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=AI_PMS;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=True;Encrypt=False;"

@@ -8,8 +8,9 @@ using Microsoft.Extensions.Options;
 
 namespace AIPMS.UnitTests.Infrastructure;
 
-public sealed class ExternalIntegrationTests
+public sealed class ExternalIntegrationTests : IDisposable
 {
+    private readonly string spoolRoot = Path.Combine(Path.GetTempPath(), "aipms-drive-tests", Guid.NewGuid().ToString("N"));
     [Fact]
     public void Drive_settings_require_explicit_folder_and_bounded_timeout()
     {
@@ -137,7 +138,8 @@ public sealed class ExternalIntegrationTests
         Assert.True(new IntegrationConfigurationValidator(empty).Validate(null, new EmailSettings()).Succeeded);
     }
 
-    private static GoogleDriveSettings Settings(int timeout = 30) => new() { ClientId = "id", ClientSecret = "secret", RefreshToken = "refresh", FolderId = "folder-id", TimeoutSeconds = timeout };
+    private GoogleDriveSettings Settings(int timeout = 30) => new() { ClientId = "id", ClientSecret = "secret", RefreshToken = "refresh", FolderId = "folder-id", TimeoutSeconds = timeout, DownloadSpoolPath = spoolRoot };
+    public void Dispose() { if (Directory.Exists(spoolRoot)) Directory.Delete(spoolRoot, true); }
     private static string Key() => "0123456789abcdef0123456789abcdef";
     private static EmailSettings EmailSettings() => new() { Host = "smtp.example.com", Port = 587, SenderAddress = "no-reply@example.com", Username = "user", Password = "pass", TimeoutSeconds = 1 };
 
