@@ -54,8 +54,8 @@ vượt giới hạn. Retry phần đã nhận chỉ thành công nếu nội du
   Đây là kiểm tra định dạng/giới hạn, không thay thế quét mã độc.
 - Google Drive có deadline truyền riêng, tải xuống dự án theo luồng có backpressure;
   các luồng cần seek dùng spool đĩa có giới hạn. Xem `google-drive-email.md`.
-- Runtime đã kiểm tra đang chọn Local; không đổi provider hoặc chuyển tệp cũ sang Drive.
-  Cần kế hoạch di chuyển dữ liệu riêng nếu đổi provider vì metadata chưa ghi provider từng file.
+- Giới hạn upload không tự thay đổi provider. Trước khi chuyển Local/GoogleDrive,
+  phải di chuyển và đối chiếu tệp cũ vì metadata chưa ghi provider từng file.
 
 ## Kiểm chứng ngày 18/11/2026
 
