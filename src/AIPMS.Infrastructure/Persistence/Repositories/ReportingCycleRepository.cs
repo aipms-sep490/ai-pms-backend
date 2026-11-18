@@ -238,7 +238,7 @@ public sealed class ReportingCycleRepository(AipmsDbContext context) : IReportin
             entity.ReportType = targetReportType;
         }
 
-        if (periodStart.HasValue || periodEnd.HasValue)
+        if (newStart != entity.PeriodStart || newEnd != entity.PeriodEnd)
         {
             if (await HasLinkedReportAsync(id, cancellationToken))
                 throw new ConflictException("Cannot change period dates of a reporting cycle with linked progress reports.");
@@ -250,7 +250,8 @@ public sealed class ReportingCycleRepository(AipmsDbContext context) : IReportin
             entity.PeriodEnd = newEnd;
         }
 
-        if (deadline.HasValue || !string.IsNullOrWhiteSpace(latePolicy))
+        if ((deadline.HasValue && deadline.Value != entity.Deadline)
+            || (!string.IsNullOrWhiteSpace(latePolicy) && latePolicy.Trim().ToUpperInvariant() != entity.LatePolicy))
         {
             var hasSubmitted = await context.ProgressReports
                 .AsNoTracking()

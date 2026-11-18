@@ -1513,6 +1513,16 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         var reloaded = await freshCtx.ProgressReportPeriods.FindAsync(cycle.Id);
         Assert.Equal(futureDeadline.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss"), reloaded!.Deadline.ToString("yyyy-MM-ddTHH:mm:ss"));
         Assert.Equal("BLOCK", reloaded.LatePolicy);
+        // Full-form clients resend unchanged values. Historical protection rejects changes,
+        // while an identical payload remains safe to save.
+        var unchanged = new UpdateReportingCycleRequest(
+            PeriodStart: new DateTimeOffset(DateTime.SpecifyKind(reloaded.PeriodStart, DateTimeKind.Utc)),
+            PeriodEnd: new DateTimeOffset(DateTime.SpecifyKind(reloaded.PeriodEnd, DateTimeKind.Utc)),
+            Deadline: new DateTimeOffset(DateTime.SpecifyKind(reloaded.Deadline, DateTimeKind.Utc)),
+            LatePolicy: reloaded.LatePolicy,
+            ConcurrencyToken: reloaded.ConcurrencyToken.ToString("N"));
+        var same = await staffClient.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle.Id}", unchanged);
+        Assert.True(same.IsSuccessStatusCode, await same.Content.ReadAsStringAsync());
     }
 
     [Fact]

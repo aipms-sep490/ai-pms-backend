@@ -708,7 +708,7 @@ CREATE TABLE dbo.milestone_dependencies (
     CONSTRAINT pk_milestone_dependencies PRIMARY KEY (id),
     CONSTRAINT uq_milestone_dependencies_pair UNIQUE (milestone_id, depends_on_milestone_id),
     CONSTRAINT ck_milestone_dependencies_not_self CHECK (milestone_id <> depends_on_milestone_id),
-    CONSTRAINT ck_milestone_dependencies_type CHECK (dependency_type IN (N'FINISH_TO_START', N'START_TO_START', N'FINISH_TO_FINISH', N'START_TO_FINISH')),
+    CONSTRAINT ck_milestone_dependencies_type CHECK (dependency_type = N'FINISH_TO_START'),
     CONSTRAINT fk_milestone_dependencies_milestone FOREIGN KEY (milestone_id)
         REFERENCES dbo.milestones(id) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT fk_milestone_dependencies_depends_on FOREIGN KEY (depends_on_milestone_id)

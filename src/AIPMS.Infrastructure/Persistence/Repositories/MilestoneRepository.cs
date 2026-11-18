@@ -108,6 +108,8 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
             .FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
         if (entity is not null)
         {
+            if (await context.MilestoneDependencies.AnyAsync(d => d.DependsOnMilestoneId == id, cancellationToken))
+                throw new ConflictException("Mốc đang được mốc khác sử dụng làm tiền nhiệm. Hãy gỡ phụ thuộc trước khi xóa.");
             context.Milestones.Remove(entity);
             await context.SaveChangesAsync(cancellationToken);
         }
@@ -152,20 +154,15 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
         var lockKey = $"milestone-dependency:{projectId}";
         var rcParam = new Microsoft.Data.SqlClient.SqlParameter("@rc", System.Data.SqlDbType.Int) { Direction = System.Data.ParameterDirection.Output };
         var resourceParam = new Microsoft.Data.SqlClient.SqlParameter("@p0", System.Data.SqlDbType.NVarChar, 255) { Value = lockKey };
-        try
-        {
-            await context.Database.ExecuteSqlRawAsync(
+        if (context.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Milestone dependency changes require an active transaction.");
+        await context.Database.ExecuteSqlRawAsync(
                 "EXEC @rc = sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
                 new object[] { rcParam, resourceParam },
                 cancellationToken);
 
-            if (rcParam.Value is int rcValue && rcValue < 0)
-                throw new ConflictException("Could not acquire exclusive lock to modify milestone dependency graph.");
-        }
-        catch (Microsoft.Data.SqlClient.SqlException)
-        {
-            // If sp_getapplock is not supported in the active test harness, proceed safely
-        }
+        if (rcParam.Value is not int rcValue || rcValue < 0)
+            throw new ConflictException("Không thể khóa dữ liệu phụ thuộc của mốc. Vui lòng thử lại.");
     }
 
     public async Task AddDependencyAsync(long milestoneId, long dependsOnMilestoneId, string dependencyType, CancellationToken cancellationToken)
@@ -179,6 +176,9 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
         };
 
         context.MilestoneDependencies.Add(dependency);
+        var milestone = await context.Milestones.SingleAsync(m => m.Id == milestoneId, cancellationToken);
+        milestone.ConcurrencyToken = Guid.NewGuid();
+        milestone.UpdatedAt = DateTime.UtcNow;
         await context.SaveChangesAsync(cancellationToken);
     }
 
@@ -190,6 +190,9 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
         if (dependency is not null)
         {
             context.MilestoneDependencies.Remove(dependency);
+            var milestone = await context.Milestones.SingleAsync(m => m.Id == milestoneId, cancellationToken);
+            milestone.ConcurrencyToken = Guid.NewGuid();
+            milestone.UpdatedAt = DateTime.UtcNow;
             await context.SaveChangesAsync(cancellationToken);
         }
     }

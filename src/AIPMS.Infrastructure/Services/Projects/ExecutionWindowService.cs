@@ -12,6 +12,11 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutionWindowService
 {
+    // Milestones use calendar dates; task/period instants are stored as UTC.
+    // Match the Vietnam calendar used by the execution forms and schedule services.
+    private static DateOnly AcademicDate(DateTime utc) =>
+        DateOnly.FromDateTime(DateTime.SpecifyKind(utc, DateTimeKind.Utc).AddHours(7));
+
     public async Task<ExecutionWindowInfo?> GetExecutionWindowAsync(long projectId, CancellationToken ct = default)
     {
         // 1. Check if the project is associated with an explicit execution period via registration snapshot
@@ -126,14 +131,14 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
         if (milestone.StartDate.HasValue)
         {
             var mStart = milestone.StartDate.Value;
-            if (startAt.HasValue && DateOnly.FromDateTime(startAt.Value.Date) < mStart)
+            if (startAt.HasValue && AcademicDate(startAt.Value) < mStart)
             {
                 throw new ConflictException(
                     $"Task start date ({startAt.Value:yyyy-MM-dd}) cannot be earlier than milestone start date ({mStart:yyyy-MM-dd}).",
                     WorkflowErrorCodes.TaskOutsideMilestone);
             }
 
-            if (dueAt.HasValue && DateOnly.FromDateTime(dueAt.Value.Date) < mStart)
+            if (dueAt.HasValue && AcademicDate(dueAt.Value) < mStart)
             {
                 throw new ConflictException(
                     $"Task deadline ({dueAt.Value:yyyy-MM-dd}) cannot be earlier than milestone start date ({mStart:yyyy-MM-dd}).",
@@ -144,14 +149,14 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
         if (milestone.DueDate.HasValue)
         {
             var mDue = milestone.DueDate.Value;
-            if (startAt.HasValue && DateOnly.FromDateTime(startAt.Value.Date) > mDue)
+            if (startAt.HasValue && AcademicDate(startAt.Value) > mDue)
             {
                 throw new ConflictException(
                     $"Task start date ({startAt.Value:yyyy-MM-dd}) cannot be later than milestone due date ({mDue:yyyy-MM-dd}).",
                     WorkflowErrorCodes.TaskOutsideMilestone);
             }
 
-            if (dueAt.HasValue && DateOnly.FromDateTime(dueAt.Value.Date) > mDue)
+            if (dueAt.HasValue && AcademicDate(dueAt.Value) > mDue)
             {
                 throw new ConflictException(
                     $"Task deadline ({dueAt.Value:yyyy-MM-dd}) cannot be later than milestone due date ({mDue:yyyy-MM-dd}).",
@@ -203,20 +208,20 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
                     "Project does not have an active execution window in its academic semester.",
                     WorkflowErrorCodes.ExecutionWindowRequired);
 
-            var winStart = DateOnly.FromDateTime(window.StartAt);
-            var winEnd = DateOnly.FromDateTime(window.EndAt);
+            var winStart = AcademicDate(window.StartAt);
+            var winEnd = AcademicDate(window.EndAt);
 
-            if (startDate.HasValue && startDate.Value < winStart)
+            if (startDate.HasValue && (startDate.Value < winStart || startDate.Value > winEnd))
             {
                 throw new ConflictException(
-                    $"Milestone start date ({startDate.Value:yyyy-MM-dd}) cannot be before project execution window start date ({winStart:yyyy-MM-dd}).",
+                    $"Ngày bắt đầu mốc phải nằm trong đợt thực hiện ({winStart:yyyy-MM-dd} - {winEnd:yyyy-MM-dd}).",
                     WorkflowErrorCodes.MilestoneOutsideExecutionWindow);
             }
 
-            if (dueDate.HasValue && dueDate.Value > winEnd)
+            if (dueDate.HasValue && (dueDate.Value < winStart || dueDate.Value > winEnd))
             {
                 throw new ConflictException(
-                    $"Milestone due date ({dueDate.Value:yyyy-MM-dd}) cannot be after project execution window end date ({winEnd:yyyy-MM-dd}).",
+                    $"Hạn của mốc phải nằm trong đợt thực hiện ({winStart:yyyy-MM-dd} - {winEnd:yyyy-MM-dd}).",
                     WorkflowErrorCodes.MilestoneOutsideExecutionWindow);
             }
         }
@@ -241,13 +246,13 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
             bool invalid = false;
             if (newStartDate.HasValue)
             {
-                if (t.StartAt.HasValue && DateOnly.FromDateTime(t.StartAt.Value.Date) < newStartDate.Value) invalid = true;
-                if (t.DueAt.HasValue && DateOnly.FromDateTime(t.DueAt.Value.Date) < newStartDate.Value) invalid = true;
+                if (t.StartAt.HasValue && AcademicDate(t.StartAt.Value) < newStartDate.Value) invalid = true;
+                if (t.DueAt.HasValue && AcademicDate(t.DueAt.Value) < newStartDate.Value) invalid = true;
             }
             if (newDueDate.HasValue)
             {
-                if (t.StartAt.HasValue && DateOnly.FromDateTime(t.StartAt.Value.Date) > newDueDate.Value) invalid = true;
-                if (t.DueAt.HasValue && DateOnly.FromDateTime(t.DueAt.Value.Date) > newDueDate.Value) invalid = true;
+                if (t.StartAt.HasValue && AcademicDate(t.StartAt.Value) > newDueDate.Value) invalid = true;
+                if (t.DueAt.HasValue && AcademicDate(t.DueAt.Value) > newDueDate.Value) invalid = true;
             }
             if (invalid)
             {
@@ -316,8 +321,8 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
 
         if (period == null || period.PeriodType != "EXECUTION") return;
 
-        var newStartDate = DateOnly.FromDateTime(newStartAt);
-        var newDueDate = DateOnly.FromDateTime(newEndAt);
+        var newStartDate = AcademicDate(newStartAt);
+        var newDueDate = AcademicDate(newEndAt);
 
         var projectIds = await context.Projects
             .AsNoTracking()
@@ -325,6 +330,12 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
             .Select(p => p.Id)
             .ToListAsync(ct);
 
+        // Other execution periods in the same semester may serve different projects.
+        var affectedProjects = new List<long>();
+        foreach (var projectId in projectIds)
+            if ((await GetExecutionWindowAsync(projectId, ct))?.ProjectPeriodId == projectPeriodId)
+                affectedProjects.Add(projectId);
+        projectIds = affectedProjects;
         if (projectIds.Count == 0) return;
 
         var conflictingMilestones = await context.Milestones

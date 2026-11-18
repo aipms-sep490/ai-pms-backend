@@ -49,8 +49,8 @@ public sealed class MilestoneAndTaskBusinessRulesTests
             Code = "EXEC-FA26",
             PeriodType = "EXECUTION",
             Name = "Execution Period Fall 2026",
-            StartAt = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc),
-            EndAt = new DateTime(2026, 11, 30, 23, 59, 59, DateTimeKind.Utc),
+            StartAt = new DateTime(2026, 10, 31, 17, 0, 0, DateTimeKind.Utc),
+            EndAt = new DateTime(2026, 11, 30, 16, 59, 59, DateTimeKind.Utc),
             Status = "ACTIVE",
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -250,6 +250,51 @@ public sealed class MilestoneAndTaskBusinessRulesTests
             projectId,
             startDate: new DateOnly(2026, 11, 15),
             dueDate: new DateOnly(2026, 11, 25));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Single_milestone_date_must_be_inside_both_execution_boundaries(bool startOnly)
+    {
+        await using var db = CreateInMemoryDbContext();
+        var (projectId, _, _, _) = await SeedProjectWithExecutionWindowAsync(db);
+        var service = new ExecutionWindowService(db);
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => service.ValidateMilestoneDatesAsync(
+            projectId, startOnly ? new DateOnly(2026, 12, 1) : null,
+            startOnly ? null : new DateOnly(2026, 10, 31)));
+        Assert.Equal(WorkflowErrorCodes.MilestoneOutsideExecutionWindow, ex.Code);
+    }
+
+    [Fact]
+    public async Task Changing_unrelated_execution_period_does_not_validate_other_periods_projects()
+    {
+        await using var db = CreateInMemoryDbContext();
+        await SeedProjectWithExecutionWindowAsync(db);
+        db.ProjectPeriods.Add(new ProjectPeriod
+        {
+            Id = 101, AcademicSemesterId = 10, Code = "OLD-EXEC", Name = "Other execution period",
+            PeriodType = "EXECUTION", Status = "CLOSED", StartAt = new DateTime(2026, 9, 1),
+            EndAt = new DateTime(2026, 9, 30)
+        });
+        await db.SaveChangesAsync();
+        await new ExecutionWindowService(db).ValidateExecutionWindowUpdateImpactAsync(
+            101, new DateTime(2026, 9, 1), new DateTime(2026, 9, 15));
+    }
+
+    [Fact]
+    public async Task Task_and_milestone_boundaries_use_Vietnam_calendar_date()
+    {
+        await using var db = CreateInMemoryDbContext();
+        var (projectId, _, m1Id, _) = await SeedProjectWithExecutionWindowAsync(db);
+        var service = new ExecutionWindowService(db);
+        // 10 November 00:30 Vietnam is still 9 November in UTC.
+        await service.ValidateTaskDatesAsync(projectId, m1Id, new DateTime(2026, 11, 9, 17, 30, 0), null);
+        // 21 November 00:30 Vietnam is beyond the milestone's final date (20th).
+        var error = await Assert.ThrowsAsync<ConflictException>(() => service.ValidateTaskDatesAsync(
+            projectId, m1Id, null, new DateTime(2026, 11, 20, 17, 30, 0)));
+        Assert.Equal(WorkflowErrorCodes.TaskOutsideMilestone, error.Code);
+        await service.ValidateMilestoneDateUpdateImpactAsync(m1Id, new(2026, 11, 10), new(2026, 11, 20));
     }
 
     [Fact]
