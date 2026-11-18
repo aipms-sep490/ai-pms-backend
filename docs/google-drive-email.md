@@ -15,6 +15,7 @@ GoogleDrive:ClientSecret
 GoogleDrive:RefreshToken
 GoogleDrive:FolderId
 GoogleDrive:TimeoutSeconds=60
+GoogleDrive:TransferTimeoutSeconds=1800
 ```
 
 `FolderId` is mandatory. The application never searches for or creates an `AI-PMS`
@@ -33,8 +34,27 @@ reconciliation. The application deliberately does not retry an upload after an
 ambiguous response because that could create a second file. A timeout reports that the
 remote result may be unknown; callers must not blindly retry. Provider exceptions are
 sanitized and do not expose Google response bodies or tokens. Cancellation from the
-caller remains cancellation. Download results are buffered and rewound before the API
-reads them; missing files remain `FileNotFoundException`.
+caller remains cancellation. Metadata operations use `TimeoutSeconds` (1-300 seconds),
+while uploads/downloads use `TransferTimeoutSeconds` (1-3600 seconds). Existing
+configuration without the new setting uses a 30-minute transfer deadline.
+
+Project-file downloads use a bounded forward-only stream: the API starts returning
+bytes after the first remote chunk, with backpressure instead of waiting for the
+entire file. Disconnecting cancels the remote transfer. The trusted database file
+size is sent as Content-Length, so an interrupted transfer is detectable by clients.
+Other workflows requiring seekable content use disk spooling; missing files remain
+`FileNotFoundException`. The default spool directory is
+`FileStorage:RootPath/.downloads`, with the same private-files fallback as local storage.
+`GoogleDrive:DownloadSpoolPath` can override it with a writable private persistent
+directory. Do not point it at the deployment's 64 MiB `/tmp` RAM disk.
+`GoogleDrive:MaxConcurrentDownloads` defaults to 4 (valid range 1-16). Each spool is
+capped at 500 MiB, bounding default spool use to 2 GiB per API process. A slot remains
+reserved until the response stream is disposed, including while a slow client reads.
+Files are removed on disposal, transfer failure or cancellation; startup removes
+inactive provider-owned spool files left by a crash and preserves active streams.
+Provision disk space in addition to the upload-session quota. These process-local
+limits assume one API process per spool directory; use separate directories if
+deploying multiple API processes.
 
 `Google.Apis.Drive.v3` uses the least scope needed by the existing storage account:
 `DriveFile`. Keep the Drive refresh token separate from `GoogleAuth` and rotate it if

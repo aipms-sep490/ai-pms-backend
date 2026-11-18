@@ -12,6 +12,7 @@ using AIPMS.Application.Features.Supervisors.Models;
 using AIPMS.Application.Features.Notifications.Events;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using System.Security.Cryptography;
 
 namespace AIPMS.Application.Features.Deliverables.Services;
 
@@ -217,7 +218,13 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
     public async Task<FileDownload> DownloadAsync(long id, CancellationToken ct)
     {
         var file = await ReadableFileAsync(id, ct);
-        try { return new(await storage.OpenReadAsync(file.StorageKey, ct), file.Dto.ContentType, file.Dto.FileName); }
+        try
+        {
+            var content = storage is IStreamingFileStorage streaming
+                ? await streaming.OpenSequentialReadAsync(file.StorageKey, ct)
+                : await storage.OpenReadAsync(file.StorageKey, ct);
+            return new(content, file.Dto.ContentType, file.Dto.FileName, file.Dto.SizeBytes);
+        }
         catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         { throw new NotFoundException("File content", id); }
     }
@@ -243,6 +250,102 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
             await AuditAsync(actor.UserId, "PROJECT_FILE_UPLOADED", "FILE", result.Id, null, result, token);
             return result;
         }, ct, () => CleanupAsync(key));
+    }
+
+    public async Task AuthorizeAttachmentAsync(string type, long parentId, CancellationToken ct)
+    {
+        var actor = await ActorAsync(ct);
+        var parent = await ParentAsync(type, parentId, ct);
+        RequireAttachmentWriter(actor, await ProjectAsync(actor, parent.ProjectId, ct), parent);
+    }
+
+    public async Task AuthorizeAttachmentReadAsync(string type, long parentId, CancellationToken ct)
+    {
+        var parent = await ParentAsync(type, parentId, ct);
+        await ProjectAsync(await ActorAsync(ct), parent.ProjectId, ct);
+    }
+
+    // Only the durable upload worker supplies actorId, never a client request parameter.
+    // Persisted identity/scope/state are checked before transfer and again at the metadata commit.
+    public async Task<ProjectFileDto> AttachPreparedForActorAsync(long actorId, string type, long parentId,
+        string storageKey, UploadMetadata file, Stream content, CancellationToken ct)
+    {
+        if (storageKey.Length != 32 || storageKey.Any(c => !char.IsAsciiHexDigit(c)))
+            throw new ArgumentException("Invalid upload storage key.", nameof(storageKey));
+        ProjectFileUploadValidator.ValidateMetadata(file.FileName, file.ContentType, file.Length);
+        if (!content.CanSeek || content.Length != file.Length)
+            throw new InvalidOperationException("Prepared upload must be a seekable, validated file.");
+        var actor = await ActiveActorAsync(actorId, ct);
+        var parent = await ParentAsync(type, parentId, ct);
+        var project = await ProjectAsync(actor, parent.ProjectId, ct);
+        var existing = await repository.FindFileByStorageKeyAsync(storageKey, ct);
+        if (existing is not null) return ConfirmPreparedFile(existing, parent, actor, project, file);
+        RequireAttachmentWriter(actor, project, parent);
+
+        // A worker restart may occur after storage completed but before SQL committed. Reuse only
+        // an object whose length and checksum match this session; never overwrite uncertain data.
+        var stored = false;
+        try
+        {
+            await using var previous = await storage.OpenReadAsync(storageKey, ct);
+            var hash = Convert.ToHexString(await SHA256.HashDataAsync(previous, ct)).ToLowerInvariant();
+            if (hash != file.Sha256 || previous.CanSeek && previous.Length != file.Length)
+                throw new ConflictException("Nội dung tệp đang lưu không khớp phiên tải. Hãy hủy phiên và tải lại.");
+            stored = true;
+        }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { }
+        if (!stored)
+        {
+            content.Position = 0;
+            await storage.WriteAsync(storageKey, content, ct);
+        }
+
+        // The slow content transfer deliberately occurs outside the project's SQL lock.
+        return await repository.InTransactionAsync(async token =>
+        {
+            actor = await ActiveActorAsync(actorId, token);
+            await repository.LockProjectAsync(parent.ProjectId, token);
+            parent = await ParentAsync(type, parentId, token);
+            project = await ProjectAsync(actor, parent.ProjectId, token);
+            existing = await repository.FindFileByStorageKeyAsync(storageKey, token);
+            if (existing is not null) return ConfirmPreparedFile(existing, parent, actor, project, file);
+            RequireAttachmentWriter(actor, project, parent);
+            var result = await repository.AttachAsync(parent, storageKey, file, actor.UserId, Now, token);
+            await AuditAsync(actor.UserId, "PROJECT_FILE_UPLOADED", "FILE", result.Id, null, result, token);
+            return result with { CanDelete = CanDeleteAttachment(actor, project, parent, result) };
+        }, ct, () => CleanupAsync(storageKey));
+    }
+
+    private async Task<SupervisorAccount> ActiveActorAsync(long actorId, CancellationToken ct)
+    {
+        var actor = await accounts.GetAccountAsync(actorId, ct);
+        if (actor is null || !actor.IsActive || actor.UserId != actorId)
+            throw new ForbiddenException("Tài khoản tải tệp không còn hoạt động.");
+        return actor;
+    }
+
+    // Worker-only reconciliation while the durable session's processing lock is held. A database
+    // failure must retain the session/object for another attempt. Any confirmed SQL reference wins,
+    // including a commit whose acknowledgement was lost; never delete that file on cancellation.
+    public async Task CleanupPreparedForActorAsync(long actorId, string type, long parentId,
+        string storageKey, CancellationToken ct)
+    {
+        if (actorId <= 0 || parentId <= 0 || type is not ("TASK" or "REPORT" or "MEETING")
+            || storageKey.Length != 32 || storageKey.Any(c => !char.IsAsciiHexDigit(c)))
+            throw new ArgumentException("Invalid owned upload session.");
+        if (await repository.FindFileByStorageKeyAsync(storageKey, ct) is not null) return;
+        await storage.DeleteAsync(storageKey, ct);
+    }
+
+    private static ProjectFileDto ConfirmPreparedFile(StoredProjectFile stored, FileParent parent,
+        SupervisorAccount actor, DeliverableProject project, UploadMetadata expected)
+    {
+        var file = stored.Dto;
+        if (stored.ParentCount != 1 || stored.ProjectId != parent.ProjectId || file.ParentType != parent.Type
+            || file.ParentId != parent.Id || file.UploadedBy != actor.UserId || file.Sha256 != expected.Sha256
+            || file.SizeBytes != expected.Length || file.FileName != expected.FileName || file.ContentType != expected.ContentType)
+            throw new ConflictException("Phiên tải không khớp tệp đã lưu. Hãy tải lại thông tin trước khi tiếp tục.");
+        return file with { CanDelete = CanDeleteAttachment(actor, project, parent, file) };
     }
 
     public async Task<bool> DeleteFileAsync(long id, CancellationToken ct)

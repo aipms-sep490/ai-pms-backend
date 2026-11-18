@@ -42,6 +42,7 @@ public sealed class FilesController(ISender sender) : ControllerBase
         var file = await sender.Send(new DownloadProjectFileQuery(id), ct);
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         Response.Headers.CacheControl = "no-store";
+        if (file.Length.HasValue) Response.ContentLength = file.Length.Value;
         return File(file.Content, file.ContentType, file.FileName);
     }
 

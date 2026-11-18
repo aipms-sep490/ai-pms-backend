@@ -17,4 +17,4 @@ public sealed record SaveDeliverableRequest(long? MilestoneId, string Title, str
     long? TargetMajorId = null, long? TargetStudentId = null);
 public sealed record ReviewDeliverableRequest(string Decision, string Feedback);
 
-public sealed record FileDownload(Stream Content, string ContentType, string FileName);
+public sealed record FileDownload(Stream Content, string ContentType, string FileName, long? Length = null);

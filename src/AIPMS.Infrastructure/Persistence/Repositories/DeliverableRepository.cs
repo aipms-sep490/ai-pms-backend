@@ -219,6 +219,13 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
             new[] { file.TaskId, file.DeliverableVersionId, file.ProgressReportId, file.MeetingId, file.SupervisorFeedbackId }.Count(x => x.HasValue));
     }
 
+    public async Task<StoredProjectFile?> FindFileByStorageKeyAsync(string storageKey, CancellationToken ct)
+    {
+        var id = await db.Files.AsNoTracking().Where(f => f.StoragePath == storageKey)
+            .Select(f => (long?)f.Id).SingleOrDefaultAsync(ct);
+        return id.HasValue ? await GetFileAsync(id.Value, ct) : null;
+    }
+
     public async Task<PagedResult<ProjectFileDto>> FilesAsync(FileSearch search, CancellationToken ct)
     {
         var query = db.Files.AsNoTracking().Where(f =>
@@ -246,7 +253,7 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         return new(items, search.Page, search.PageSize, count);
     }
 
-    public async Task<ProjectFileDto> AttachAsync(FileParent parent, string key, ValidatedUpload file, long actorId, DateTime now, CancellationToken ct)
+    public async Task<ProjectFileDto> AttachAsync(FileParent parent, string key, UploadMetadata file, long actorId, DateTime now, CancellationToken ct)
     {
         RequireTransaction();
         var result = NewFile(key, file, actorId, now);
@@ -289,9 +296,9 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
             throw new ForbiddenException("Only the project leader, Primary or responsible major Mentor may declare this evidence target.");
     }
 
-    private static M.File NewFile(string key, ValidatedUpload file, long actor, DateTime now) => new()
+    private static M.File NewFile(string key, UploadMetadata file, long actor, DateTime now) => new()
     {
         UploadedBy = actor, OriginalFileName = file.FileName, StoredFileName = key, StoragePath = key,
-        MimeType = file.ContentType, FileSizeBytes = file.Bytes.LongLength, ChecksumSha256 = file.Sha256, CreatedAt = now, UpdatedAt = now
+        MimeType = file.ContentType, FileSizeBytes = file.Length, ChecksumSha256 = file.Sha256, CreatedAt = now, UpdatedAt = now
     };
 }

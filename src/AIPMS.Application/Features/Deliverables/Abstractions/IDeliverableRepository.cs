@@ -24,7 +24,8 @@ public interface IDeliverableRepository
     Task<PagedResult<DeliverableFeedbackDto>> FeedbackAsync(long versionId, int page, int pageSize, CancellationToken ct);
     Task<FileParent?> GetParentAsync(string type, long id, CancellationToken ct);
     Task<StoredProjectFile?> GetFileAsync(long id, CancellationToken ct);
+    Task<StoredProjectFile?> FindFileByStorageKeyAsync(string storageKey, CancellationToken ct);
     Task<PagedResult<ProjectFileDto>> FilesAsync(FileSearch search, CancellationToken ct);
-    Task<ProjectFileDto> AttachAsync(FileParent parent, string key, ValidatedUpload file, long actorId, DateTime now, CancellationToken ct);
+    Task<ProjectFileDto> AttachAsync(FileParent parent, string key, UploadMetadata file, long actorId, DateTime now, CancellationToken ct);
     Task DeleteFileAsync(long id, CancellationToken ct);
 }

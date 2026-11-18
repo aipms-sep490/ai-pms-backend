@@ -176,6 +176,107 @@ public sealed class DeliverableHandlerTests
         Assert.Equal(0, f.Storage.Deletes);
     }
 
+    [Fact]
+    public async Task Prepared_upload_transfers_outside_transaction_then_commits_metadata_and_audit()
+    {
+        var f = new Fixture();
+        f.Storage.ExpectTransferOutsideTransaction = true;
+        var file = await f.AttachPrepared();
+        Assert.Equal(9, file.SizeBytes);
+        Assert.Equal(1, f.Storage.Writes);
+        Assert.Equal(0, f.Storage.Deletes);
+        Assert.Equal("PROJECT_FILE_UPLOADED", Assert.Single(f.Audit.Entries).Action);
+    }
+
+    [Fact]
+    public async Task Prepared_upload_rechecks_state_after_transfer_and_cleans_up_confirmed_rollback()
+    {
+        var f = new Fixture();
+        f.Storage.ExpectTransferOutsideTransaction = true;
+        f.Storage.OnWrite = () => f.Repository.Parent = f.Repository.Parent with { Status = "DONE" };
+        await Assert.ThrowsAsync<ConflictException>(() => f.AttachPrepared());
+        Assert.Equal(1, f.Storage.Writes);
+        Assert.Equal(1, f.Storage.Deletes);
+        Assert.Empty(f.Audit.Entries);
+    }
+
+    [Fact]
+    public async Task Prepared_upload_recovers_lost_commit_ack_without_duplicate_file_even_when_parent_is_locked()
+    {
+        var f = new Fixture();
+        f.Storage.ExpectTransferOutsideTransaction = true;
+        var first = await f.AttachPrepared();
+        f.Repository.Parent = f.Repository.Parent with { Status = "DONE" };
+        var retry = await f.AttachPrepared();
+        Assert.Equal(first.Id, retry.Id);
+        Assert.False(retry.CanDelete);
+        Assert.Equal(1, f.Storage.Writes);
+        Assert.Single(f.Audit.Entries);
+    }
+
+    [Fact]
+    public async Task Prepared_upload_reuses_verified_object_after_worker_restart()
+    {
+        var f = new Fixture();
+        f.Storage.ExistingBytes = "%PDF-test"u8.ToArray();
+        var file = await f.AttachPrepared();
+        Assert.Equal(9, file.SizeBytes);
+        Assert.Equal(0, f.Storage.Writes);
+        Assert.Single(f.Audit.Entries);
+    }
+
+    [Fact]
+    public async Task Prepared_upload_never_overwrites_or_deletes_an_unexpected_existing_object()
+    {
+        var f = new Fixture();
+        f.Storage.ExistingBytes = "unexpected"u8.ToArray();
+        await Assert.ThrowsAsync<ConflictException>(() => f.AttachPrepared());
+        Assert.Equal(0, f.Storage.Writes);
+        Assert.Equal(0, f.Storage.Deletes);
+        Assert.Empty(f.Audit.Entries);
+    }
+
+    [Fact]
+    public async Task Prepared_upload_rechecks_persisted_actor_at_commit()
+    {
+        var f = new Fixture();
+        f.Storage.ExpectTransferOutsideTransaction = true;
+        f.Storage.OnWrite = () => f.Accounts.Actor = f.Accounts.Actor with { IsActive = false };
+        await Assert.ThrowsAsync<ForbiddenException>(() => f.AttachPrepared());
+        Assert.Equal(1, f.Storage.Deletes);
+        Assert.Empty(f.Audit.Entries);
+    }
+
+    [Fact]
+    public async Task Prepared_cleanup_retains_a_confirmed_file_reference_even_after_actor_is_revoked()
+    {
+        var f = new Fixture();
+        f.Storage.ExpectTransferOutsideTransaction = true;
+        await f.AttachPrepared();
+        f.Accounts.Actor = f.Accounts.Actor with { IsActive = false };
+        await f.CleanupPrepared();
+        Assert.Equal(0, f.Storage.Deletes);
+    }
+
+    [Fact]
+    public async Task Prepared_cleanup_removes_unreferenced_object_from_a_canceled_session()
+    {
+        var f = new Fixture();
+        await f.CleanupPrepared();
+        Assert.Equal(1, f.Storage.Deletes);
+    }
+
+    [Fact]
+    public async Task Project_download_selects_streaming_provider_and_preserves_trusted_length()
+    {
+        var f = new Fixture();
+        var result = await f.Download();
+        await using var content = result.Content;
+        Assert.Equal(4, result.Length);
+        Assert.Equal(1, f.Storage.SequentialReads);
+        Assert.Equal("evidence.txt", result.FileName);
+    }
+
     private sealed class Fixture
     {
         public Repository Repository { get; } = new();
@@ -203,6 +304,14 @@ public sealed class DeliverableHandlerTests
             using var content = new MemoryStream("test"u8.ToArray());
             return await workflow.AttachAsync("TASK", 5, new("evidence.txt", "text/plain", 4, content), default);
         }
+        public async Task<ProjectFileDto> AttachPrepared()
+        {
+            using var content = new MemoryStream("%PDF-test"u8.ToArray());
+            var metadata = await ProjectFileUploadValidator.ValidateAsync(content, "evidence.pdf", "application/pdf", content.Length, default);
+            return await workflow.AttachPreparedForActorAsync(10, "TASK", 5, new string('a', 32), metadata, content, default);
+        }
+        public Task CleanupPrepared() => workflow.CleanupPreparedForActorAsync(10, "TASK", 5, new string('a', 32), default);
+        public Task<FileDownload> Download() => workflow.DownloadAsync(8, default);
     }
 
     private sealed class Actor : ICurrentUser
@@ -229,17 +338,22 @@ public sealed class DeliverableHandlerTests
             return Task.CompletedTask;
         }
     }
-    private sealed class Storage(Repository repository) : IFileStorage
+    private sealed class Storage(Repository repository) : IStreamingFileStorage
     {
+        public bool ExpectTransferOutsideTransaction { get; set; }
+        public Action? OnWrite { get; set; }
+        public byte[]? ExistingBytes { get; set; }
         public bool FailCreate { get; set; }
         public int Writes { get; private set; }
         public int Deletes { get; private set; }
+        public int SequentialReads { get; private set; }
         public Task WriteAsync(string key, Stream content, CancellationToken ct)
         {
-            Assert.True(repository.InTransaction);
-            Assert.True(repository.Locked);
+            Assert.Equal(!ExpectTransferOutsideTransaction, repository.InTransaction);
+            if (!ExpectTransferOutsideTransaction) Assert.True(repository.Locked);
             if (FailCreate) throw new IOException("Existing object cannot be overwritten");
             Writes++;
+            OnWrite?.Invoke();
             return Task.CompletedTask;
         }
         public Task DeleteAsync(string key, CancellationToken ct)
@@ -248,7 +362,13 @@ public sealed class DeliverableHandlerTests
             Deletes++;
             return Task.CompletedTask;
         }
-        public Task<Stream> OpenReadAsync(string key, CancellationToken ct) => throw new NotSupportedException();
+        public Task<Stream> OpenReadAsync(string key, CancellationToken ct) => ExistingBytes is null
+            ? throw new FileNotFoundException() : Task.FromResult<Stream>(new MemoryStream(ExistingBytes));
+        public Task<Stream> OpenSequentialReadAsync(string key, CancellationToken ct)
+        {
+            SequentialReads++;
+            return Task.FromResult<Stream>(new MemoryStream("test"u8.ToArray()));
+        }
     }
     private sealed class Accounts : ISupervisorProfileRepository
     {
@@ -273,6 +393,7 @@ public sealed class DeliverableHandlerTests
         public FileParent Parent { get; set; } = new("TASK", 5, 20, "TODO", 10);
         public StoredProjectFile File { get; set; } = new(new(8, "TASK", 5, "evidence.txt", "text/plain", 4, "hash", 10, DateTime.UtcNow), "private-object", 20, 1);
         public int FileDeletes { get; private set; }
+        public StoredProjectFile? PreparedFile { get; private set; }
         public async Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct, Func<Task>? onRollback = null)
         {
             InTransaction = true;
@@ -310,8 +431,16 @@ public sealed class DeliverableHandlerTests
         public Task<PagedResult<DeliverableFeedbackDto>> FeedbackAsync(long versionId, int page, int pageSize, CancellationToken ct) => throw new NotSupportedException();
         public Task<FileParent?> GetParentAsync(string type, long id, CancellationToken ct) => Task.FromResult<FileParent?>(Parent);
         public Task<StoredProjectFile?> GetFileAsync(long id, CancellationToken ct) => Task.FromResult<StoredProjectFile?>(File);
+        public Task<StoredProjectFile?> FindFileByStorageKeyAsync(string storageKey, CancellationToken ct) => Task.FromResult(PreparedFile);
         public Task<PagedResult<ProjectFileDto>> FilesAsync(FileSearch search, CancellationToken ct) => Task.FromResult(new PagedResult<ProjectFileDto>([File.Dto], 1, 20, 1));
-        public Task<ProjectFileDto> AttachAsync(FileParent parent, string key, ValidatedUpload file, long actorId, DateTime now, CancellationToken ct) => throw new NotSupportedException();
+        public Task<ProjectFileDto> AttachAsync(FileParent parent, string key, UploadMetadata file, long actorId, DateTime now, CancellationToken ct)
+        {
+            Assert.True(InTransaction);
+            Assert.True(Locked);
+            var dto = new ProjectFileDto(90, parent.Type, parent.Id, file.FileName, file.ContentType, file.Length, file.Sha256, actorId, now);
+            PreparedFile = new(dto, key, parent.ProjectId, 1);
+            return Task.FromResult(dto);
+        }
         public Task DeleteFileAsync(long id, CancellationToken ct)
         {
             Assert.True(InTransaction);

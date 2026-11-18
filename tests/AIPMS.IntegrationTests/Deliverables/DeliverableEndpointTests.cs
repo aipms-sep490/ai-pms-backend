@@ -5,11 +5,14 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Security.Cryptography;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Storage;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Deliverables.DTOs;
+using AIPMS.Application.Features.Files;
+using AIPMS.Infrastructure.Storage;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.IntegrationTests.Supervisors;
 using Microsoft.AspNetCore.Hosting;
@@ -25,6 +28,125 @@ namespace AIPMS.IntegrationTests.Deliverables;
 
 public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database) : IClassFixture<SupervisorDatabaseFixture>
 {
+    [Theory]
+    [InlineData(200)]
+    [InlineData(500)]
+    public async Task Chunked_project_file_upload_round_trips_large_file_and_is_idempotent(int sizeMiB)
+    {
+        var s = await Seed();
+        var temporary = Path.Combine(Path.GetTempPath(), "aipms-large-endpoint-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporary);
+        try
+        {
+            var source = Path.Combine(temporary, "source.pdf");
+            var size = sizeMiB * 1024L * 1024;
+            await using (var stream = new FileStream(source, FileMode.CreateNew, FileAccess.Write))
+            {
+                await stream.WriteAsync("%PDF-1.7\n"u8.ToArray());
+                stream.SetLength(size);
+            }
+            using var app = new Factory(database, diskStorageRoot: Path.Combine(temporary, "stored"));
+            using var leader = app.CreateAuthenticatedClient(s.Accounts.Student);
+            using var other = app.CreateAuthenticatedClient(s.MemberId);
+            leader.Timeout = TimeSpan.FromMinutes(3);
+            var request = new CreateProjectFileUploadSession("REPORT", s.ReportId, "large.pdf", "application/pdf", size);
+            Assert.Equal(HttpStatusCode.RequestEntityTooLarge, (await leader.PostAsJsonAsync("/api/v1/files/upload-sessions",
+                request with { SizeBytes = UploadPolicies.ProjectFileLimit + 1 })).StatusCode);
+            var session = await Body<ProjectFileUploadSession>(await leader.PostAsJsonAsync("/api/v1/files/upload-sessions", request));
+            var path = $"/api/v1/files/upload-sessions/{session.SessionId}";
+            Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync(path)).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await other.PostAsync(path + "/complete", null)).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await other.DeleteAsync(path)).StatusCode);
+            await using (var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                var chunk = new byte[session.ChunkSizeBytes];
+                for (long offset = 0; offset < size;)
+                {
+                    var length = (int)Math.Min(chunk.Length, size - offset);
+                    await input.ReadExactlyAsync(chunk.AsMemory(0, length));
+                    using var body = new ByteArrayContent(chunk, 0, length);
+                    body.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                    var next = await Body<ProjectFileUploadSession>(await leader.PutAsync(path + $"/chunks?offset={offset}", body));
+                    Assert.Equal(offset + length, next.NextOffset);
+                    if (offset == 0)
+                    {
+                        using var duplicate = new ByteArrayContent(chunk, 0, length);
+                        duplicate.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                        Assert.Equal(length, (await Body<ProjectFileUploadSession>(await leader.PutAsync(path + "/chunks?offset=0", duplicate))).NextOffset);
+                    }
+                    offset += length;
+                }
+            }
+            var listUrl = $"/api/v1/projects/{s.ProjectId}/files?parentType=REPORT&parentId={s.ReportId}";
+            Assert.Empty((await Body<PagedResult<ProjectFileDto>>(await leader.GetAsync(listUrl))).Items);
+            await Body<ProjectFileUploadSession>(await leader.PostAsync(path + "/complete", null));
+            var completed = await WaitForUpload(leader, path);
+            Assert.Equal("COMPLETED", completed.State);
+            Assert.NotNull(completed.File);
+            Assert.Equal(size, completed.File.SizeBytes);
+            Assert.Equal(completed.File.Id, (await Body<ProjectFileUploadSession>(await leader.PostAsync(path + "/complete", null))).File!.Id);
+            Assert.Equal(completed.File.Id, Assert.Single((await Body<PagedResult<ProjectFileDto>>(await leader.GetAsync(listUrl))).Items).Id);
+            await using var original = new FileStream(source, FileMode.Open, FileAccess.Read);
+            var expectedHash = Convert.ToHexString(await SHA256.HashDataAsync(original)).ToLowerInvariant();
+            using var download = await leader.GetAsync($"/api/v1/files/{completed.File.Id}/download", HttpCompletionOption.ResponseHeadersRead);
+            Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+            await using var downloaded = await download.Content.ReadAsStreamAsync();
+            Assert.Equal(expectedHash, Convert.ToHexString(await SHA256.HashDataAsync(downloaded)).ToLowerInvariant());
+            Assert.Equal(expectedHash, completed.File.Sha256);
+        }
+        finally { Directory.Delete(temporary, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Chunked_upload_rechecks_parent_at_complete_and_after_storage_before_commit()
+    {
+        var s = await Seed();
+        using var app = new Factory(database);
+        using var leader = app.CreateAuthenticatedClient(s.Accounts.Student);
+        var bytes = "%PDF-1.7\ncontent"u8.ToArray();
+        var request = new CreateProjectFileUploadSession("REPORT", s.ReportId, "test.pdf", "application/pdf", bytes.Length);
+        var session = await Body<ProjectFileUploadSession>(await leader.PostAsJsonAsync("/api/v1/files/upload-sessions", request));
+        var path = $"/api/v1/files/upload-sessions/{session.SessionId}";
+        using var body = new ByteArrayContent(bytes);
+        body.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        await Body<ProjectFileUploadSession>(await leader.PutAsync(path + "/chunks?offset=0", body));
+        await using (var db = database.CreateContext())
+        {
+            (await db.ProgressReports.FindAsync(s.ReportId))!.Status = "SUBMITTED";
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await leader.PostAsync(path + "/complete", null)).StatusCode);
+        await using (var db = database.CreateContext())
+        {
+            (await db.ProgressReports.FindAsync(s.ReportId))!.Status = "DRAFT";
+            await db.SaveChangesAsync();
+        }
+        app.Storage.AfterWrite = () =>
+        {
+            using var db = database.CreateContext();
+            db.ProgressReports.Single(x => x.Id == s.ReportId).Status = "SUBMITTED";
+            db.SaveChanges();
+        };
+        await Body<ProjectFileUploadSession>(await leader.PostAsync(path + "/complete", null));
+        var failed = await WaitForUpload(leader, path);
+        Assert.Equal("FAILED", failed.State);
+        Assert.Null(failed.File);
+        await using (var db = database.CreateContext())
+            Assert.False(await db.Files.AnyAsync(x => x.ProgressReportId == s.ReportId));
+        Assert.Empty(app.Storage.Objects);
+    }
+
+    private static async Task<ProjectFileUploadSession> WaitForUpload(HttpClient client, string path)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        while (true)
+        {
+            var result = await Body<ProjectFileUploadSession>(await client.GetAsync(path, timeout.Token));
+            if (result.State is "COMPLETED" or "FAILED") return result;
+            await Task.Delay(100, timeout.Token);
+        }
+    }
+
     private static readonly DateTime Now = new(2026, 9, 11, 10, 0, 0, DateTimeKind.Utc);
     private static async Task<T> Body<T>(HttpResponseMessage response)
     {
@@ -527,7 +649,8 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
         }
     }
     private sealed class Factory(SupervisorDatabaseFixture database, MemoryStorage? storage = null,
-        bool failAudit = false, IInterceptor? interceptor = null, Clock? clock = null, bool notifyReviewer = true) : AipmsWebApplicationFactory
+        bool failAudit = false, IInterceptor? interceptor = null, Clock? clock = null, bool notifyReviewer = true,
+        string? diskStorageRoot = null) : AipmsWebApplicationFactory
     {
         public MemoryStorage Storage { get; } = storage ?? new();
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -540,7 +663,10 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
             }));
             builder.ConfigureServices(services =>
             {
-                services.RemoveAll<IFileStorage>(); services.AddSingleton<IFileStorage>(Storage);
+                services.RemoveAll<IFileStorage>();
+                if (diskStorageRoot is null) services.AddSingleton<IFileStorage>(Storage);
+                else services.AddSingleton<IFileStorage>(new LocalFileStorage(new ConfigurationBuilder()
+                    .AddInMemoryCollection(new Dictionary<string, string?> { ["FileStorage:RootPath"] = diskStorageRoot }).Build()));
                 services.RemoveAll<TimeProvider>(); services.AddSingleton<TimeProvider>(clock ?? new Clock());
                 if (failAudit) { services.RemoveAll<IAuditTrail>(); services.AddSingleton<IAuditTrail, FailAudit>(); }
                 if (interceptor is not null)
