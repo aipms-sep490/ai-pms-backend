@@ -40,5 +40,15 @@ public interface IMilestoneRepository
 
     Task<bool> IsProjectLeaderOrSupervisorAsync(long projectId, long userId, CancellationToken cancellationToken);
 
+    Task<bool> MilestoneBelongsToProjectAsync(long milestoneId, long projectId, CancellationToken cancellationToken);
+
+    Task AcquireProjectDependencyLockAsync(long projectId, CancellationToken cancellationToken);
+
+    Task AddDependencyAsync(long milestoneId, long dependsOnMilestoneId, string dependencyType, CancellationToken cancellationToken);
+
+    Task RemoveDependencyAsync(long milestoneId, long dependsOnMilestoneId, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<long>> GetDependsOnMilestoneIdsAsync(long milestoneId, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<MilestoneProgressDto>> GetMilestoneProgressAsync(long projectId, CancellationToken cancellationToken);
 }

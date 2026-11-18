@@ -73,6 +73,40 @@ public sealed class UpdateReportingCycleCommandHandler(
         var periodEnd = command.Request.PeriodEnd?.UtcDateTime;
         var deadline = command.Request.Deadline?.UtcDateTime;
 
+        string? reportType = null;
+        if (!string.IsNullOrWhiteSpace(command.Request.ReportType))
+        {
+            var normalized = command.Request.ReportType.Trim().ToUpperInvariant();
+            if (normalized != "WEEKLY" && normalized != "MONTHLY")
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["reportType"] = ["Report type must be either WEEKLY or MONTHLY."]
+                });
+            }
+            reportType = normalized;
+        }
+
+        var effStart = periodStart ?? existing.PeriodStart;
+        var effEnd = periodEnd ?? existing.PeriodEnd;
+        var effDeadline = deadline ?? existing.Deadline;
+
+        if (effEnd <= effStart)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["periodEnd"] = ["Period end must be strictly after period start."]
+            });
+        }
+
+        if (effDeadline < effEnd)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["deadline"] = ["Deadline must be greater than or equal to period end."]
+            });
+        }
+
         var now = clock.GetUtcNow().UtcDateTime;
         return await repository.UpdateAsync(
             cycleId,
@@ -82,6 +116,7 @@ public sealed class UpdateReportingCycleCommandHandler(
             command.Request.LatePolicy,
             expectedToken,
             now,
+            reportType,
             onUpdated: async updated =>
             {
                 await audit.RecordAsync(new AuditEntry(
@@ -92,6 +127,7 @@ public sealed class UpdateReportingCycleCommandHandler(
                     new Dictionary<string, object?>
                     {
                         ["projectId"] = projectId,
+                        ["reportType"] = updated.ReportType,
                         ["periodStart"] = updated.PeriodStart.ToString("o"),
                         ["periodEnd"] = updated.PeriodEnd.ToString("o"),
                         ["deadline"] = updated.Deadline.ToString("o"),

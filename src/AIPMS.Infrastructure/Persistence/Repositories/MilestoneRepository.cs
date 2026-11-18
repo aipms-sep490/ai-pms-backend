@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Milestones.Abstractions;
 using AIPMS.Application.Features.Milestones.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
@@ -20,6 +21,8 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
         var entity = await context.Milestones
             .AsNoTracking()
             .Include(static m => m.CreatedByNavigation)
+            .Include(m => m.MilestoneDependencies)
+                .ThenInclude(d => d.DependsOnMilestone)
             .FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
 
         return entity?.ToDto();
@@ -30,6 +33,8 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
         var entities = await context.Milestones
             .AsNoTracking()
             .Include(static m => m.CreatedByNavigation)
+            .Include(m => m.MilestoneDependencies)
+                .ThenInclude(d => d.DependsOnMilestone)
             .Where(m => m.ProjectId == projectId)
             .OrderBy(static m => m.SortOrder)
             .ThenBy(static m => m.Id)
@@ -103,6 +108,8 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
             .FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
         if (entity is not null)
         {
+            if (await context.MilestoneDependencies.AnyAsync(d => d.DependsOnMilestoneId == id, cancellationToken))
+                throw new ConflictException("Mốc đang được mốc khác sử dụng làm tiền nhiệm. Hãy gỡ phụ thuộc trước khi xóa.");
             context.Milestones.Remove(entity);
             await context.SaveChangesAsync(cancellationToken);
         }
@@ -136,6 +143,66 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
     {
         return await AIPMS.Infrastructure.Services.Projects.ProjectExecutionAuthority.IsManagerAsync(context, projectId, userId, cancellationToken);
     }
+
+    public Task<bool> MilestoneBelongsToProjectAsync(long milestoneId, long projectId, CancellationToken cancellationToken) =>
+        context.Milestones.AsNoTracking().AnyAsync(m => m.Id == milestoneId && m.ProjectId == projectId, cancellationToken);
+
+    public async Task AcquireProjectDependencyLockAsync(long projectId, CancellationToken cancellationToken)
+    {
+        if (!context.Database.IsRelational()) return;
+
+        var lockKey = $"milestone-dependency:{projectId}";
+        var rcParam = new Microsoft.Data.SqlClient.SqlParameter("@rc", System.Data.SqlDbType.Int) { Direction = System.Data.ParameterDirection.Output };
+        var resourceParam = new Microsoft.Data.SqlClient.SqlParameter("@p0", System.Data.SqlDbType.NVarChar, 255) { Value = lockKey };
+        if (context.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Milestone dependency changes require an active transaction.");
+        await context.Database.ExecuteSqlRawAsync(
+                "EXEC @rc = sp_getapplock @Resource = @p0, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000",
+                new object[] { rcParam, resourceParam },
+                cancellationToken);
+
+        if (rcParam.Value is not int rcValue || rcValue < 0)
+            throw new ConflictException("Không thể khóa dữ liệu phụ thuộc của mốc. Vui lòng thử lại.");
+    }
+
+    public async Task AddDependencyAsync(long milestoneId, long dependsOnMilestoneId, string dependencyType, CancellationToken cancellationToken)
+    {
+        var dependency = new MilestoneDependency
+        {
+            MilestoneId = milestoneId,
+            DependsOnMilestoneId = dependsOnMilestoneId,
+            DependencyType = dependencyType,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        context.MilestoneDependencies.Add(dependency);
+        var milestone = await context.Milestones.SingleAsync(m => m.Id == milestoneId, cancellationToken);
+        milestone.ConcurrencyToken = Guid.NewGuid();
+        milestone.UpdatedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task RemoveDependencyAsync(long milestoneId, long dependsOnMilestoneId, CancellationToken cancellationToken)
+    {
+        var dependency = await context.MilestoneDependencies
+            .FirstOrDefaultAsync(d => d.MilestoneId == milestoneId && d.DependsOnMilestoneId == dependsOnMilestoneId, cancellationToken);
+
+        if (dependency is not null)
+        {
+            context.MilestoneDependencies.Remove(dependency);
+            var milestone = await context.Milestones.SingleAsync(m => m.Id == milestoneId, cancellationToken);
+            milestone.ConcurrencyToken = Guid.NewGuid();
+            milestone.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    public async Task<IReadOnlyList<long>> GetDependsOnMilestoneIdsAsync(long milestoneId, CancellationToken cancellationToken) =>
+        await context.MilestoneDependencies
+            .AsNoTracking()
+            .Where(d => d.MilestoneId == milestoneId)
+            .Select(d => d.DependsOnMilestoneId)
+            .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<MilestoneProgressDto>> GetMilestoneProgressAsync(long projectId, CancellationToken cancellationToken)
     {

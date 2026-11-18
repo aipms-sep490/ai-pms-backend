@@ -1,5 +1,6 @@
 using AIPMS.Application.Abstractions.Projects;
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
@@ -7,6 +8,7 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Milestones.Abstractions;
 using AIPMS.Application.Features.Milestones.DTOs;
+using AIPMS.Application.Features.Projects.Abstractions;
 using MediatR;
 
 namespace AIPMS.Application.Features.Milestones.Commands;
@@ -28,7 +30,8 @@ public sealed class UpdateMilestoneCommandHandler(
     IMilestoneRepository repository,
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
-    IAuditTrail auditTrail)
+    IAuditTrail auditTrail,
+    IExecutionWindowService? executionWindowService = null)
     : IRequestHandler<UpdateMilestoneCommand, MilestoneDto>
 {
     public async Task<MilestoneDto> Handle(
@@ -53,6 +56,24 @@ public sealed class UpdateMilestoneCommandHandler(
         if (!await repository.IsProjectLeaderOrSupervisorAsync(milestone.ProjectId, actorUserId, cancellationToken))
         {
             throw new ForbiddenException("You are not authorized to update milestones for this project.");
+        }
+
+        if (executionWindowService is not null)
+        {
+            // Validate milestone dates against execution window
+            await executionWindowService.ValidateMilestoneDatesAsync(
+                milestone.ProjectId,
+                request.StartDate,
+                request.DueDate,
+                request.Id,
+                cancellationToken);
+
+            // Validate impact on child tasks and revalidate dependencies (BUG A4)
+            await executionWindowService.ValidateMilestoneDateUpdateImpactAsync(
+                request.Id,
+                request.StartDate,
+                request.DueDate,
+                cancellationToken);
         }
 
         var updatedMilestone = await repository.UpdateAsync(

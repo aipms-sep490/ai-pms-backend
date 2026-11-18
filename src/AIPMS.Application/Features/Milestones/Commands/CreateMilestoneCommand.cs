@@ -6,6 +6,7 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Milestones.Abstractions;
 using AIPMS.Application.Features.Milestones.DTOs;
+using AIPMS.Application.Features.Projects.Abstractions;
 using MediatR;
 
 namespace AIPMS.Application.Features.Milestones.Commands;
@@ -22,7 +23,8 @@ public sealed class CreateMilestoneCommandHandler(
     IMilestoneRepository repository,
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
-    IAuditTrail auditTrail)
+    IAuditTrail auditTrail,
+    IExecutionWindowService? executionWindowService = null)
     : IRequestHandler<CreateMilestoneCommand, MilestoneDto>
 {
     public async Task<MilestoneDto> Handle(
@@ -43,6 +45,17 @@ public sealed class CreateMilestoneCommandHandler(
         if (!await repository.IsProjectLeaderOrSupervisorAsync(request.ProjectId, actorUserId, cancellationToken))
         {
             throw new ForbiddenException("You are not authorized to create milestones for this project.");
+        }
+
+        // Validate milestone dates against execution window
+        if (executionWindowService is not null)
+        {
+            await executionWindowService.ValidateMilestoneDatesAsync(
+                request.ProjectId,
+                request.StartDate,
+                request.DueDate,
+                null,
+                cancellationToken);
         }
 
         var milestone = await repository.CreateAsync(

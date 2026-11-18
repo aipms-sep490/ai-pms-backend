@@ -35,4 +35,8 @@ public partial class Milestone
     public virtual Project Project { get; set; } = null!;
 
     public virtual ICollection<Task> Tasks { get; set; } = new List<Task>();
+
+    public virtual ICollection<MilestoneDependency> MilestoneDependencies { get; set; } = new List<MilestoneDependency>();
+
+    public virtual ICollection<MilestoneDependency> MilestoneDependencyDependsOnMilestones { get; set; } = new List<MilestoneDependency>();
 }

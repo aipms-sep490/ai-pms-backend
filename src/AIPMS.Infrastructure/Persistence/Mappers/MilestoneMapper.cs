@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using AIPMS.Application.Features.Milestones.DTOs;
 using MilestoneEntity = AIPMS.Infrastructure.Persistence.Generated.Models.Milestone;
 
@@ -20,5 +21,13 @@ internal static class MilestoneMapper
             milestone.CreatedByNavigation?.FullName ?? string.Empty,
             milestone.CreatedAt,
             milestone.UpdatedAt,
-            milestone.ConcurrencyToken.ToString("N"));
+            milestone.ConcurrencyToken.ToString("N"),
+            milestone.MilestoneDependencies?.Select(d => new MilestoneDependencyDto(
+                d.Id,
+                d.MilestoneId,
+                d.DependsOnMilestoneId,
+                d.DependencyType,
+                d.CreatedAt,
+                d.DependsOnMilestone?.Title
+            )).ToArray() ?? Array.Empty<MilestoneDependencyDto>());
 }

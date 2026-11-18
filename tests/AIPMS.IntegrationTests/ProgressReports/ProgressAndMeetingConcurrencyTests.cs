@@ -1325,7 +1325,9 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         var cycle1 = await res1.Content.ReadFromJsonAsync<ReportingCycleDto>();
         var cycle2 = await res2.Content.ReadFromJsonAsync<ReportingCycleDto>();
 
-        var upReq1 = new UpdateReportingCycleRequest(PeriodEnd: new DateTimeOffset(2026, 3, 18, 0, 0, 0, TimeSpan.Zero));
+        var upReq1 = new UpdateReportingCycleRequest(
+            PeriodEnd: new DateTimeOffset(2026, 3, 18, 0, 0, 0, TimeSpan.Zero),
+            Deadline: new DateTimeOffset(2026, 3, 19, 0, 0, 0, TimeSpan.Zero));
         var upReq2 = new UpdateReportingCycleRequest(PeriodStart: new DateTimeOffset(2026, 3, 15, 0, 0, 0, TimeSpan.Zero));
 
         using var client1 = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
@@ -1511,6 +1513,16 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         var reloaded = await freshCtx.ProgressReportPeriods.FindAsync(cycle.Id);
         Assert.Equal(futureDeadline.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss"), reloaded!.Deadline.ToString("yyyy-MM-ddTHH:mm:ss"));
         Assert.Equal("BLOCK", reloaded.LatePolicy);
+        // Full-form clients resend unchanged values. Historical protection rejects changes,
+        // while an identical payload remains safe to save.
+        var unchanged = new UpdateReportingCycleRequest(
+            PeriodStart: new DateTimeOffset(DateTime.SpecifyKind(reloaded.PeriodStart, DateTimeKind.Utc)),
+            PeriodEnd: new DateTimeOffset(DateTime.SpecifyKind(reloaded.PeriodEnd, DateTimeKind.Utc)),
+            Deadline: new DateTimeOffset(DateTime.SpecifyKind(reloaded.Deadline, DateTimeKind.Utc)),
+            LatePolicy: reloaded.LatePolicy,
+            ConcurrencyToken: reloaded.ConcurrencyToken.ToString("N"));
+        var same = await staffClient.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle.Id}", unchanged);
+        Assert.True(same.IsSuccessStatusCode, await same.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -1523,11 +1535,15 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         using var staffClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
         using var studentClient = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.Student]);
 
-        var futureDeadline = new DateTimeOffset(DateTime.UtcNow.Year, DateTime.UtcNow.Month, DateTime.UtcNow.Day, 12, 0, 0, TimeSpan.Zero).AddDays(30);
+        var baseDate = DateTime.UtcNow.Date;
+        var startInstant = new DateTimeOffset(baseDate.AddDays(-10), TimeSpan.Zero);
+        var endInstant = new DateTimeOffset(baseDate.AddDays(-5), TimeSpan.Zero);
+        var pastDeadline = new DateTimeOffset(baseDate.AddDays(-2), TimeSpan.Zero);
+        var futureDeadline = new DateTimeOffset(baseDate.AddDays(30), TimeSpan.Zero);
 
         var reqCycle = new CreateReportingCycleRequest("WEEKLY",
-            new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2026, 8, 10, 0, 0, 0, TimeSpan.Zero),
+            startInstant,
+            endInstant,
             futureDeadline, "FLAG", null);
 
         var resCycle = await staffClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", reqCycle);
@@ -1537,8 +1553,8 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
 
         var reqReport = new CreateProgressReportRequest(
             ReportType: "WEEKLY",
-            PeriodStart: DateOnly.FromDateTime(new DateTime(2026, 8, 1)),
-            PeriodEnd: DateOnly.FromDateTime(new DateTime(2026, 8, 10)),
+            PeriodStart: DateOnly.FromDateTime(baseDate.AddDays(-10)),
+            PeriodEnd: DateOnly.FromDateTime(baseDate.AddDays(-5)),
             Summary: "Summary",
             CompletedWork: "Completed", PlannedWork: null, IssuesAndRisks: null,
 
@@ -1552,7 +1568,6 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         Assert.True(resReport.StatusCode == HttpStatusCode.Created, $"Report Create Failed: {resReport.StatusCode} - {resReportStr}");
         var report = await resReport.Content.ReadFromJsonAsync<ProgressReportDto>();
 
-        var pastDeadline = new DateTimeOffset(2000, 8, 11, 0, 0, 0, TimeSpan.Zero);
         var upReq = new UpdateReportingCycleRequest(Deadline: pastDeadline);
 
         var task1 = staffClient.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle.Id}", upReq);
@@ -2490,6 +2505,84 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
                 .AnyAsync(a => a.EntityId == actionItemId.ToString() && a.Action == "PROJECT_ACTION_ITEM_STATUS_UPDATED");
             Assert.False(hasAudit);
         }
+    }
+
+    #endregion
+
+    #region BUG B1 Negative Tests — Date Inversion Protection
+
+    [Fact]
+    public async Task B1_Negative_CreateReportingCycle_DeadlineBeforePeriodEnd_Returns400BadRequest()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new NormalFactory(database);
+        using var client = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var invalidReq = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 9, 5, 0, 0, 0, TimeSpan.Zero),
+            "BLOCK", null);
+
+        var response = await client.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", invalidReq);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("deadline", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task B1_Negative_UpdateReportingCycle_DeadlineBeforePeriodEnd_Returns400BadRequest()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new NormalFactory(database);
+        using var client = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var validReq = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero),
+            "BLOCK", null);
+
+        var createRes = await client.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", validReq);
+        Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+        var cycle = await createRes.Content.ReadFromJsonAsync<ReportingCycleDto>();
+
+        var invalidUpdate = new UpdateReportingCycleRequest(
+            Deadline: new DateTimeOffset(2026, 9, 5, 0, 0, 0, TimeSpan.Zero));
+
+        var updateRes = await client.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle!.Id}", invalidUpdate);
+        Assert.Equal(HttpStatusCode.BadRequest, updateRes.StatusCode);
+
+        var body = await updateRes.Content.ReadAsStringAsync();
+        Assert.Contains("deadline", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task B1_Negative_UpdateReportingCycle_PeriodEndExceedingExistingDeadline_Returns400BadRequest()
+    {
+        var ctx = await SeedTestProjectAsync();
+        using var app = new NormalFactory(database);
+        using var client = app.CreateAuthenticatedClient(ctx.LeaderUserId, roles: [AppRoles.DepartmentStaff]);
+
+        var validReq = new CreateReportingCycleRequest("WEEKLY",
+            new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero),
+            "BLOCK", null);
+
+        var createRes = await client.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles", validReq);
+        Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+        var cycle = await createRes.Content.ReadFromJsonAsync<ReportingCycleDto>();
+
+        var invalidPeriodEndUpdate = new UpdateReportingCycleRequest(
+            PeriodEnd: new DateTimeOffset(2026, 9, 20, 0, 0, 0, TimeSpan.Zero));
+
+        var updateRes = await client.PutAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/reporting-cycles/{cycle!.Id}", invalidPeriodEndUpdate);
+        Assert.Equal(HttpStatusCode.BadRequest, updateRes.StatusCode);
+
+        var body = await updateRes.Content.ReadAsStringAsync();
+        Assert.Contains("deadline", body, StringComparison.OrdinalIgnoreCase);
     }
 
     #endregion

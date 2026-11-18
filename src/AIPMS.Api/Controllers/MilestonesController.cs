@@ -94,4 +94,25 @@ public sealed class MilestonesController(ISender sender) : ControllerBase
         await sender.Send(new ReorderMilestonesCommand(projectId, items), cancellationToken);
         return NoContent();
     }
+
+    [HttpPost("dependency")]
+    [ProducesResponseType<MilestoneDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<MilestoneDto>> AddDependency(
+        [FromBody] AddMilestoneDependencyCommand command,
+        CancellationToken cancellationToken) =>
+        Ok(await sender.Send(command, cancellationToken));
+
+    [HttpDelete("{id:long}/dependency/{dependsOnMilestoneId:long}")]
+    [ProducesResponseType<MilestoneDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<MilestoneDto>> RemoveDependency(
+        long id,
+        long dependsOnMilestoneId,
+        [FromQuery] string? concurrencyToken,
+        CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new RemoveMilestoneDependencyCommand(id, dependsOnMilestoneId, concurrencyToken), cancellationToken));
 }

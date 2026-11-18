@@ -100,6 +100,14 @@ public sealed class CreateReportingCycleCommandHandler(
             });
         }
 
+        if (deadline < periodEnd)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["deadline"] = ["Deadline must be greater than or equal to period end."]
+            });
+        }
+
         if (await repository.ExistsOverlapAsync(projectId, reportType, periodStart, periodEnd, null, cancellationToken))
         {
             throw new ConflictException("A reporting cycle of this type already overlaps with the requested interval.");

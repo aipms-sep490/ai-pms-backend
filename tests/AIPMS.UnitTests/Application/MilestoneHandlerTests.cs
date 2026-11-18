@@ -121,6 +121,12 @@ internal sealed class StubMilestoneRepository : IMilestoneRepository
 
     public Task<bool> IsProjectLeaderOrSupervisorAsync(long projectId, long userId, CancellationToken cancellationToken) => Task.FromResult(IsLeaderOrSupervisor);
 
+    public Task<bool> MilestoneBelongsToProjectAsync(long milestoneId, long projectId, CancellationToken cancellationToken) => Task.FromResult(true);
+    public Task AcquireProjectDependencyLockAsync(long projectId, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task AddDependencyAsync(long milestoneId, long dependsOnMilestoneId, string dependencyType, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task RemoveDependencyAsync(long milestoneId, long dependsOnMilestoneId, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task<IReadOnlyList<long>> GetDependsOnMilestoneIdsAsync(long milestoneId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<long>>(Array.Empty<long>());
+
     public Task<IReadOnlyList<MilestoneProgressDto>> GetMilestoneProgressAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<MilestoneProgressDto>>(Array.Empty<MilestoneProgressDto>());
 }

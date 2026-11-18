@@ -1,11 +1,13 @@
 using AIPMS.Application.Abstractions.Projects;
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Milestones.Abstractions;
+using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Tasks.Abstractions;
 using AIPMS.Application.Features.Tasks.DTOs;
 using AIPMS.Domain.Tasks;
@@ -32,7 +34,8 @@ public sealed class UpdateTaskCommandHandler(
     IMilestoneRepository milestoneRepository,
     IProjectExecutionGuard executionGuard,
     ICurrentUser currentUser,
-    IAuditTrail auditTrail)
+    IAuditTrail auditTrail,
+    IExecutionWindowService? executionWindowService = null)
     : IRequestHandler<UpdateTaskCommand, TaskDto>
 {
     public async Task<TaskDto> Handle(
@@ -53,11 +56,11 @@ public sealed class UpdateTaskCommandHandler(
         // Verify project is ACTIVE (strict guard)
         await executionGuard.MustBeActiveForTaskAsync(request.Id, cancellationToken);
 
-        // Retrieve target milestone
-        var milestone = await milestoneRepository.GetByIdAsync(task.MilestoneId, cancellationToken)
+        // Retrieve current milestone to identify project
+        var currentMilestone = await milestoneRepository.GetByIdAsync(task.MilestoneId, cancellationToken)
             ?? throw new NotFoundException("Milestone", task.MilestoneId);
 
-        var projectId = milestone.ProjectId;
+        var projectId = currentMilestone.ProjectId;
 
         // Verify authorization: Student Leader or Assigned Supervisor
         if (!await repository.IsProjectLeaderOrSupervisorAsync(projectId, actorUserId, cancellationToken))
@@ -72,6 +75,17 @@ public sealed class UpdateTaskCommandHandler(
             {
                 throw new ConflictException("The new milestone must belong to the same project.");
             }
+        }
+
+        // Validate task dates against the target milestone and execution window (BUG A2, A3)
+        if (executionWindowService is not null)
+        {
+            await executionWindowService.ValidateTaskDatesAsync(
+                projectId,
+                request.MilestoneId,
+                request.StartAt,
+                request.DueAt,
+                cancellationToken);
         }
 
         // Validate parent task
