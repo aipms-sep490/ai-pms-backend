@@ -79,6 +79,103 @@ public sealed class DeliverableHandlerTests
         Assert.False(f.Repository.InTransaction);
     }
 
+    [Theory]
+    [InlineData("IN_REVIEW")]
+    [InlineData("DONE")]
+    [InlineData("CANCELLED")]
+    public async Task Task_files_cannot_be_uploaded_or_deleted_after_submission_for_review(string status)
+    {
+        var f = new Fixture();
+        f.Repository.Parent = f.Repository.Parent with { Status = status };
+        Assert.False(Assert.Single((await f.Evidence()).Items).CanDelete);
+        await Assert.ThrowsAsync<ConflictException>(() => f.Attach());
+        await Assert.ThrowsAsync<ConflictException>(() => f.DeleteFile());
+        Assert.Equal(0, f.Storage.Writes);
+        Assert.Equal(0, f.Storage.Deletes);
+        Assert.Equal(0, f.Repository.FileDeletes);
+        Assert.Empty(f.Audit.Entries);
+    }
+
+    [Theory]
+    [InlineData("TODO")]
+    [InlineData("IN_PROGRESS")]
+    [InlineData("BLOCKED")]
+    public async Task Uploader_can_delete_editable_task_evidence_with_audit_and_cleanup_after_transaction(string status)
+    {
+        var f = new Fixture();
+        f.Repository.Parent = f.Repository.Parent with { Status = status };
+        Assert.True(Assert.Single((await f.Evidence()).Items).CanDelete);
+        await f.DeleteFile();
+        Assert.Equal(1, f.Repository.FileDeletes);
+        Assert.Equal(1, f.Storage.Deletes);
+        Assert.Equal("PROJECT_FILE_DELETED", Assert.Single(f.Audit.Entries).Action);
+    }
+
+    [Fact]
+    public async Task Another_member_cannot_delete_someone_elses_task_evidence()
+    {
+        var f = new Fixture();
+        f.Repository.File = f.Repository.File with { Dto = f.Repository.File.Dto with { UploadedBy = 99 } };
+        Assert.False(Assert.Single((await f.Evidence()).Items).CanDelete);
+        await Assert.ThrowsAsync<ForbiddenException>(() => f.DeleteFile());
+        Assert.Equal(0, f.Repository.FileDeletes);
+        Assert.Equal(0, f.Storage.Deletes);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Leader_or_assigned_supervisor_can_delete_another_uploaders_editable_evidence(bool leader)
+    {
+        var f = new Fixture();
+        f.Repository.File = f.Repository.File with { Dto = f.Repository.File.Dto with { UploadedBy = 99 } };
+        f.Repository.Project = f.Repository.Project with { IsLeader = leader, AssignmentId = leader ? null : 123 };
+        if (!leader) f.Accounts.Actor = f.Accounts.Actor with { Roles = [AppRoles.Lecturer] };
+        Assert.True(Assert.Single((await f.Evidence()).Items).CanDelete);
+        await f.DeleteFile();
+        Assert.Equal(1, f.Repository.FileDeletes);
+    }
+
+    [Fact]
+    public async Task Administrator_read_access_does_not_grant_attachment_deletion()
+    {
+        var f = new Fixture();
+        f.Accounts.Actor = f.Accounts.Actor with { Roles = [AppRoles.Admin] };
+        Assert.False(Assert.Single((await f.Evidence()).Items).CanDelete);
+        await Assert.ThrowsAsync<ForbiddenException>(() => f.DeleteFile());
+        Assert.Equal(0, f.Storage.Deletes);
+    }
+
+    [Fact]
+    public async Task Task_status_is_rechecked_in_transaction_before_attachment_mutation()
+    {
+        var f = new Fixture();
+        f.Repository.OnBegin = () => f.Repository.Parent = f.Repository.Parent with { Status = "DONE" };
+        await Assert.ThrowsAsync<ConflictException>(() => f.Attach());
+        Assert.Equal(0, f.Storage.Writes);
+        Assert.Equal(0, f.Storage.Deletes);
+        Assert.Empty(f.Audit.Entries);
+    }
+
+    [Fact]
+    public async Task Task_evidence_is_read_only_when_project_is_no_longer_active()
+    {
+        var f = new Fixture();
+        f.Repository.Project = f.Repository.Project with { Status = "APPROVED" };
+        Assert.False(Assert.Single((await f.Evidence()).Items).CanDelete);
+        await Assert.ThrowsAsync<ConflictException>(() => f.DeleteFile());
+        Assert.Equal(0, f.Storage.Deletes);
+    }
+
+    [Fact]
+    public async Task Failed_deletion_audit_preserves_storage_content()
+    {
+        var f = new Fixture();
+        f.Audit.Fail = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.DeleteFile());
+        Assert.Equal(0, f.Storage.Deletes);
+    }
+
     private sealed class Fixture
     {
         public Repository Repository { get; } = new();
@@ -98,6 +195,13 @@ public sealed class DeliverableHandlerTests
             using var content = new MemoryStream("test"u8.ToArray());
             return await new SubmitDeliverableVersionCommandHandler(workflow).Handle(new(1, 2, " Evidence ",
                 new("evidence.txt", "text/plain", 4, content)), default);
+        }
+        public Task<bool> DeleteFile() => workflow.DeleteFileAsync(8, default);
+        public Task<PagedResult<ProjectFileDto>> Evidence() => workflow.TaskEvidenceAsync(5, 1, 20, default);
+        public async Task<ProjectFileDto> Attach()
+        {
+            using var content = new MemoryStream("test"u8.ToArray());
+            return await workflow.AttachAsync("TASK", 5, new("evidence.txt", "text/plain", 4, content), default);
         }
     }
 
@@ -165,6 +269,10 @@ public sealed class DeliverableHandlerTests
         public Action? OnBegin { get; set; }
         public bool HasWindow { get; set; } = true;
         public DeliverableDto Item { get; set; } = new(1, 20, null, "Report", null, null, null, "REJECTED", 10, 2);
+        public DeliverableProject Project { get; set; } = new(20, 30, "ACTIVE", true, false, null);
+        public FileParent Parent { get; set; } = new("TASK", 5, 20, "TODO", 10);
+        public StoredProjectFile File { get; set; } = new(new(8, "TASK", 5, "evidence.txt", "text/plain", 4, "hash", 10, DateTime.UtcNow), "private-object", 20, 1);
+        public int FileDeletes { get; private set; }
         public async Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct, Func<Task>? onRollback = null)
         {
             InTransaction = true;
@@ -183,7 +291,7 @@ public sealed class DeliverableHandlerTests
             Locked = true;
             return Task.CompletedTask;
         }
-        public Task<DeliverableProject?> GetProjectAsync(long projectId, long actorId, CancellationToken ct) => Task.FromResult<DeliverableProject?>(new(20, 30, "ACTIVE", true, false, null));
+        public Task<DeliverableProject?> GetProjectAsync(long projectId, long actorId, CancellationToken ct) => Task.FromResult<DeliverableProject?>(Project);
         public Task<bool> HasExecutionWindowAsync(long semesterId, DateTime now, CancellationToken ct) => Task.FromResult(HasWindow);
         public Task<DeliverableDto?> GetAsync(long id, CancellationToken ct) => Task.FromResult<DeliverableDto?>(Item);
         public Task<DeliverableVersionDto> SubmitAsync(long id, int number, long actorId, string? note, string storageKey, ValidatedUpload file, DateTime now, CancellationToken ct)
@@ -200,10 +308,16 @@ public sealed class DeliverableHandlerTests
         public Task<PagedResult<DeliverableVersionDto>> VersionsAsync(long deliverableId, int page, int pageSize, CancellationToken ct) => throw new NotSupportedException();
         public Task<DeliverableFeedbackDto> ReviewAsync(long versionId, long assignmentId, long actorId, string decision, string feedback, DateTime now, CancellationToken ct) => throw new NotSupportedException();
         public Task<PagedResult<DeliverableFeedbackDto>> FeedbackAsync(long versionId, int page, int pageSize, CancellationToken ct) => throw new NotSupportedException();
-        public Task<FileParent?> GetParentAsync(string type, long id, CancellationToken ct) => throw new NotSupportedException();
-        public Task<StoredProjectFile?> GetFileAsync(long id, CancellationToken ct) => throw new NotSupportedException();
-        public Task<PagedResult<ProjectFileDto>> FilesAsync(FileSearch search, CancellationToken ct) => throw new NotSupportedException();
+        public Task<FileParent?> GetParentAsync(string type, long id, CancellationToken ct) => Task.FromResult<FileParent?>(Parent);
+        public Task<StoredProjectFile?> GetFileAsync(long id, CancellationToken ct) => Task.FromResult<StoredProjectFile?>(File);
+        public Task<PagedResult<ProjectFileDto>> FilesAsync(FileSearch search, CancellationToken ct) => Task.FromResult(new PagedResult<ProjectFileDto>([File.Dto], 1, 20, 1));
         public Task<ProjectFileDto> AttachAsync(FileParent parent, string key, ValidatedUpload file, long actorId, DateTime now, CancellationToken ct) => throw new NotSupportedException();
-        public Task DeleteFileAsync(long id, CancellationToken ct) => throw new NotSupportedException();
+        public Task DeleteFileAsync(long id, CancellationToken ct)
+        {
+            Assert.True(InTransaction);
+            Assert.True(Locked);
+            FileDeletes++;
+            return Task.CompletedTask;
+        }
     }
 }

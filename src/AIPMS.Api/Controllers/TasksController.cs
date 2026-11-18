@@ -161,6 +161,18 @@ public sealed class TasksController(ISender sender) : ControllerBase
         CancellationToken cancellationToken) =>
         Ok(await sender.Send(new GetTaskStatusHistoryQuery(id), cancellationToken));
 
+    [HttpGet("{id:long}/dependency-impacts")]
+    [ProducesResponseType<TaskDependencyImpactsDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<TaskDependencyImpactsDto>> GetDependencyImpacts(long id, CancellationToken ct) =>
+        Ok(await sender.Send(new GetTaskDependencyImpactsQuery(id), ct));
+
+    [HttpPost("{id:long}/dependency-impacts/{impactId:long}/resolve")]
+    [ProducesResponseType<TaskDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<TaskDto>> ResolveDependencyImpact(long id, long impactId,
+        [FromBody] ResolveTaskDependencyImpactRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new ResolveTaskDependencyImpactCommand(id, impactId, request.Decision, request.Reason, request.ConcurrencyToken), ct));
+
     [HttpGet("project/{projectId}/overdue-blocked")]
     [ProducesResponseType<OverdueBlockedTasksDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<OverdueBlockedTasksDto>> GetOverdueBlocked(
@@ -184,3 +196,4 @@ public sealed class TasksController(ISender sender) : ControllerBase
 }
 
 public sealed record UpdateTaskStatusRequest(string NewStatus, string? Reason, string? ConcurrencyToken = null);
+public sealed record ResolveTaskDependencyImpactRequest(string Decision, string Reason, string? ConcurrencyToken = null);

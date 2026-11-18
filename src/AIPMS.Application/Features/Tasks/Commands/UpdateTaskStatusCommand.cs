@@ -71,6 +71,17 @@ public sealed class UpdateTaskStatusCommandHandler(
             }
         }
 
+        var restoringCompletedTask = task.Status == "CANCELLED" && request.NewStatus != "CANCELLED"
+            && (await repository.GetStatusHistoryAsync(request.TaskId, cancellationToken))
+                .Any(h => h.OldStatus == "DONE" || h.NewStatus == "DONE");
+        if (task.Status == "DONE" && request.NewStatus != "DONE" || restoringCompletedTask)
+        {
+            if (!isLeaderOrSupervisor)
+                throw new ForbiddenException("Chỉ trưởng nhóm hoặc giảng viên hướng dẫn chính có quyền mở lại công việc đã hoàn thành.");
+            if (string.IsNullOrWhiteSpace(request.Reason))
+                throw new ConflictException("Cần ghi lý do khi mở lại, khôi phục hoặc hủy công việc đã hoàn thành.", WorkflowErrorCodes.TaskReopenReasonRequired);
+        }
+
         // Validate state machine transition
         if (!TaskStateMachine.CanTransition(task.Status, request.NewStatus))
         {
@@ -109,7 +120,8 @@ public sealed class UpdateTaskStatusCommandHandler(
                     ["projectId"] = projectId,
                     ["oldStatus"] = task.Status,
                     ["newStatus"] = request.NewStatus,
-                    ["reason"] = request.Reason
+                    ["reason"] = request.Reason,
+                    ["assigneeUserIds"] = task.Assignees.Select(x => x.UserId).Order().ToArray()
                 }),
             cancellationToken);
 

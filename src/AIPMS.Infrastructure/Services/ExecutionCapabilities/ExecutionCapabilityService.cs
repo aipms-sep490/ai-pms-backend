@@ -56,16 +56,21 @@ internal sealed class ExecutionCapabilityService(
         var mentor = await IsScopedMentor(taskId, row.ProjectId, cancellationToken);
         var writer = manager || assignee || mentor;
         var structural = manager;
-        var statusAllowed = active && writer && row.Status is not "CANCELLED" and not "COMPLETED";
+        var assignmentLocked = row.Status is "IN_REVIEW" or "DONE" or "CANCELLED" or "COMPLETED";
+        var restoreCompleted = row.Status == "CANCELLED" && await db.TaskStatusHistories.AnyAsync(h => h.TaskId == taskId
+            && (h.OldStatus == "DONE" || h.NewStatus == "DONE"), cancellationToken);
+        var statusWriter = manager || (assignee && row.Status != "DONE" && !restoreCompleted);
+        var statusAllowed = active && statusWriter && row.Status != "COMPLETED" && (row.Status != "CANCELLED" || restoreCompleted && manager);
         var actions = new[]
         {
             Action("update_task", active && structural, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
             Action("delete_task", active && structural, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
-            Action("assign_task", active && structural, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
-            Action("change_task_status", statusAllowed, !active ? "PROJECT_NOT_ACTIVE" : !writer ? "TASK_WRITER_REQUIRED" : "TASK_NOT_WRITABLE"),
+            Action("assign_task", active && structural && !assignmentLocked, !active ? "PROJECT_NOT_ACTIVE" : assignmentLocked ? "TASK_ASSIGNEES_LOCKED" : "PROJECT_MANAGER_REQUIRED"),
+            Action("change_task_status", statusAllowed, !active ? "PROJECT_NOT_ACTIVE" : (row.Status == "DONE" || restoreCompleted) && !manager ? "PROJECT_MANAGER_REQUIRED" : !statusWriter ? "TASK_WRITER_REQUIRED" : "TASK_NOT_WRITABLE"),
+            Action("review_task_dependency_impact", active && manager, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
             Action("manage_task_dependencies", active && structural, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
             Action("manage_task_disciplines", active && writer, !active ? "PROJECT_NOT_ACTIVE" : "TASK_WRITER_REQUIRED"),
-            Action("add_task_evidence", active && writer, !active ? "PROJECT_NOT_ACTIVE" : "TASK_WRITER_REQUIRED")
+            Action("add_task_evidence", active && writer && !assignmentLocked, !active ? "PROJECT_NOT_ACTIVE" : assignmentLocked ? "TASK_NOT_WRITABLE" : "TASK_WRITER_REQUIRED")
         };
         return new("TASK", row.Id, row.ProjectId, row.ProjectStatus, row.ConcurrencyToken.ToString("N"), actions, row.Status);
     }

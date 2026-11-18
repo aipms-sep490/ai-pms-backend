@@ -259,6 +259,9 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         CancellationToken cancellationToken)
     {
         var aggregate = await context.Tasks.SingleAsync(t => t.Id == taskId, cancellationToken);
+        if (aggregate.Status is "IN_REVIEW" or "DONE" or "CANCELLED")
+            throw new AIPMS.Application.Common.Exceptions.ConflictException("Không thể thay đổi phân công của công việc đang chờ nghiệm thu, đã hoàn thành hoặc đã hủy.",
+                AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.TaskAssigneesLocked);
         aggregate.ConcurrencyToken = Guid.NewGuid();
 
         var existing = await context.TaskAssignees
@@ -335,6 +338,15 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
             ?? throw new KeyNotFoundException($"Task with ID {taskId} not found.");
 
         var oldStatus = task.Status;
+        var restoringCompletedTask = oldStatus == "CANCELLED" && newStatus != "CANCELLED"
+            && await context.TaskStatusHistories.AnyAsync(h => h.TaskId == taskId && (h.OldStatus == "DONE" || h.NewStatus == "DONE"), cancellationToken);
+        if ((oldStatus == "DONE" && newStatus != "DONE" || restoringCompletedTask) && string.IsNullOrWhiteSpace(reason))
+            throw new AIPMS.Application.Common.Exceptions.ConflictException("Cần ghi lý do khi mở lại, khôi phục hoặc hủy công việc đã hoàn thành.",
+                AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.TaskReopenReasonRequired);
+        if (newStatus == "DONE" && await context.TaskDependencyImpacts.AnyAsync(x => x.TaskId == taskId && x.Status == "PENDING", cancellationToken))
+            throw new AIPMS.Application.Common.Exceptions.ConflictException("Cần kết luận các ảnh hưởng từ công việc tiền nhiệm trước khi xác nhận hoàn thành.",
+                AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.TaskDependencyImpactPending);
+        if (oldStatus == newStatus) return;
         var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
         task.Status = newStatus;
         if (newStatus == "DONE")
@@ -348,7 +360,7 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         task.UpdatedAt = now;
         task.ConcurrencyToken = Guid.NewGuid();
 
-        context.TaskStatusHistories.Add(new TaskStatusHistory
+        var statusHistory = new TaskStatusHistory
         {
             TaskId = taskId,
             OldStatus = oldStatus,
@@ -356,7 +368,10 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
             ChangedBy = actorUserId,
             Reason = reason,
             ChangedAt = now
-        });
+        };
+        context.TaskStatusHistories.Add(statusHistory);
+        if (oldStatus == "DONE" || restoringCompletedTask)
+            await TaskDependencyImpactRecorder.StageAsync(context, task, statusHistory, cancellationToken);
 
         if (task.SprintId is long sprint && await context.Set<AIPMS.Infrastructure.Persistence.Models.Sprint>().AnyAsync(s => s.Id == sprint && s.Status == "ACTIVE", cancellationToken))
             SprintHistory.Record(context, task, sprint, "STATUS", true, actorUserId, now);

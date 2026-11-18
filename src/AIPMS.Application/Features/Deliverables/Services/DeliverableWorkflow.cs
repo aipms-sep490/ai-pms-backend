@@ -182,20 +182,36 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
     public async Task<ProjectFileDto> FileAsync(long id, CancellationToken ct)
     {
         var stored = await ReadableFileAsync(id, ct);
-        return stored.Dto;
+        var actor = await ActorAsync(ct);
+        var project = await ProjectAsync(actor, stored.ProjectId, ct);
+        var parent = await ParentAsync(stored.Dto.ParentType, stored.Dto.ParentId, ct);
+        return stored.Dto with { CanDelete = CanDeleteAttachment(actor, project, parent, stored.Dto) };
     }
 
     public async Task<PagedResult<ProjectFileDto>> FilesAsync(FileSearch search, CancellationToken ct)
     {
-        await ProjectAsync(await ActorAsync(ct), search.ProjectId, ct);
-        return await repository.FilesAsync(search, ct);
+        var actor = await ActorAsync(ct);
+        var project = await ProjectAsync(actor, search.ProjectId, ct);
+        var result = await repository.FilesAsync(search, ct);
+        var parents = new Dictionary<(string Type, long Id), FileParent>();
+        var items = new List<ProjectFileDto>(result.Items.Count);
+        foreach (var file in result.Items)
+        {
+            var key = (file.ParentType, file.ParentId);
+            if (!parents.TryGetValue(key, out var parent))
+                parents[key] = parent = await ParentAsync(key.ParentType, key.ParentId, ct);
+            items.Add(file with { CanDelete = CanDeleteAttachment(actor, project, parent, file) });
+        }
+        return result with { Items = items };
     }
 
     public async Task<PagedResult<ProjectFileDto>> TaskEvidenceAsync(long taskId, int page, int pageSize, CancellationToken ct)
     {
         var parent = await ParentAsync("TASK", taskId, ct);
-        await ProjectAsync(await ActorAsync(ct), parent.ProjectId, ct);
-        return await repository.FilesAsync(new(parent.ProjectId, null, page, pageSize, null, null, null, null, "TASK", taskId), ct);
+        var actor = await ActorAsync(ct);
+        var project = await ProjectAsync(actor, parent.ProjectId, ct);
+        var result = await repository.FilesAsync(new(parent.ProjectId, null, page, pageSize, null, null, null, null, "TASK", taskId), ct);
+        return result with { Items = result.Items.Select(file => file with { CanDelete = CanDeleteAttachment(actor, project, parent, file) }).ToArray() };
     }
 
     public async Task<FileDownload> DownloadAsync(long id, CancellationToken ct)
@@ -265,6 +281,8 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
     private static void RequireAttachmentWriter(SupervisorAccount actor, DeliverableProject project, FileParent parent)
     {
         RequireMutable(project);
+        if (parent.Type == "TASK" && !IsEditableTask(parent))
+            throw new ConflictException("Không thể thay đổi tệp của công việc đang chờ nghiệm thu, đã hoàn thành hoặc đã hủy. Hãy đưa công việc về trạng thái được phép chỉnh sửa theo quyền được cấp.");
         if (parent.Type == "REPORT" && parent.Status != "DRAFT" || parent.Type == "MEETING" && parent.Status != "SCHEDULED"
             || parent.Type is not ("REPORT" or "MEETING" or "TASK"))
             throw new ConflictException("Submitted versions, feedback and completed records retain immutable files.");
@@ -273,6 +291,16 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
         if (parent.Type == "REPORT" && !IsStudent(actor, project))
             throw new ForbiddenException("Only student team members may edit a report draft's attachments.");
     }
+
+    private static bool IsEditableTask(FileParent parent) => parent.Status is "TODO" or "IN_PROGRESS" or "BLOCKED";
+
+    private static bool CanDeleteAttachment(SupervisorAccount actor, DeliverableProject project, FileParent parent, ProjectFileDto file) =>
+        project.Status == "ACTIVE"
+        && (IsStudent(actor, project) || IsSupervisor(actor, project))
+        && (parent.Type == "TASK" && IsEditableTask(parent)
+            || parent.Type == "REPORT" && parent.Status == "DRAFT" && IsStudent(actor, project)
+            || parent.Type == "MEETING" && parent.Status == "SCHEDULED")
+        && (file.UploadedBy == actor.UserId || project.IsLeader || IsSupervisor(actor, project));
 
     private async Task<FileParent> ParentAsync(string type, long id, CancellationToken ct) =>
         await repository.GetParentAsync(type, id, ct) ?? throw new NotFoundException("File parent", id);

@@ -205,7 +205,7 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         "REPORT" => db.ProgressReports.AsNoTracking().Where(r => r.Id == id).Select(r => new FileParent(type, id, r.ProjectId, r.Status, r.SubmittedBy)).SingleOrDefaultAsync(ct),
         "MEETING" => db.Meetings.AsNoTracking().Where(m => m.Id == id).Select(m => new FileParent(type, id, m.ProjectId, m.Status, m.CreatedBy)).SingleOrDefaultAsync(ct),
         "FEEDBACK" => db.SupervisorFeedbacks.AsNoTracking().Where(f => f.Id == id).Select(f => new FileParent(type, id, f.ProjectId, "LOCKED", f.SupervisorAssignment.SupervisorProfile.UserId)).SingleOrDefaultAsync(ct),
-        "TASK" => db.Tasks.AsNoTracking().Where(t => t.Id == id).Select(t => new FileParent(type, id, t.Milestone.ProjectId, "OPEN", t.CreatedBy)).SingleOrDefaultAsync(ct),
+        "TASK" => db.Tasks.AsNoTracking().Where(t => t.Id == id).Select(t => new FileParent(type, id, t.Milestone.ProjectId, t.Status, t.CreatedBy)).SingleOrDefaultAsync(ct),
         _ => Task.FromResult<FileParent?>(null)
     };
 

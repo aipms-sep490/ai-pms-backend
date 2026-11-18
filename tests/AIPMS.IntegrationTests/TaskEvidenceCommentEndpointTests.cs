@@ -82,25 +82,105 @@ public sealed class TaskEvidenceCommentEndpointTests(SupervisorDatabaseFixture d
             (await student.PostAsJsonAsync($"/api/v1/tasks/{seeded.TaskId}/comments", new { content = "blocked" })).StatusCode);
     }
 
+    [Fact]
+    public async Task Evidence_delete_requires_current_authority_and_is_audited_and_removed_from_storage()
+    {
+        var seeded = await SeedAsync();
+        using var app = new TaskEvidenceFactory(database);
+        using var leader = app.CreateAuthenticatedClient(seeded.Student);
+        using var member = app.CreateAuthenticatedClient(seeded.OtherMember);
+        using var admin = app.CreateAuthenticatedClient(seeded.Admin, roles: AppRoles.Admin);
+        var file = await UploadEvidenceAsync(leader, seeded.TaskId);
+
+        var memberFiles = await member.GetFromJsonAsync<PagedResult<ProjectFileDto>>($"/api/v1/tasks/{seeded.TaskId}/evidence");
+        Assert.False(Assert.Single(memberFiles!.Items).CanDelete);
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.DeleteAsync($"/api/v1/files/{file.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.DeleteAsync($"/api/v1/files/{file.Id}")).StatusCode);
+        var leaderFiles = await leader.GetFromJsonAsync<PagedResult<ProjectFileDto>>($"/api/v1/tasks/{seeded.TaskId}/evidence");
+        Assert.True(Assert.Single(leaderFiles!.Items).CanDelete);
+        string storageKey;
+        await using (var db = database.CreateContext()) storageKey = (await db.Files.FindAsync(file.Id))!.StoragePath;
+
+        Assert.Equal(HttpStatusCode.NoContent, (await leader.DeleteAsync($"/api/v1/files/{file.Id}")).StatusCode);
+        Assert.Empty((await leader.GetFromJsonAsync<PagedResult<ProjectFileDto>>($"/api/v1/tasks/{seeded.TaskId}/evidence"))!.Items);
+        Assert.Equal(HttpStatusCode.NotFound, (await leader.GetAsync($"/api/v1/files/{file.Id}/download")).StatusCode);
+        Assert.Throws<FileNotFoundException>(() => { _ = app.Storage.OpenReadAsync(storageKey, default); });
+        await using var resultDb = database.CreateContext();
+        Assert.False(await resultDb.Files.AnyAsync(f => f.Id == file.Id));
+        Assert.Contains(await resultDb.AuditLogs.Where(a => a.Action == "PROJECT_FILE_DELETED").ToListAsync(), a => a.EntityId == file.Id.ToString());
+    }
+
+    [Theory]
+    [InlineData("IN_REVIEW")]
+    [InlineData("DONE")]
+    public async Task Submitted_task_files_are_readable_but_reject_upload_and_delete_even_after_retrieving_permission(string status)
+    {
+        var seeded = await SeedAsync();
+        using var app = new TaskEvidenceFactory(database);
+        using var leader = app.CreateAuthenticatedClient(seeded.Student);
+        var file = await UploadEvidenceAsync(leader, seeded.TaskId);
+        Assert.True(Assert.Single((await leader.GetFromJsonAsync<PagedResult<ProjectFileDto>>($"/api/v1/tasks/{seeded.TaskId}/evidence"))!.Items).CanDelete);
+        await using (var db = database.CreateContext())
+        {
+            (await db.Tasks.FindAsync(seeded.TaskId))!.Status = status;
+            await db.SaveChangesAsync();
+        }
+
+        var current = await leader.GetFromJsonAsync<PagedResult<ProjectFileDto>>($"/api/v1/tasks/{seeded.TaskId}/evidence");
+        Assert.False(Assert.Single(current!.Items).CanDelete);
+        Assert.False((await leader.GetFromJsonAsync<ProjectFileDto>($"/api/v1/files/{file.Id}"))!.CanDelete);
+        Assert.Equal(HttpStatusCode.Conflict, (await leader.DeleteAsync($"/api/v1/files/{file.Id}")).StatusCode);
+        using var form = EvidenceForm(seeded.TaskId);
+        Assert.Equal(HttpStatusCode.Conflict, (await leader.PostAsync("/api/v1/files", form)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await leader.GetAsync($"/api/v1/files/{file.Id}/download")).StatusCode);
+        await using var resultDb = database.CreateContext();
+        Assert.Equal(1, await resultDb.Files.CountAsync(f => f.TaskId == seeded.TaskId));
+        Assert.False(await resultDb.AuditLogs.AnyAsync(a => a.Action == "PROJECT_FILE_DELETED" && a.EntityId == file.Id.ToString()));
+    }
+
+    private static MultipartFormDataContent EvidenceForm(long taskId)
+    {
+        var form = new MultipartFormDataContent();
+        form.Add(new StringContent("TASK"), "ParentType");
+        form.Add(new StringContent(taskId.ToString()), "ParentId");
+        var content = new ByteArrayContent(Encoding.UTF8.GetBytes("task evidence"));
+        content.Headers.ContentType = new("text/plain");
+        form.Add(content, "File", "evidence.txt");
+        return form;
+    }
+
+    private static async Task<ProjectFileDto> UploadEvidenceAsync(HttpClient client, long taskId)
+    {
+        using var form = EvidenceForm(taskId);
+        var response = await client.PostAsync("/api/v1/files", form);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        return (await response.Content.ReadFromJsonAsync<ProjectFileDto>())!;
+    }
+
     private async Task<Scenario> SeedAsync()
     {
         var accounts = await database.SeedAsync();
         await using var db = database.CreateContext();
         var organizationId = (await db.Departments.FindAsync(accounts.DepartmentId))!.OrganizationId;
+        var otherMember = new User { Email = $"evidence-member-{Guid.NewGuid():N}@example.test", FullName = "Other member",
+            PasswordHash = "unused", Status = "ACTIVE", AcademicProfileStatus = "VERIFIED", DepartmentId = accounts.DepartmentId,
+            UserRoleUsers = [new UserRole { RoleId = await db.Roles.Where(r => r.Code == AppRoles.Student).Select(r => r.Id).SingleAsync() }] };
+        db.Users.Add(otherMember);
         var semester = new AcademicSemester { OrganizationId = organizationId, Code = Guid.NewGuid().ToString("N"), Name = "Task semester",
             Status = "ACTIVE", StartDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-5)), EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)) };
         var milestone = new Milestone { Project = new Project { Code = Guid.NewGuid().ToString("N"), Title = "Task project", Status = "ACTIVE",
             CreatedBy = accounts.Student, RegisteredAt = DateTime.UtcNow, Team = new Team { AcademicSemester = semester,
                 Code = Guid.NewGuid().ToString("N"), Name = "Task team", Status = "ELIGIBLE", CreatedBy = accounts.Student,
-                TeamMembers = [new TeamMember { UserId = accounts.Student, IsLeader = true, JoinedAt = DateTime.UtcNow }] } },
+                TeamMembers = [new TeamMember { UserId = accounts.Student, IsLeader = true, JoinedAt = DateTime.UtcNow },
+                    new TeamMember { User = otherMember, IsLeader = false, JoinedAt = DateTime.UtcNow }] } },
             Title = "Execution", Status = "PLANNED", CreatedBy = accounts.Student };
         var task = new TaskEntity { Milestone = milestone, Title = "Implement", Status = "TODO", Priority = "MEDIUM", CreatedBy = accounts.Student };
         db.Tasks.Add(task);
         await db.SaveChangesAsync();
-        return new(accounts.Admin, accounts.Student, milestone.ProjectId, task.Id);
+        return new(accounts.Admin, accounts.Student, otherMember.Id, milestone.ProjectId, task.Id);
     }
 
-    private sealed record Scenario(long Admin, long Student, long ProjectId, long TaskId);
+    private sealed record Scenario(long Admin, long Student, long OtherMember, long ProjectId, long TaskId);
 }
 
 internal sealed class TaskEvidenceFactory(SupervisorDatabaseFixture database) : AipmsWebApplicationFactory

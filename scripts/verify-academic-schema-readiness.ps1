@@ -10,6 +10,29 @@ if ([string]::IsNullOrWhiteSpace($rawConnection)) {
 
 # This check reads metadata only. The release process applies reviewed migrations separately.
 $requirements = @(
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.task_dependency_impacts'; Column = ''; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'id'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'task_id'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'predecessor_task_id'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'reopen_history_id'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'status'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'reopened_at'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'reopened_by'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'reopen_reason'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'reviewed_at'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'reviewed_by'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'review_reason'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.task_dependency_impacts'; Name = 'pk_task_dependency_impacts'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.task_dependency_impacts'; Name = 'uq_task_dependency_impacts_reopen'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.task_dependency_impacts'; Name = 'ix_task_dependency_impacts_pending'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'ForeignKey'; Object = 'dbo.task_dependency_impacts'; Name = 'fk_task_dependency_impacts_task'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'ForeignKey'; Object = 'dbo.task_dependency_impacts'; Name = 'fk_task_dependency_impacts_predecessor'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'ForeignKey'; Object = 'dbo.task_dependency_impacts'; Name = 'fk_task_dependency_impacts_history'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'ForeignKey'; Object = 'dbo.task_dependency_impacts'; Name = 'fk_task_dependency_impacts_reopened_by'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'ForeignKey'; Object = 'dbo.task_dependency_impacts'; Name = 'fk_task_dependency_impacts_reviewed_by'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.task_dependency_impacts'; Name = 'ck_task_dependency_impacts_status'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.task_dependency_impacts'; Name = 'ck_task_dependency_impacts_review'; Migration = '20261118_task_dependency_impacts.sql' }
+    [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.task_dependency_impacts'; Name = 'ck_task_dependency_impacts_reason'; Migration = '20261118_task_dependency_impacts.sql' }
     [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.department_document_templates'; Column = ''; Migration = '20261115_department_document_templates.sql' }
     [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.rubric_criterion_levels'; Column = ''; Migration = '20261030_add_rubric_criterion_levels.sql' }
     [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.rubric_criteria'; Column = 'learning_outcome'; Migration = '20261030_add_rubric_criterion_levels.sql' }

@@ -11,6 +11,9 @@ public static class WorkflowErrorCodes
     public const string FinalizedAssignment = "FINALIZED_ASSIGNMENT";
     public const string ArchiveNotAllowed = "ARCHIVE_NOT_ALLOWED";
     public const string TaskDependencyBlocked = "TASK_DEPENDENCY_BLOCKED";
+    public const string TaskAssigneesLocked = "TASK_ASSIGNEES_LOCKED";
+    public const string TaskReopenReasonRequired = "TASK_REOPEN_REASON_REQUIRED";
+    public const string TaskDependencyImpactPending = "TASK_DEPENDENCY_IMPACT_PENDING";
 
     // Deliverables
     public const string ExecutionWindowRequired = "EXECUTION_WINDOW_REQUIRED";
