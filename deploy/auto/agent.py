@@ -345,6 +345,8 @@ class Agent:
                 status["services"][name] = {"status": "blocked", "candidate": revision,
                                              "reason": str(error) if isinstance(error, Blocked) else type(error).__name__}
         write_json(self.root / "status.json", status)
+        if self.config.get("statusCopy"):
+            write_json(self.config["statusCopy"], status)
         return status
 
 

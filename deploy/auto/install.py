@@ -49,6 +49,9 @@ config = {"stateDirectory": str(home / ".local/state/aipms-deploy"), "privateSet
           "frontendProfile": {"apiBaseUrl": frontend_profile["apiBaseUrl"], "flags": frontend_profile["flags"]},
           "uploadPolicyUrl": "http://127.0.0.1:5088/api/v1/upload-policies",
           "uploadPolicies": fetch("http://127.0.0.1:5088/api/v1/upload-policies")}
+windows_status = Path("/mnt/c/Users/khaih/AppData/Local/AIPMS")
+if windows_status.is_dir():
+    config["statusCopy"] = str(windows_status / "auto-deploy-status.json")
 destination = home / ".local/lib/aipms-deploy"
 destination.mkdir(parents=True, exist_ok=True, mode=0o700)
 for name in ("agent.py", "verify-schema.ps1", "backup.ps1"):

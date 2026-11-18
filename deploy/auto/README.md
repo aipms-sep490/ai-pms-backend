@@ -43,6 +43,8 @@ systemctl --user start aipms-deploy.timer
 
 `status.json` records up-to-date, waiting-for-CI, deployed or blocked per service. Build logs, rollback environment and database backups are private under `~/.local/state/aipms-deploy/releases`. Do not publish private files. No email/Slack messages are sent. Stopping the timer prevents future ticks; let an active release finish before manual deployment.
 
+The current machine also receives a non-secret status copy at `C:\Users\khaih\AppData\Local\AIPMS\auto-deploy-status.json`.
+
 After resolving a failed build, inspect `api-attempt.json`/`frontend-attempt.json`, stop the timer, archive that record, and run one tick manually to retry. To intentionally change feature flags/upload policy/Compose, do a reviewed manual release and update the local baseline; do not silently weaken the guards.
 
 Backups and images are retained rather than automatically pruned. Monitor disk capacity and rotate verified old backups/images manually. The agent does not restore SQL on application rollback, because it never applies schema/data migrations. Every accepted version must remain compatible with the current database and Drive metadata.
