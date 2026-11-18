@@ -1,0 +1,10 @@
+[Unit]
+Description=Deploy tested AIPMS develop commits
+After=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 %h/.local/lib/aipms-deploy/agent.py --config %h/.config/aipms/autodeploy.json
+TimeoutStartSec=3600
+NoNewPrivileges=true
