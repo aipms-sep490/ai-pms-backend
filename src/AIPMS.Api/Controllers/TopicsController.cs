@@ -6,6 +6,7 @@ using AIPMS.Application.Features.Topics.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AIPMS.Api.Controllers;
 
@@ -31,6 +32,18 @@ public sealed class TopicsController(ISender sender) : ControllerBase
         [FromQuery] string? keywords = null, [FromQuery] long? leadDepartmentId = null,
         [FromQuery] int periodWindow = 3, CancellationToken ct = default) =>
         Ok(await sender.Send(new CheckTopicSimilarityQuery(title, keywords, leadDepartmentId, periodWindow), ct));
+
+    [HttpPost("ai-similarity-check")]
+    [Authorize(Roles = "STUDENT")]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<TopicAiSimilarityResultDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<TopicAiSimilarityResultDto>> AiSimilarityCheck(TopicAiSimilarityRequest request,
+        CancellationToken ct) => Ok(await sender.Send(new CheckTopicAiSimilarityQuery(request), ct));
 
     [HttpGet("{id:long}")]
     [ProducesResponseType<TopicDto>(StatusCodes.Status200OK)]

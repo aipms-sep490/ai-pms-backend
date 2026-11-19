@@ -78,6 +78,8 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.Files.Abstractions.IOfficePreviewService, OfficePreviewService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IWorkflowAssistanceService, WorkflowAssistanceService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IDeliverableReviewService, DeliverableReviewService>();
+        services.AddScoped<AIPMS.Application.Features.Topics.Abstractions.ITopicSimilarityReviewService,
+            Services.Topics.TopicSimilarityReviewService>();
         services.AddOptions<GoogleAuthSettings>().Configure<IConfiguration>((settings, config) =>
             {
                 settings.Enabled = bool.TryParse(config["GoogleAuth:Enabled"], out var enabled) && enabled;
