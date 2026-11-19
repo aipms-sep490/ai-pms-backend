@@ -50,7 +50,8 @@ SELECT 'column',t.table_name+'.'+t.name,CONVERT(bit,CASE WHEN EXISTS (
  AND TYPE_NAME(c.system_type_id)=t.type_name AND c.is_nullable=1) THEN 1 ELSE 0 END)
 FROM (VALUES ('evaluation_schemes','governance_json','nvarchar'),('evaluation_schemes','locked_at','datetime2'),
  ('evaluation_scheme_components','evaluator_weights_json','nvarchar'),('evaluation_scheme_components','stage','varchar'),
- ('evaluation_assignments','stage','varchar'),('evaluation_assignments','cold_package_id','bigint')) t(table_name,name,type_name)
+ ('evaluation_assignments','stage','varchar'),('evaluation_assignments','cold_package_id','bigint'),
+ ('cold_report_templates','scope','nvarchar')) t(table_name,name,type_name)
 UNION ALL
 SELECT 'constraint',t.name,CONVERT(bit,CASE WHEN EXISTS (
  SELECT 1 FROM sys.check_constraints WHERE name=t.name AND is_disabled=0 AND is_not_trusted=0) THEN 1 ELSE 0 END)

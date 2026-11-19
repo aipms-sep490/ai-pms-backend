@@ -59,6 +59,10 @@ $requirements = @(
     [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.rubrics'; Name = 'ck_rubrics_effective_range'; Migration = '20261030_add_rubric_scope_fields.sql' }
     [pscustomobject]@{ Kind = 'NullableColumn'; Object = 'dbo.cold_checklist_items'; Column = 'major_id'; Migration = '20261114_cold_common_checklist.sql' }
     [pscustomobject]@{ Kind = 'CheckAllowsCommon'; Object = 'dbo.cold_checklist_items'; Name = 'ck_cold_item_target'; Migration = '20261114_cold_common_checklist.sql' }
+    [pscustomobject]@{ Kind = 'NullableColumn'; Object = 'dbo.cold_report_templates'; Column = 'major_id'; Migration = '20261030_cold_template_common_scope.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.cold_report_templates'; Column = 'scope'; Migration = '20261030_cold_template_common_scope.sql' }
+    [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.cold_report_templates'; Name = 'ck_cold_template_scope'; Migration = '20261030_cold_template_common_scope.sql' }
+    [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.cold_report_templates'; Name = 'ck_cold_template_scope_major'; Migration = '20261030_cold_template_common_scope.sql' }
     [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.department_document_templates'; Name = 'pk_department_document_templates'; Migration = '20261115_department_document_templates.sql' }
     [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.department_document_templates'; Name = 'ux_department_document_templates_version'; Migration = '20261115_department_document_templates.sql' }
     [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.department_document_templates'; Name = 'ix_department_document_templates_scope'; Migration = '20261115_department_document_templates.sql' }
