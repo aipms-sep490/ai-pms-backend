@@ -43,6 +43,10 @@ public partial class ProjectPeriod
 
     public bool EnableDefenseRoomScheduling { get; set; }
 
+    public DateTime? ColdWindowEndAt { get; set; }
+
+    public int DefenseBufferHours { get; set; } = 12;
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }

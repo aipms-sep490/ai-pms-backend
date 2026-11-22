@@ -8,6 +8,8 @@ public sealed class Room
     public int Floor { get; set; }
     public int Capacity { get; set; } = 40;
     public string Status { get; set; } = "ACTIVE";
+    public string? RoomClusterType { get; set; }
+    public string? EquipmentTagsJson { get; set; }
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

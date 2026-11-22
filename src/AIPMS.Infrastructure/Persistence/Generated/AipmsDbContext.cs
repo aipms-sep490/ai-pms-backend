@@ -1177,6 +1177,12 @@ public partial class AipmsDbContext : DbContext
             entity.Property(e => e.EnableDefenseRoomScheduling)
                 .HasDefaultValue(false)
                 .HasColumnName("enable_defense_room_scheduling");
+            entity.Property(e => e.ColdWindowEndAt)
+                .HasPrecision(0)
+                .HasColumnName("cold_window_end_at");
+            entity.Property(e => e.DefenseBufferHours)
+                .HasDefaultValue(12)
+                .HasColumnName("defense_buffer_hours");
             entity.Property(e => e.Name)
                 .HasMaxLength(255)
                 .HasColumnName("name");
