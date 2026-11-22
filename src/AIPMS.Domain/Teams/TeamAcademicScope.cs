@@ -1,9 +1,18 @@
 namespace AIPMS.Domain.Teams;
 
+public static class AcademicTrackCodes
+{
+    public const string ItOnly = "IT_ONLY";
+    public const string MktOnly = "MKT_ONLY";
+    public const string ItMkt = "IT_MKT";
+    public static bool IsValid(string? trackCode) => trackCode is ItOnly or MktOnly or ItMkt;
+}
+
 public sealed record MajorRequirement(long MajorId, int MinMembers, int MaxMembers, string Responsibility);
 
 public sealed record TeamAcademicScope(string ProjectMode, long? PrimaryMajorId,
-    long LeadDepartmentId, IReadOnlyList<MajorRequirement> Requirements, Guid ConcurrencyToken);
+    long LeadDepartmentId, IReadOnlyList<MajorRequirement> Requirements, Guid ConcurrencyToken,
+    string? TrackCode = null, bool HasIntegrationDeliverable = false, string? MktAttributionLimitsNote = null);
 
 public static class HybridTeamRules
 {
@@ -11,6 +20,12 @@ public static class HybridTeamRules
     {
         var errors = new List<string>();
         if (scope.ProjectMode is not ("SINGLE_MAJOR" or "INTERDISCIPLINARY")) errors.Add("INVALID_PROJECT_MODE");
+        if (scope.TrackCode is not null)
+        {
+            if (!AcademicTrackCodes.IsValid(scope.TrackCode)) errors.Add("INVALID_TRACK_CODE");
+            else if (scope.TrackCode == AcademicTrackCodes.ItMkt && scope.ProjectMode != "INTERDISCIPLINARY") errors.Add("TRACK_MODE_MISMATCH");
+            else if (scope.TrackCode is AcademicTrackCodes.ItOnly or AcademicTrackCodes.MktOnly && scope.ProjectMode != "SINGLE_MAJOR") errors.Add("TRACK_MODE_MISMATCH");
+        }
         if (scope.LeadDepartmentId <= 0) errors.Add("LEAD_DEPARTMENT_REQUIRED");
         var requirements = scope.Requirements;
         if (requirements.Count == 0 || requirements.Select(r => r.MajorId).Distinct().Count() != requirements.Count)

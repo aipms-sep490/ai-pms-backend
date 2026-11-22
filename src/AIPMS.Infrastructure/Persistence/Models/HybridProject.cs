@@ -10,9 +10,13 @@ public sealed class TeamAcademicConfiguration
     public long LeadDepartmentId { get; set; }
     public Guid ConcurrencyToken { get; set; }
     public Guid? ResponsibilityVersion { get; set; }
+    public string? TrackCode { get; set; }
+    public bool HasIntegrationDeliverable { get; set; }
+    public string? MktAttributionLimitsNote { get; set; }
     public List<TeamMajorRequirement> Requirements { get; set; } = [];
     public TeamAcademicScope ToScope() => new(ProjectMode, PrimaryMajorId, LeadDepartmentId,
-        Requirements.OrderBy(r => r.MajorId).Select(r => new MajorRequirement(r.MajorId, r.MinMembers, r.MaxMembers, r.Responsibility)).ToArray(), ConcurrencyToken);
+        Requirements.OrderBy(r => r.MajorId).Select(r => new MajorRequirement(r.MajorId, r.MinMembers, r.MaxMembers, r.Responsibility)).ToArray(),
+        ConcurrencyToken, TrackCode, HasIntegrationDeliverable, MktAttributionLimitsNote);
 }
 
 public sealed class TeamMajorRequirement
@@ -44,4 +48,31 @@ public sealed class ProjectDepartmentDecision
     public long? DecidedBy { get; set; }
     public DateTime? DecidedAt { get; set; }
     public string? Reason { get; set; }
+}
+
+public sealed class ProjectGateRoundScopeDecision
+{
+    public long Id { get; set; }
+    public long ProjectId { get; set; }
+    public long GateInstanceId { get; set; }
+    public int RoundNumber { get; set; }
+    public string Scope { get; set; } = "COMMON";
+    public long? DepartmentId { get; set; }
+    public long? MajorId { get; set; }
+    public string Decision { get; set; } = "PENDING";
+    public string? Notes { get; set; }
+    public long? DecidedBy { get; set; }
+    public DateTime? DecidedAt { get; set; }
+    public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
+}
+
+public sealed class WorkflowSlaNotification
+{
+    public long Id { get; set; }
+    public string EntityType { get; set; } = "PROJECT_REVIEW";
+    public long EntityId { get; set; }
+    public int RoundNumber { get; set; } = 1;
+    public long DepartmentId { get; set; }
+    public string SlaTier { get; set; } = "REMINDER_48H";
+    public DateTime SentAt { get; set; }
 }

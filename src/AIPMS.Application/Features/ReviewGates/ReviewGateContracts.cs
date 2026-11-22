@@ -79,3 +79,46 @@ public sealed record DefenseReadinessDto(string ProjectId, string ProjectName, b
     IReadOnlyList<DefenseConditionDto> Conditions);
 public sealed record DefenseConditionDto(string Id, string Title, bool? Satisfied, string Detail, bool IsMandatory);
 
+public sealed record RecordRoundScopeDecisionRequest(
+    string Scope,
+    int RoundNumber,
+    string Decision,
+    string? Notes = null,
+    string? ConcurrencyToken = null,
+    bool IsLeadOverride = false);
+
+public sealed record RoundScopeDecisionDto(
+    long Id,
+    long GateInstanceId,
+    int RoundNumber,
+    string Scope,
+    long? DepartmentId,
+    long? MajorId,
+    string Decision,
+    string? Notes,
+    long? DecidedBy,
+    DateTime? DecidedAt,
+    string ConcurrencyToken);
+
+public sealed record GateRoundConsensusDto(
+    long ProjectId,
+    string GateCode,
+    int RoundNumber,
+    string GateStatus,
+    bool AllRequiredScopesPassed,
+    string? ConsolidatedRevisionFeedback,
+    IReadOnlyList<RoundScopeDecisionDto> Decisions);
+
+public sealed record SlaEventSummaryDto(
+    string EntityType,
+    long EntityId,
+    int RoundNumber,
+    long DepartmentId,
+    string SlaTier,
+    DateTime SentAt);
+
+public sealed record SlaSweepResultDto(
+    int Reminders48hSent,
+    int Escalations72hSent,
+    IReadOnlyList<SlaEventSummaryDto> Events);
+

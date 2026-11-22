@@ -91,6 +91,9 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
         }
         entity.ProjectMode = scope.ProjectMode; entity.PrimaryMajorId = scope.PrimaryMajorId;
         entity.LeadDepartmentId = scope.LeadDepartmentId; entity.ConcurrencyToken = Guid.NewGuid();
+        entity.TrackCode = scope.TrackCode;
+        entity.HasIntegrationDeliverable = scope.HasIntegrationDeliverable;
+        entity.MktAttributionLimitsNote = string.IsNullOrWhiteSpace(scope.MktAttributionLimitsNote) ? null : scope.MktAttributionLimitsNote.Trim();
         // Removing a requirement cascades its structured responsibilities. Restoring
         // the old scope must not revive an eligibility check for the deleted content.
         if (entity.ResponsibilityVersion.HasValue) entity.ResponsibilityVersion = Guid.NewGuid();

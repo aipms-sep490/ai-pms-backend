@@ -116,6 +116,23 @@ public sealed partial class ProjectRepository
         var errors = HybridTeamRules.EligibilityErrors(team.Members, policy, window.OrganizationId, scope);
         if (errors.Count != 0) throw new ConflictException(string.Join(", ", errors));
         await teams.ValidateAcademicScopeAsync(scope, window.OrganizationId, ct);
+        if (scope.TrackCode == AcademicTrackCodes.ItMkt)
+        {
+            var hasIntOutput = scope.HasIntegrationDeliverable
+                || !string.IsNullOrWhiteSpace(project.IntegrationDeliverableSummary)
+                || (!string.IsNullOrWhiteSpace(project.ExpectedOutput)
+                    && project.ExpectedOutput.Contains("INT-", StringComparison.OrdinalIgnoreCase))
+                || await context.ProjectTags.AnyAsync(pt => pt.ProjectId == project.Id
+                    && pt.Tag.Name.StartsWith("INT-"), ct);
+            if (!hasIntOutput)
+                throw new AIPMS.Domain.Exceptions.DomainException(
+                    "IT_MKT interdisciplinary proposals require at least one declared integration deliverable (INT-*) per POL-05.",
+                    WorkflowErrorCodes.IntegrationDeliverableRequired);
+        }
+        if (!string.IsNullOrWhiteSpace(scope.TrackCode))
+            project.TrackCode = scope.TrackCode;
+        if (string.IsNullOrWhiteSpace(project.MktAttributionLimits) && !string.IsNullOrWhiteSpace(scope.MktAttributionLimitsNote))
+            project.MktAttributionLimits = scope.MktAttributionLimitsNote;
         var majors = await context.ProjectMajors.Where(m => m.ProjectId == project.Id).Select(m => m.MajorId).ToArrayAsync(ct);
         await ValidateProjectMajorsAsync(project.TeamId, majors, ct);
         var requiredIds = scope.Requirements.Select(r => r.MajorId).ToArray();

@@ -93,6 +93,15 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public Task<ReviewGateUserCapabilitiesDto> OverrideCapability([FromQuery] long projectId, CancellationToken ct) => service.OverrideCapability(projectId, ct);
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/scopes/{scope}")]
     public async Task<ActionResult<ProjectReviewMatrixRowDto>> UpdateScope(long projectId, string scope, UpdateReviewGateScopeRequest request, CancellationToken ct) => Ok(await service.UpdateScope(projectId, scope, request, ct));
+    [HttpGet("api/v1/projects/{projectId:long}/review-gates/{gateCode}/round-scope-decisions")]
+    public async Task<ActionResult<GateRoundConsensusDto>> GetRoundScopeConsensus(long projectId, string gateCode, [FromQuery] int? roundNumber, CancellationToken ct) =>
+        Ok(await service.GetRoundScopeConsensus(projectId, gateCode, roundNumber, ct));
+    [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/round-scope-decisions")]
+    public async Task<ActionResult<GateRoundConsensusDto>> RecordRoundScopeDecision(long projectId, string gateCode, RecordRoundScopeDecisionRequest request, CancellationToken ct) =>
+        Ok(await service.RecordRoundScopeDecision(projectId, gateCode, request, ct));
+    [HttpPost("api/v1/departments/sla/sweep")]
+    public async Task<ActionResult<SlaSweepResultDto>> SweepSlaNotifications(CancellationToken ct) =>
+        Ok(await service.SweepSlaNotifications(ct));
     [HttpGet("api/v1/departments/review-gates/matrix")]
     public async Task<ActionResult<IReadOnlyList<ProjectReviewMatrixRowDto>>> Matrix([FromQuery] string? mode, CancellationToken ct) => Ok(await service.Matrix(mode, null, ct));
     [HttpGet("api/v1/departments/{departmentId:long}/review-gates/matrix")]

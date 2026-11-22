@@ -24,7 +24,8 @@ $scripts = @(
     '20261123_assignment_validity_and_scope_indexes.sql',
     '20261124_pol01_pol03_scoring_and_optional_defense.sql',
     '20261125_file_scan_and_gate_package_snapshots.sql',
-    '20261126_file_preview_derivatives.sql'
+    '20261126_file_preview_derivatives.sql',
+    '20261127_tracks_dual_gate_and_sla.sql'
 )
 
 $neutral = [System.Data.Common.DbConnectionStringBuilder]::new()

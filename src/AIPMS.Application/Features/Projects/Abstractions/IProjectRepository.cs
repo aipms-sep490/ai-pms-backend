@@ -158,6 +158,9 @@ public interface IProjectRepository
 
     Task<bool> HasOpenAppealsAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult(false);
+
+    Task<bool> IsWorkingAgreementReadyForActivationAsync(long projectId, CancellationToken cancellationToken) =>
+        Task.FromResult(true);
 }
 
 public sealed record ProjectSupervisorConfirmation(
