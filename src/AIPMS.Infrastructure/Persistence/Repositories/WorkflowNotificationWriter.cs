@@ -23,7 +23,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         string role;
         long? projectId = null;
         long? historyId = null;
-        string? meetingTitle = null;
+        M.Meeting? meetingSource = null;
         var isColdEvaluation = false;
         var finalSubmission = entityType == "FINAL_SUBMISSION";
         var projectResult = entityType == "PROJECT_RESULT";
@@ -53,7 +53,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
                 $"SELECT * FROM dbo.meetings WITH (UPDLOCK,HOLDLOCK) WHERE id={notification.SourceId}").AsNoTracking().SingleOrDefaultAsync(ct);
             if (source is null || source.Status != status || source.CreatedBy != notification.ActorId) return;
             projectId = source.ProjectId;
-            meetingTitle = source.Title;
+            meetingSource = source;
             teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
             role = AppRoles.Student;
         }
@@ -279,7 +279,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             : null;
         var actorName = await context.Users.AsNoTracking().Where(u => u.Id == notification.ActorId)
             .Select(u => u.FullName).SingleOrDefaultAsync(ct);
-        var (title, content) = BuildMessage(notification.Kind, isColdEvaluation, projectInfo?.Code, projectInfo?.Title, teamScope.Name, meetingTitle, actorName);
+        var (title, content) = BuildMessage(notification.Kind, isColdEvaluation, projectInfo?.Code, projectInfo?.Title, teamScope.Name, meetingSource, actorName);
 
         // No user-supplied invitation/request messages are copied into the inbox.
         var inbox = new M.Notification
@@ -335,7 +335,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
     };
 
     private static (string Title, string Content) BuildMessage(WorkflowNotificationKind kind, bool isColdEvaluation,
-        string? projectCode, string? projectTitle, string? teamName, string? meetingTitle, string? actorName)
+        string? projectCode, string? projectTitle, string? teamName, M.Meeting? meetingSource, string? actorName)
     {
         var code = string.IsNullOrWhiteSpace(projectCode) ? null : projectCode.Trim();
         var projectFull = code is null
@@ -345,7 +345,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         var team = string.IsNullOrWhiteSpace(teamName) ? "của bạn" : teamName.Trim();
         var actor = string.IsNullOrWhiteSpace(actorName) ? null : actorName.Trim();
         var byActor = actor is null ? "" : $" bởi {actor}";
-        var meeting = string.IsNullOrWhiteSpace(meetingTitle) ? "Cuộc họp đồ án" : meetingTitle.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        var meeting = string.IsNullOrWhiteSpace(meetingSource?.Title) ? "Cuộc họp đồ án" : meetingSource.Title.Replace('\r', ' ').Replace('\n', ' ').Trim();
 
         return kind switch
         {
@@ -417,7 +417,9 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
                 $"Yêu cầu thay đổi trưởng nhóm cho nhóm {team} (đồ án {projectFull}) đã bị từ chối{byActor}."),
             WorkflowNotificationKind.MeetingScheduled => (
                 $"Lịch họp mới: {meeting}",
-                $"Cuộc họp \"{meeting}\" cho đồ án {projectFull} đã được lên lịch{byActor}."),
+                meetingSource is null
+                    ? $"Cuộc họp \"{meeting}\" cho đồ án {projectFull} đã được lên lịch{byActor}."
+                    : $"Cuộc họp \"{meeting}\" cho đồ án {projectFull} đã được lên lịch{byActor}.\n• Thời gian: {MeetingReminderService.FormatVnTime(meetingSource.StartAt)} (Việt Nam, UTC+7)\n• Hình thức: {MeetingReminderService.FormatDeliveryLabel(meetingSource)}\n• Địa điểm: {MeetingReminderService.FormatLocation(meetingSource)}"),
             WorkflowNotificationKind.ProgressReportSubmitted => (
                 $"Báo cáo tiến độ mới của đồ án{codeSuffix}",
                 $"{actor ?? "Nhóm thực hiện"} đã nộp báo cáo tiến độ mới cho đồ án {projectFull}."),
