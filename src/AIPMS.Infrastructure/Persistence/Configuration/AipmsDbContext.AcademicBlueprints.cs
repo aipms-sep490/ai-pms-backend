@@ -114,6 +114,12 @@ public partial class AipmsDbContext
             e.Property(x => x.TemplateOriginId).HasColumnName("template_origin_id").HasMaxLength(100);
             e.Property(x => x.IsUserCustomized).HasColumnName("is_user_customized").HasDefaultValue(false);
             e.Property(x => x.IsCoreGateTask).HasColumnName("is_core_gate_task").HasDefaultValue(false);
+            e.Property(x => x.BlockedSinceAt).HasColumnName("blocked_since_at").HasPrecision(0);
+            e.Property(x => x.BlockerReason).HasColumnName("blocker_reason").HasMaxLength(1000);
+            e.Property(x => x.GateRequirementId).HasColumnName("gate_requirement_id");
+            e.Property(x => x.DeletedAt).HasColumnName("deleted_at").HasPrecision(0);
+            e.Property(x => x.DeletedBy).HasColumnName("deleted_by");
+            e.Property(x => x.RestoreUntilAt).HasColumnName("restore_until_at").HasPrecision(0);
         });
     }
 }

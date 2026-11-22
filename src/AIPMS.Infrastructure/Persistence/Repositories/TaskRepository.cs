@@ -27,7 +27,7 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
             .Include(static t => t.TaskAssignees)
                 .ThenInclude(static ta => ta.User)
             .Include(static t => t.TaskDependencyTasks)
-            .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(t => t.Id == id && t.DeletedAt == null, cancellationToken);
 
         return entity?.ToDto();
     }
@@ -56,7 +56,7 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
             .Include(static t => t.TaskAssignees)
                 .ThenInclude(static ta => ta.User)
             .Include(static t => t.TaskDependencyTasks)
-            .Where(t => t.Milestone.ProjectId == projectId);
+            .Where(t => t.Milestone.ProjectId == projectId && t.DeletedAt == null);
 
         if (milestoneId.HasValue)
         {
@@ -356,7 +356,32 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
                 AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.TaskDependencyImpactPending);
         if (oldStatus == newStatus) return;
         var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+        if (newStatus == "DONE" && oldStatus != "DONE" && task.GateRequirementId.HasValue)
+        {
+            var hasReadyGateEvidence = await context.GateEvidence.AsNoTracking()
+                .AnyAsync(e => e.RequirementId == task.GateRequirementId.Value && e.ScanStatus == AIPMS.Application.Abstractions.Security.FileScanStatuses.Ready, cancellationToken);
+            var hasReadyTaskFile = await context.Files.AsNoTracking()
+                .AnyAsync(f => f.TaskId == taskId && f.ScanStatus == AIPMS.Application.Abstractions.Security.FileScanStatuses.Ready, cancellationToken);
+            var hasLedgerEvidence = await context.Set<ProjectEvidence>().AsNoTracking()
+                .AnyAsync(e => e.TaskId == taskId && e.VerificationStatus != "REJECTED", cancellationToken);
+            if (!hasReadyGateEvidence && !hasReadyTaskFile && !hasLedgerEvidence)
+            {
+                throw new AIPMS.Domain.Exceptions.DomainException(
+                    "Completing a gate-linked mandatory task requires at least one READY evidence attachment.",
+                    AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.EvidenceRequired);
+            }
+        }
         task.Status = newStatus;
+        if (newStatus == "BLOCKED")
+        {
+            task.BlockedSinceAt = now;
+            task.BlockerReason = reason?.Trim();
+        }
+        else if (oldStatus == "BLOCKED")
+        {
+            task.BlockedSinceAt = null;
+            task.BlockerReason = null;
+        }
         if (newStatus == "DONE")
         {
             task.CompletedAt = now;
@@ -494,7 +519,7 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         var tasks = await context.Tasks
             .AsNoTracking()
             .Include(t => t.BoardLabels)
-            .Where(t => t.Milestone.ProjectId == projectId)
+            .Where(t => t.Milestone.ProjectId == projectId && t.DeletedAt == null)
             .Include(static t => t.CreatedByNavigation)
             .Include(static t => t.TaskAssignees)
                 .ThenInclude(static ta => ta.User)
@@ -528,5 +553,108 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
             requireFrozenScope: true);
 
         return scope.MajorIds.Contains(majorId);
+    }
+
+    public async Task<TaskDto> ApplyOneStepCreateExtrasAsync(
+        long taskId,
+        string? initialStatus,
+        long? sprintId,
+        int? storyPoints,
+        IReadOnlyList<string>? labels,
+        long? gateRequirementId,
+        IReadOnlyList<string>? initialCriteria,
+        long actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var entity = await context.Tasks.Include(t => t.BoardLabels).SingleAsync(t => t.Id == taskId, cancellationToken);
+        var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+
+        if (!string.IsNullOrWhiteSpace(initialStatus))
+            entity.Status = initialStatus.Trim().ToUpperInvariant();
+        if (sprintId.HasValue)
+        {
+            var sprint = await context.Set<AIPMS.Infrastructure.Persistence.Models.Sprint>()
+                .AsNoTracking().SingleOrDefaultAsync(s => s.Id == sprintId.Value, cancellationToken)
+                ?? throw new AIPMS.Application.Common.Exceptions.NotFoundException("Sprint", sprintId.Value);
+            if (sprint.Status == "COMPLETED")
+                throw new AIPMS.Application.Common.Exceptions.ConflictException("Cannot add tasks to a completed sprint.");
+            entity.SprintId = sprintId.Value;
+        }
+        if (storyPoints.HasValue) entity.StoryPoints = storyPoints.Value;
+        if (gateRequirementId.HasValue)
+        {
+            entity.GateRequirementId = gateRequirementId.Value;
+            entity.IsCoreGateTask = true;
+        }
+        if (labels is { Count: > 0 })
+        {
+            foreach (var lbl in labels.Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l.Trim().ToLowerInvariant()).Distinct().Take(10))
+                if (entity.BoardLabels.All(b => b.Label != lbl))
+                    entity.BoardLabels.Add(new AIPMS.Infrastructure.Persistence.Models.TaskBoardLabel { TaskId = taskId, Label = lbl });
+        }
+        if (initialCriteria is { Count: > 0 })
+        {
+            var order = 1;
+            foreach (var text in initialCriteria.Where(c => !string.IsNullOrWhiteSpace(c)))
+            {
+                context.Set<AIPMS.Infrastructure.Persistence.Models.TaskCriterion>().Add(new AIPMS.Infrastructure.Persistence.Models.TaskCriterion
+                {
+                    TaskId = taskId,
+                    Title = text.Trim(),
+                    IsCompleted = false,
+                    SortOrder = order++,
+                    CreatedBy = actorUserId,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+        }
+        entity.UpdatedAt = now;
+        entity.ConcurrencyToken = Guid.NewGuid();
+        await context.SaveChangesAsync(cancellationToken);
+        return (await GetByIdAsync(taskId, cancellationToken))!;
+    }
+
+    public async Task<long?> GetUserMajorIdAsync(long projectId, long userId, CancellationToken cancellationToken)
+    {
+        var snapJson = await context.Set<AIPMS.Infrastructure.Persistence.Models.ProjectRegistrationSnapshot>()
+            .AsNoTracking().Where(s => s.ProjectId == projectId).OrderByDescending(s => s.Id)
+            .Select(s => s.SnapshotJson).FirstOrDefaultAsync(cancellationToken);
+        var frozen = snapJson is null ? null : ProjectAcademicScopeReader.ParseEvidence(snapJson)?.Members?.SingleOrDefault(m => m.UserId == userId)?.MajorId;
+        if (frozen.HasValue) return frozen;
+        return await context.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => u.MajorId).FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task SoftDeleteAsync(long id, long actorUserId, DateTime utcNow, CancellationToken cancellationToken)
+    {
+        var entity = await context.Tasks.SingleOrDefaultAsync(t => t.Id == id && t.DeletedAt == null, cancellationToken);
+        if (entity is null) return;
+        if (await HasHistoricalDataAsync(id, cancellationToken))
+            throw new AIPMS.Application.Common.Exceptions.ConflictException(
+                "Task evidence, core blueprint gate tasks, and comments must be retained. Cancel the task instead.",
+                AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.RestrictedDelete);
+        entity.DeletedAt = utcNow;
+        entity.DeletedBy = actorUserId;
+        entity.RestoreUntilAt = utcNow.AddSeconds(5);
+        entity.UpdatedAt = utcNow;
+        entity.ConcurrencyToken = Guid.NewGuid();
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<TaskDto> RestoreAsync(long id, long actorUserId, DateTime utcNow, CancellationToken cancellationToken)
+    {
+        var entity = await context.Tasks.SingleOrDefaultAsync(t => t.Id == id && t.DeletedAt != null, cancellationToken)
+            ?? throw new AIPMS.Application.Common.Exceptions.NotFoundException("DeletedTask", id);
+        if (entity.DeletedBy != actorUserId)
+            throw new AIPMS.Application.Common.Exceptions.ForbiddenException("Only the user who deleted this task can undo deletion.");
+        if (!entity.RestoreUntilAt.HasValue || utcNow > entity.RestoreUntilAt.Value)
+            throw new AIPMS.Application.Common.Exceptions.ConflictException("The 5-second undo window has expired.", "UNDO_WINDOW_EXPIRED");
+        entity.DeletedAt = null;
+        entity.DeletedBy = null;
+        entity.RestoreUntilAt = null;
+        entity.UpdatedAt = utcNow;
+        entity.ConcurrencyToken = Guid.NewGuid();
+        await context.SaveChangesAsync(cancellationToken);
+        return (await GetByIdAsync(id, cancellationToken))!;
     }
 }

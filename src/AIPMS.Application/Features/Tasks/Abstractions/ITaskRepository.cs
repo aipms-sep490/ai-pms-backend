@@ -125,4 +125,25 @@ public interface ITaskRepository
         long majorId,
         long projectId,
         CancellationToken cancellationToken = default);
+
+    Task<TaskDto> ApplyOneStepCreateExtrasAsync(
+        long taskId,
+        string? initialStatus,
+        long? sprintId,
+        int? storyPoints,
+        IReadOnlyList<string>? labels,
+        long? gateRequirementId,
+        IReadOnlyList<string>? initialCriteria,
+        long actorUserId,
+        CancellationToken cancellationToken) =>
+        GetByIdAsync(taskId, cancellationToken)!;
+
+    Task<long?> GetUserMajorIdAsync(long projectId, long userId, CancellationToken cancellationToken) =>
+        System.Threading.Tasks.Task.FromResult<long?>(null);
+
+    Task SoftDeleteAsync(long id, long actorUserId, DateTime utcNow, CancellationToken cancellationToken) =>
+        DeleteAsync(id, cancellationToken);
+
+    Task<TaskDto> RestoreAsync(long id, long actorUserId, DateTime utcNow, CancellationToken cancellationToken) =>
+        throw new AIPMS.Application.Common.Exceptions.NotFoundException("Task", id);
 }

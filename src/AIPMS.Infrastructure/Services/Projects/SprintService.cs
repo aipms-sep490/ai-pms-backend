@@ -155,7 +155,7 @@ internal sealed class SprintService(AipmsDbContext db, ICurrentUser user, IAudit
         var dto = await TaskDto(taskId, ct); await tx.CommitAsync(ct); return dto;
     }
     private async Task<TaskDto> TaskDto(long id, CancellationToken ct) => (await TaskQuery().SingleAsync(t => t.Id == id, ct)).ToDto();
-    private IQueryable<M.Task> TaskQuery() => db.Tasks.AsNoTracking().Include(t => t.BoardLabels).Include(t => t.CreatedByNavigation)
+    private IQueryable<M.Task> TaskQuery() => db.Tasks.AsNoTracking().Where(t => t.DeletedAt == null).Include(t => t.BoardLabels).Include(t => t.CreatedByNavigation)
         .Include(t => t.TaskAssignees).ThenInclude(a => a.User).Include(t => t.TaskDependencyTasks);
     public async Task<PagedResult<TaskDto>> Board(long projectId, long? sprintId, bool backlog, string? label, long? majorId, string? status, int page, int pageSize, CancellationToken ct)
     {

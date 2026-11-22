@@ -27,7 +27,8 @@ $scripts = @(
     '20261126_file_preview_derivatives.sql',
     '20261127_tracks_dual_gate_and_sla.sql',
     '20261128_academic_blueprints_and_planner.sql',
-    '20261128_document_requirements_final_lock_and_checklists.sql'
+    '20261128_document_requirements_final_lock_and_checklists.sql',
+    '20261129_execution_blocker_evidence_softdelete.sql'
 )
 
 $neutral = [System.Data.Common.DbConnectionStringBuilder]::new()
