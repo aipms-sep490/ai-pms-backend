@@ -18,4 +18,6 @@ public sealed class OpenAiOptions
     public string Model { get; set; } = "gpt-4o-mini";
     public string ApiKey { get; set; } = "";
     public int MaxCompletionTokens { get; set; } = 1200;
+    public string TranscriptionEndpoint { get; set; } = "";
+    public string TranscriptionModel { get; set; } = "whisper-1";
 }
