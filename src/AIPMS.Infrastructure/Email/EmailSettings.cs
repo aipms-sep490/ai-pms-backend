@@ -22,6 +22,25 @@ public sealed class EmailSettings
 
     public string PasswordResetUrl { get; set; } = "http://localhost:5173/reset-password";
 
+    public string FrontendBaseUrl { get; set; } = string.Empty;
+
+    public string ResolveFrontendBaseUrl()
+    {
+        if (Uri.TryCreate(FrontendBaseUrl, UriKind.Absolute, out var explicitUri)
+            && (explicitUri.Scheme == Uri.UriSchemeHttp || explicitUri.Scheme == Uri.UriSchemeHttps))
+        {
+            return explicitUri.GetLeftPart(UriPartial.Authority);
+        }
+
+        if (Uri.TryCreate(PasswordResetUrl, UriKind.Absolute, out var resetUri)
+            && (resetUri.Scheme == Uri.UriSchemeHttp || resetUri.Scheme == Uri.UriSchemeHttps))
+        {
+            return resetUri.GetLeftPart(UriPartial.Authority);
+        }
+
+        return "http://localhost:5173";
+    }
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(Host)
         && !string.IsNullOrWhiteSpace(SenderAddress);
