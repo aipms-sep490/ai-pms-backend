@@ -351,6 +351,60 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         return created.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject);
     }, ct);
 
+    public Task<RubricDto> CloneCriterion(long id, long criterionId, string token, CancellationToken ct) => repository.InTransactionAsync(async () =>
+    {
+        var actor = await Actor(ct);
+        var rubric = await Load(id, actor, true, ct);
+        RubricRules.EnsureCurrent(rubric, token);
+        RubricRules.EnsureEditable(rubric);
+        await Scope(actor, rubric.DepartmentId!.Value, rubric.AcademicSemesterId!.Value, ct);
+        var target = rubric.Criteria.FirstOrDefault(c => c.Id == criterionId)
+            ?? throw new NotFoundException("RubricCriterion", criterionId);
+
+        var byParent = rubric.Criteria.ToLookup(c => c.ParentId);
+        RubricCriterionInput ToInput(RubricCriterionRecord c, int sortOrder, bool isCloneRoot)
+        {
+            var rawName = isCloneRoot ? $"{c.Name} (Bản sao)" : c.Name;
+            var safeName = rawName.Length <= 255 ? rawName : rawName[..255];
+            var kids = byParent[c.Id].OrderBy(x => x.SortOrder).ThenBy(x => x.Id).ToArray();
+            var childInputs = new List<RubricCriterionInput>(kids.Length + 1);
+            var idx = 0;
+            foreach (var k in kids)
+            {
+                childInputs.Add(ToInput(k, idx++, false));
+                if (!isCloneRoot && k.Id == target.Id)
+                    childInputs.Add(ToInput(k, idx++, true));
+            }
+            return new(safeName, c.Description, c.WeightPercent, c.MaxScore, sortOrder, c.IsRequired)
+            {
+                LearningOutcome = c.LearningOutcome,
+                EvidenceGuidance = c.EvidenceGuidance,
+                TargetScope = c.TargetScope,
+                IsIntegration = c.IsIntegration,
+                Levels = c.Levels.Select(l => new RubricCriterionLevelInput(l.LevelOrder, l.Label, l.Descriptor, l.ScoreFrom, l.ScoreTo)).ToArray(),
+                Children = childInputs
+            };
+        }
+
+        var roots = byParent[null].OrderBy(c => c.SortOrder).ThenBy(c => c.Id).ToArray();
+        var nextRoots = new List<RubricCriterionInput>(roots.Length + 1);
+        var rootIdx = 0;
+        foreach (var r in roots)
+        {
+            nextRoots.Add(ToInput(r, rootIdx++, false));
+            if (r.Id == target.Id)
+                nextRoots.Add(ToInput(r, rootIdx++, true));
+        }
+
+        RubricRules.EnsureValidHierarchy(nextRoots);
+        var updated = await repository.UpdateAsync(id, rubric.Name, rubric.Description, nextRoots,
+            clock.GetUtcNow().UtcDateTime, rubric.MajorId, rubric.ProjectMode, rubric.EvaluationStage,
+            rubric.EvaluationScope, rubric.EffectiveFrom, rubric.EffectiveTo, ct);
+        await Audit("RUBRIC_CRITERION_CLONED", updated, actor.UserId, ct, new() { ["clonedFromCriterionId"] = criterionId });
+        var perms = await ComputePermissionsAsync(updated, actor, ct);
+        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject);
+    }, ct);
+
     public Task<bool> Delete(long id, string token, CancellationToken ct) => repository.InTransactionAsync(async () =>
     {
         var actor = await Actor(ct);

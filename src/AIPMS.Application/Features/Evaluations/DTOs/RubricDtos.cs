@@ -61,6 +61,7 @@ public sealed record CreateRubricVersionRequest(string Code, string ConcurrencyT
 public sealed record SubmitRubricForApprovalRequest(string ConcurrencyToken);
 public sealed record ApproveRubricRequest(string ConcurrencyToken, string? ApprovalReference = null);
 public sealed record RejectRubricRequest(string ConcurrencyToken, string Reason);
+public sealed record CloneRubricCriterionRequest(string ConcurrencyToken);
 
 public static class RubricDtoMapper
 {

@@ -113,6 +113,15 @@ public sealed class DeleteRubricCommandValidator : AbstractValidator<DeleteRubri
         RuleFor(x => x.ConcurrencyToken).Must(x => Guid.TryParse(x, out _));
     }
 }
+public sealed class CloneRubricCriterionCommandValidator : AbstractValidator<CloneRubricCriterionCommand>
+{
+    public CloneRubricCriterionCommandValidator()
+    {
+        RuleFor(x => x.Id).GreaterThan(0);
+        RuleFor(x => x.CriterionId).GreaterThan(0);
+        RuleFor(x => x.ConcurrencyToken).Must(x => Guid.TryParse(x, out _));
+    }
+}
 public sealed class CreateRubricVersionRequestValidator : AbstractValidator<CreateRubricVersionRequest>
 {
     public CreateRubricVersionRequestValidator()

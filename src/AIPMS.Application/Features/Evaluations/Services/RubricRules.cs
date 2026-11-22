@@ -7,10 +7,15 @@ namespace AIPMS.Application.Features.Evaluations.Services;
 
 public static class RubricRules
 {
+    public const decimal WeightSumTolerance = 0.001m;
+
+    public static bool IsWeightGroupSumValid(IEnumerable<decimal> weights) =>
+        Math.Abs(weights.Sum() - 100m) <= WeightSumTolerance;
+
     public static void EnsureEditable(RubricRecord rubric)
     {
         if (rubric.Status != RubricStatuses.Draft || rubric.IsReferenced)
-            throw new ConflictException("This rubric version is protected. Create a new draft version to change its content.");
+            throw new ConflictException("This rubric version is protected. Create a new draft version to change its content.", WorkflowErrorCodes.ImmutableVersion);
     }
 
     public static void ValidateScope(string? scope, long? majorId, string? projectMode, string? stage, DateOnly? effectiveFrom, DateOnly? effectiveTo)
@@ -71,13 +76,13 @@ public static class RubricRules
         if (leaves.Length == 0 || !leaves.Any(c => c.IsRequired))
             throw new ConflictException("Publishing requires at least one required criterion.");
         if (weighted.Any(c => c.WeightPercent <= 0 || c.WeightPercent > 100 || c.SortOrder < 0
-            || decimal.Round(c.WeightPercent, 2) != c.WeightPercent || c.EffectiveWeightPercent <= 0)
+            || decimal.Round(c.WeightPercent, 3) != c.WeightPercent || c.EffectiveWeightPercent <= 0)
             || leaves.Any(c => c.MaxScore is null or <= 0 or > 999999.99m
                 || decimal.Round(c.MaxScore.Value, 2) != c.MaxScore)
             || criteria.Where(c => parentIds.Contains(c.Id)).Any(c => c.MaxScore is not null || c.IsRequired)
-            || criteria.GroupBy(c => c.ParentId).Any(group => group.Sum(c => c.WeightPercent) != 100m
+            || criteria.GroupBy(c => c.ParentId).Any(group => Math.Abs(group.Sum(c => c.WeightPercent) - 100m) > WeightSumTolerance
                 || group.Select(c => c.SortOrder).Distinct().Count() != group.Count()))
-            throw new ConflictException("Criteria must have valid score ranges, unique ordering and weights totalling exactly 100 percent.");
+            throw new ConflictException("Criteria must have valid score ranges, unique ordering and weights totalling 100 percent (±0.001).");
 
         var parents = criteria.Where(c => parentIds.Contains(c.Id)).ToList();
         foreach (var parent in parents)
@@ -114,6 +119,6 @@ public static class RubricRules
     {
         if (!Guid.TryParse(token, out var supplied) || !Guid.TryParse(rubric.ConcurrencyToken, out var current)
             || supplied != current)
-            throw new ConflictException("The rubric has changed. Reload it before retrying.");
+            throw new ConflictException("The rubric has changed. Reload it before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);
     }
 }
