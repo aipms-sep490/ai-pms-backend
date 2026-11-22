@@ -47,8 +47,10 @@ internal sealed partial class IndustryService
         await db.Set<IndustryInvitation>().Where(i => i.ExpertId == user.Id && i.ConsumedAt == null && i.RevokedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(i => i.RevokedAt, Now).SetProperty(i => i.ProtectedToken, (string?)null), ct);
         var token = opaque.Generate();
-        var notification = new M.Notification { CreatedBy = Actor, NotificationType = NotificationType, Title = "AI-PMS expert invitation",
-            Content = "An invitation was issued to your email address.", CreatedAt = Now, UpdatedAt = Now,
+        var rawInviteTitle = $"Lời mời tham gia cố vấn doanh nghiệp AI-PMS - {input.FullName.Trim()}";
+        var inviteTitle = rawInviteTitle.Length <= 255 ? rawInviteTitle : rawInviteTitle[..255];
+        var notification = new M.Notification { CreatedBy = Actor, NotificationType = NotificationType, Title = inviteTitle,
+            Content = $"Lời mời tham gia hệ thống AI-PMS với vai trò chuyên gia doanh nghiệp ({input.Organization.Trim()}) đã được gửi tới địa chỉ email {email}.", CreatedAt = Now, UpdatedAt = Now,
             RelatedEntityType = "USER", RelatedEntityId = user.Id, NotificationRecipients = [new M.NotificationRecipient {
                 UserId = user.Id, DeliveredAt = Now, CreatedAt = Now, UpdatedAt = Now }] };
         db.Add(notification); await db.SaveChangesAsync(ct);

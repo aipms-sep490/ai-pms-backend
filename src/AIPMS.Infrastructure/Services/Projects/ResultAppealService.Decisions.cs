@@ -68,11 +68,18 @@ internal sealed partial class ResultAppealService
         if (!DepartmentAccess(row, access))
         { if (row.ReviewerId != Actor) throw new ForbiddenException(); await Reviewer(row, Actor, ct); }
         var frozen = Frozen(row);
+        var evaluatorIds = frozen.Evaluations.Select(e => e.EvaluatorId).Distinct().ToArray();
+        var evaluatorNames = evaluatorIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => evaluatorIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var criterionNames = frozen.Evaluations.SelectMany(e => e.Scores)
+            .GroupBy(s => s.RubricCriterionId).ToDictionary(g => g.Key, g => g.First().Name);
         var amendments = row.BundleId.HasValue ? (await Bundle(row, ct)).Amendments.Select(a =>
-            new ScoreAmendmentInput(a.EvaluationId, a.CriterionId, a.Score, a.Reason)).ToArray() : [];
+            new ScoreAmendmentInput(a.EvaluationId, a.CriterionId, a.Score, a.Reason,
+                criterionNames.GetValueOrDefault(a.CriterionId))).ToArray() : [];
         return new(row.Id, row.ComponentId, row.Scope, row.MajorId, row.StudentId, frozen.Scheme.Policy!.CalculationVersion,
             frozen.Evaluations.Select(e => new AppealReviewEvaluationDto(e.Id, e.AssignmentId, e.EvaluatorId, e.RubricId,
-                e.RubricName, e.RubricVersion, e.TotalScore, e.Scores)).ToArray(), amendments);
+                e.RubricName, e.RubricVersion, e.TotalScore, e.Scores,
+                evaluatorNames.GetValueOrDefault(e.EvaluatorId))).ToArray(), amendments);
     }
     public Task<AppealPreviewDto> Preview(long projectId, long id, CancellationToken ct) => transactions.InTransactionAsync(async () => {
         await transactions.LockProjectAsync(projectId, ct); var access = await Scope(projectId, ct); var row = await Row(projectId, id, ct);
@@ -82,10 +89,14 @@ internal sealed partial class ResultAppealService
         if (row.ReviewerId is not long reviewer || row.Proposal != "AMEND") throw new ConflictException("Reviewed amendments required.");
         await Reviewer(row, reviewer, ct); await Approved(projectId, row.PolicyId, ct);
         var check = await revisions.Check(await Bundle(row, ct), ct);
+        var userIds = check.Targets.Where(t => t.Current.Key != 0).Select(t => t.Current.Key).Append(Actor).Distinct().ToArray();
+        var userNames = await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var actorName = userNames.GetValueOrDefault(Actor);
         // Cross-target totals are visible only to the lead orchestrator, never a component-only reviewer.
         return new AppealPreviewDto(check.ConfirmationToken, check.Targets.Select(t => new ResultRevisionSummary(null,
             t.Current.Version+1, t.Current.Version, t.Current.Key == 0 ? null : t.Current.Key, t.Calculation.TotalScore,
-            "PREVIEW", Actor, Now, null, row.BundleId)).ToArray());
+            "PREVIEW", Actor, Now, null, row.BundleId, actorName,
+            t.Current.Key == 0 ? null : userNames.GetValueOrDefault(t.Current.Key))).ToArray());
     }, ct);
     public Task<CorrectionRequestDto> Decide(long projectId, long id, AppealDecisionRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () => {
         await transactions.LockProjectAsync(projectId, ct); var access = await Scope(projectId, ct); Lead(access);
@@ -115,8 +126,23 @@ internal sealed partial class ResultAppealService
         var reviewerView = DepartmentAccess(row, access) || row.ReviewerId == Actor && EligibleReviewer(row, access);
         var bundleIds = reviewerView ? rows.Where(e => e.BundleId.HasValue).Select(e => e.BundleId!.Value).Distinct().ToArray() : [];
         var amendments = await db.Set<ResultScoreAmendment>().AsNoTracking().Where(a => bundleIds.Contains(a.BundleId)).ToArrayAsync(ct);
+        var actorIds = rows.Select(e => e.ActorId).Distinct().ToArray();
+        var actorNames = actorIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => actorIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var criterionNames = new Dictionary<long, string>();
+        if (amendments.Length > 0)
+        {
+            try
+            {
+                foreach (var s in Frozen(row).Evaluations.SelectMany(e => e.Scores))
+                    criterionNames.TryAdd(s.RubricCriterionId, s.Name);
+            }
+            catch { }
+        }
         return new(rows.Select(e => new AppealEventDto(e.Id, e.Action, e.ActorId, Utc(e.At), e.Reason,
             reviewerView ? e.BundleId : null, amendments.Where(a => a.BundleId == e.BundleId)
-                .Select(a => new ScoreAmendmentInput(a.EvaluationId, a.CriterionId, a.Score, a.Reason)).ToArray())).ToArray(), page, pageSize, count);
+                .Select(a => new ScoreAmendmentInput(a.EvaluationId, a.CriterionId, a.Score, a.Reason,
+                    criterionNames.GetValueOrDefault(a.CriterionId))).ToArray(),
+            actorNames.GetValueOrDefault(e.ActorId))).ToArray(), page, pageSize, count);
     }
 }

@@ -123,18 +123,36 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         : JsonSerializer.Deserialize<SchemePolicyInput>(row.GovernanceJson);
     private static IReadOnlyList<SchemeEvaluatorWeight>? Weights(EvaluationSchemeComponent row) => row.EvaluatorWeightsJson is null ? null
         : JsonSerializer.Deserialize<SchemeEvaluatorWeight[]>(row.EvaluatorWeightsJson);
+    private async Task<EvaluationSchemeDto[]> EnrichSchemesAsync(IReadOnlyList<EvaluationSchemeDto> dtos, CancellationToken ct)
+    {
+        var evaluatorIds = dtos.SelectMany(d => d.Components)
+            .SelectMany(c => c.EvaluatorWeights ?? [])
+            .Select(w => w.EvaluatorId).Distinct().ToArray();
+        if (evaluatorIds.Length == 0) return dtos.ToArray();
+        var names = await db.Users.AsNoTracking().Where(u => evaluatorIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return dtos.Select(d => d with
+        {
+            Components = d.Components.Select(c => c.EvaluatorWeights is null ? c : c with
+            {
+                EvaluatorWeights = c.EvaluatorWeights.Select(w => w with { EvaluatorName = names.GetValueOrDefault(w.EvaluatorId) }).ToArray()
+            }).ToArray()
+        }).ToArray();
+    }
+    private async Task<EvaluationSchemeDto> EnrichSchemeAsync(EvaluationSchemeDto dto, CancellationToken ct) =>
+        (await EnrichSchemesAsync([dto], ct))[0];
     private async Task<EvaluationSchemeDto> Visible(EvaluationScheme row, CancellationToken ct)
     {
         var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
         var project = await evaluations.GetProjectAsync(row.ProjectId, ct) ?? throw new NotFoundException("Project", row.ProjectId);
         var dto = Map(row);
-        if (actor.IsAdmin || AcademicAuthority.IsLead(actor, project)) return dto;
+        if (actor.IsAdmin || AcademicAuthority.IsLead(actor, project)) return await EnrichSchemeAsync(dto, ct);
         if (!AcademicAuthority.HasScope(actor, project)) throw new ForbiddenException();
         var rubricIds = row.Components.Select(c => c.RubricId).ToArray();
         var ownRubrics = await db.Rubrics.Where(r => rubricIds.Contains(r.Id) && r.DepartmentId == actor.DepartmentId)
             .Select(r => r.Id).ToArrayAsync(ct);
-        return dto with { Components = dto.Components.Where(c => ownRubrics.Contains(c.RubricId)).ToArray(),
-            Students = dto.Students.Where(s => s.DepartmentId == actor.DepartmentId).ToArray() };
+        return await EnrichSchemeAsync(dto with { Components = dto.Components.Where(c => ownRubrics.Contains(c.RubricId)).ToArray(),
+            Students = dto.Students.Where(s => s.DepartmentId == actor.DepartmentId).ToArray() }, ct);
     }
     private Task Audit(string action, string type, long id, object details, CancellationToken ct) =>
         audit.RecordAsync(new(Actor, action, type, id, new Dictionary<string, object?> { ["snapshot"] = details }), ct);
@@ -208,10 +226,11 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         row.Components = input.Components.Select(c => new EvaluationSchemeComponent { Name = c.Name, Scope = c.Scope, MajorId = c.MajorId,
             RubricId = c.RubricId, ProjectWeightPercent = c.ProjectWeightPercent, StudentWeightPercent = c.StudentWeightPercent,
             RequiredEvaluators = c.RequiredEvaluators, Stage = c.Stage,
-            EvaluatorWeightsJson = c.EvaluatorWeights is null ? null : JsonSerializer.Serialize(c.EvaluatorWeights.OrderBy(w => w?.EvaluatorId)) }).ToList();
+            EvaluatorWeightsJson = c.EvaluatorWeights is null ? null : JsonSerializer.Serialize(c.EvaluatorWeights
+                .Select(w => w is null ? null : new SchemeEvaluatorWeight(w.EvaluatorId, w.WeightPercent)).OrderBy(w => w?.EvaluatorId)) }).ToList();
         await Validate(row, ct);
         if (!id.HasValue) db.Add(row);
-        await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_SAVED", "EVALUATION_SCHEME", row.Id, Map(row), ct); return Map(row);
+        await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_SAVED", "EVALUATION_SCHEME", row.Id, Map(row), ct); return await EnrichSchemeAsync(Map(row), ct);
     }, ct);
     public Task<EvaluationSchemeDto> GetAsync(long id, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
     { var row = await Row(id, ct); await Manage(row.ProjectId, ct); return await Visible(row, ct); }, ct);
@@ -238,7 +257,8 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             component.StudentWeightPercent = change.StudentWeightPercent;
             component.RequiredEvaluators = change.RequiredEvaluators;
             component.Stage = change.Stage;
-            component.EvaluatorWeightsJson = change.EvaluatorWeights is null ? null : JsonSerializer.Serialize(change.EvaluatorWeights.OrderBy(w => w?.EvaluatorId));
+            component.EvaluatorWeightsJson = change.EvaluatorWeights is null ? null : JsonSerializer.Serialize(change.EvaluatorWeights
+                .Select(w => w is null ? null : new SchemeEvaluatorWeight(w.EvaluatorId, w.WeightPercent)).OrderBy(w => w?.EvaluatorId));
             await Validate(row, ct);
             row.ConcurrencyToken = Guid.NewGuid();
             await db.SaveChangesAsync(ct);
@@ -251,13 +271,14 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var rows = await db.Set<EvaluationScheme>().Include(x => x.Components).Where(x => x.ProjectId == projectId).OrderByDescending(x => x.Version).ToListAsync(ct);
         var actor = (await evaluations.GetActorAsync(Actor, ct))!;
         var project = (await evaluations.GetProjectAsync(projectId, ct))!;
-        if (actor.IsAdmin || AcademicAuthority.IsLead(actor, project)) return rows.Select(Map).ToArray();
+        if (actor.IsAdmin || AcademicAuthority.IsLead(actor, project)) return await EnrichSchemesAsync(rows.Select(Map).ToArray(), ct);
         var rubricIds = rows.SelectMany(r => r.Components.Select(c => c.RubricId)).Distinct().ToArray();
         var ownRubrics = (await db.Rubrics.Where(r => rubricIds.Contains(r.Id) && r.DepartmentId == actor.DepartmentId)
             .Select(r => r.Id).ToArrayAsync(ct)).ToHashSet();
-        return rows.Select(r => Map(r)).Select(r => r with {
+        var filtered = rows.Select(r => Map(r)).Select(r => r with {
             Components = r.Components.Where(c => ownRubrics.Contains(c.RubricId)).ToArray(),
             Students = r.Students.Where(s => s.DepartmentId == actor.DepartmentId).ToArray() }).ToArray();
+        return await EnrichSchemesAsync(filtered, ct);
     }, ct);
     public Task<EvaluationSchemeDto> PublishAsync(long id, string token, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
     {
@@ -273,7 +294,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         }
         row.PolicyVersionId = await PolicyVersions.CaptureAsync(db, row.ProjectPeriodId, "EVALUATION_SCHEME", row.Id, Now, ct);
         row.Status = "PUBLISHED"; row.PublishedBy = Actor; row.PublishedAt = Now; row.LockedAt = Now; row.ConcurrencyToken = Guid.NewGuid();
-        await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_PUBLISHED", "EVALUATION_SCHEME", id, Map(row), ct); return Map(row);
+        await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_PUBLISHED", "EVALUATION_SCHEME", id, Map(row), ct); return await EnrichSchemeAsync(Map(row), ct);
     }, ct);
     public Task<EvaluationSchemeDto> VersionAsync(long id, string token, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
     {
@@ -291,7 +312,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             Components = source.Components.Select(c => new EvaluationSchemeComponent { Name = c.Name, Scope = c.Scope, MajorId = c.MajorId,
                 RubricId = c.RubricId, ProjectWeightPercent = c.ProjectWeightPercent, StudentWeightPercent = c.StudentWeightPercent,
                 RequiredEvaluators = c.RequiredEvaluators, Stage = c.Stage, EvaluatorWeightsJson = c.EvaluatorWeightsJson }).ToList() };
-        db.Add(row); await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_VERSIONED", "EVALUATION_SCHEME", row.Id, Map(row), ct); return Map(row);
+        db.Add(row); await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_VERSIONED", "EVALUATION_SCHEME", row.Id, Map(row), ct); return await EnrichSchemeAsync(Map(row), ct);
     }, ct);
     public async Task DeleteAsync(long id, string token, CancellationToken ct) => await evaluations.InTransactionAsync(async () =>
     {

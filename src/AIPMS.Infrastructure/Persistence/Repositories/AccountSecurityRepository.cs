@@ -657,12 +657,123 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
+
+        var actorIds = records.Where(r => r.ActorUserId.HasValue).Select(r => r.ActorUserId!.Value).Distinct().ToArray();
+        var userEntityIds = ParseEntityIds(records, "USER");
+        var allUserIds = actorIds.Concat(userEntityIds).Distinct().ToArray();
+        var userInfos = allUserIds.Length == 0 ? new Dictionary<long, (string FullName, string Email)>()
+            : (await context.Users.AsNoTracking().Where(u => allUserIds.Contains(u.Id))
+                .Select(u => new { u.Id, u.FullName, u.Email }).ToArrayAsync(cancellationToken))
+                .ToDictionary(u => u.Id, u => (u.FullName, u.Email));
+
+        var projectIds = ParseEntityIds(records, "PROJECT");
+        var projectNames = projectIds.Length == 0 ? new Dictionary<long, string>()
+            : (await context.Projects.AsNoTracking().Where(p => projectIds.Contains(p.Id))
+                .Select(p => new { p.Id, p.Code, p.Title }).ToArrayAsync(cancellationToken))
+                .ToDictionary(p => p.Id, p => string.IsNullOrWhiteSpace(p.Title) ? p.Code : $"{p.Code} - {p.Title}");
+
+        var teamIds = ParseEntityIds(records, "TEAM");
+        var teamNames = teamIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.Teams.AsNoTracking().Where(t => teamIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.Name, cancellationToken);
+
+        var roleIds = ParseEntityIds(records, "ROLE");
+        var roleNames = roleIds.Length == 0 ? new Dictionary<long, string>()
+            : (await context.Roles.AsNoTracking().Where(r => roleIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.Name, r.Code }).ToArrayAsync(cancellationToken))
+                .ToDictionary(r => r.Id, r => $"{r.Name} ({r.Code})");
+
+        var permissionIds = ParseEntityIds(records, "PERMISSION");
+        var permissionNames = permissionIds.Length == 0 ? new Dictionary<long, string>()
+            : (await context.Permissions.AsNoTracking().Where(p => permissionIds.Contains(p.Id))
+                .Select(p => new { p.Id, p.Name, p.Code }).ToArrayAsync(cancellationToken))
+                .ToDictionary(p => p.Id, p => $"{p.Name} ({p.Code})");
+
+        var taskIds = ParseEntityIds(records, "TASK");
+        var taskNames = taskIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.Tasks.AsNoTracking().Where(t => taskIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.Title, cancellationToken);
+
+        var milestoneIds = ParseEntityIds(records, "MILESTONE");
+        var milestoneNames = milestoneIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.Milestones.AsNoTracking().Where(m => milestoneIds.Contains(m.Id))
+                .ToDictionaryAsync(m => m.Id, m => m.Title, cancellationToken);
+
+        var deliverableIds = ParseEntityIds(records, "DELIVERABLE");
+        var deliverableNames = deliverableIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.Deliverables.AsNoTracking().Where(d => deliverableIds.Contains(d.Id))
+                .ToDictionaryAsync(d => d.Id, d => d.Title, cancellationToken);
+
+        var meetingIds = ParseEntityIds(records, "MEETING");
+        var meetingNames = meetingIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.Meetings.AsNoTracking().Where(m => meetingIds.Contains(m.Id))
+                .ToDictionaryAsync(m => m.Id, m => m.Title, cancellationToken);
+
+        var departmentIds = ParseEntityIds(records, "DEPARTMENT");
+        var departmentNames = departmentIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.Departments.AsNoTracking().Where(d => departmentIds.Contains(d.Id))
+                .ToDictionaryAsync(d => d.Id, d => d.Name, cancellationToken);
+
+        var majorIds = ParseEntityIds(records, "MAJOR");
+        var majorNames = majorIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.Majors.AsNoTracking().Where(m => majorIds.Contains(m.Id))
+                .ToDictionaryAsync(m => m.Id, m => m.Name, cancellationToken);
+
+        var semesterIds = ParseEntityIds(records, "ACADEMIC_SEMESTER");
+        var semesterNames = semesterIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.AcademicSemesters.AsNoTracking().Where(s => semesterIds.Contains(s.Id))
+                .ToDictionaryAsync(s => s.Id, s => s.Name, cancellationToken);
+
+        var periodIds = ParseEntityIds(records, "PROJECT_PERIOD");
+        var periodNames = periodIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.ProjectPeriods.AsNoTracking().Where(p => periodIds.Contains(p.Id))
+                .ToDictionaryAsync(p => p.Id, p => p.Name, cancellationToken);
+
+        var rubricIds = ParseEntityIds(records, "RUBRIC");
+        var rubricNames = rubricIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.Rubrics.AsNoTracking().Where(r => rubricIds.Contains(r.Id))
+                .ToDictionaryAsync(r => r.Id, r => r.Name, cancellationToken);
+
+        string? ResolveEntityDisplayName(string entityType, string? entityId)
+        {
+            if (string.IsNullOrWhiteSpace(entityId) || !long.TryParse(entityId, out var id)) return null;
+            return entityType.ToUpperInvariant() switch
+            {
+                "USER" => userInfos.TryGetValue(id, out var u) ? (string.IsNullOrWhiteSpace(u.FullName) ? u.Email : $"{u.FullName} ({u.Email})") : null,
+                "PROJECT" => projectNames.GetValueOrDefault(id),
+                "TEAM" => teamNames.GetValueOrDefault(id),
+                "ROLE" => roleNames.GetValueOrDefault(id),
+                "PERMISSION" => permissionNames.GetValueOrDefault(id),
+                "TASK" => taskNames.GetValueOrDefault(id),
+                "MILESTONE" => milestoneNames.GetValueOrDefault(id),
+                "DELIVERABLE" => deliverableNames.GetValueOrDefault(id),
+                "MEETING" => meetingNames.GetValueOrDefault(id),
+                "DEPARTMENT" => departmentNames.GetValueOrDefault(id),
+                "MAJOR" => majorNames.GetValueOrDefault(id),
+                "ACADEMIC_SEMESTER" => semesterNames.GetValueOrDefault(id),
+                "PROJECT_PERIOD" => periodNames.GetValueOrDefault(id),
+                "RUBRIC" => rubricNames.GetValueOrDefault(id),
+                _ => null
+            };
+        }
+
         return new PagedResult<AuditRecord>(
-            records.Select(static item => item.ToApplication()).ToArray(),
+            records.Select(item => item.ToApplication() with
+            {
+                ActorName = item.ActorUserId.HasValue && userInfos.TryGetValue(item.ActorUserId.Value, out var actor) ? actor.FullName : null,
+                EntityDisplayName = ResolveEntityDisplayName(item.EntityType, item.EntityId)
+            }).ToArray(),
             page,
             pageSize,
             totalCount);
     }
+
+    private static long[] ParseEntityIds(IReadOnlyList<AIPMS.Infrastructure.Persistence.Generated.Models.AuditLog> records, string entityType) =>
+        records.Where(r => string.Equals(r.EntityType, entityType, StringComparison.OrdinalIgnoreCase)
+                && long.TryParse(r.EntityId, out _))
+            .Select(r => long.Parse(r.EntityId!))
+            .Distinct()
+            .ToArray();
 
     private IQueryable<UserEntity> UserQuery() =>
         context.Users.AsNoTracking()

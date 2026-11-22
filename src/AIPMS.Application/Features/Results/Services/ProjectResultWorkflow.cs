@@ -49,7 +49,20 @@ public sealed class ProjectResultWorkflow(IProjectResultRepository repository, I
         var actor = await Actor(ct);
         if (!await submissions.CanReadAsync(projectId, actor.Id, ct)) throw new ForbiddenException();
         var result = await repository.GetAsync(projectId, ct) ?? throw new NotFoundException("ProjectResult", projectId);
-        return result with { FrozenInputs = null,
-            Breakdown = ResultSnapshotReader.Read(result.FrozenInputs, result.CalculationRule) };
+        var breakdown = ResultSnapshotReader.Read(result.FrozenInputs, result.CalculationRule);
+        if (result.Breakdown is { MajorBreakdown.Count: > 0 })
+        {
+            var names = result.Breakdown.MajorBreakdown
+                .Where(m => m.MajorName is not null)
+                .ToDictionary(m => m.MajorId, m => m.MajorName);
+            if (names.Count > 0)
+                breakdown = breakdown with
+                {
+                    MajorBreakdown = breakdown.MajorBreakdown
+                        .Select(m => m.MajorName is null && names.TryGetValue(m.MajorId, out var name) ? m with { MajorName = name } : m)
+                        .ToArray()
+                };
+        }
+        return result with { FrozenInputs = null, Breakdown = breakdown };
     }, ct);
 }

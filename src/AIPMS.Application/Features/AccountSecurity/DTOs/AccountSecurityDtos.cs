@@ -97,7 +97,9 @@ public sealed record AuditRecordDto(
     string? IpAddress,
     string? UserAgent,
     string? DetailsJson,
-    DateTime OccurredAt);
+    DateTime OccurredAt,
+    string? ActorName = null,
+    string? EntityDisplayName = null);
 
 public sealed record AccessEventDto(
     long Id,
@@ -168,5 +170,7 @@ internal static class AccountSecurityDtoMapper
             record.IpAddress,
             record.UserAgent,
             record.DetailsJson,
-            record.OccurredAt);
+            record.OccurredAt,
+            record.ActorName,
+            record.EntityDisplayName);
 }

@@ -35,7 +35,7 @@ $processEnvironment = @{
 foreach ($k in $processEnvironment.Keys) {
     [System.Environment]::SetEnvironmentVariable($k, $processEnvironment[$k], "Process")
 }
-$apiDll = Join-Path $repoRoot 'src/AIPMS.Api/bin/Release/net8.0/AIPMS.Api.dll'
+$apiDll = 'src/AIPMS.Api/bin/Release/net8.0/AIPMS.Api.dll'
 $start = @{
     FilePath = 'dotnet'
     ArgumentList = @($apiDll, '--urls', $apiUrl)

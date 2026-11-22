@@ -14,13 +14,14 @@ public sealed record IndustryTokenRequest([Required] string ConcurrencyToken);
 public sealed record AssignIndustryRequest(long ExpertId, [Required] string Scope, long? MajorId, DateTimeOffset StartsAt, DateTimeOffset EndsAt);
 public sealed record IndustryAssignmentDto(long Id, long ProjectId, string ProjectCode, string ProjectTitle, long ExpertId,
     string Scope, long? MajorId, DateTime StartsAt, DateTime EndsAt, string Status, string ConcurrencyToken,
-    IReadOnlyList<string> AllowedActions, bool AdvisoryOnly = true);
+    IReadOnlyList<string> AllowedActions, bool AdvisoryOnly = true,
+    string? ExpertName = null, string? ExpertEmail = null, string? ExpertOrganization = null, string? MajorName = null);
 public sealed record ShareIndustryFileRequest([Required] string ConcurrencyToken, long DeliverableVersionId, long FileId);
 public sealed record IndustryFileDto(long Id, long FileId, long DeliverableVersionId, string FileName, string ContentType,
     long SizeBytes, string Sha256, string DownloadUrl);
 public sealed record IndustryFeedbackRequest([Required] string ConcurrencyToken, int ExpectedVersion,
     [Required, StringLength(10000)] string Content);
 public sealed record IndustryFeedbackDto(long Id, int Version, int? SupersedesVersion, string Content, long SubmittedBy,
-    DateTime SubmittedAt, bool AdvisoryOnly = true);
+    DateTime SubmittedAt, bool AdvisoryOnly = true, string? SubmittedByName = null);
 public sealed record IndustryEnrollmentInput(Guid ChallengeId, [Required, StringLength(16384)] string IdToken,
     [Required, StringLength(64, MinimumLength = 64)] string InvitationToken);

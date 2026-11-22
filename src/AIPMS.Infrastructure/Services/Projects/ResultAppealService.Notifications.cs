@@ -24,8 +24,39 @@ internal sealed partial class ResultAppealService
         ids.Remove(Actor);
         var recipients = await db.Users.Where(u => ids.Contains(u.Id) && u.Status == "ACTIVE").Select(u => u.Id).ToArrayAsync(ct);
         if (recipients.Length == 0) return;
-        var inbox = new M.Notification { CreatedBy = Actor, NotificationType = action, Title = "A result review has an update",
-            Content = "Sign in to view updates available to your account.", RelatedEntityType = "PROJECT", RelatedEntityId = row.ProjectId,
+        var projectInfo = await db.Projects.AsNoTracking().Where(p => p.Id == row.ProjectId)
+            .Select(p => new { p.Code, p.Title }).FirstOrDefaultAsync(ct);
+        var actorName = await db.Users.AsNoTracking().Where(u => u.Id == Actor)
+            .Select(u => u.FullName).FirstOrDefaultAsync(ct);
+        var codeSuffix = string.IsNullOrWhiteSpace(projectInfo?.Code) ? "" : $" - Đồ án {projectInfo.Code}";
+        var projectFull = projectInfo is null ? "của bạn" : string.IsNullOrWhiteSpace(projectInfo.Title) ? projectInfo.Code : $"{projectInfo.Code} - {projectInfo.Title}";
+        var statusLabel = row.Status switch
+        {
+            "ACCEPTED" => "Chấp thuận",
+            "REJECTED" => "Từ chối",
+            _ => "Đã cập nhật"
+        };
+        var (rawTitle, content) = action switch
+        {
+            "APPEAL_REQUESTED" => (
+                $"Yêu cầu phúc khảo điểm mới{codeSuffix}",
+                $"{(string.IsNullOrWhiteSpace(actorName) ? "Sinh viên" : actorName)} đã gửi yêu cầu phúc khảo kết quả cho đồ án {projectFull}. Vui lòng đăng nhập để xem xét và phân công xử lý."),
+            "APPEAL_REVIEWER_ASSIGNED" => (
+                $"Phân công xem xét phúc khảo{codeSuffix}",
+                $"Bạn đã được phân công xem xét yêu cầu phúc khảo kết quả cho đồ án {projectFull}. Vui lòng đăng nhập để thực hiện đánh giá."),
+            "APPEAL_REVIEWED" => (
+                $"Đã hoàn tất đánh giá phúc khảo{codeSuffix}",
+                $"{(string.IsNullOrWhiteSpace(actorName) ? "Giảng viên phản biện" : actorName)} đã hoàn tất đánh giá yêu cầu phúc khảo kết quả cho đồ án {projectFull}. Vui lòng xem xét và ra quyết định cuối cùng."),
+            "APPEAL_DECIDED" => (
+                $"Kết quả phúc khảo{(string.IsNullOrWhiteSpace(projectInfo?.Code) ? "" : $" đồ án {projectInfo.Code}")}: {statusLabel}",
+                $"Yêu cầu phúc khảo kết quả cho đồ án {projectFull} đã có quyết định: {statusLabel}. Vui lòng đăng nhập để xem chi tiết."),
+            _ => (
+                $"Cập nhật yêu cầu phúc khảo{codeSuffix}",
+                $"Yêu cầu phúc khảo kết quả cho đồ án {projectFull} có cập nhật mới. Vui lòng đăng nhập để xem chi tiết.")
+        };
+        var safeTitle = rawTitle.Length <= 255 ? rawTitle : rawTitle[..255];
+        var inbox = new M.Notification { CreatedBy = Actor, NotificationType = action, Title = safeTitle,
+            Content = content, RelatedEntityType = "PROJECT", RelatedEntityId = row.ProjectId,
             CreatedAt = Now, UpdatedAt = Now, NotificationRecipients = recipients.Select(id => new M.NotificationRecipient {
                 UserId = id, CreatedAt = Now, UpdatedAt = Now, DeliveredAt = Now }).ToArray() };
         db.Add(inbox); await db.SaveChangesAsync(ct);

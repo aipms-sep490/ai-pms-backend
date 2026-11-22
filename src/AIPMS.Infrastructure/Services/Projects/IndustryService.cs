@@ -78,9 +78,16 @@ internal sealed partial class IndustryService(AipmsDbContext db, IEvaluationDraf
     private async Task<IndustryAssignmentDto> Dto(IndustryAssignment row, bool lead, CancellationToken ct)
     {
         var project = await db.Projects.AsNoTracking().Where(p => p.Id == row.ProjectId).Select(p => new { p.Code, p.Title, p.Status }).SingleAsync(ct);
-        return Map(row, project.Code, project.Title, project.Status, lead, await Expert(row.ExpertId, true, ct));
+        var expertUser = await db.Users.AsNoTracking().Where(u => u.Id == row.ExpertId).Select(u => new { u.FullName, u.Email }).FirstOrDefaultAsync(ct);
+        var expertProfile = await db.Set<IndustryExpert>().AsNoTracking().Where(e => e.UserId == row.ExpertId).Select(e => e.Organization).FirstOrDefaultAsync(ct);
+        var majorName = row.MajorId.HasValue
+            ? await db.Majors.AsNoTracking().Where(m => m.Id == row.MajorId.Value).Select(m => m.Name).FirstOrDefaultAsync(ct)
+            : null;
+        return Map(row, project.Code, project.Title, project.Status, lead, await Expert(row.ExpertId, true, ct),
+            expertUser?.FullName, expertUser?.Email, expertProfile, majorName);
     }
-    private IndustryAssignmentDto Map(IndustryAssignment row, string code, string title, string projectStatus, bool lead, bool enrolled)
+    private IndustryAssignmentDto Map(IndustryAssignment row, string code, string title, string projectStatus, bool lead, bool enrolled,
+        string? expertName = null, string? expertEmail = null, string? expertOrganization = null, string? majorName = null)
     {
         var status = row.RevokedAt is not null ? "REVOKED" : Now < row.StartsAt ? "SCHEDULED" : Now >= row.EndsAt ? "EXPIRED" : "ACTIVE";
         var actions = new List<string> { "READ" };
@@ -88,7 +95,7 @@ internal sealed partial class IndustryService(AipmsDbContext db, IEvaluationDraf
         if (Live(row) && projectStatus is "ACTIVE" or "FINAL_SUBMISSION")
         { if (lead) actions.Add("SHARE"); else if (enrolled) actions.Add("SUBMIT_FEEDBACK"); }
         return new(row.Id, row.ProjectId, code, title, row.ExpertId, row.Scope, row.MajorId, Utc(row.StartsAt), Utc(row.EndsAt), status,
-            row.ConcurrencyToken.ToString("N"), actions);
+            row.ConcurrencyToken.ToString("N"), actions, true, expertName, expertEmail, expertOrganization, majorName);
     }
     public Task<IndustryAssignmentDto> Assign(long projectId, AssignIndustryRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () => {
         await transactions.LockProjectAsync(projectId, ct); Writable(await Lead(projectId, ct));
@@ -122,9 +129,25 @@ internal sealed partial class IndustryService(AipmsDbContext db, IEvaluationDraf
         var ids = rows.Select(a => a.ProjectId).Distinct().ToArray();
         var projects = await db.Projects.AsNoTracking().Where(p => ids.Contains(p.Id)).Select(p => new { p.Id, p.Code, p.Title, p.Status }).ToDictionaryAsync(p => p.Id, ct);
         var expertIds = rows.Select(a => a.ExpertId).Distinct().ToArray();
+        var majorIds = rows.Where(a => a.MajorId.HasValue).Select(a => a.MajorId!.Value).Distinct().ToArray();
         var enrolled = await db.Set<IndustryExpert>().Where(e => expertIds.Contains(e.UserId) && e.EnrolledAt != null
             && db.Users.Any(u => u.Id == e.UserId && u.Status == "ACTIVE") && !db.UserRoles.Any(r => r.UserId == e.UserId)).Select(e => e.UserId).ToArrayAsync(ct);
-        return new(rows.Select(a => Map(a, projects[a.ProjectId].Code, projects[a.ProjectId].Title, projects[a.ProjectId].Status, lead, enrolled.Contains(a.ExpertId))).ToArray(), page, pageSize, count);
+        var expertUsers = expertIds.Length == 0 ? new Dictionary<long, (string FullName, string Email)>()
+            : (await db.Users.AsNoTracking().Where(u => expertIds.Contains(u.Id)).Select(u => new { u.Id, u.FullName, u.Email }).ToArrayAsync(ct))
+                .ToDictionary(u => u.Id, u => (u.FullName, u.Email));
+        var expertOrgs = expertIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Set<IndustryExpert>().AsNoTracking().Where(e => expertIds.Contains(e.UserId))
+                .ToDictionaryAsync(e => e.UserId, e => e.Organization, ct);
+        var majorNames = majorIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Majors.AsNoTracking().Where(m => majorIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.Name, ct);
+        return new(rows.Select(a =>
+        {
+            var hasUser = expertUsers.TryGetValue(a.ExpertId, out var u);
+            return Map(a, projects[a.ProjectId].Code, projects[a.ProjectId].Title, projects[a.ProjectId].Status, lead, enrolled.Contains(a.ExpertId),
+                hasUser ? u.FullName : null, hasUser ? u.Email : null,
+                expertOrgs.GetValueOrDefault(a.ExpertId),
+                a.MajorId.HasValue ? majorNames.GetValueOrDefault(a.MajorId.Value) : null);
+        }).ToArray(), page, pageSize, count);
     }
     public Task<IndustryAssignmentDto> Revoke(long id, string token, CancellationToken ct) => transactions.InTransactionAsync(async () => {
         var projectId = (await Row(id, ct)).ProjectId; db.ChangeTracker.Clear(); await transactions.LockProjectAsync(projectId, ct);

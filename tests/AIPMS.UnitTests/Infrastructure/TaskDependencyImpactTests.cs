@@ -33,6 +33,12 @@ public sealed class TaskDependencyImpactTests
         Assert.Equal("DONE", db.Tasks.Single(t => t.Id == 3).Status);
         var notification = Assert.Single(await db.Notifications.Include(x => x.NotificationRecipients).ToArrayAsync());
         Assert.Equal("TASK_DEPENDENCY_IMPACT", notification.NotificationType);
+        Assert.DoesNotContain("#1", notification.Content);
+        Assert.DoesNotContain("#2", notification.Content);
+        Assert.Contains("Task 2", notification.Content);
+        Assert.Contains("Task 1", notification.Content);
+        Assert.Contains("PRJ", notification.Content);
+        Assert.Contains("Student 1", notification.Content);
         Assert.Contains(notification.NotificationRecipients, x => x.UserId == 1);
         Assert.Contains(notification.NotificationRecipients, x => x.UserId == 2);
     }
@@ -81,6 +87,9 @@ public sealed class TaskDependencyImpactTests
         Assert.Equal(1, impact.ReviewedBy);
         Assert.Equal("No SQL changes needed", impact.ReviewReason);
         Assert.NotNull(impact.ReviewedAt);
+        var impactDto = Assert.Single((await Service(db).GetAsync(2, Ct)).Items);
+        Assert.Equal("Student 1", impactDto.ReopenedByName);
+        Assert.Equal("Student 1", impactDto.ReviewedByName);
         Assert.Equal("TASK_DEPENDENCY_IMPACT_RESOLVED", Assert.Single(audit.Entries).Action);
         await Assert.ThrowsAsync<ConflictException>(() => Service(db).ResolveAsync(2, id, "REWORK_REQUIRED", "Duplicate decision", Ct));
     }

@@ -9,4 +9,6 @@ public sealed record DefenseChangeRequestDto(long Id, long DefenseSessionId, lon
     long DesiredRoomId, DateTimeOffset DesiredStartAt, DateTimeOffset DesiredEndAt,
     string ReasonCategory, string ReasonDetails, string? EvidenceFileUrl, string Status,
     long? ReviewerId, string? ReviewNote, DateTimeOffset? ReviewedAt, string ConcurrencyToken,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? ProjectCode = null, string? ProjectTitle = null, string? RequesterName = null,
+    string? CurrentRoomCode = null, string? DesiredRoomCode = null, string? ReviewerName = null);

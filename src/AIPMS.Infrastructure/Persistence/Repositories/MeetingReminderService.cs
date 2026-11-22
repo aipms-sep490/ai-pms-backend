@@ -51,7 +51,7 @@ internal sealed class MeetingReminderService(AipmsDbContext db, IProjectAccessSe
         {
             occurrence = new() { ProjectId = project.Id, OccurrenceKey = key, Notification = new()
             {
-                NotificationType = IMeetingReminderService.NotificationType, Title = Subject(meeting), Content = Body(meeting, project.Code),
+                NotificationType = IMeetingReminderService.NotificationType, Title = Subject(meeting), Content = Body(meeting, project.Code, project.Title),
                 RelatedEntityType = "MEETING", RelatedEntityId = meeting.Id, CreatedAt = nowUtc, UpdatedAt = nowUtc
             } };
             db.Set<ScheduledNotificationOccurrence>().Add(occurrence);
@@ -82,22 +82,24 @@ internal sealed class MeetingReminderService(AipmsDbContext db, IProjectAccessSe
             || meeting.StartAt <= now || occurrence.OccurrenceKey != Key(meeting.Id, meeting.StartAt)
             || !await EligibleParticipants(db, meeting.Id).AnyAsync(p => p.UserId == userId, ct)
             || !await access.CanAccessAsync(userId, meeting.ProjectId, ct)) return null;
-        return (Subject(meeting), Body(meeting, meeting.Project.Code));
+        return (Subject(meeting), Body(meeting, meeting.Project.Code, meeting.Project.Title));
     }
 
     private static string Subject(M.Meeting meeting)
     {
-        var title = "Meeting starts soon: " + meeting.Title.Replace('\r', ' ').Replace('\n', ' ');
+        var title = "Cuộc họp sắp bắt đầu: " + meeting.Title.Replace('\r', ' ').Replace('\n', ' ');
         return title.Length <= 255 ? title : title[..255];
     }
 
-    private static string Body(M.Meeting meeting, string projectCode)
+    private static string Body(M.Meeting meeting, string projectCode, string? projectTitle)
     {
         var start = DateTime.SpecifyKind(meeting.StartAt, DateTimeKind.Utc).AddHours(7).ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
-        var location = string.IsNullOrWhiteSpace(meeting.Location) ? "Online" : meeting.Location;
-        var channel = meeting.VideoChannel == "IN_APP_VIDEO" ? "Open AI-PMS > Meetings > this meeting to join the video room."
-            : meeting.VideoChannel == "EXTERNAL_LINK" ? "Meeting link: " + meeting.OnlineUrl : "";
-        return $"Your meeting is starting soon.\n\nMeeting: {meeting.Title}\nProject: {projectCode}\nStart: {start} (Vietnam, UTC+7)\nLocation: {location}\n{channel}";
+        var location = string.IsNullOrWhiteSpace(meeting.Location) ? "Trực tuyến" : meeting.Location;
+        var channel = meeting.VideoChannel == "IN_APP_VIDEO" ? "Mở AI-PMS > Cuộc họp > chọn cuộc họp này để tham gia phòng họp video."
+            : meeting.VideoChannel == "EXTERNAL_LINK" ? "Liên kết tham gia: " + meeting.OnlineUrl : "";
+        var projectLabel = string.IsNullOrWhiteSpace(projectTitle) ? projectCode : $"{projectCode} - {projectTitle}";
+        var suffix = string.IsNullOrEmpty(channel) ? "" : $"\n{channel}";
+        return $"Cuộc họp của bạn sắp bắt đầu.\n\nCuộc họp: {meeting.Title}\nĐồ án: {projectLabel}\nBắt đầu: {start} (Việt Nam, UTC+7)\nĐịa điểm: {location}{suffix}";
     }
 
     private static void Validate(DateTime now, int minutes)

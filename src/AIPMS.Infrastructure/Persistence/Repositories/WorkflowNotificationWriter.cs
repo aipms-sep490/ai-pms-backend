@@ -17,12 +17,14 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         ct.ThrowIfCancellationRequested();
         if (context.Database.CurrentTransaction is null)
             throw new InvalidOperationException("Workflow notifications require the source transaction.");
-        var (entityType, status, type, title) = Describe(notification.Kind);
+        var (entityType, status, type) = Describe(notification.Kind);
         long teamId;
         long? targetUser = null;
         string role;
         long? projectId = null;
         long? historyId = null;
+        string? meetingTitle = null;
+        var isColdEvaluation = false;
         var finalSubmission = entityType == "FINAL_SUBMISSION";
         var projectResult = entityType == "PROJECT_RESULT";
         var projectStateEvent = entityType is "PROJECT_APPROVED" or "PROJECT_REJECTED" or "PROJECT_REVISION";
@@ -51,6 +53,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
                 $"SELECT * FROM dbo.meetings WITH (UPDLOCK,HOLDLOCK) WHERE id={notification.SourceId}").AsNoTracking().SingleOrDefaultAsync(ct);
             if (source is null || source.Status != status || source.CreatedBy != notification.ActorId) return;
             projectId = source.ProjectId;
+            meetingTitle = source.Title;
             teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
             role = AppRoles.Student;
         }
@@ -85,7 +88,7 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             if (source.Stage == "COLD")
             {
                 type = "COLD_EVALUATOR_ASSIGNED";
-                title = "Complete your assigned COLD evaluation before defense scheduling";
+                isColdEvaluation = true;
             }
             projectId = source.ProjectId;
             teamId = await context.Projects.Where(p => p.Id == source.ProjectId).Select(p => p.TeamId).SingleAsync(ct);
@@ -208,8 +211,9 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         if (await context.Notifications.AnyAsync(n => n.RelatedEntityType == relatedEntityType
             && n.RelatedEntityId == relatedEntityId && n.NotificationType == type, ct)) return;
 
-        var organizationId = await context.Teams.Where(t => t.Id == teamId)
-            .Select(t => t.AcademicSemester.OrganizationId).SingleAsync(ct);
+        var teamScope = await context.Teams.Where(t => t.Id == teamId)
+            .Select(t => new { t.AcademicSemester.OrganizationId, t.Name }).SingleAsync(ct);
+        var organizationId = teamScope.OrganizationId;
                 List<long> ids;
         if (meetingEvent)
         {
@@ -269,10 +273,18 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         }
         if (ids.Count == 0) return;
 
-        // No user-supplied messages or project details are copied into the inbox.
+        var projectInfo = projectId.HasValue
+            ? await context.Projects.AsNoTracking().Where(p => p.Id == projectId.Value)
+                .Select(p => new { p.Code, p.Title }).SingleOrDefaultAsync(ct)
+            : null;
+        var actorName = await context.Users.AsNoTracking().Where(u => u.Id == notification.ActorId)
+            .Select(u => u.FullName).SingleOrDefaultAsync(ct);
+        var (title, content) = BuildMessage(notification.Kind, isColdEvaluation, projectInfo?.Code, projectInfo?.Title, teamScope.Name, meetingTitle, actorName);
+
+        // No user-supplied invitation/request messages are copied into the inbox.
         var inbox = new M.Notification
         {
-            CreatedBy = notification.ActorId, NotificationType = type, Title = title, Content = title + ".",
+            CreatedBy = notification.ActorId, NotificationType = type, Title = Truncate(title), Content = content,
             RelatedEntityType = relatedEntityType, RelatedEntityId = relatedEntityId,
             CreatedAt = notification.OccurredAt, UpdatedAt = notification.OccurredAt,
             NotificationRecipients = ids.Select(id => new M.NotificationRecipient
@@ -294,32 +306,126 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
         await context.SaveChangesAsync(ct);
     }
 
-    private static (string Entity, string Status, string Type, string Title) Describe(WorkflowNotificationKind kind) => kind switch
+    private static (string Entity, string Status, string Type) Describe(WorkflowNotificationKind kind) => kind switch
     {
-        WorkflowNotificationKind.StudentResultPublished => ("STUDENT_RESULT", "PUBLISHED", "STUDENT_RESULT_PUBLISHED", "Your individual result has been published"),
-        WorkflowNotificationKind.SupervisorReplaced => ("SUPERVISOR_ASSIGNMENT", "REPLACED", "SUPERVISOR_REPLACED", "A project supervisor assignment was replaced"),
-        WorkflowNotificationKind.EvaluatorAssigned => ("EVALUATION_ASSIGNMENT", "ACTIVE", "EVALUATOR_ASSIGNED", "You have been assigned a project evaluation"),
-        WorkflowNotificationKind.ProjectResultPublished => ("PROJECT_RESULT", "PUBLISHED", "PROJECT_RESULT_PUBLISHED", "Your project's final result has been published"),
-        WorkflowNotificationKind.ProjectApproved => ("PROJECT_APPROVED", "APPROVED", "PROJECT_APPROVED", "Your project proposal has been approved"),
-        WorkflowNotificationKind.ProjectRejected => ("PROJECT_REJECTED", "REJECTED", "PROJECT_REJECTED", "Your project proposal was rejected"),
-        WorkflowNotificationKind.ProjectRevisionRequested => ("PROJECT_REVISION", "REVISION_REQUIRED", "PROJECT_REVISION_REQUESTED", "Your project proposal requires revision"),
-        WorkflowNotificationKind.SupervisorFeedbackAdded => ("SUPERVISOR_FEEDBACK", "CREATED", "SUPERVISOR_FEEDBACK_ADDED", "Your supervisor added feedback to project work"),
-        WorkflowNotificationKind.EvaluationFinalized => ("EVALUATION", "FINALIZED", "EVALUATION_FINALIZED", "An evaluator finalized a project evaluation"),
-        WorkflowNotificationKind.FinalSubmissionLocked => ("FINAL_SUBMISSION", "LOCKED", "FINAL_SUBMISSION_LOCKED", "A project submitted its final package"),
-        WorkflowNotificationKind.TeamInvitationSent => ("TEAM_INVITATION", "PENDING", "TEAM_INVITATION_SENT", "You received a team invitation"),
-        WorkflowNotificationKind.TeamInvitationAccepted => ("TEAM_INVITATION", "ACCEPTED", "TEAM_INVITATION_ACCEPTED", "A student accepted your team's invitation"),
-        WorkflowNotificationKind.TeamInvitationRejected => ("TEAM_INVITATION", "REJECTED", "TEAM_INVITATION_REJECTED", "A student declined your team's invitation"),
-        WorkflowNotificationKind.TeamInvitationCancelled => ("TEAM_INVITATION", "CANCELLED", "TEAM_INVITATION_CANCELLED", "A team invitation was cancelled"),
-        WorkflowNotificationKind.SupervisorRequestSent => ("SUPERVISOR_REQUEST", "PENDING", "SUPERVISOR_REQUEST_SENT", "You received a supervision request"),
-        WorkflowNotificationKind.SupervisorRequestAccepted => ("SUPERVISOR_REQUEST", "ACCEPTED", "SUPERVISOR_REQUEST_ACCEPTED", "Your project's supervision request was accepted"),
-        WorkflowNotificationKind.SupervisorRequestRejected => ("SUPERVISOR_REQUEST", "REJECTED", "SUPERVISOR_REQUEST_REJECTED", "Your project's supervision request was declined"),
-        WorkflowNotificationKind.SupervisorRequestCancelled => ("SUPERVISOR_REQUEST", "CANCELLED", "SUPERVISOR_REQUEST_CANCELLED", "A supervision request was cancelled"),
-        WorkflowNotificationKind.TeamLeaderChangeRequested => ("TEAM_LEADER_CHANGE_REQUEST", "PENDING", "TEAM_LEADER_CHANGE_REQUESTED", "You received a team leader change request"),
-        WorkflowNotificationKind.TeamLeaderChangeApproved => ("TEAM_LEADER_CHANGE_REQUEST", "APPROVED", "TEAM_LEADER_CHANGE_APPROVED", "Your team leader change request was approved"),
-        WorkflowNotificationKind.TeamLeaderChangeRejected => ("TEAM_LEADER_CHANGE_REQUEST", "REJECTED", "TEAM_LEADER_CHANGE_REJECTED", "Your team leader change request was rejected"),
-        WorkflowNotificationKind.MeetingScheduled => ("MEETING", "SCHEDULED", "MEETING_SCHEDULED", "A project meeting has been scheduled"),
-        WorkflowNotificationKind.ProgressReportSubmitted => ("PROGRESS_REPORT", "SUBMITTED", "PROGRESS_REPORT_SUBMITTED", "A progress report has been submitted"),
+        WorkflowNotificationKind.StudentResultPublished => ("STUDENT_RESULT", "PUBLISHED", "STUDENT_RESULT_PUBLISHED"),
+        WorkflowNotificationKind.SupervisorReplaced => ("SUPERVISOR_ASSIGNMENT", "REPLACED", "SUPERVISOR_REPLACED"),
+        WorkflowNotificationKind.EvaluatorAssigned => ("EVALUATION_ASSIGNMENT", "ACTIVE", "EVALUATOR_ASSIGNED"),
+        WorkflowNotificationKind.ProjectResultPublished => ("PROJECT_RESULT", "PUBLISHED", "PROJECT_RESULT_PUBLISHED"),
+        WorkflowNotificationKind.ProjectApproved => ("PROJECT_APPROVED", "APPROVED", "PROJECT_APPROVED"),
+        WorkflowNotificationKind.ProjectRejected => ("PROJECT_REJECTED", "REJECTED", "PROJECT_REJECTED"),
+        WorkflowNotificationKind.ProjectRevisionRequested => ("PROJECT_REVISION", "REVISION_REQUIRED", "PROJECT_REVISION_REQUESTED"),
+        WorkflowNotificationKind.SupervisorFeedbackAdded => ("SUPERVISOR_FEEDBACK", "CREATED", "SUPERVISOR_FEEDBACK_ADDED"),
+        WorkflowNotificationKind.EvaluationFinalized => ("EVALUATION", "FINALIZED", "EVALUATION_FINALIZED"),
+        WorkflowNotificationKind.FinalSubmissionLocked => ("FINAL_SUBMISSION", "LOCKED", "FINAL_SUBMISSION_LOCKED"),
+        WorkflowNotificationKind.TeamInvitationSent => ("TEAM_INVITATION", "PENDING", "TEAM_INVITATION_SENT"),
+        WorkflowNotificationKind.TeamInvitationAccepted => ("TEAM_INVITATION", "ACCEPTED", "TEAM_INVITATION_ACCEPTED"),
+        WorkflowNotificationKind.TeamInvitationRejected => ("TEAM_INVITATION", "REJECTED", "TEAM_INVITATION_REJECTED"),
+        WorkflowNotificationKind.TeamInvitationCancelled => ("TEAM_INVITATION", "CANCELLED", "TEAM_INVITATION_CANCELLED"),
+        WorkflowNotificationKind.SupervisorRequestSent => ("SUPERVISOR_REQUEST", "PENDING", "SUPERVISOR_REQUEST_SENT"),
+        WorkflowNotificationKind.SupervisorRequestAccepted => ("SUPERVISOR_REQUEST", "ACCEPTED", "SUPERVISOR_REQUEST_ACCEPTED"),
+        WorkflowNotificationKind.SupervisorRequestRejected => ("SUPERVISOR_REQUEST", "REJECTED", "SUPERVISOR_REQUEST_REJECTED"),
+        WorkflowNotificationKind.SupervisorRequestCancelled => ("SUPERVISOR_REQUEST", "CANCELLED", "SUPERVISOR_REQUEST_CANCELLED"),
+        WorkflowNotificationKind.TeamLeaderChangeRequested => ("TEAM_LEADER_CHANGE_REQUEST", "PENDING", "TEAM_LEADER_CHANGE_REQUESTED"),
+        WorkflowNotificationKind.TeamLeaderChangeApproved => ("TEAM_LEADER_CHANGE_REQUEST", "APPROVED", "TEAM_LEADER_CHANGE_APPROVED"),
+        WorkflowNotificationKind.TeamLeaderChangeRejected => ("TEAM_LEADER_CHANGE_REQUEST", "REJECTED", "TEAM_LEADER_CHANGE_REJECTED"),
+        WorkflowNotificationKind.MeetingScheduled => ("MEETING", "SCHEDULED", "MEETING_SCHEDULED"),
+        WorkflowNotificationKind.ProgressReportSubmitted => ("PROGRESS_REPORT", "SUBMITTED", "PROGRESS_REPORT_SUBMITTED"),
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
+
+    private static (string Title, string Content) BuildMessage(WorkflowNotificationKind kind, bool isColdEvaluation,
+        string? projectCode, string? projectTitle, string? teamName, string? meetingTitle, string? actorName)
+    {
+        var code = string.IsNullOrWhiteSpace(projectCode) ? null : projectCode.Trim();
+        var projectFull = code is null
+            ? (string.IsNullOrWhiteSpace(projectTitle) ? "của bạn" : projectTitle.Trim())
+            : (string.IsNullOrWhiteSpace(projectTitle) ? code : $"{code} - {projectTitle.Trim()}");
+        var codeSuffix = code is null ? "" : $" {code}";
+        var team = string.IsNullOrWhiteSpace(teamName) ? "của bạn" : teamName.Trim();
+        var actor = string.IsNullOrWhiteSpace(actorName) ? null : actorName.Trim();
+        var byActor = actor is null ? "" : $" bởi {actor}";
+        var meeting = string.IsNullOrWhiteSpace(meetingTitle) ? "Cuộc họp đồ án" : meetingTitle.Replace('\r', ' ').Replace('\n', ' ').Trim();
+
+        return kind switch
+        {
+            WorkflowNotificationKind.StudentResultPublished => (
+                $"Kết quả cá nhân đồ án{codeSuffix} đã được công bố",
+                $"Kết quả đánh giá cá nhân của bạn trong đồ án {projectFull} đã được công bố. Vui lòng truy cập hệ thống để xem chi tiết."),
+            WorkflowNotificationKind.SupervisorReplaced => (
+                $"Thay đổi giảng viên hướng dẫn đồ án{codeSuffix}",
+                $"Phân công giảng viên hướng dẫn cho đồ án {projectFull} đã được cập nhật."),
+            WorkflowNotificationKind.EvaluatorAssigned when isColdEvaluation => (
+                $"Phân công chấm phản biện kín đồ án{codeSuffix}",
+                $"Bạn đã được phân công chấm phản biện kín cho đồ án {projectFull}. Vui lòng hoàn thành trước khi xếp lịch bảo vệ."),
+            WorkflowNotificationKind.EvaluatorAssigned => (
+                $"Phân công chấm đánh giá đồ án{codeSuffix}",
+                $"Bạn đã được phân công tham gia chấm đánh giá cho đồ án {projectFull}."),
+            WorkflowNotificationKind.ProjectResultPublished => (
+                $"Kết quả cuối kỳ đồ án{codeSuffix} đã được công bố",
+                $"Kết quả đánh giá cuối kỳ của đồ án {projectFull} đã được công bố."),
+            WorkflowNotificationKind.ProjectApproved => (
+                $"Đề tài đồ án{codeSuffix} đã được phê duyệt",
+                $"Đề tài đồ án {projectFull} đã được phê duyệt{byActor}."),
+            WorkflowNotificationKind.ProjectRejected => (
+                $"Đề tài đồ án{codeSuffix} bị từ chối",
+                $"Đề tài đồ án {projectFull} đã bị từ chối{byActor}. Vui lòng xem chi tiết và trao đổi với khoa/bộ môn."),
+            WorkflowNotificationKind.ProjectRevisionRequested => (
+                $"Đề tài đồ án{codeSuffix} cần chỉnh sửa",
+                $"Đề tài đồ án {projectFull} được yêu cầu chỉnh sửa{byActor}. Vui lòng cập nhật và nộp lại."),
+            WorkflowNotificationKind.SupervisorFeedbackAdded => (
+                $"Nhận xét mới từ giảng viên cho đồ án{codeSuffix}",
+                $"Giảng viên{(actor is null ? "" : " " + actor)} đã thêm nhận xét mới cho đồ án {projectFull}."),
+            WorkflowNotificationKind.EvaluationFinalized => (
+                $"Đã hoàn tất chấm điểm đồ án{codeSuffix}",
+                $"Giảng viên{(actor is null ? "" : " " + actor)} đã xác nhận hoàn tất phiếu chấm điểm cho đồ án {projectFull}."),
+            WorkflowNotificationKind.FinalSubmissionLocked => (
+                $"Đồ án{codeSuffix} đã khóa hồ sơ bàn giao cuối kỳ",
+                $"Nhóm thực hiện đồ án {projectFull} đã nộp và khóa hồ sơ bàn giao cuối kỳ."),
+            WorkflowNotificationKind.TeamInvitationSent => (
+                $"Lời mời tham gia nhóm {team}",
+                $"{actor ?? "Trưởng nhóm"} đã mời bạn tham gia nhóm {team}. Vui lòng kiểm tra và phản hồi lời mời."),
+            WorkflowNotificationKind.TeamInvitationAccepted => (
+                $"Lời mời vào nhóm {team} đã được chấp nhận",
+                $"{actor ?? "Một sinh viên"} đã chấp nhận lời mời tham gia nhóm {team}."),
+            WorkflowNotificationKind.TeamInvitationRejected => (
+                $"Lời mời vào nhóm {team} bị từ chối",
+                $"{actor ?? "Một sinh viên"} đã từ chối lời mời tham gia nhóm {team}."),
+            WorkflowNotificationKind.TeamInvitationCancelled => (
+                $"Lời mời tham gia nhóm {team} đã bị hủy",
+                $"Lời mời tham gia nhóm {team} đã được hủy{byActor}."),
+            WorkflowNotificationKind.SupervisorRequestSent => (
+                $"Yêu cầu hướng dẫn đồ án{codeSuffix}",
+                $"Nhóm {team} đã gửi yêu cầu mời bạn hướng dẫn đồ án {projectFull}."),
+            WorkflowNotificationKind.SupervisorRequestAccepted => (
+                $"Yêu cầu hướng dẫn đồ án{codeSuffix} đã được chấp nhận",
+                $"Giảng viên{(actor is null ? "" : " " + actor)} đã chấp nhận hướng dẫn đồ án {projectFull}."),
+            WorkflowNotificationKind.SupervisorRequestRejected => (
+                $"Yêu cầu hướng dẫn đồ án{codeSuffix} bị từ chối",
+                $"Giảng viên{(actor is null ? "" : " " + actor)} đã từ chối yêu cầu hướng dẫn đồ án {projectFull}."),
+            WorkflowNotificationKind.SupervisorRequestCancelled => (
+                $"Yêu cầu hướng dẫn đồ án{codeSuffix} đã bị hủy",
+                $"Yêu cầu hướng dẫn cho đồ án {projectFull} đã được hủy."),
+            WorkflowNotificationKind.TeamLeaderChangeRequested => (
+                $"Yêu cầu đổi trưởng nhóm {team}",
+                $"Nhóm {team} (đồ án {projectFull}) đã gửi yêu cầu thay đổi trưởng nhóm và đang chờ phê duyệt."),
+            WorkflowNotificationKind.TeamLeaderChangeApproved => (
+                $"Yêu cầu đổi trưởng nhóm {team} đã được duyệt",
+                $"Yêu cầu thay đổi trưởng nhóm cho nhóm {team} (đồ án {projectFull}) đã được phê duyệt{byActor}."),
+            WorkflowNotificationKind.TeamLeaderChangeRejected => (
+                $"Yêu cầu đổi trưởng nhóm {team} bị từ chối",
+                $"Yêu cầu thay đổi trưởng nhóm cho nhóm {team} (đồ án {projectFull}) đã bị từ chối{byActor}."),
+            WorkflowNotificationKind.MeetingScheduled => (
+                $"Lịch họp mới: {meeting}",
+                $"Cuộc họp \"{meeting}\" cho đồ án {projectFull} đã được lên lịch{byActor}."),
+            WorkflowNotificationKind.ProgressReportSubmitted => (
+                $"Báo cáo tiến độ mới của đồ án{codeSuffix}",
+                $"{actor ?? "Nhóm thực hiện"} đã nộp báo cáo tiến độ mới cho đồ án {projectFull}."),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind))
+        };
+    }
+
+    private static string Truncate(string value, int maxLength = 255) =>
+        value.Length <= maxLength ? value : value[..maxLength];
 }
 

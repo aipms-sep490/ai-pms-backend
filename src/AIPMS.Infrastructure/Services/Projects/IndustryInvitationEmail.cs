@@ -21,7 +21,8 @@ internal sealed class IndustryInvitationEmail(AipmsDbContext db, IDataProtection
         try {
             var token = protection.CreateProtector(IndustryService.ProtectorName).Unprotect(row.ProtectedToken);
             // Fragment tokens are not sent to the web server in URL request logs. FE exchanges via JSON.
-            return $"You are invited to AI-PMS as an industry advisor. Sign in with the Google account for this email.\n\n{settings.Value.InvitationUrl}#invitation={Uri.EscapeDataString(token)}\n\nExpires {row.ExpiresAt:yyyy-MM-dd HH:mm} UTC. This invitation is single-use. Advisory feedback does not affect academic scores.";
+            var expiresVn = DateTime.SpecifyKind(row.ExpiresAt, DateTimeKind.Utc).AddHours(7).ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+            return $"Bạn được mời tham gia hệ thống AI-PMS với vai trò chuyên gia cố vấn doanh nghiệp. Vui lòng đăng nhập bằng tài khoản Google gắn với địa chỉ email này.\n\n{settings.Value.InvitationUrl}#invitation={Uri.EscapeDataString(token)}\n\nHết hạn vào {expiresVn} (Việt Nam, UTC+7). Lời mời này chỉ sử dụng một lần. Nhận xét cố vấn mang tính tham khảo và không ảnh hưởng trực tiếp đến điểm học thuật.";
         }
         catch (CryptographicException) { return null; }
     }

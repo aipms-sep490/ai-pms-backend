@@ -41,14 +41,26 @@ internal sealed class ResultHistoryService(AipmsDbContext db, ProjectResultWorkf
         var items = rows.Select(r => studentId.HasValue ? Summary(PublishedResultResolver.Student(r))
             : Summary(PublishedResultResolver.Project(r))).ToList();
         if (offset <= count && offset + pageSize > count) items.Add(root);
-        return new(items, page, pageSize, count + 1);
+        var userIds = items.Select(i => i.PublishedBy)
+            .Concat(items.Where(i => i.StudentId.HasValue).Select(i => i.StudentId!.Value))
+            .Distinct().ToArray();
+        var userNames = userIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var enriched = items.Select(i => i with
+        {
+            PublishedByName = userNames.GetValueOrDefault(i.PublishedBy),
+            StudentName = i.StudentId.HasValue ? userNames.GetValueOrDefault(i.StudentId.Value) : null
+        }).ToArray();
+        return new(enriched, page, pageSize, count + 1);
     }
     public async Task<ProjectResultDto> ProjectVersion(long projectId, int version, CancellationToken ct)
     {
         await projects.Get(projectId, ct);
         var dto = version == 1 ? PublishedResultResolver.Root(await db.Set<ProjectResult>().AsNoTracking().SingleAsync(r => r.ProjectId == projectId, ct))
             : PublishedResultResolver.Project(await Revision(projectId, 0, version, ct));
-        return dto with { FrozenInputs = null, Breakdown = ResultSnapshotReader.Read(dto.FrozenInputs, dto.CalculationRule) };
+        var breakdown = ResultSnapshotReader.Read(dto.FrozenInputs, dto.CalculationRule);
+        var enriched = await PublishedResultResolver.EnrichAsync(db, dto with { FrozenInputs = null, Breakdown = breakdown }, ct);
+        return enriched;
     }
     public async Task<StudentResultDto> StudentVersion(long projectId, long studentId, int version, CancellationToken ct)
     {
@@ -56,7 +68,9 @@ internal sealed class ResultHistoryService(AipmsDbContext db, ProjectResultWorkf
         var dto = version == 1 ? PublishedResultResolver.Root(await db.Set<StudentResult>().AsNoTracking()
                 .SingleAsync(r => r.ProjectId == projectId && r.StudentId == studentId, ct))
             : PublishedResultResolver.Student(await Revision(projectId, studentId, version, ct));
-        return dto with { SnapshotJson = "{}", Breakdown = ResultSnapshotReader.Read(dto.SnapshotJson, dto.CalculationRule, studentId, dto.MajorId) };
+        var breakdown = await PublishedResultResolver.EnrichBreakdownAsync(db,
+            ResultSnapshotReader.Read(dto.SnapshotJson, dto.CalculationRule, studentId, dto.MajorId), ct);
+        return dto with { SnapshotJson = "{}", Breakdown = breakdown };
     }
     private async Task<ResultRevision> Revision(long project, long target, int version, CancellationToken ct) =>
         await db.Set<ResultRevision>().AsNoTracking().SingleOrDefaultAsync(r => r.ProjectId == project && r.TargetKey == target && r.Version == version, ct)

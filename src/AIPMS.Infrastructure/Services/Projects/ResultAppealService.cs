@@ -116,36 +116,66 @@ internal sealed partial class ResultAppealService(AipmsDbContext db, IEvaluation
         if (action is "APPEAL_REQUESTED" or "APPEAL_REVIEWER_ASSIGNED" or "APPEAL_REVIEWED" or "APPEAL_DECIDED")
             await Notify(row, action, ct);
     }
-    private async Task<CorrectionRequestDto> Dto(ResultAppealRequest row, Access access, CancellationToken ct)
+    private async Task<CorrectionRequestDto> Dto(ResultAppealRequest row, Access access, CancellationToken ct) =>
+        (await DtosAsync([row], access, ct))[0];
+    private async Task<CorrectionRequestDto[]> DtosAsync(IReadOnlyList<ResultAppealRequest> rows, Access access, CancellationToken ct)
     {
-        var actions = new List<string> { "READ" }; var blockers = new List<string>();
-        var open = row.Status is "PENDING" or "UNDER_REVIEW";
-        if (open)
+        if (rows.Count == 0) return [];
+        var userIds = rows.Select(r => r.RequestedBy)
+            .Concat(rows.Where(r => r.ReviewerId.HasValue).Select(r => r.ReviewerId!.Value))
+            .Concat(rows.Where(r => r.StudentId.HasValue).Select(r => r.StudentId!.Value))
+            .Distinct().ToArray();
+        var majorIds = rows.Where(r => r.MajorId.HasValue).Select(r => r.MajorId!.Value).Distinct().ToArray();
+        var userNames = userIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var majorNames = majorIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Majors.AsNoTracking().Where(m => majorIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.Name, ct);
+        var componentIds = rows.Select(r => r.ComponentId).Distinct().ToArray();
+        var componentNames = componentIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Set<EvaluationSchemeComponent>().AsNoTracking().Where(c => componentIds.Contains(c.Id))
+                .ToDictionaryAsync(c => c.Id, c => c.Name, ct);
+
+        var result = new List<CorrectionRequestDto>(rows.Count);
+        foreach (var row in rows)
         {
-            try { await Current(row, ct); } catch (ConflictException) { blockers.Add("RESULT_REVISION_STALE"); }
-            if (row.ReviewerId is long reviewer)
-            { await LoadReviewers(row.ProjectId, [reviewer], ct); if (!ReviewerEligible(row, reviewer)) blockers.Add("REVIEWER_INELIGIBLE"); }
-            if (access.Lead && !blockers.Contains("RESULT_REVISION_STALE")) actions.Add("ASSIGN_REVIEWER");
-            if (row.ReviewerId == Actor && blockers.Count == 0)
-            { if (EligibleReviewer(row, access)) actions.Add("REVIEW"); else blockers.Add("REVIEWER_INELIGIBLE"); }
-            if (access.Lead && row.ReviewerId != Actor && !Scorers(row).Contains(Actor))
+            var actions = new List<string> { "READ" }; var blockers = new List<string>();
+            var open = row.Status is "PENDING" or "UNDER_REVIEW";
+            if (open)
             {
-                actions.Add("REJECT");
-                if (row.Proposal == "AMEND" && blockers.Count == 0) { actions.Add("PREVIEW"); actions.Add("ACCEPT"); }
+                try { await Current(row, ct); } catch (ConflictException) { blockers.Add("RESULT_REVISION_STALE"); }
+                if (row.ReviewerId is long reviewer)
+                { await LoadReviewers(row.ProjectId, [reviewer], ct); if (!ReviewerEligible(row, reviewer)) blockers.Add("REVIEWER_INELIGIBLE"); }
+                if (access.Lead && !blockers.Contains("RESULT_REVISION_STALE")) actions.Add("ASSIGN_REVIEWER");
+                if (row.ReviewerId == Actor && blockers.Count == 0)
+                { if (EligibleReviewer(row, access)) actions.Add("REVIEW"); else blockers.Add("REVIEWER_INELIGIBLE"); }
+                if (access.Lead && row.ReviewerId != Actor && !Scorers(row).Contains(Actor))
+                {
+                    actions.Add("REJECT");
+                    if (row.Proposal == "AMEND" && blockers.Count == 0) { actions.Add("PREVIEW"); actions.Add("ACCEPT"); }
+                }
+                if (row.RequestedBy == Actor && row.Status == "PENDING" && row.Source == "STUDENT_APPEAL") actions.Add("WITHDRAW");
+                if (row.RequestedBy == Actor && row.Status == "PENDING" && blockers.Count == 0)
+                {
+                    await LoadWindows(row.WindowId.HasValue ? [row.WindowId.Value] : [], ct);
+                    if (row.Source == "STAFF_CORRECTION" || row.WindowId is long id && windowStates.GetValueOrDefault(id)) actions.Add("UPLOAD");
+                    else blockers.Add("APPEAL_WINDOW_CLOSED");
+                }
             }
-            if (row.RequestedBy == Actor && row.Status == "PENDING" && row.Source == "STUDENT_APPEAL") actions.Add("WITHDRAW");
-            if (row.RequestedBy == Actor && row.Status == "PENDING" && blockers.Count == 0)
-            {
-                await LoadWindows(row.WindowId.HasValue ? [row.WindowId.Value] : [], ct);
-                if (row.Source == "STAFF_CORRECTION" || row.WindowId is long id && windowStates.GetValueOrDefault(id)) actions.Add("UPLOAD");
-                else blockers.Add("APPEAL_WINDOW_CLOSED");
-            }
+            string? componentName = null;
+            try { componentName = Frozen(row).Component.Name; } catch { }
+            componentName ??= componentNames.GetValueOrDefault(row.ComponentId);
+            result.Add(new(row.Id, row.ProjectId, row.Source, row.TargetKey == 0 ? "PROJECT" : "STUDENT", row.StudentId,
+                row.ResultVersion, row.ComponentId, row.Scope, row.MajorId, row.Status, row.RequestedBy, row.ReviewerId,
+                row.Reason, row.Proposal, row.ReviewReason, row.DecisionReason, row.ConcurrencyToken.ToString("N"), actions, blockers,
+                row.Files.OrderBy(f => f.FileId).Select(f => new AppealFileDto(f.FileId, f.FileName, f.ContentType, f.SizeBytes,
+                    f.Sha256, $"/api/v1/projects/{row.ProjectId}/result/correction-requests/{row.Id}/files/{f.FileId}")).ToArray(),
+                userNames.GetValueOrDefault(row.RequestedBy),
+                row.ReviewerId.HasValue ? userNames.GetValueOrDefault(row.ReviewerId.Value) : null,
+                row.StudentId.HasValue ? userNames.GetValueOrDefault(row.StudentId.Value) : null,
+                componentName,
+                row.MajorId.HasValue ? majorNames.GetValueOrDefault(row.MajorId.Value) : null));
         }
-        return new(row.Id, row.ProjectId, row.Source, row.TargetKey == 0 ? "PROJECT" : "STUDENT", row.StudentId,
-            row.ResultVersion, row.ComponentId, row.Scope, row.MajorId, row.Status, row.RequestedBy, row.ReviewerId,
-            row.Reason, row.Proposal, row.ReviewReason, row.DecisionReason, row.ConcurrencyToken.ToString("N"), actions, blockers,
-            row.Files.OrderBy(f => f.FileId).Select(f => new AppealFileDto(f.FileId, f.FileName, f.ContentType, f.SizeBytes,
-                f.Sha256, $"/api/v1/projects/{row.ProjectId}/result/correction-requests/{row.Id}/files/{f.FileId}")).ToArray());
+        return result.ToArray();
     }
     public async Task<CorrectionRequestDto> Get(long projectId, long id, CancellationToken ct)
     { var access = await Scope(projectId, ct); var row = await Row(projectId, id, ct); await Read(row, access, ct); return await Dto(row, access, ct); }
@@ -161,8 +191,8 @@ internal sealed partial class ResultAppealService(AipmsDbContext db, IEvaluation
         var rows = await query.Include(r => r.Files).OrderByDescending(r => r.Id).Skip((page-1)*pageSize).Take(pageSize).ToArrayAsync(ct);
         await LoadReviewers(projectId, rows.Where(r => r.ReviewerId.HasValue).Select(r => r.ReviewerId!.Value), ct);
         await LoadWindows(rows.Where(r => r.WindowId.HasValue).Select(r => r.WindowId!.Value), ct);
-        var result = new List<CorrectionRequestDto>();
-        foreach (var row in rows) { await Read(row, access, ct); result.Add(await Dto(row, access, ct)); }
+        foreach (var row in rows) await Read(row, access, ct);
+        var result = await DtosAsync(rows, access, ct);
         return new(result, page, pageSize, await query.CountAsync(ct));
     }
     private async Task LoadWindows(IEnumerable<long> ids, CancellationToken ct)

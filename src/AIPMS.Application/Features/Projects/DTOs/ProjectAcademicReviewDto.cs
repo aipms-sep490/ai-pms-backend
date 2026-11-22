@@ -16,7 +16,7 @@ public sealed record RegistrationEvidence(TeamAcademicScopeDto Scope, Registrati
     IReadOnlyList<AIPMS.Application.Features.Disciplines.DTOs.ResponsibilityDto>? TeamResponsibilities = null);
 
 public sealed record DepartmentDecisionDto(long DepartmentId, string Decision, long? DecidedBy,
-    DateTime? DecidedAt, string? Reason);
+    DateTime? DecidedAt, string? Reason, string? DecidedByName = null);
 
 public sealed record RegistrationSnapshotDto(long Id, long ProjectPeriodId, long SubmittedBy,
     DateTime SubmittedAt, RegistrationEvidence? Evidence, IReadOnlyList<DepartmentDecisionDto> Decisions,

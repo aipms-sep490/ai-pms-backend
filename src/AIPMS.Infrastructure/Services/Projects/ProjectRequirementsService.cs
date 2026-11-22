@@ -113,13 +113,17 @@ internal sealed class ProjectRequirementsService(AipmsDbContext db, ICurrentUser
         var ids = rows.Select(x => x.Snapshot.Id).ToArray();
         var decisions = await db.Set<ProjectDepartmentDecision>().AsNoTracking().Where(x => ids.Contains(x.SnapshotId))
             .OrderBy(x => x.DepartmentId).ToListAsync(ct);
+        var deciderIds = decisions.Where(d => d.DecidedBy.HasValue).Select(d => d.DecidedBy!.Value).Distinct().ToArray();
+        var deciderNames = deciderIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => deciderIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
         return new(page, pageSize, count, rows.Select(x =>
         {
             var s = x.Snapshot;
             var evidence = ProjectAcademicScopeReader.ReadHistoricalEvidence(s.SnapshotJson);
             return new ProjectReviewSnapshotDto(s.Id, x.Number, s.ProjectPeriodId, s.SubmittedBy, s.SubmittedAt, evidence,
                 evidence?.Proposal is not null, decisions.Where(d => d.SnapshotId == s.Id)
-                    .Select(d => new DepartmentDecisionDto(d.DepartmentId, d.Decision, d.DecidedBy, d.DecidedAt, d.Reason)).ToArray(),
+                    .Select(d => new DepartmentDecisionDto(d.DepartmentId, d.Decision, d.DecidedBy, d.DecidedAt, d.Reason,
+                        d.DecidedBy.HasValue ? deciderNames.GetValueOrDefault(d.DecidedBy.Value) : null)).ToArray(),
                 ProjectAcademicScopeReader.ParseEvidence(s.SnapshotJson) is null ? "UNKNOWN" : "FROZEN_REGISTRATION_SNAPSHOT");
         }).ToArray());
     }

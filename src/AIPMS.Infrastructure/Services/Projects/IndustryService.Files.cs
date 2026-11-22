@@ -74,8 +74,8 @@ internal sealed partial class IndustryService
         try { return new(await storage.OpenReadAsync(share.StorageKey, ct), share.ContentType, share.FileName); }
         catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { throw new NotFoundException("SharedFileContent", shareId); }
     }
-    private static IndustryFeedbackDto FeedbackDto(IndustryFeedback row) => new(row.Id, row.Version, row.Version == 1 ? null : row.Version-1,
-        row.Content, row.SubmittedBy, Utc(row.SubmittedAt));
+    private static IndustryFeedbackDto FeedbackDto(IndustryFeedback row, string? submittedByName = null) => new(row.Id, row.Version, row.Version == 1 ? null : row.Version-1,
+        row.Content, row.SubmittedBy, Utc(row.SubmittedAt), true, submittedByName);
     public Task<IndustryFeedbackDto> Feedback(long id, IndustryFeedbackRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () => {
         var projectId = (await Row(id, ct)).ProjectId; db.ChangeTracker.Clear(); await transactions.LockProjectAsync(projectId, ct);
         var access = await Read(id, ct); var row = access.Row; Token(row, input.ConcurrencyToken);
@@ -86,13 +86,18 @@ internal sealed partial class IndustryService
         if (version != input.ExpectedVersion) throw new ConflictException("Feedback version changed.", "INDUSTRY_STALE");
         var feedback = new IndustryFeedback { AssignmentId = id, Version = version+1, Content = input.Content.Trim(), SubmittedBy = Actor, SubmittedAt = Now };
         db.Add(feedback); row.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync(ct);
-        await Audit("INDUSTRY_FEEDBACK_SUBMITTED", "INDUSTRY_FEEDBACK", feedback.Id, projectId, ct); return FeedbackDto(feedback);
+        await Audit("INDUSTRY_FEEDBACK_SUBMITTED", "INDUSTRY_FEEDBACK", feedback.Id, projectId, ct);
+        var submitterName = await db.Users.AsNoTracking().Where(u => u.Id == feedback.SubmittedBy).Select(u => u.FullName).FirstOrDefaultAsync(ct);
+        return FeedbackDto(feedback, submitterName);
     }, ct);
     public async Task<PagedResult<IndustryFeedbackDto>> FeedbackHistory(long id, int page, int pageSize, CancellationToken ct)
     {
         Page(page, pageSize); await Read(id, ct);
         var query = db.Set<IndustryFeedback>().AsNoTracking().Where(f => f.AssignmentId == id); var count = await query.CountAsync(ct);
         var rows = await query.OrderByDescending(f => f.Version).Skip((page-1)*pageSize).Take(pageSize).ToArrayAsync(ct);
-        return new(rows.Select(FeedbackDto).ToArray(), page, pageSize, count);
+        var userIds = rows.Select(f => f.SubmittedBy).Distinct().ToArray();
+        var userNames = userIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return new(rows.Select(f => FeedbackDto(f, userNames.GetValueOrDefault(f.SubmittedBy))).ToArray(), page, pageSize, count);
     }
 }

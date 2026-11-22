@@ -120,8 +120,11 @@ internal sealed class RiskAlertService(
 
         if (occurrence is null)
         {
-            var title = FormattableString.Invariant($"Cảnh báo rủi ro tiến độ đồ án #{projectId}: Mức độ {result.RiskLevel}");
-            var content = FormattableString.Invariant($"Đồ án có {overdueTasks} công việc quá hạn và {blockedTasks} công việc bị vướng (BLOCKED). Mức rủi ro: {result.RiskLevel}.");
+            var riskLevelLabel = RiskLevelLabel(result.RiskLevel);
+            var projectLabel = string.IsNullOrWhiteSpace(project.Title) ? project.Code : $"{project.Code} - {project.Title}";
+            var rawTitle = $"Cảnh báo rủi ro tiến độ đồ án {project.Code}: Mức độ {riskLevelLabel}";
+            var title = rawTitle.Length <= 255 ? rawTitle : rawTitle[..255];
+            var content = $"Đồ án {projectLabel} hiện có {overdueTasks} công việc quá hạn và {blockedTasks} công việc đang bị chặn. Mức độ rủi ro: {riskLevelLabel}.";
             occurrence = new ScheduledNotificationOccurrence
             {
                 ProjectId = projectId,
@@ -154,4 +157,13 @@ internal sealed class RiskAlertService(
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
     }
+
+    internal static string RiskLevelLabel(string riskLevel) => riskLevel switch
+    {
+        "CRITICAL" => "Nghiêm trọng",
+        "HIGH" => "Cao",
+        "MEDIUM" => "Trung bình",
+        "LOW" => "Thấp",
+        _ => "Cần theo dõi"
+    };
 }

@@ -67,7 +67,7 @@ public sealed class ScheduledNotificationTests(FinalSubmissionDraftDatabaseFixtu
             Assert.Equal(expected, row.NotificationType);
             Assert.Equal(id, row.RelatedEntityId);
             Assert.Null(row.CreatedBy);
-            Assert.DoesNotContain("Private task title", row.Content);
+            Assert.Contains("Private task title", row.Content);
             Assert.Equal(new[] { s.Users.Student, s.MemberId }.Order(), row.NotificationRecipients.Select(r => r.UserId).Order());
         }
     }
