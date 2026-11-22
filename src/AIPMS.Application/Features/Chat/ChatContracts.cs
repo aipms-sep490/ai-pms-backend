@@ -13,7 +13,7 @@ public sealed class ChatSettings
     [Range(1,300)] public int SendsPerMinute { get; set; } = 30;
     [Range(1,10)] public int MaxConnectionsPerUser { get; set; } = 5;
     [Range(1,1)] public int InstanceCount { get; set; } = 1;
-    [Range(1,60)] public int AiSummaryTimeoutSeconds { get; set; } = 15;
+    [Range(1,90)] public int AiSummaryTimeoutSeconds { get; set; } = 30;
 }
 public sealed record ChatPage<T>(IReadOnlyList<T> Items, string? NextCursor, bool HasMore);
 public sealed record ChatPerson(string UserId, string FullName, string? LastReadSequence = null);
@@ -37,6 +37,12 @@ public sealed record ChatReactionRequest(string Emoji);
 public sealed record ChatMuteRequest(DateTimeOffset? MutedUntil);
 public sealed record ChatAiSummaryRequest(int MessageCount = 40);
 public sealed record ChatAiActionItem(string Title, string? OwnerName = null, DateTime? DueAt = null, string? SourceMessageId = null);
+public sealed record ChatAiSuggestedMeeting(string Title, string? Description = null, string? SuggestedTimeNote = null, string? SourceMessageId = null);
 public sealed record ChatAiSummaryDto(string ConversationId, string Summary, IReadOnlyList<string> Decisions,
     IReadOnlyList<string> OpenQuestions, IReadOnlyList<ChatAiActionItem> ActionItems, DateTime GeneratedAt,
-    string GenerationStatus);
+    string GenerationStatus, IReadOnlyList<string>? Blockers = null, IReadOnlyList<string>? SmartReplies = null,
+    ChatAiSuggestedMeeting? SuggestedMeeting = null);
+public sealed record ChatAiAssistRequest(string Mode, string? Query = null, string? DraftText = null, string? Tone = null, int MessageCount = 30);
+public sealed record ChatAiReferenceDto(string MessageId, string SenderName, string Excerpt);
+public sealed record ChatAiAssistDto(string ConversationId, string Mode, string Answer, IReadOnlyList<string> Suggestions,
+    IReadOnlyList<ChatAiReferenceDto> References, DateTime GeneratedAt, string GenerationStatus);

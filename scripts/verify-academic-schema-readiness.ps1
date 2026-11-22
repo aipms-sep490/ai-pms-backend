@@ -10,6 +10,22 @@ if ([string]::IsNullOrWhiteSpace($rawConnection)) {
 
 # This check reads metadata only. The release process applies reviewed migrations separately.
 $requirements = @(
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.task_criteria'; Column = ''; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_criteria'; Column = 'id'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_criteria'; Column = 'task_id'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_criteria'; Column = 'title'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_criteria'; Column = 'is_completed'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_criteria'; Column = 'sort_order'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_criteria'; Column = 'completed_at'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_criteria'; Column = 'completed_by'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_criteria'; Column = 'created_by'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.task_criteria'; Name = 'pk_task_criteria'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.task_criteria'; Name = 'ix_task_criteria_task_order'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'ForeignKey'; Object = 'dbo.task_criteria'; Name = 'fk_task_criteria_task'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.task_criteria'; Name = 'ck_task_criteria_title'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.task_criteria'; Name = 'ck_task_criteria_completion'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.ai_setup_applications'; Column = ''; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.ai_setup_applications'; Name = 'uq_ai_setup_applications_actor_key'; Migration = '20261122_add_task_criteria.sql' }
     [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.task_dependency_impacts'; Column = ''; Migration = '20261118_task_dependency_impacts.sql' }
     [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'id'; Migration = '20261118_task_dependency_impacts.sql' }
     [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'task_id'; Migration = '20261118_task_dependency_impacts.sql' }

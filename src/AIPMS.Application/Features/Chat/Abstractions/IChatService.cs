@@ -26,6 +26,7 @@ public interface IChatService
     Task<ChatMessageDto> ReactAsync(long actor, long id, long messageId, string emoji, bool add, CancellationToken ct);
     Task<ChatConversationDto> MuteAsync(long actor, long id, ChatMuteRequest request, CancellationToken ct);
     Task<ChatAiSummaryDto> SummarizeAsync(long actor, long id, ChatAiSummaryRequest request, CancellationToken ct);
+    Task<ChatAiAssistDto> AssistAsync(long actor, long id, ChatAiAssistRequest request, CancellationToken ct);
 }
 public interface IChatUploadCleanup { Task<int> SweepAsync(CancellationToken ct); }
 public interface IChatNotificationPolicy { Task<IReadOnlySet<long>> NotifyAsync(long conversation, long messageId, CancellationToken ct); }

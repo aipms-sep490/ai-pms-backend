@@ -38,8 +38,9 @@ internal static class DeliverableReviewAnalyzer
 
     internal static DeliverableReviewCriterionDto[] Parse(string raw, ReviewCriterionSource[] criteria, string text)
     {
-        if (raw.Length > 100000) throw new JsonException();
-        using var doc = JsonDocument.Parse(raw);
+        var cleaned = AiJsonSanitizer.ExtractJsonObject(raw);
+        if (cleaned.Length == 0 || cleaned.Length > 100000) throw new JsonException();
+        using var doc = JsonDocument.Parse(cleaned);
         var items = doc.RootElement.GetProperty("criteria").EnumerateArray().ToArray();
         if (items.Length != criteria.Length) throw new JsonException();
         var seen = new HashSet<long>();

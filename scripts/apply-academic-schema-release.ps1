@@ -19,7 +19,8 @@ $scripts = @(
     '20261114_cold_common_checklist.sql',
     '20261115_department_document_templates.sql',
     '20261117_user_avatars.sql',
-    '20261118_task_dependency_impacts.sql'
+    '20261118_task_dependency_impacts.sql',
+    '20261122_add_task_criteria.sql'
 )
 
 $neutral = [System.Data.Common.DbConnectionStringBuilder]::new()

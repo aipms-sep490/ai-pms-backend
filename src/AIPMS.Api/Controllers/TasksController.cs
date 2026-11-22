@@ -161,6 +161,23 @@ public sealed class TasksController(ISender sender) : ControllerBase
         CancellationToken cancellationToken) =>
         Ok(await sender.Send(new GetTaskStatusHistoryQuery(id), cancellationToken));
 
+    [HttpGet("{id:long}/criteria")]
+    [ProducesResponseType<TaskCriteriaListDto>(StatusCodes.Status200OK)]
+    public Task<TaskCriteriaListDto> GetCriteria(long id, [FromServices] AIPMS.Application.Features.Tasks.Abstractions.ITaskCriteriaService criteria, CancellationToken ct) =>
+        criteria.ListAsync(id, ct);
+
+    [HttpPut("{id:long}/criteria")]
+    [ProducesResponseType<TaskCriteriaListDto>(StatusCodes.Status200OK)]
+    public Task<TaskCriteriaListDto> ReplaceCriteria(long id, [FromBody] ReplaceTaskCriteriaRequest request,
+        [FromServices] AIPMS.Application.Features.Tasks.Abstractions.ITaskCriteriaService criteria, CancellationToken ct) =>
+        criteria.ReplaceAsync(id, request, ct);
+
+    [HttpPatch("{id:long}/criteria/{criterionId:long}")]
+    [ProducesResponseType<TaskCriteriaListDto>(StatusCodes.Status200OK)]
+    public Task<TaskCriteriaListDto> ToggleCriterion(long id, long criterionId, [FromBody] ToggleTaskCriterionRequest request,
+        [FromServices] AIPMS.Application.Features.Tasks.Abstractions.ITaskCriteriaService criteria, CancellationToken ct) =>
+        criteria.ToggleAsync(id, criterionId, request, ct);
+
     [HttpGet("{id:long}/dependency-impacts")]
     [ProducesResponseType<TaskDependencyImpactsDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<TaskDependencyImpactsDto>> GetDependencyImpacts(long id, CancellationToken ct) =>

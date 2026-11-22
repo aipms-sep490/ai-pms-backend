@@ -11,11 +11,20 @@ public sealed class OpenAiTextGenerationProvider(
     HttpClient http,
     IOptions<AiAssistantOptions> settings) : IAiTextGenerationProvider, IAiVisionProvider, IAiStreamingProvider
 {
-    // Assistant responses are parsed JSON and are capped by the service at 4,000
-    // characters. Keep provider completion bounded so a slow/reasoning-heavy
-    // router cannot spend an unbounded amount of time generating extra prose.
-    private const int MaxCompletionTokens = 1200;
+    // Assistant responses are parsed JSON. Keep default completions bounded at 1,200 tokens
+    // while giving explicit structured setup/diagnostic plans enough room so JSON is not truncated.
     private readonly AiAssistantOptions options = settings.Value;
+
+    private int ResolveMaxTokens(string systemPrompt)
+    {
+        var configured = Math.Clamp(options.OpenAi.MaxCompletionTokens, 256, 4096);
+        if (systemPrompt.Contains("PROJECT_SETUP", StringComparison.Ordinal)
+            || systemPrompt.Contains("RUBRIC_SETUP", StringComparison.Ordinal))
+            return Math.Max(configured, 2800);
+        if (systemPrompt.Contains("structuredReport", StringComparison.Ordinal))
+            return Math.Max(configured, 1800);
+        return configured;
+    }
 
     public string ModelVersion => $"OPENAI_{options.OpenAi.Model}";
     public string ConfigurationVersion => $"OPENAI_T{options.TimeoutSeconds}";
@@ -30,7 +39,7 @@ public sealed class OpenAiTextGenerationProvider(
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.OpenAi.ApiKey);
         request.Content = new StringContent(JsonSerializer.Serialize(new {
             model = options.OpenAi.Model, temperature = 0.1, stream = true,
-            max_tokens = MaxCompletionTokens,
+            max_tokens = ResolveMaxTokens(systemPrompt),
             messages = new object[] { new { role = "system", content = systemPrompt }, new { role = "user", content = (object)content } }
         }), Encoding.UTF8, "application/json");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -52,7 +61,7 @@ public sealed class OpenAiTextGenerationProvider(
             if (!choices[0].TryGetProperty("delta", out var delta) || !delta.TryGetProperty("content", out var text) || text.ValueKind != JsonValueKind.String) continue;
             var value = text.GetString() ?? "";
             output.Append(value);
-            if (output.Length > 12000) throw new JsonException("Provider output too large.");
+            if (output.Length > 32000) throw new JsonException("Provider output too large.");
             await onDelta(value);
         }
         // OpenAI-compatible routers may close after finish_reason=stop without a [DONE] sentinel.
@@ -85,7 +94,7 @@ public sealed class OpenAiTextGenerationProvider(
         {
             model = options.OpenAi.Model,
             temperature = 0.1,
-            max_tokens = MaxCompletionTokens,
+            max_tokens = ResolveMaxTokens(systemPrompt),
             messages = new object[]
             {
                 new { role = "system", content = systemPrompt },

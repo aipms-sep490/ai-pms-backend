@@ -16,6 +16,8 @@ internal static class AssistantActionDraftParser
         AssistantTaskDraftDto? task = null;
         AssistantReportDraftDto? report = null;
         List<AssistantDraftDto>? tasks = null;
+        AssistantProjectSetupPlanDto? setupPlan = null;
+        AssistantRubricSetupPlanDto? rubricSetup = null;
         if (expected == "TASK" && Object(value, "task", out var t))
         {
             var names = new List<string>();
@@ -40,7 +42,17 @@ internal static class AssistantActionDraftParser
             foreach (var item in items.EnumerateArray().Take(8))
                 if (Parse(item, "TASK") is { } child) tasks.Add(child);
         }
-        return new(expected, title, description, expected == "MEETING" ? AssistantMeetingDraftParser.Parse(value) : null, task, report, tasks);
+        if (expected == "PROJECT_SETUP" && Object(value, "setupPlan", out var sp))
+        {
+            setupPlan = AssistantSetupPlanParser.ParseProjectSetup(sp);
+            if (setupPlan is null) return null;
+        }
+        if (expected == "RUBRIC_SETUP" && Object(value, "rubricSetup", out var rs))
+        {
+            rubricSetup = AssistantSetupPlanParser.ParseRubricSetup(rs);
+            if (rubricSetup is null) return null;
+        }
+        return new(expected, title, description, expected == "MEETING" ? AssistantMeetingDraftParser.Parse(value) : null, task, report, tasks, setupPlan, rubricSetup);
     }
 
     private static bool Object(JsonElement value, string key, out JsonElement child) => value.TryGetProperty(key, out child) && child.ValueKind == JsonValueKind.Object;

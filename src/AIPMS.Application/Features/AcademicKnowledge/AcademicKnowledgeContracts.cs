@@ -30,8 +30,152 @@ public sealed record AssistantTaskDraftDto(DateTimeOffset? DueAt, string? Priori
     IReadOnlyList<string> AssigneeNames, string? PrimaryMajorName);
 public sealed record AssistantReportDraftDto(string? PeriodStart, string? PeriodEnd, string? CompletedWork,
     string? InProgressWork, string? Blockers, string? Risks, string? NextActions, string? PlannedWork);
+
+// Structured diagnostic report for clear visual rendering (what/where/how far/who)
+public sealed record AssistantContextCoverageDto(
+    string? ProjectTitle,
+    string? ProjectStage,
+    int TasksScanned,
+    int TasksTotal,
+    int DeliverablesCount,
+    int ColdItemsCount,
+    int ReviewGatesCount);
+
+public sealed record AssistantDiagnosticItemDto(
+    string Category,
+    string Title,
+    string Location,
+    string Status,
+    string ProgressText,
+    string? IssueDetail = null,
+    string? Owner = null,
+    string? DueAt = null,
+    string? Target = null,
+    long? ResourceId = null,
+    string? CitationId = null);
+
+public sealed record AssistantStructuredReportDto(
+    string SummaryTitle,
+    AssistantContextCoverageDto Coverage,
+    IReadOnlyList<AssistantDiagnosticItemDto> Items);
+
+// Stream A: AI Project Auto-Setup Plan (Milestones + Deliverables/Criteria + Tasks + TaskCriteria + Dependencies)
+public sealed record AssistantSetupMilestoneDto(
+    string TempKey,
+    long? ExistingMilestoneId,
+    string Title,
+    string? Description,
+    string? StartDate,
+    string? DueDate);
+
+public sealed record AssistantSetupDeliverableDto(
+    string TempKey,
+    string Title,
+    string? Description,
+    string DeliverableType,
+    string? MilestoneRef,
+    string EvidenceScope,
+    string? TargetMajorName,
+    DateTimeOffset? DueAt,
+    IReadOnlyList<string> AcceptanceCriteria);
+
+public sealed record AssistantSetupTaskDto(
+    string TempKey,
+    string Title,
+    string? Description,
+    string Priority,
+    string? MilestoneRef,
+    DateTimeOffset? DueAt,
+    IReadOnlyList<string> AssigneeNames,
+    string? PrimaryMajorName,
+    IReadOnlyList<string> AcceptanceCriteria,
+    IReadOnlyList<string> DependsOnRefs);
+
+public sealed record AssistantProjectSetupPlanDto(
+    string Summary,
+    IReadOnlyList<AssistantSetupMilestoneDto> Milestones,
+    IReadOnlyList<AssistantSetupDeliverableDto> Deliverables,
+    IReadOnlyList<AssistantSetupTaskDto> Tasks,
+    IReadOnlyList<string> Warnings);
+
+// Stream B: AI Rubric Criteria Auto-Setup Plan (Draft Rubric for Department Staff / Admin)
+public sealed record AssistantRubricLevelDraftDto(
+    int LevelOrder,
+    string Label,
+    string Descriptor,
+    decimal? ScoreFrom,
+    decimal? ScoreTo);
+
+public sealed record AssistantRubricCriterionDraftDto(
+    string TempKey,
+    string? ParentTempKey,
+    string? CriterionCode,
+    string Name,
+    string? Description,
+    decimal WeightPercent,
+    decimal? MaxScore,
+    bool IsRequired,
+    string? LearningOutcome,
+    string? EvidenceGuidance,
+    IReadOnlyList<AssistantRubricLevelDraftDto> Levels);
+
+public sealed record AssistantRubricSetupPlanDto(
+    string Code,
+    string Name,
+    string? Description,
+    string ProjectMode,
+    string EvaluationStage,
+    string EvaluationScope,
+    string? MajorName,
+    IReadOnlyList<AssistantRubricCriterionDraftDto> Criteria,
+    IReadOnlyList<string> Warnings);
+
+// Apply requests & results (One-Click Auto-Setup)
+public sealed record ApplyProjectSetupRequest(
+    Guid IdempotencyKey,
+    long? RunId,
+    IReadOnlyList<AssistantSetupMilestoneDto> Milestones,
+    IReadOnlyList<AssistantSetupDeliverableDto> Deliverables,
+    IReadOnlyList<AssistantSetupTaskDto> Tasks);
+
+public sealed record CreatedSetupItemRef(string TempKey, long Id, string Title, string Kind);
+
+public sealed record ApplyProjectSetupResultDto(
+    long ProjectId,
+    bool Replay,
+    int MilestonesCreated,
+    int DeliverablesCreated,
+    int TasksCreated,
+    int TaskCriteriaCreated,
+    int DependenciesCreated,
+    IReadOnlyList<CreatedSetupItemRef> Items,
+    IReadOnlyList<string> Warnings);
+
+public sealed record ApplyRubricSetupRequest(
+    Guid IdempotencyKey,
+    long? RunId,
+    long? DepartmentId,
+    long AcademicSemesterId,
+    long? MajorId,
+    string Code,
+    string Name,
+    string? Description,
+    string ProjectMode,
+    string EvaluationStage,
+    string EvaluationScope,
+    IReadOnlyList<AssistantRubricCriterionDraftDto> Criteria);
+
+public sealed record ApplyRubricSetupResultDto(
+    long RubricId,
+    string Code,
+    string Name,
+    string Status,
+    int CriteriaCount,
+    bool Replay);
+
 public sealed record AssistantDraftDto(string Kind, string Title, string Description, AssistantMeetingDraftDto? Meeting = null,
-    AssistantTaskDraftDto? Task = null, AssistantReportDraftDto? Report = null, IReadOnlyList<AssistantDraftDto>? Tasks = null);
+    AssistantTaskDraftDto? Task = null, AssistantReportDraftDto? Report = null, IReadOnlyList<AssistantDraftDto>? Tasks = null,
+    AssistantProjectSetupPlanDto? SetupPlan = null, AssistantRubricSetupPlanDto? RubricSetup = null);
 public sealed record AssistantStreamEvent(string Type, string? Text = null, AcademicAssistantResponseDto? Response = null);
 public sealed record AssistantUpload(string FileName, byte[] Content);
 public sealed record AssistantExport(string FileName, string ContentType, byte[] Content);
@@ -39,4 +183,4 @@ public sealed record KnowledgeCitationDto(long DocumentId, long VersionId, strin
 public sealed record KnowledgeDocumentDto(long Id, string Title, string DocumentType, long? DepartmentId, long? AcademicSemesterId, long? ProjectPeriodId, string Status, string CurrentVersion, DateTime CreatedAt, DateTime UpdatedAt);
 public sealed record KnowledgeVersionDto(long Id, long DocumentId, string Version, string Status, string? SourceFileName, DateTime? EffectiveFrom, DateTime? EffectiveTo, DateTime CreatedAt, DateTime? PublishedAt, int ChunkCount);
 public sealed record AssistantAttachmentDto(string FileName, string MediaType);
-public sealed record AcademicAssistantResponseDto(string Answer, string AnswerType, IReadOnlyList<KnowledgeCitationDto> Citations, IReadOnlyList<AIPMS.Application.Features.AiAssistant.Models.EvidenceReferenceDto> ProjectEvidence, bool InsufficientEvidence, string? LimitationNote, string GenerationStatus, DateTime GeneratedAt, long? RunId = null, IReadOnlyList<AssistantAttachmentDto>? Attachments = null, long? ConversationId = null, int? Revision = null, AssistantDraftDto? Draft = null);
+public sealed record AcademicAssistantResponseDto(string Answer, string AnswerType, IReadOnlyList<KnowledgeCitationDto> Citations, IReadOnlyList<AIPMS.Application.Features.AiAssistant.Models.EvidenceReferenceDto> ProjectEvidence, bool InsufficientEvidence, string? LimitationNote, string GenerationStatus, DateTime GeneratedAt, long? RunId = null, IReadOnlyList<AssistantAttachmentDto>? Attachments = null, long? ConversationId = null, int? Revision = null, AssistantDraftDto? Draft = null, AssistantStructuredReportDto? StructuredReport = null);
