@@ -93,7 +93,10 @@ internal sealed class FinalSubmissionRepository(AipmsDbContext db) : IFinalSubmi
     {
         var files = await db.Files.AsNoTracking().Include(f => f.DeliverableVersion!).ThenInclude(v => v.Deliverable).Where(f => f.DeliverableVersionId.HasValue
             && versionIds.Contains(f.DeliverableVersionId.Value)).OrderBy(f => f.Id).ToListAsync(ct);
-        return files.Select(f => new FinalSnapshotFile(f.ToDto() with { CreatedAt = Utc(f.CreatedAt) }, f.StoragePath,
+        var uploaderIds = files.Select(f => f.UploadedBy).Distinct().ToArray();
+        var uploaderNames = uploaderIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => uploaderIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return files.Select(f => new FinalSnapshotFile(f.ToDto(uploaderNames.GetValueOrDefault(f.UploadedBy)) with { CreatedAt = Utc(f.CreatedAt) }, f.StoragePath,
             f.DeliverableVersion!.Deliverable.EvidenceScope, f.DeliverableVersion.Deliverable.TargetMajorId,
             f.DeliverableVersion.Deliverable.TargetStudentId)).ToArray();
     }

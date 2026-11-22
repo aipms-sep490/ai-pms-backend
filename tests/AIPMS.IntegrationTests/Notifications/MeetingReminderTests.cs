@@ -140,7 +140,7 @@ public sealed class MeetingReminderTests(FinalSubmissionDraftDatabaseFixture fix
         Assert.True(current.ShouldSend);
         Assert.Contains("Updated title", current.Subject);
         Assert.Contains("Room 2", current.Body);
-        Assert.Contains("12/09/2026 17:10 (Vietnam, UTC+7)", current.Body);
+        Assert.Contains("12/09/2026 17:10 (Việt Nam, UTC+7)", current.Body);
         await queue.MarkSentAsync(current.RecipientId, Now, default, current.AttemptCount);
         await Enqueue(id);
         Assert.Null(await queue.ClaimNextAsync(Now, default, IMeetingReminderService.NotificationType));

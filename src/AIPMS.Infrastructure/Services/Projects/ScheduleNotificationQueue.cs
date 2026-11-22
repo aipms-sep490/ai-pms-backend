@@ -17,10 +17,17 @@ internal static class ScheduleNotificationQueue
             && a.Status != "REVOKED").Select(a => a.ReviewerId).ToArrayAsync(ct);
         var supervisors = await db.SupervisorAssignments.AsNoTracking().Where(a => a.ProjectId == projectId
             && a.EndedAt == null).Select(a => a.SupervisorProfile.UserId).ToArrayAsync(ct);
+        var project = await db.Projects.AsNoTracking().Where(p => p.Id == projectId)
+            .Select(p => new { p.Code, p.Title }).FirstOrDefaultAsync(ct);
+        var codeSuffix = string.IsNullOrWhiteSpace(project?.Code) ? "" : $" đồ án {project.Code}";
+        var projectFull = project is null ? "của đồ án" : string.IsNullOrWhiteSpace(project.Title) ? $"của đồ án {project.Code}" : $"của đồ án {project.Code} - {project.Title}";
+        var rawTitle = changed
+            ? $"Lịch Cổng kiểm duyệt 3 (G3){codeSuffix} đã thay đổi"
+            : $"Lịch Cổng kiểm duyệt 3 (G3){codeSuffix} đã được công bố";
         await Queue(db, actor, students.Concat(reviewers).Concat(supervisors).Distinct().ToArray(),
             changed ? "REVIEW_GATE_3_SCHEDULE_CHANGED" : "REVIEW_GATE_3_SCHEDULED",
-            changed ? "Lịch Review Gate 3 đã thay đổi" : "Lịch Review Gate 3 đã được công bố",
-            "Xem lịch Review Gate 3 trong dự án để biết thời gian và phòng.", "GATE_SESSION_SCRIPT",
+            rawTitle.Length <= 255 ? rawTitle : rawTitle[..255],
+            $"Xem lịch Cổng kiểm duyệt 3 (G3) {projectFull} trên hệ thống để biết thời gian và phòng cụ thể.", "GATE_SESSION_SCRIPT",
             scriptId, now, ct);
     }
 
@@ -33,10 +40,17 @@ internal static class ScheduleNotificationQueue
             .Select(m => m.UserId).ToArrayAsync(ct);
         var supervisors = await db.SupervisorAssignments.AsNoTracking().Where(a => a.ProjectId == projectId
             && a.EndedAt == null).Select(a => a.SupervisorProfile.UserId).ToArrayAsync(ct);
+        var project = await db.Projects.AsNoTracking().Where(p => p.Id == projectId)
+            .Select(p => new { p.Code, p.Title }).FirstOrDefaultAsync(ct);
+        var codeSuffix = string.IsNullOrWhiteSpace(project?.Code) ? "" : $" đồ án {project.Code}";
+        var projectFull = project is null ? "của đồ án" : string.IsNullOrWhiteSpace(project.Title) ? $"của đồ án {project.Code}" : $"của đồ án {project.Code} - {project.Title}";
+        var rawTitle = changed
+            ? $"Lịch bảo vệ{codeSuffix} đã thay đổi"
+            : $"Lịch bảo vệ{codeSuffix} đã được công bố";
         await Queue(db, actor, students.Concat(members).Concat(supervisors).Distinct().ToArray(),
             changed ? "DEFENSE_SCHEDULE_CHANGED" : "DEFENSE_SCHEDULED",
-            changed ? "Lịch bảo vệ đã thay đổi" : "Lịch bảo vệ đã được công bố",
-            "Xem lịch bảo vệ trong dự án để biết thời gian và phòng.", "DEFENSE_SESSION",
+            rawTitle.Length <= 255 ? rawTitle : rawTitle[..255],
+            $"Xem lịch bảo vệ {projectFull} trên hệ thống để biết thời gian và phòng cụ thể.", "DEFENSE_SESSION",
             sessionId, now, ct);
     }
 

@@ -63,7 +63,7 @@ internal sealed partial class ReviewGateService
         await audit.RecordAsync(new(Actor, "REVIEW_GATE_OVERRIDE", "PROJECT_GATE", gate.Id,
             new Dictionary<string, object?> { ["projectId"] = projectId, ["gateCode"] = gate.Code,
                 ["previousStatus"] = previous, ["newStatus"] = gate.Status, ["reason"] = reason }), token);
-        await NotifyGateChanged(projectId, gate.Id, gate.Code, "Gate decision overridden by lead department staff.", token);
+        await NotifyGateChanged(projectId, gate.Id, gate.Code, $"Cán bộ bộ môn chủ trì đã ghi đè quyết định cổng {gate.Code} sang trạng thái: {GateStatusLabel(gate.Status)}.", token);
         var name = await db.Users.AsNoTracking().Where(u => u.Id == Actor).Select(u => u.FullName).SingleAsync(token);
         return new OverrideReviewGateDto(projectId, gate.Code, gate.Status, gate.DecisionSource,
             name, gate.OverriddenAt.Value, reason, gate.ConcurrencyToken.ToString("N"));

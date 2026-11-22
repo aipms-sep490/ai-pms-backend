@@ -113,7 +113,7 @@ public sealed class FinalSubmissionWorkflow(IFinalSubmissionRepository repositor
             var deliverable = required.SingleOrDefault(d => d.Id == id);
             var version = versions.FirstOrDefault(v => v.DeliverableId == id);
             var complete = deliverable is not null && version is not null && !invalid.Contains(version.Id);
-            items.Add(new(id, deliverable?.Title ?? "Unavailable deliverable", version?.Id, complete));
+            items.Add(new(id, deliverable?.Title ?? "Unavailable deliverable", version?.Id, complete, version?.VersionNumber));
             if (!complete) blockers.Add($"REQUIRED_DELIVERABLE_MISSING:{id}");
         }
         // Content verification can take time; readiness uses the time after storage reads.

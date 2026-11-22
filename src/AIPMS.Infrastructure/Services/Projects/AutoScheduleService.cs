@@ -19,7 +19,7 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
 {
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
-    private sealed record Candidate(long ProjectId, long CommitteeId, long? MajorId, int Seats,
+    private sealed record Candidate(long ProjectId, string ProjectCode, string ProjectTitle, long CommitteeId, long? MajorId, int Seats,
         long[] Members, long[] Supervisors, DateTimeOffset WindowStart, DateTimeOffset WindowEnd);
     private sealed record Occupied(long ProjectId, long? RoomId, string RoomCode, DateTimeOffset Start,
         DateTimeOffset End, long[] Members);
@@ -83,19 +83,19 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
         foreach (var project in projects)
         {
             if (!gates.Any(g => g.ProjectId == project.Id && g.Sequence == 3 && g.Status == "PASSED"))
-            { issues.Add(new(project.Id, "REVIEW_GATE_3_NOT_PASSED")); continue; }
+            { issues.Add(new(project.Id, "REVIEW_GATE_3_NOT_PASSED", project.Code, project.Title)); continue; }
             var r4 = gates.SingleOrDefault(g => g.ProjectId == project.Id && g.Sequence == 4);
             if (r4?.WindowStart is null || r4.WindowEnd is null || r4.WindowEnd <= r4.WindowStart)
-            { issues.Add(new(project.Id, "DEFENSE_GATE_WINDOW_REQUIRED")); continue; }
+            { issues.Add(new(project.Id, "DEFENSE_GATE_WINDOW_REQUIRED", project.Code, project.Title)); continue; }
             if (r4.Status is "PASSED" or "FAILED" or "REJECTED")
-            { issues.Add(new(project.Id, "DEFENSE_GATE_CLOSED")); continue; }
+            { issues.Add(new(project.Id, "DEFENSE_GATE_CLOSED", project.Code, project.Title)); continue; }
             var committee = committees.SingleOrDefault(c => c.ProjectId == project.Id);
-            if (committee is null) { issues.Add(new(project.Id, "DEFENSE_COMMITTEE_REQUIRED")); continue; }
+            if (committee is null) { issues.Add(new(project.Id, "DEFENSE_COMMITTEE_REQUIRED", project.Code, project.Title)); continue; }
             var coldProgress = await cold.ProgressCore(project.Id, ct, system: true);
             if (!coldProgress.Ready)
-            { issues.Add(new(project.Id, "COLD_NOT_READY:" + string.Join(',', coldProgress.Blockers))); continue; }
+            { issues.Add(new(project.Id, "COLD_NOT_READY:" + string.Join(',', coldProgress.Blockers), project.Code, project.Title)); continue; }
             var members = committee.Members.Select(m => m.UserId).Distinct().ToArray();
-            candidates.Add(project.Id, new(project.Id, committee.Id,
+            candidates.Add(project.Id, new(project.Id, project.Code, project.Title, committee.Id,
                 majors.FirstOrDefault(m => m.ProjectId == project.Id)?.MajorId,
                 project.Team.TeamMembers.Count(m => m.LeftAt == null) + members.Length + 5,
                 members, supervisors.Where(s => s.ProjectId == project.Id).Select(s => s.UserId).Distinct().ToArray(),
@@ -186,7 +186,7 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
         {
             if (existingProjects.Contains(candidate.ProjectId)) continue;
             if (candidate.Members.Length == 0 || candidate.Members.Intersect(candidate.Supervisors).Any())
-            { conflicts.Add(new(candidate.ProjectId, "SUPERVISOR_CONFLICT_OF_INTEREST")); continue; }
+            { conflicts.Add(new(candidate.ProjectId, "SUPERVISOR_CONFLICT_OF_INTEREST", candidate.ProjectCode, candidate.ProjectTitle)); continue; }
             DefenseAllocation? chosen = null;
             for (var day = input.StartDate; day <= input.EndDate && chosen is null; day = day.AddDays(1))
             {
@@ -201,13 +201,14 @@ internal sealed class AutoScheduleService(AipmsDbContext db, ICurrentUser curren
                     {
                         if (Excluded(room.Id, day, slot, input.Exclusions)) continue;
                         if (Clash(candidate.ProjectId, room, times.Start, times.End, candidate.Members, occupied)) continue;
-                        chosen = new(candidate.ProjectId, candidate.CommitteeId, room.Id, room.Code, day, slot, times.Start, times.End);
+                        chosen = new(candidate.ProjectId, candidate.CommitteeId, room.Id, room.Code, day, slot, times.Start, times.End,
+                            candidate.ProjectCode, candidate.ProjectTitle);
                         occupied.Add(new(candidate.ProjectId, room.Id, room.Code, times.Start, times.End, candidate.Members));
                         break;
                     }
                 }
             }
-            if (chosen is null) conflicts.Add(new(candidate.ProjectId, "NO_ROOM_OR_CONFLICT_FREE_SLOT"));
+            if (chosen is null) conflicts.Add(new(candidate.ProjectId, "NO_ROOM_OR_CONFLICT_FREE_SLOT", candidate.ProjectCode, candidate.ProjectTitle));
             else allocations.Add(chosen);
         }
         return new(allocations.Count, conflicts.Count, allocations, conflicts, await Revision(ct));

@@ -63149,6 +63149,14 @@
           "occurredAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "actorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "entityDisplayName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -64029,6 +64037,10 @@
               "$ref": "#/components/schemas/CheckpointEvidenceInput"
             },
             "nullable": true
+          },
+          "decidedByName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -64079,6 +64091,10 @@
           },
           "blocksAcademicWorkflow": {
             "type": "boolean"
+          },
+          "majorName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -64666,6 +64682,14 @@
             "format": "int64"
           },
           "role": {
+            "type": "string",
+            "nullable": true
+          },
+          "fullName": {
+            "type": "string",
+            "nullable": true
+          },
+          "majorName": {
             "type": "string",
             "nullable": true
           }
@@ -66043,6 +66067,14 @@
           "endAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "projectCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectTitle": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -66123,6 +66155,30 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "projectCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "requesterName": {
+            "type": "string",
+            "nullable": true
+          },
+          "currentRoomCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "desiredRoomCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewerName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -66235,6 +66291,10 @@
               "$ref": "#/components/schemas/DefenseConditionDto"
             },
             "nullable": true
+          },
+          "projectCode": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -66247,6 +66307,14 @@
             "format": "int64"
           },
           "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectTitle": {
             "type": "string",
             "nullable": true
           }
@@ -66294,6 +66362,18 @@
           },
           "canCancel": {
             "type": "boolean"
+          },
+          "projectCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "committeeName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -66728,6 +66808,10 @@
               "$ref": "#/components/schemas/ProjectFileDto"
             },
             "nullable": true
+          },
+          "submittedByName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -66784,6 +66868,10 @@
             "nullable": true
           },
           "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "decidedByName": {
             "type": "string",
             "nullable": true
           }
@@ -68093,6 +68181,11 @@
           },
           "isComplete": {
             "type": "boolean"
+          },
+          "selectedVersionNumber": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -69539,6 +69632,14 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "assigneeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdByName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -69653,6 +69754,10 @@
           "decidedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "decidedByName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -72178,6 +72283,18 @@
           "sourceUrl": {
             "type": "string",
             "nullable": true
+          },
+          "submittedByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "majorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceTitle": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -72250,6 +72367,10 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "uploadedByName": {
+            "type": "string",
+            "nullable": true
           },
           "canDelete": {
             "type": "boolean"
@@ -73124,6 +73245,10 @@
             "additionalProperties": {
               "type": "string"
             },
+            "nullable": true
+          },
+          "projectCode": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -74197,6 +74322,10 @@
           "evaluationConcurrencyToken": {
             "type": "string",
             "nullable": true
+          },
+          "evaluatorName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -74211,6 +74340,10 @@
           "score": {
             "type": "number",
             "format": "double",
+            "nullable": true
+          },
+          "majorName": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -74344,6 +74477,14 @@
           "endAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "projectCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectTitle": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -74437,6 +74578,14 @@
           "concurrencyToken": {
             "type": "string",
             "nullable": true
+          },
+          "projectCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectTitle": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -74513,6 +74662,10 @@
             "nullable": true
           },
           "linkUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "submittedByName": {
             "type": "string",
             "nullable": true
           }
@@ -76126,6 +76279,10 @@
           "weightPercent": {
             "type": "number",
             "format": "double"
+          },
+          "evaluatorName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -76189,6 +76346,10 @@
             "format": "double"
           },
           "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "criterionName": {
             "type": "string",
             "nullable": true
           }
@@ -77111,6 +77272,10 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "verifiedByName": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -77456,6 +77621,10 @@
             "items": {
               "type": "string"
             },
+            "nullable": true
+          },
+          "replacesSupervisorName": {
+            "type": "string",
             "nullable": true
           },
           "status": {
@@ -78493,6 +78662,14 @@
             "type": "boolean"
           },
           "blockedReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "reopenedByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewedByName": {
             "type": "string",
             "nullable": true
           }

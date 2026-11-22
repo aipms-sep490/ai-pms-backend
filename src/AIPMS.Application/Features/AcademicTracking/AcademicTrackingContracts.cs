@@ -14,11 +14,12 @@ public sealed record CheckpointEvidenceInput(long EvidenceId, long ReviewId);
 public sealed record DecideCheckpointRequest(string ConcurrencyToken, string Decision, string Reason,
     IReadOnlyList<CheckpointEvidenceInput> Evidence);
 public sealed record CheckpointDecisionDto(long Id, string Decision, string Reason, long DecidedBy,
-    DateTime DecidedAt, IReadOnlyList<CheckpointEvidenceInput> Evidence);
+    DateTime DecidedAt, IReadOnlyList<CheckpointEvidenceInput> Evidence, string? DecidedByName = null);
 public sealed record CheckpointDto(long Id, long ProjectId, string Title, long? MajorId, DateTime PlannedAt,
     string ConcurrencyToken, bool IsOverdue, bool CanManage, IReadOnlyList<CheckpointDecisionDto> Decisions,
-    bool TrackingOnly = true, bool BlocksAcademicWorkflow = false);
-public sealed record CommitteeMemberInput(long UserId, long MajorId, string Role = "MEMBER");
+    bool TrackingOnly = true, bool BlocksAcademicWorkflow = false, string? MajorName = null);
+public sealed record CommitteeMemberInput(long UserId, long MajorId, string Role = "MEMBER",
+    string? FullName = null, string? MajorName = null);
 public sealed record DefenseCommitteeCandidateDto(long UserId, string FullName, long MajorId, string MajorName,
     bool CanAssign, string? BlockReason);
 public sealed record CreateCommitteeRequest(string Name, IReadOnlyList<CommitteeMemberInput> Members);
@@ -29,4 +30,5 @@ public sealed record SaveCommitteeRolesRequest(IReadOnlyList<CommitteeMemberInpu
 public sealed record ScheduleDefenseRequest(long CommitteeId, DateTimeOffset StartAt, DateTimeOffset EndAt, string Room);
 public sealed record CancelDefenseRequest(string ConcurrencyToken, string Reason);
 public sealed record DefenseSessionDto(long Id, long ProjectId, long CommitteeId, DateTime StartAt, DateTime EndAt,
-    string Room, string Status, string ConcurrencyToken, string? CancellationReason, bool CanCancel);
+    string Room, string Status, string ConcurrencyToken, string? CancellationReason, bool CanCancel,
+    string? ProjectCode = null, string? ProjectTitle = null, string? CommitteeName = null);

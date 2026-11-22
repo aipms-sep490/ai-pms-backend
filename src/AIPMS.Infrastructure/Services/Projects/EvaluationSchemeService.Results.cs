@@ -163,10 +163,24 @@ internal sealed partial class EvaluationSchemeService
             or "ACADEMIC_APPROVAL_REQUIRED" or "ACADEMIC_APPROVAL_UNKNOWN" or "ALREADY_PUBLISHED");
         var rawTotal = scoreReady && calculation is not null ? VersionedResultCalculator.Total(componentResults, calculation, studentId.HasValue) : null;
         decimal? final = rawTotal.HasValue ? VersionedResultCalculator.Round(rawTotal.Value, calculation!) : null;
+        var evaluatorIds = contributions.Select(c => c.EvaluatorId).Distinct().ToArray();
+        if (evaluatorIds.Length > 0)
+        {
+            var evaluatorNames = await db.Users.AsNoTracking().Where(u => evaluatorIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+            for (var i = 0; i < contributions.Count; i++)
+                contributions[i] = contributions[i] with { EvaluatorName = evaluatorNames.GetValueOrDefault(contributions[i].EvaluatorId) };
+        }
         var common = componentResults.Where(c => c.Scope == "COMMON").ToArray();
+        var majorScoreIds = componentResults.Where(c => c.Scope == "MAJOR_SPECIFIC" && c.MajorId.HasValue)
+            .Select(c => c.MajorId!.Value).Distinct().ToArray();
+        var majorScoreNames = majorScoreIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Majors.AsNoTracking().Where(m => majorScoreIds.Contains(m.Id))
+                .ToDictionaryAsync(m => m.Id, m => m.Name, ct);
         var majorScores = componentResults.Where(c => c.Scope == "MAJOR_SPECIFIC").GroupBy(c => c.MajorId!.Value)
             .OrderBy(g => g.Key).Select(g => new ResultMajorScoreDto(g.Key, g.All(c => c.Score.HasValue)
-                ? g.Sum(c => c.Score!.Value * c.WeightPercent) / g.Sum(c => c.WeightPercent) : null)).ToArray();
+                ? g.Sum(c => c.Score!.Value * c.WeightPercent) / g.Sum(c => c.WeightPercent) : null,
+                majorScoreNames.GetValueOrDefault(g.Key))).ToArray();
         var formulaComponents = new List<EvaluationFormulaComponentDto>();
         if (studentId.HasValue && target is not null)
         {

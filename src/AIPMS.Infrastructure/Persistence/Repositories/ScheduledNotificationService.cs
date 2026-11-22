@@ -58,9 +58,9 @@ internal sealed class ScheduledNotificationService(
             && t.Milestone.Status != "CANCELLED" && t.Milestone.Status != "COMPLETED"
             && (t.Status == "TODO" || t.Status == "IN_PROGRESS" || t.Status == "BLOCKED" || t.Status == "IN_REVIEW")
             && t.DueAt != null && t.DueAt <= horizon)
-            .Select(t => new { t.Id, DueAt = t.DueAt!.Value }).ToListAsync(ct);
+            .Select(t => new { t.Id, t.Title, DueAt = t.DueAt!.Value }).ToListAsync(ct);
         foreach (var task in tasks)
-            await DeadlineAsync(projectId, "TASK", task.Id, task.DueAt, task.DueAt < nowUtc,
+            await DeadlineAsync(project, "TASK", task.Id, task.Title, task.DueAt, task.DueAt < nowUtc,
                 students, warningRecipients, nowUtc, ct);
 
         var deliverables = await db.Deliverables.AsNoTracking().Where(d => d.ProjectId == projectId
@@ -68,9 +68,9 @@ internal sealed class ScheduledNotificationService(
             && (d.Milestone == null || (d.Milestone.Status != "CANCELLED" && d.Milestone.Status != "COMPLETED"))
             && d.DueAt != null && d.DueAt <= horizon
             && !d.DeliverableVersions.Any(v => v.Status == "SUBMITTED" || v.Status == "ACCEPTED"))
-            .Select(d => new { d.Id, DueAt = d.DueAt!.Value }).ToListAsync(ct);
+            .Select(d => new { d.Id, d.Title, DueAt = d.DueAt!.Value }).ToListAsync(ct);
         foreach (var deliverable in deliverables)
-            await DeadlineAsync(projectId, "DELIVERABLE", deliverable.Id, deliverable.DueAt, deliverable.DueAt < nowUtc,
+            await DeadlineAsync(project, "DELIVERABLE", deliverable.Id, deliverable.Title, deliverable.DueAt, deliverable.DueAt < nowUtc,
                 students, warningRecipients, nowUtc, ct);
 
         if (!await db.Set<FinalSubmission>().AnyAsync(s => s.ProjectId == projectId, ct))
@@ -82,7 +82,7 @@ internal sealed class ScheduledNotificationService(
             // Never guess a deadline when active submission windows overlap.
             var period = open.Length == 1 ? open[0] : open.Length == 0 ? periods.FirstOrDefault() : null;
             if (period is not null && period.EndAt <= horizon)
-                await DeadlineAsync(projectId, "FINAL_SUBMISSION", period.Id, period.EndAt, period.EndAt <= nowUtc,
+                await DeadlineAsync(project, "FINAL_SUBMISSION", period.Id, null, period.EndAt, period.EndAt <= nowUtc,
                     students, warningRecipients, nowUtc, ct);
         }
 
@@ -92,9 +92,14 @@ internal sealed class ScheduledNotificationService(
             var risk = analysis.Analyze(facts, nowUtc, ct);
             // BE-06 may expose a strong blocker signal even when other features are incomplete.
             if (risk.RiskLevel is "MEDIUM" or "HIGH" or "CRITICAL")
+            {
+                var riskLabel = RiskLevelLabel(risk.RiskLevel);
+                var riskTitle = Truncate($"Cảnh báo rủi ro tiến độ đồ án {project.Code}: Mức độ {riskLabel}");
+                var riskContent = $"Đồ án {FormatProject(project)} đang ở mức rủi ro tiến độ {riskLabel}. Vui lòng kiểm tra tiến độ công việc và các mốc quan trọng.";
                 await PublishAsync(projectId, $"RISK:{nowUtc.ToString("yyyyMMdd", CultureInfo.InvariantCulture)}:{risk.RiskLevel}",
-                    "PROJECT_RISK_" + risk.RiskLevel, "Project progress risk is " + risk.RiskLevel.ToLowerInvariant(),
+                    "PROJECT_RISK_" + risk.RiskLevel, riskTitle, riskContent,
                     "PROJECT", projectId, warningRecipients, nowUtc, ct);
+            }
         }
         await db.SaveChangesAsync(ct);
         await QueueEmailsAsync(ct);
@@ -119,18 +124,45 @@ internal sealed class ScheduledNotificationService(
         await db.SaveChangesAsync(ct);
     }
 
-    private Task DeadlineAsync(long projectId, string entity, long sourceId, DateTime deadline, bool overdue,
+    private Task DeadlineAsync(M.Project project, string entity, long sourceId, string? entityTitle, DateTime deadline, bool overdue,
         IReadOnlyList<long> students, IReadOnlyList<long> warningRecipients, DateTime now, CancellationToken ct)
     {
         var type = entity + (overdue ? "_OVERDUE" : "_DEADLINE_REMINDER");
         var key = FormattableString.Invariant($"{type}:{sourceId}:{deadline.Ticks}");
-        var title = entity switch { "TASK" => "A task", "DELIVERABLE" => "A deliverable", _ => "Your final submission" };
-        title += overdue ? " is overdue" : " is due soon";
-        return PublishAsync(projectId, key, type, title, entity == "FINAL_SUBMISSION" ? "PROJECT" : entity,
-            entity == "FINAL_SUBMISSION" ? projectId : sourceId, overdue ? warningRecipients : students, now, ct);
+        var dueVn = DateTime.SpecifyKind(deadline, DateTimeKind.Utc).AddHours(7).ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
+        var projectFull = FormatProject(project);
+        var cleanTitle = string.IsNullOrWhiteSpace(entityTitle) ? null : entityTitle.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        var (title, content) = entity switch
+        {
+            "TASK" => overdue
+                ? (cleanTitle is null ? $"Công việc quá hạn ({project.Code})" : $"Công việc quá hạn ({project.Code}): {cleanTitle}",
+                    cleanTitle is null
+                        ? $"Một công việc trong đồ án {projectFull} đã quá hạn (hạn chót: {dueVn}, giờ Việt Nam)."
+                        : $"Công việc \"{cleanTitle}\" trong đồ án {projectFull} đã quá hạn (hạn chót: {dueVn}, giờ Việt Nam).")
+                : (cleanTitle is null ? $"Công việc sắp đến hạn ({project.Code})" : $"Công việc sắp đến hạn ({project.Code}): {cleanTitle}",
+                    cleanTitle is null
+                        ? $"Một công việc trong đồ án {projectFull} sắp đến hạn (hạn chót: {dueVn}, giờ Việt Nam)."
+                        : $"Công việc \"{cleanTitle}\" trong đồ án {projectFull} sắp đến hạn (hạn chót: {dueVn}, giờ Việt Nam)."),
+            "DELIVERABLE" => overdue
+                ? (cleanTitle is null ? $"Sản phẩm bàn giao quá hạn ({project.Code})" : $"Sản phẩm bàn giao quá hạn ({project.Code}): {cleanTitle}",
+                    cleanTitle is null
+                        ? $"Một sản phẩm bàn giao của đồ án {projectFull} đã quá hạn nộp (hạn chót: {dueVn}, giờ Việt Nam)."
+                        : $"Sản phẩm bàn giao \"{cleanTitle}\" của đồ án {projectFull} đã quá hạn nộp (hạn chót: {dueVn}, giờ Việt Nam).")
+                : (cleanTitle is null ? $"Sản phẩm bàn giao sắp đến hạn ({project.Code})" : $"Sản phẩm bàn giao sắp đến hạn ({project.Code}): {cleanTitle}",
+                    cleanTitle is null
+                        ? $"Một sản phẩm bàn giao của đồ án {projectFull} sắp đến hạn nộp (hạn chót: {dueVn}, giờ Việt Nam)."
+                        : $"Sản phẩm bàn giao \"{cleanTitle}\" của đồ án {projectFull} sắp đến hạn nộp (hạn chót: {dueVn}, giờ Việt Nam)."),
+            _ => overdue
+                ? ($"Hồ sơ bàn giao cuối kỳ quá hạn ({project.Code})",
+                    $"Hạn nộp hồ sơ bàn giao cuối kỳ của đồ án {projectFull} đã qua (hạn chót: {dueVn}, giờ Việt Nam).")
+                : ($"Hồ sơ bàn giao cuối kỳ sắp đến hạn ({project.Code})",
+                    $"Hồ sơ bàn giao cuối kỳ của đồ án {projectFull} sắp đến hạn nộp (hạn chót: {dueVn}, giờ Việt Nam).")
+        };
+        return PublishAsync(project.Id, key, type, Truncate(title), content, entity == "FINAL_SUBMISSION" ? "PROJECT" : entity,
+            entity == "FINAL_SUBMISSION" ? project.Id : sourceId, overdue ? warningRecipients : students, now, ct);
     }
 
-    private async Task PublishAsync(long projectId, string key, string type, string title, string entity,
+    private async Task PublishAsync(long projectId, string key, string type, string title, string content, string entity,
         long entityId, IReadOnlyList<long> recipients, DateTime now, CancellationToken ct)
     {
         if (recipients.Count == 0) return;
@@ -141,7 +173,7 @@ internal sealed class ScheduledNotificationService(
         {
             occurrence = new() { ProjectId = projectId, OccurrenceKey = key, Notification = new M.Notification
             {
-                NotificationType = type, Title = title, Content = title + ".", RelatedEntityType = entity,
+                NotificationType = type, Title = Truncate(title), Content = content, RelatedEntityType = entity,
                 RelatedEntityId = entityId, CreatedAt = now, UpdatedAt = now
             } };
             db.Set<ScheduledNotificationOccurrence>().Add(occurrence);
@@ -152,4 +184,19 @@ internal sealed class ScheduledNotificationService(
                 UserId = userId, CreatedAt = now, UpdatedAt = now, DeliveredAt = now
             });
     }
+
+    private static string FormatProject(M.Project project) =>
+        string.IsNullOrWhiteSpace(project.Title) ? project.Code : $"{project.Code} - {project.Title}";
+
+    private static string RiskLevelLabel(string riskLevel) => riskLevel switch
+    {
+        "CRITICAL" => "Nghiêm trọng",
+        "HIGH" => "Cao",
+        "MEDIUM" => "Trung bình",
+        "LOW" => "Thấp",
+        _ => "Cần theo dõi"
+    };
+
+    private static string Truncate(string value, int maxLength = 255) =>
+        value.Length <= maxLength ? value : value[..maxLength];
 }

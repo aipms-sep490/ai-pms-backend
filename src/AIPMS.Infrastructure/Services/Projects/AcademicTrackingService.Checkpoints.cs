@@ -10,10 +10,27 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class AcademicTrackingService
 {
-    private CheckpointDto CheckpointDto(ProjectCheckpoint row, Access access) => new(row.Id, row.ProjectId, row.Title, row.MajorId,
-        Utc(row.PlannedAt), row.ConcurrencyToken.ToString("N"), row.PlannedAt < Now && row.Decisions.OrderByDescending(d => d.Id).FirstOrDefault()?.Decision is not ("MET" or "CANCELLED"),
-        access.Writable && access.CanManage(row.MajorId), row.Decisions.OrderBy(d => d.Id).Select(d => new CheckpointDecisionDto(d.Id,
-            d.Decision, d.Reason, d.DecidedBy, Utc(d.DecidedAt), JsonSerializer.Deserialize<CheckpointEvidenceInput[]>(d.EvidenceJson)!)).ToArray());
+    private async Task<CheckpointDto[]> CheckpointDtosAsync(IReadOnlyList<ProjectCheckpoint> rows, Access access, CancellationToken ct)
+    {
+        if (rows.Count == 0) return [];
+        var majorIds = rows.Where(r => r.MajorId.HasValue).Select(r => r.MajorId!.Value).Distinct().ToArray();
+        var deciderIds = rows.SelectMany(r => r.Decisions).Select(d => d.DecidedBy).Distinct().ToArray();
+        var majorNames = majorIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Majors.AsNoTracking().Where(m => majorIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.Name, ct);
+        var userNames = deciderIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => deciderIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return rows.Select(row => new CheckpointDto(row.Id, row.ProjectId, row.Title, row.MajorId,
+            Utc(row.PlannedAt), row.ConcurrencyToken.ToString("N"),
+            row.PlannedAt < Now && row.Decisions.OrderByDescending(d => d.Id).FirstOrDefault()?.Decision is not ("MET" or "CANCELLED"),
+            access.Writable && access.CanManage(row.MajorId),
+            row.Decisions.OrderBy(d => d.Id).Select(d => new CheckpointDecisionDto(d.Id,
+                d.Decision, d.Reason, d.DecidedBy, Utc(d.DecidedAt),
+                JsonSerializer.Deserialize<CheckpointEvidenceInput[]>(d.EvidenceJson)!,
+                userNames.TryGetValue(d.DecidedBy, out var dn) ? dn : null)).ToArray(),
+            MajorName: row.MajorId.HasValue && majorNames.TryGetValue(row.MajorId.Value, out var mn) ? mn : null)).ToArray();
+    }
+    private async Task<CheckpointDto> CheckpointDtoAsync(ProjectCheckpoint row, Access access, CancellationToken ct) =>
+        (await CheckpointDtosAsync([row], access, ct))[0];
     public Task<CheckpointDto> SaveCheckpoint(long projectId, long? id, SaveCheckpointRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
         await transactions.LockProjectAsync(projectId, ct); var access = await Scope(projectId, ct); Write(access, input.MajorId);
@@ -35,7 +52,7 @@ internal sealed partial class AcademicTrackingService
         row.Title = input.Title.Trim(); row.PlannedAt = input.PlannedAt.UtcDateTime; row.ConcurrencyToken = Guid.NewGuid(); row.UpdatedAt = Now;
         await db.SaveChangesAsync(ct); await Audit("CHECKPOINT_PLANNED", "PROJECT_CHECKPOINT", row.Id,
             new { projectId, row.MajorId, row.PlannedAt, row.ConcurrencyToken }, ct);
-        return CheckpointDto(row, access);
+        return await CheckpointDtoAsync(row, access, ct);
     }, ct);
     public Task<CheckpointDto> DecideCheckpoint(long id, DecideCheckpointRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -60,7 +77,7 @@ internal sealed partial class AcademicTrackingService
         row.ConcurrencyToken = Guid.NewGuid(); row.UpdatedAt = Now;
         await db.SaveChangesAsync(ct); await Audit("CHECKPOINT_DECISION_RECORDED", "PROJECT_CHECKPOINT", id,
             new { projectId, input.Decision, row.ConcurrencyToken }, ct);
-        return CheckpointDto(row, access);
+        return await CheckpointDtoAsync(row, access, ct);
     }, ct);
     public Task<PagedResult<CheckpointDto>> Checkpoints(long projectId, int page, int pageSize, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -71,6 +88,6 @@ internal sealed partial class AcademicTrackingService
             && (c.MajorId == null && common || c.MajorId.HasValue && majors.Contains(c.MajorId.Value)));
         var count = await query.LongCountAsync(ct);
         var rows = await query.Include(c => c.Decisions).OrderBy(c => c.PlannedAt).ThenBy(c => c.Id).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(ct);
-        return new PagedResult<CheckpointDto>(rows.Select(c => CheckpointDto(c, access)).ToArray(), page, pageSize, count);
+        return new PagedResult<CheckpointDto>(await CheckpointDtosAsync(rows, access, ct), page, pageSize, count);
     }, ct);
 }

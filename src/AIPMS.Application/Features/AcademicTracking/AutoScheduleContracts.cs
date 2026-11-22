@@ -5,8 +5,10 @@ public sealed record AutoSchedulePreviewRequest(DateOnly StartDate, DateOnly End
     IReadOnlyList<RoomSchedulingExclusion>? Exclusions = null);
 public sealed record RoomSchedulingExclusion(long RoomId, DateOnly? Date, int? SlotNumber);
 public sealed record DefenseAllocation(long ProjectId, long CommitteeId, long RoomId, string RoomCode,
-    DateOnly Date, int SlotNumber, DateTimeOffset StartAt, DateTimeOffset EndAt);
-public sealed record DefenseScheduleConflict(long ProjectId, string Reason);
+    DateOnly Date, int SlotNumber, DateTimeOffset StartAt, DateTimeOffset EndAt,
+    string? ProjectCode = null, string? ProjectTitle = null);
+public sealed record DefenseScheduleConflict(long ProjectId, string Reason,
+    string? ProjectCode = null, string? ProjectTitle = null);
 public sealed record AutoSchedulePreviewDto(int ScheduledCount, int UnscheduledCount,
     IReadOnlyList<DefenseAllocation> Allocations, IReadOnlyList<DefenseScheduleConflict> Conflicts,
     string ConcurrencyToken);

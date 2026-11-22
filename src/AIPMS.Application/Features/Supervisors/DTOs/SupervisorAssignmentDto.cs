@@ -5,7 +5,8 @@ public sealed record SupervisorAssignmentDto(long Id, long ProjectId, long Super
     DateTime AssignedAt, DateTime? EndedAt, string AssignmentType = "PRIMARY", long? MajorId = null, long? AssignedBy = null,
     long? EndedBy = null, string? EndReason = null, long? ReplacesAssignmentId = null,
     IReadOnlyList<SupervisorActionCapabilityDto>? AllowedActions = null,
-    IReadOnlyList<string>? Reasons = null)
+    IReadOnlyList<string>? Reasons = null,
+    string? ReplacesSupervisorName = null)
 {
     public string Status => EndedAt.HasValue ? "ENDED" : "ACTIVE";
 }

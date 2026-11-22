@@ -9,13 +9,46 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class AcademicTrackingService
 {
-    private static CommitteeDto CommitteeDto(DefenseCommittee row) => new(row.Id, row.ProjectId, row.Name,
-        row.Members.OrderBy(m => m.MajorId).ThenBy(m => m.UserId).Select(m => new CommitteeMemberInput(m.UserId, m.MajorId, m.Role)).ToArray(),
-        GrantsEvaluatorAuthority: row.Status == "CONFIRMED", ConcurrencyToken: row.ConcurrencyToken.ToString("N"),
-        Status: row.Status, Version: row.Version);
-    private DefenseSessionDto DefenseDto(DefenseSession row, Access? access) => new(row.Id, row.ProjectId, row.CommitteeId,
-        Utc(row.StartAt), Utc(row.EndAt), row.Room, row.Status, row.ConcurrencyToken.ToString("N"), row.CancellationReason,
-        access is { Lead: true, Writable: true } && row.Status == "SCHEDULED" && row.StartAt > Now);
+    private async Task<CommitteeDto[]> CommitteeDtosAsync(IReadOnlyList<DefenseCommittee> rows, CancellationToken ct)
+    {
+        if (rows.Count == 0) return [];
+        var userIds = rows.SelectMany(r => r.Members).Select(m => m.UserId).Distinct().ToArray();
+        var majorIds = rows.SelectMany(r => r.Members).Select(m => m.MajorId).Distinct().ToArray();
+        var userNames = userIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var majorNames = majorIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Majors.AsNoTracking().Where(m => majorIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.Name, ct);
+        return rows.Select(row => new CommitteeDto(row.Id, row.ProjectId, row.Name,
+            row.Members.OrderBy(m => m.MajorId).ThenBy(m => m.UserId).Select(m => new CommitteeMemberInput(
+                m.UserId, m.MajorId, m.Role,
+                userNames.TryGetValue(m.UserId, out var fn) ? fn : null,
+                majorNames.TryGetValue(m.MajorId, out var mn) ? mn : null)).ToArray(),
+            GrantsEvaluatorAuthority: row.Status == "CONFIRMED", ConcurrencyToken: row.ConcurrencyToken.ToString("N"),
+            Status: row.Status, Version: row.Version)).ToArray();
+    }
+    private async Task<CommitteeDto> CommitteeDtoAsync(DefenseCommittee row, CancellationToken ct) =>
+        (await CommitteeDtosAsync([row], ct))[0];
+    private async Task<DefenseSessionDto[]> DefenseDtosAsync(IReadOnlyList<DefenseSession> rows, Access? access, CancellationToken ct)
+    {
+        if (rows.Count == 0) return [];
+        var projectIds = rows.Select(r => r.ProjectId).Distinct().ToArray();
+        var committeeIds = rows.Select(r => r.CommitteeId).Distinct().ToArray();
+        var projects = await db.Projects.AsNoTracking().Where(p => projectIds.Contains(p.Id))
+            .Select(p => new { p.Id, p.Code, p.Title }).ToDictionaryAsync(p => p.Id, ct);
+        var committees = await db.Set<DefenseCommittee>().AsNoTracking().Where(c => committeeIds.Contains(c.Id))
+            .Select(c => new { c.Id, c.Name }).ToDictionaryAsync(c => c.Id, c => c.Name, ct);
+        return rows.Select(row =>
+        {
+            projects.TryGetValue(row.ProjectId, out var proj);
+            committees.TryGetValue(row.CommitteeId, out var committeeName);
+            return new DefenseSessionDto(row.Id, row.ProjectId, row.CommitteeId,
+                Utc(row.StartAt), Utc(row.EndAt), row.Room, row.Status, row.ConcurrencyToken.ToString("N"), row.CancellationReason,
+                access is { Lead: true, Writable: true } && row.Status == "SCHEDULED" && row.StartAt > Now,
+                proj?.Code, proj?.Title, committeeName);
+        }).ToArray();
+    }
+    private async Task<DefenseSessionDto> DefenseDtoAsync(DefenseSession row, Access? access, CancellationToken ct) =>
+        (await DefenseDtosAsync([row], access, ct))[0];
     private async Task Qualified(Access access, IReadOnlyList<CommitteeMemberInput> members, CancellationToken ct)
     {
         var majors = access.Registration.Scope.Requirements.Select(r => r.MajorId).ToArray();
@@ -96,7 +129,7 @@ internal sealed partial class AcademicTrackingService
         var row = new DefenseCommittee { ProjectId = projectId, Name = input.Name.Trim(), Version = version, CreatedBy = Actor, CreatedAt = Now,
             Members = input.Members.Select(m => new DefenseCommitteeMember { UserId = m.UserId, MajorId = m.MajorId, Role = m.Role }).ToArray() };
         db.Add(row); await db.SaveChangesAsync(ct); await Audit("DEFENSE_COMMITTEE_CREATED", "DEFENSE_COMMITTEE", row.Id, new { projectId, members = input.Members }, ct);
-        return CommitteeDto(row);
+        return await CommitteeDtoAsync(row, ct);
     }, ct);
     public Task<PagedResult<CommitteeDto>> Committees(long projectId, int page, int pageSize, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -105,7 +138,7 @@ internal sealed partial class AcademicTrackingService
         var query = db.Set<DefenseCommittee>().AsNoTracking().Where(c => c.ProjectId == projectId);
         var count = await query.LongCountAsync(ct);
         var rows = await query.Include(c => c.Members).OrderBy(c => c.Id).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(ct);
-        return new PagedResult<CommitteeDto>(rows.Select(CommitteeDto).ToArray(), page, pageSize, count);
+        return new PagedResult<CommitteeDto>(await CommitteeDtosAsync(rows, ct), page, pageSize, count);
     }, ct);
     public Task<CommitteeDto> AssignCommitteeRoles(long id, SaveCommitteeRolesRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -131,7 +164,7 @@ internal sealed partial class AcademicTrackingService
         await db.SaveChangesAsync(ct);
         await Audit("DEFENSE_COMMITTEE_ROLES_UPDATED", "DEFENSE_COMMITTEE", id,
             new { projectId, members = input.Members }, ct);
-        return CommitteeDto(row);
+        return await CommitteeDtoAsync(row, ct);
     }, ct);
     public Task<CommitteeDto> ConfirmCommittee(long id, ConfirmCommitteeRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -161,7 +194,7 @@ internal sealed partial class AcademicTrackingService
         row.ConcurrencyToken = Guid.NewGuid();
         await db.SaveChangesAsync(ct);
         await Audit("DEFENSE_COMMITTEE_CONFIRMED", "DEFENSE_COMMITTEE", id, new { projectId, row.Version, members = row.Members.Select(m => new { m.UserId, m.MajorId }) }, ct);
-        return CommitteeDto(row);
+        return await CommitteeDtoAsync(row, ct);
     }, ct);
     public Task<DefenseSessionDto> ScheduleDefense(long projectId, ScheduleDefenseRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -208,7 +241,7 @@ internal sealed partial class AcademicTrackingService
         db.Add(row); await db.SaveChangesAsync(ct); await Audit("DEFENSE_SCHEDULED", "DEFENSE_SESSION", row.Id,
             new { projectId, committeeId = committee.Id, start, end, room }, ct);
         await QueueDefenseNotification(row, access, ct);
-        return DefenseDto(row, access);
+        return await DefenseDtoAsync(row, access, ct);
     }, ct);
     public Task<DefenseSessionDto> CancelDefense(long id, CancelDefenseRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -224,7 +257,7 @@ internal sealed partial class AcademicTrackingService
         row.Status = "CANCELLED"; row.CancellationReason = input.Reason.Trim(); row.CancelledBy = Actor; row.CancelledAt = Now; row.ConcurrencyToken = Guid.NewGuid();
         await db.SaveChangesAsync(ct); await Audit("DEFENSE_CANCELLED", "DEFENSE_SESSION", id, new { projectId, row.ConcurrencyToken }, ct);
         await QueueDefenseNotification(row, access, ct);
-        return DefenseDto(row, access);
+        return await DefenseDtoAsync(row, access, ct);
     }, ct);
     public Task<PagedResult<DefenseSessionDto>> DefenseSessions(long projectId, int page, int pageSize, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -232,7 +265,7 @@ internal sealed partial class AcademicTrackingService
         var query = db.Set<DefenseSession>().AsNoTracking().Where(s => s.ProjectId == projectId);
         var count = await query.LongCountAsync(ct);
         var rows = await query.OrderBy(s => s.StartAt).ThenBy(s => s.Id).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(ct);
-        return new PagedResult<DefenseSessionDto>(rows.Select(s => DefenseDto(s, access)).ToArray(), page, pageSize, count);
+        return new PagedResult<DefenseSessionDto>(await DefenseDtosAsync(rows, access, ct), page, pageSize, count);
     }, ct);
     public Task<DefenseSessionDto> DefenseSession(long id, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -242,8 +275,8 @@ internal sealed partial class AcademicTrackingService
         if (project is not { ActiveScope: true }) throw new ForbiddenException();
         // Committee membership permits only this schedule; it grants no project or evaluator access.
         if (actor.IsLecturer && await db.Set<DefenseCommitteeMember>().AnyAsync(m => m.CommitteeId == row.CommitteeId && m.UserId == Actor, ct))
-            return DefenseDto(row, actor.IsStaff && actor.DepartmentId == project.LeadDepartmentId ? await Scope(row.ProjectId, ct) : null);
-        return DefenseDto(row, await Scope(row.ProjectId, ct));
+            return await DefenseDtoAsync(row, actor.IsStaff && actor.DepartmentId == project.LeadDepartmentId ? await Scope(row.ProjectId, ct) : null, ct);
+        return await DefenseDtoAsync(row, await Scope(row.ProjectId, ct), ct);
     }, ct);
     private async Task QueueDefenseNotification(DefenseSession row, Access access, CancellationToken ct)
     {
@@ -253,9 +286,20 @@ internal sealed partial class AcademicTrackingService
             || students.Contains(u.Id) && u.UserRoleUsers.Any(r => r.Role.Code == "STUDENT") && u.TeamMembers.Any(m => m.LeftAt == null && m.Team.Project != null && m.Team.Project.Id == row.ProjectId)))
             .Select(u => u.Id).Distinct().ToArrayAsync(ct);
         if (recipients.Length == 0) return;
-        var title = row.Status == "SCHEDULED" ? "A defense session has been scheduled" : "A defense session has been cancelled";
+        var projectInfo = await db.Projects.AsNoTracking().Where(p => p.Id == row.ProjectId)
+            .Select(p => new { p.Code, p.Title }).FirstOrDefaultAsync(ct);
+        var projectCode = projectInfo?.Code;
+        var projectFull = projectInfo is null ? "của bạn" : string.IsNullOrWhiteSpace(projectInfo.Title) ? projectInfo.Code : $"{projectInfo.Code} - {projectInfo.Title}";
+        var startVn = DateTime.SpecifyKind(row.StartAt, DateTimeKind.Utc).AddHours(7).ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        var rawTitle = row.Status == "SCHEDULED"
+            ? (projectCode is null ? "Lịch bảo vệ đã được công bố" : $"Lịch bảo vệ đồ án {projectCode} đã được công bố")
+            : (projectCode is null ? "Lịch bảo vệ đã bị hủy" : $"Lịch bảo vệ đồ án {projectCode} đã bị hủy");
+        var title = rawTitle.Length <= 255 ? rawTitle : rawTitle[..255];
+        var content = row.Status == "SCHEDULED"
+            ? $"Phiên bảo vệ của đồ án {projectFull} đã được xếp lịch vào lúc {startVn} (giờ Việt Nam) tại phòng {row.Room}. Vui lòng mở lịch bảo vệ để xem chi tiết."
+            : $"Phiên bảo vệ của đồ án {projectFull} (dự kiến lúc {startVn}, phòng {row.Room}) đã bị hủy.{(string.IsNullOrWhiteSpace(row.CancellationReason) ? "" : $" Lý do: {row.CancellationReason}")}";
         var notification = new Persistence.Generated.Models.Notification { CreatedBy = Actor, NotificationType = "DEFENSE_" + row.Status,
-            Title = title, Content = title + ". Open your authorized schedule for details.", RelatedEntityType = "DEFENSE_SESSION", RelatedEntityId = row.Id,
+            Title = title, Content = content, RelatedEntityType = "DEFENSE_SESSION", RelatedEntityId = row.Id,
             CreatedAt = Now, UpdatedAt = Now, NotificationRecipients = recipients.Select(id => new Persistence.Generated.Models.NotificationRecipient {
                 UserId = id, CreatedAt = Now, UpdatedAt = Now, DeliveredAt = Now }).ToArray() };
         db.Add(notification); await db.SaveChangesAsync(ct);

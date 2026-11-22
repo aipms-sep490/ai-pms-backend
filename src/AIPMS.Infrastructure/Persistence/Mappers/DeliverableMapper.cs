@@ -15,17 +15,21 @@ internal static class DeliverableMapper
         new(f.Id, f.TaskId != null ? "TASK" : f.DeliverableVersionId != null ? "VERSION" : f.ProgressReportId != null ? "REPORT" : f.MeetingId != null ? "MEETING" : "FEEDBACK",
             f.TaskId ?? f.DeliverableVersionId ?? f.ProgressReportId ?? f.MeetingId ?? f.SupervisorFeedbackId ?? 0,
             f.OriginalFileName, f.MimeType ?? "application/octet-stream", f.FileSizeBytes,
-            f.ChecksumSha256 ?? "", f.UploadedBy, f.CreatedAt);
+            f.ChecksumSha256 ?? "", f.UploadedBy, f.CreatedAt,
+            f.UploadedByNavigation != null ? f.UploadedByNavigation.FullName : null);
 
-    public static ProjectFileDto ToDto(this M.File f) => new(f.Id,
+    public static ProjectFileDto ToDto(this M.File f, string? uploadedByName = null) => new(f.Id,
         f.TaskId.HasValue ? "TASK" : f.DeliverableVersionId.HasValue ? "VERSION" : f.ProgressReportId.HasValue ? "REPORT" : f.MeetingId.HasValue ? "MEETING" : "FEEDBACK",
         f.TaskId ?? f.DeliverableVersionId ?? f.ProgressReportId ?? f.MeetingId ?? f.SupervisorFeedbackId ?? 0,
         f.OriginalFileName, f.MimeType ?? "application/octet-stream", f.FileSizeBytes,
-        f.ChecksumSha256 ?? "", f.UploadedBy, f.CreatedAt);
+        f.ChecksumSha256 ?? "", f.UploadedBy, f.CreatedAt, uploadedByName ?? f.UploadedByNavigation?.FullName);
 
-    public static DeliverableVersionDto ToDto(this M.DeliverableVersion v) =>
+    public static DeliverableVersionDto ToDto(this M.DeliverableVersion v,
+        IReadOnlyDictionary<long, string>? userNames = null) =>
         new(v.Id, v.DeliverableId, v.VersionNumber, v.SubmittedBy, v.SubmissionNote, v.Status,
-            v.SubmittedAt, v.Files.OrderBy(f => f.Id).Select(f => f.ToDto()).ToArray());
+            v.SubmittedAt,
+            v.Files.OrderBy(f => f.Id).Select(f => f.ToDto(userNames?.GetValueOrDefault(f.UploadedBy))).ToArray(),
+            userNames?.GetValueOrDefault(v.SubmittedBy) ?? v.SubmittedByNavigation?.FullName);
 
     public static readonly Expression<Func<M.SupervisorFeedback, DeliverableFeedbackDto>> FeedbackProjection = f =>
         new(f.Id, f.ProjectId, f.DeliverableVersionId!.Value, f.SupervisorAssignmentId,

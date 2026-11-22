@@ -19,7 +19,7 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
 {
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
     private DateTimeOffset Now => clock.GetUtcNow();
-    private sealed record Candidate(long ProjectId, long GateId, long? DepartmentId, int Seats,
+    private sealed record Candidate(long ProjectId, string ProjectCode, string ProjectTitle, long GateId, long? DepartmentId, int Seats,
         long[] Reviewers, long[] Supervisors, DateTimeOffset WindowStart, DateTimeOffset WindowEnd);
     private sealed record Occupied(long ProjectId, long? GateId, long? RoomId, string? RoomCode,
         DateTimeOffset Start, DateTimeOffset End, long[] Reviewers);
@@ -84,12 +84,12 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
         foreach (var project in projects)
         {
             if (!gates.Any(g => g.ProjectId == project.Id && g.Sequence == 2 && g.Status == "PASSED"))
-            { issues.Add(new(project.Id, "REVIEW_GATE_2_NOT_PASSED")); continue; }
+            { issues.Add(new(project.Id, "REVIEW_GATE_2_NOT_PASSED", project.Code, project.Title)); continue; }
             var gate = gates.SingleOrDefault(g => g.ProjectId == project.Id && g.Sequence == 3);
             if (gate?.WindowStart is null || gate.WindowEnd is null || gate.WindowEnd <= gate.WindowStart)
-            { issues.Add(new(project.Id, "REVIEW_GATE_3_WINDOW_REQUIRED")); continue; }
+            { issues.Add(new(project.Id, "REVIEW_GATE_3_WINDOW_REQUIRED", project.Code, project.Title)); continue; }
             if (gate.Status is "PASSED" or "FAILED" or "REJECTED")
-            { issues.Add(new(project.Id, "REVIEW_GATE_3_CLOSED")); continue; }
+            { issues.Add(new(project.Id, "REVIEW_GATE_3_CLOSED", project.Code, project.Title)); continue; }
             var assigned = reviewers.Where(r => r.GateInstanceId == gate.Id
                 && activeReviewerIds.Contains(r.ReviewerId)).ToArray();
             if (assigned.Where(r => r.SessionRole == "CHAIR").Select(r => r.ReviewerId).Distinct().Count() != 1
@@ -97,12 +97,12 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
                 || assigned.FirstOrDefault(r => r.SessionRole == "CHAIR")?.ReviewerId
                     == assigned.FirstOrDefault(r => r.SessionRole == "SECRETARY")?.ReviewerId
                 || assigned.Select(r => r.ReviewerId).Distinct().Count() != 2)
-            { issues.Add(new(project.Id, "REVIEW_GATE_3_REVIEWERS_REQUIRED")); continue; }
+            { issues.Add(new(project.Id, "REVIEW_GATE_3_REVIEWERS_REQUIRED", project.Code, project.Title)); continue; }
             var idsForGate = assigned.Select(r => r.ReviewerId).Distinct().ToArray();
             var supervisorsForProject = supervisors.Where(s => s.ProjectId == project.Id).Select(s => s.UserId).Distinct().ToArray();
             if (idsForGate.Intersect(supervisorsForProject).Any())
-            { issues.Add(new(project.Id, "SUPERVISOR_CONFLICT_OF_INTEREST")); continue; }
-            results.Add(project.Id, new(project.Id, gate.Id,
+            { issues.Add(new(project.Id, "SUPERVISOR_CONFLICT_OF_INTEREST", project.Code, project.Title)); continue; }
+            results.Add(project.Id, new(project.Id, project.Code, project.Title, gate.Id,
                 snapshots.First(s => s.ProjectId == project.Id).LeadDepartmentId,
                 project.Team.TeamMembers.Count(m => m.LeftAt == null) + idsForGate.Length + 5,
                 idsForGate, supervisorsForProject,
@@ -170,10 +170,20 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
         var result = await db.Database.SqlQueryRaw<int>("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource=N'AI_PMS_DEFENSE_SCHEDULE', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=10000; SELECT @r AS Value;").ToListAsync(ct);
         if (result.Single() < 0) throw new ConflictException("Room schedule is busy; retry.", "DEFENSE_SCHEDULE_BUSY");
     }
-    private static ReviewGate3ScheduleDto Dto(ProjectGateInstance gate, GateSessionScript script, Room room) =>
+    private static ReviewGate3ScheduleDto Dto(ProjectGateInstance gate, GateSessionScript script, Room room,
+        string? projectCode = null, string? projectTitle = null) =>
         new(gate.ProjectId, gate.Id, room.Id, room.Code, script.ScheduledStartAt,
             script.ScheduledEndAt, script.PublishedAt!.Value, script.PublishedBy,
-            script.ConcurrencyToken.ToString("N"));
+            script.ConcurrencyToken.ToString("N"), projectCode, projectTitle);
+
+    private async Task<Dictionary<long, (string Code, string Title)>> LoadProjectInfoAsync(IEnumerable<long> projectIds, CancellationToken ct)
+    {
+        var ids = projectIds.Distinct().ToArray();
+        if (ids.Length == 0) return [];
+        return (await db.Projects.AsNoTracking().Where(p => ids.Contains(p.Id))
+            .Select(p => new { p.Id, p.Code, p.Title }).ToArrayAsync(ct))
+            .ToDictionary(p => p.Id, p => (p.Code, p.Title));
+    }
 
     public async Task<ReviewGate3SchedulePreviewDto> Preview(long periodId, AutoSchedulePreviewRequest input, CancellationToken ct)
     {
@@ -214,13 +224,13 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
                     foreach (var room in rooms.Values.Where(r => r.Capacity >= c.Seats).OrderBy(r => r.Id))
                     {
                         if (Excluded(room.Id, day, slot, input.Exclusions) || Clash(c, room, time.Start, time.End, occupied)) continue;
-                        selected = new(c.ProjectId, c.GateId, room.Id, room.Code, day, slot, time.Start, time.End);
+                        selected = new(c.ProjectId, c.GateId, room.Id, room.Code, day, slot, time.Start, time.End, c.ProjectCode, c.ProjectTitle);
                         occupied.Add(new(c.ProjectId, c.GateId, room.Id, room.Code, time.Start, time.End, c.Reviewers));
                         break;
                     }
                 }
             }
-            if (selected is null) conflicts.Add(new(c.ProjectId, "NO_ROOM_OR_CONFLICT_FREE_SLOT"));
+            if (selected is null) conflicts.Add(new(c.ProjectId, "NO_ROOM_OR_CONFLICT_FREE_SLOT", c.ProjectCode, c.ProjectTitle));
             else allocations.Add(selected);
         }
         return new(allocations.Count, conflicts.Count, allocations, conflicts, await Revision(ct));
@@ -279,7 +289,12 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
         await audit.RecordAsync(new(Actor, "REVIEW_GATE_3_SCHEDULE_PUBLISHED", "PROJECT_PERIOD", periodId,
             new Dictionary<string, object?> { ["gateIds"] = created.Select(x => x.Gate.Id).ToArray() }), ct);
         await tx.CommitAsync(ct);
-        return created.Select(x => Dto(x.Gate, x.Script, x.Room)).ToArray();
+        var projectInfos = await LoadProjectInfoAsync(created.Select(x => x.Gate.ProjectId), ct);
+        return created.Select(x =>
+        {
+            projectInfos.TryGetValue(x.Gate.ProjectId, out var info);
+            return Dto(x.Gate, x.Script, x.Room, info.Code, info.Title);
+        }).ToArray();
     }
 
     public async Task<IReadOnlyList<ReviewGate3ScheduleDto>> List(long periodId, CancellationToken ct)
@@ -294,8 +309,14 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
             && s.PublishedAt != null && s.RoomId != null).ToArrayAsync(ct);
         var rooms = await db.Set<Room>().AsNoTracking().Where(r => scripts.Select(s => s.RoomId).Contains(r.Id))
             .ToDictionaryAsync(r => r.Id, ct);
+        var projectInfos = await LoadProjectInfoAsync(gates.Select(g => g.ProjectId), ct);
         return scripts.Where(s => rooms.ContainsKey(s.RoomId!.Value))
-            .Select(s => Dto(gates.Single(g => g.Id == s.ProjectGateInstanceId), s, rooms[s.RoomId!.Value]))
+            .Select(s =>
+            {
+                var gate = gates.Single(g => g.Id == s.ProjectGateInstanceId);
+                projectInfos.TryGetValue(gate.ProjectId, out var info);
+                return Dto(gate, s, rooms[s.RoomId!.Value], info.Code, info.Title);
+            })
             .OrderBy(s => s.StartAt).ThenBy(s => s.RoomCode).ToArray();
     }
 
@@ -346,6 +367,8 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
             new Dictionary<string, object?> { ["reason"] = input.Reason.Trim(), ["roomId"] = room.Id,
                 ["startAt"] = input.StartAt }), ct);
         await tx.CommitAsync(ct);
-        return Dto(gate, script, room);
+        var proj = await LoadProjectInfoAsync([gate.ProjectId], ct);
+        proj.TryGetValue(gate.ProjectId, out var projInfo);
+        return Dto(gate, script, room, projInfo.Code, projInfo.Title);
     }
 }

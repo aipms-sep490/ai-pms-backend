@@ -208,20 +208,28 @@ public sealed partial class ProjectRepository
         var project = await context.Projects.AsNoTracking().SingleOrDefaultAsync(p => p.Id == projectId, ct)
             ?? throw new NotFoundException("Project", projectId);
         var snapshot = await LatestRegistrationAsync(projectId, ct);
+        var rounds = await context.Set<ProjectRegistrationSnapshot>().AsNoTracking().Include(s => s.Decisions)
+            .Where(s => s.ProjectId == projectId).OrderByDescending(s => s.Id).ToListAsync(ct);
+        var deciderIds = (snapshot?.Decisions ?? Enumerable.Empty<ProjectDepartmentDecision>())
+            .Concat(rounds.SelectMany(r => r.Decisions))
+            .Where(d => d.DecidedBy.HasValue).Select(d => d.DecidedBy!.Value).Distinct().ToArray();
+        var deciderNames = deciderIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.Users.AsNoTracking().Where(u => deciderIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
         var evidence = snapshot is null ? null : Services.Projects.ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson);
         var dto = snapshot is null || evidence is null ? null : new RegistrationSnapshotDto(snapshot.Id, snapshot.ProjectPeriodId,
             snapshot.SubmittedBy, snapshot.SubmittedAt, evidence,
             snapshot.Decisions.OrderBy(d => d.DepartmentId).Select(d => new DepartmentDecisionDto(d.DepartmentId,
-                d.Decision, d.DecidedBy, d.DecidedAt, d.Reason)).ToArray(), "FROZEN_REGISTRATION_SNAPSHOT");
+                d.Decision, d.DecidedBy, d.DecidedAt, d.Reason,
+                d.DecidedBy.HasValue ? deciderNames.GetValueOrDefault(d.DecidedBy.Value) : null)).ToArray(), "FROZEN_REGISTRATION_SNAPSHOT");
         var scope = await GetTeamScopeAsync(project.TeamId, ct);
         var effectiveScope = project.Status is not ("DRAFT" or "REVISION_REQUIRED")
             ? dto?.Evidence?.Scope : scope is null ? null : TeamAcademicScopeDto.FromScope(scope);
-        var rounds = await context.Set<ProjectRegistrationSnapshot>().AsNoTracking().Include(s => s.Decisions)
-            .Where(s => s.ProjectId == projectId).OrderByDescending(s => s.Id).ToListAsync(ct);
         var history = rounds.Select(s => new RegistrationSnapshotDto(s.Id, s.ProjectPeriodId, s.SubmittedBy,
             s.SubmittedAt, Services.Projects.ProjectAcademicScopeReader.ReadHistoricalEvidence(s.SnapshotJson),
             s.Decisions.OrderBy(d => d.DepartmentId).Select(d => new DepartmentDecisionDto(d.DepartmentId,
-                d.Decision, d.DecidedBy, d.DecidedAt, d.Reason)).ToArray(),
+                d.Decision, d.DecidedBy, d.DecidedAt, d.Reason,
+                d.DecidedBy.HasValue ? deciderNames.GetValueOrDefault(d.DecidedBy.Value) : null)).ToArray(),
             Services.Projects.ProjectAcademicScopeReader.ParseEvidence(s.SnapshotJson) is null
                 ? "UNKNOWN" : "FROZEN_REGISTRATION_SNAPSHOT")).ToArray();
         return new(Convert.ToBase64String(project.RowVersion), effectiveScope, dto, history);
