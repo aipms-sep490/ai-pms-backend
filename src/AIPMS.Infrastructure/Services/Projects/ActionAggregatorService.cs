@@ -28,10 +28,10 @@ internal sealed class ActionAggregatorService(AipmsDbContext db, ICurrentUser cu
         var items = new List<ActionAggregatorItem>();
         var now = Now;
         var taskCount = await db.Tasks.AsNoTracking()
-            .LongCountAsync(t => t.Milestone.ProjectId == project.Id && t.TaskAssignees.Any(a => a.UserId == Actor)
+            .LongCountAsync(t => t.DeletedAt == null && t.Milestone.ProjectId == project.Id && t.TaskAssignees.Any(a => a.UserId == Actor)
                 && t.Status != "DONE" && t.Status != "CANCELLED", ct);
         var tasks = await db.Tasks.AsNoTracking()
-            .Where(t => t.Milestone.ProjectId == project.Id && t.TaskAssignees.Any(a => a.UserId == Actor)
+            .Where(t => t.DeletedAt == null && t.Milestone.ProjectId == project.Id && t.TaskAssignees.Any(a => a.UserId == Actor)
                 && t.Status != "DONE" && t.Status != "CANCELLED")
             .OrderByDescending(t => t.DueAt.HasValue && t.DueAt.Value < now)
             .ThenBy(t => !t.DueAt.HasValue)
@@ -83,8 +83,34 @@ internal sealed class ActionAggregatorService(AipmsDbContext db, ICurrentUser cu
             .OrderBy(m => m.StartAt).Take(50).Select(m => new { m.Id, m.ProjectId, m.Title, m.StartAt }).ToArrayAsync(ct);
         items.AddRange(meetings.Select(m => new ActionAggregatorItem("MEETING_SIGN_OFF", m.Id, m.ProjectId,
             $"Hoàn tất biên bản {m.Title}", "COMPLETED", "NORMAL", m.StartAt, $"/supervisor/meetings/{m.Id}")));
+
+        var now = Now;
+        var evalAssigns = await db.Set<EvaluationAssignment>().AsNoTracking()
+            .Where(a => a.EvaluatorId == Actor && a.Status != "REVOKED" && a.Status != "FINALIZED"
+                && (a.ValidFrom == null || a.ValidFrom <= now) && (a.ValidUntil == null || now <= a.ValidUntil))
+            .OrderBy(a => a.Id).Take(50)
+            .Select(a => new { a.Id, a.ProjectId, a.Stage, a.Scope, a.Status }).ToArrayAsync(ct);
+        items.AddRange(evalAssigns.Select(a => new ActionAggregatorItem("EVALUATION_ASSIGNMENT", a.Id, a.ProjectId,
+            $"Chấm {a.Stage} ({a.Scope}) · #{a.Id}", a.Status, "HIGH", null, $"/evaluator/assignments/{a.Id}")));
+
+        var blockedCutoff = now.AddHours(-48);
+        var blockedTasks = await db.Tasks.AsNoTracking()
+            .Where(t => t.DeletedAt == null && projects.Contains(t.Milestone.ProjectId) && t.Status == "BLOCKED"
+                && t.BlockedSinceAt.HasValue && t.BlockedSinceAt.Value <= blockedCutoff)
+            .OrderBy(t => t.BlockedSinceAt).Take(30)
+            .Select(t => new { t.Id, t.Milestone.ProjectId, t.Title, t.BlockedSinceAt }).ToArrayAsync(ct);
+        items.AddRange(blockedTasks.Select(t => new ActionAggregatorItem("TASK_BLOCKED_48H", t.Id, t.ProjectId,
+            $"Task BLOCKED > 48h: {t.Title}", "BLOCKED", "HIGH", t.BlockedSinceAt, $"/project/tasks/{t.Id}")));
+
+        var pendingLocks = await db.Set<FinalSubmissionDraft>().AsNoTracking()
+            .Where(d => projects.Contains(d.ProjectId) && d.LockWorkflowStatus == "PENDING_SUPERVISOR_LOCK")
+            .OrderBy(d => d.LockRequestedAt).Take(20)
+            .Select(d => new { d.Id, d.ProjectId, d.LockRequestedAt }).ToArrayAsync(ct);
+        items.AddRange(pendingLocks.Select(d => new ActionAggregatorItem("FINAL_LOCK_APPROVAL", d.Id, d.ProjectId,
+            "Ký khóa hồ sơ Tiền-Defense (Final & Cold)", "PENDING_SUPERVISOR_LOCK", "HIGH", d.LockRequestedAt, $"/supervisor/projects/{d.ProjectId}/final-submission")));
+
         var ordered = items.OrderByDescending(x => x.Severity == "HIGH").ThenBy(x => !x.DueAt.HasValue).ThenBy(x => x.DueAt).Take(100).ToArray();
-        var total = reportCount + requestCount + meetingCount;
+        var total = reportCount + requestCount + meetingCount + evalAssigns.Length + blockedTasks.Length + pendingLocks.Length;
         return new(Now, ordered, total, total > ordered.Length);
     }
 
