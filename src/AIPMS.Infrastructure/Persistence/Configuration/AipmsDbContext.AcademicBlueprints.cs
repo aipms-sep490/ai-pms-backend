@@ -10,6 +10,7 @@ public partial class AipmsDbContext
     public virtual DbSet<AcademicBlueprintApproval> AcademicBlueprintApprovals { get; set; } = null!;
     public virtual DbSet<ProjectBlueprintSnapshot> ProjectBlueprintSnapshots { get; set; } = null!;
     public virtual DbSet<GateDeadlineChangeRequest> GateDeadlineChangeRequests { get; set; } = null!;
+    public virtual DbSet<ProjectLabel> ProjectLabels { get; set; } = null!;
 
     private static void ConfigureAcademicBlueprints(ModelBuilder b)
     {
@@ -120,6 +121,26 @@ public partial class AipmsDbContext
             e.Property(x => x.DeletedAt).HasColumnName("deleted_at").HasPrecision(0);
             e.Property(x => x.DeletedBy).HasColumnName("deleted_by");
             e.Property(x => x.RestoreUntilAt).HasColumnName("restore_until_at").HasPrecision(0);
+            e.Property(x => x.TaskCategory).HasColumnName("task_category").HasMaxLength(60).IsUnicode(false);
+            e.Property(x => x.DisciplineSubStatus).HasColumnName("discipline_sub_status").HasMaxLength(40).IsUnicode(false);
+            e.Property(x => x.HandoffFlag).HasColumnName("handoff_flag").HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.HandoffFlaggedAt).HasColumnName("handoff_flagged_at").HasPrecision(0);
+        });
+
+        b.Entity<ProjectLabel>(e =>
+        {
+            e.ToTable("project_labels");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.ProjectId).HasColumnName("project_id");
+            e.Property(x => x.Slug).HasColumnName("slug").HasMaxLength(32).IsUnicode(false);
+            e.Property(x => x.Name).HasColumnName("name").HasMaxLength(60);
+            e.Property(x => x.ColorHex).HasColumnName("color_hex").HasMaxLength(7).IsUnicode(false).IsFixedLength();
+            e.Property(x => x.Description).HasColumnName("description").HasMaxLength(200);
+            e.Property(x => x.IsSystem).HasColumnName("is_system").HasDefaultValue(false);
+            e.Property(x => x.CreatedBy).HasColumnName("created_by");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").HasPrecision(0);
+            e.HasIndex(x => new { x.ProjectId, x.Slug }).IsUnique();
         });
     }
 }

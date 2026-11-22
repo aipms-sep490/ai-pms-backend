@@ -95,6 +95,34 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         return DecisionDto(row);
     }
 
+    public async Task<MeetingDecisionDto> SupersedeDecision(long meetingId, long decisionId, CreateMeetingDecisionRequest input, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(input.Content) || input.Content.Length > 4000)
+            throw Invalid("Superseding decision content must contain 1..4000 characters.");
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var meeting = await Lock(meetingId, ct);
+        if (!MeetingGovernanceRules.CanRecordDecision(meeting.Status)) throw new ConflictException("Complete the meeting before recording decisions.");
+        Current(meeting.ConcurrencyToken, input.ConcurrencyToken);
+
+        var original = await db.MeetingDecisions.SingleOrDefaultAsync(d => d.Id == decisionId && d.MeetingId == meetingId, ct)
+            ?? throw new NotFoundException("MeetingDecision", decisionId);
+        if (original.SupersededByDecisionId.HasValue)
+            throw new ConflictException("This meeting decision has already been superseded.");
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var replacement = new MeetingDecision { MeetingId = meetingId, Content = input.Content.Trim(), DecidedBy = Actor, DecidedAt = now, CreatedAt = now };
+        db.MeetingDecisions.Add(replacement);
+        await db.SaveChangesAsync(ct);
+
+        original.SupersededByDecisionId = replacement.Id;
+        meeting.ConcurrencyToken = Guid.NewGuid();
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync(new(Actor, "MEETING_DECISION_SUPERSEDED", "MEETING_DECISION", original.Id,
+            new Dictionary<string, object?> { ["meetingId"] = meetingId, ["projectId"] = meeting.ProjectId, ["supersededByDecisionId"] = replacement.Id }), ct);
+        await tx.CommitAsync(ct);
+        return DecisionDto(replacement);
+    }
+
     public async Task<MeetingActionItemDto> SaveAction(long meetingId, long? actionId, SaveMeetingActionItemRequest input, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(input.Title) || input.Title.Length > 500 || input.Description?.Length > 4000
@@ -154,7 +182,7 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         return ActionDto(row);
     }
 
-    private static MeetingDecisionDto DecisionDto(MeetingDecision x) => new(x.Id, x.MeetingId, x.Content, x.DecidedBy, x.DecidedAt);
+    private static MeetingDecisionDto DecisionDto(MeetingDecision x) => new(x.Id, x.MeetingId, x.Content, x.DecidedBy, x.DecidedAt, x.SupersededByDecisionId);
     private static ValidationException Invalid(string message) => new(new Dictionary<string, string[]> { ["input"] = [message] });
     private static MeetingActionItemDto ActionDto(MeetingActionItem x) => new(x.Id, x.MeetingId, x.Title, x.Description,
         x.AssigneeUserId, x.DueAt, x.Status, x.ConcurrencyToken.ToString("N"), x.CreatedBy, x.CreatedAt, x.UpdatedAt);

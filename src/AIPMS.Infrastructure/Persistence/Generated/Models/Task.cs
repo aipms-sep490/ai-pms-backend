@@ -40,6 +40,10 @@ public partial class Task
     public DateTime? DeletedAt { get; set; }
     public long? DeletedBy { get; set; }
     public DateTime? RestoreUntilAt { get; set; }
+    public string? TaskCategory { get; set; }
+    public string? DisciplineSubStatus { get; set; }
+    public string? HandoffFlag { get; set; }
+    public DateTime? HandoffFlaggedAt { get; set; }
 
     public virtual User CreatedByNavigation { get; set; } = null!;
 
