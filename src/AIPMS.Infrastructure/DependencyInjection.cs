@@ -74,6 +74,7 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore, AiRunStore>();
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiAssistantService, RecordedAiAssistantService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IAcademicKnowledgeService, AcademicKnowledgeService>();
+        services.AddScoped<AIPMS.Application.Features.AcademicBlueprints.Abstractions.IAcademicBlueprintService, AcademicBlueprintService>();
         services.AddScoped<AIPMS.Application.Features.DepartmentDocuments.Abstractions.IDepartmentDocumentService, DepartmentDocumentService>();
         services.AddScoped<AIPMS.Application.Features.Files.Abstractions.IOfficePreviewService, OfficePreviewService>();
         services.AddSingleton<IFileSecurityScanner, Services.Files.BasicSignatureAndArchiveScanner>();

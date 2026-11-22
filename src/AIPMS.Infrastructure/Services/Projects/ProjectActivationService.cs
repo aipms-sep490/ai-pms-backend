@@ -8,7 +8,9 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.Infrastructure.Services.Projects;
 
-internal sealed class ProjectActivationService(AipmsDbContext db) : IProjectActivationService
+internal sealed class ProjectActivationService(
+    AipmsDbContext db,
+    AIPMS.Application.Features.AcademicBlueprints.Abstractions.IAcademicBlueprintService? blueprintService = null) : IProjectActivationService
 {
     public async Task ApplyMilestoneTemplateAsync(long projectId, long actorUserId, DateTime activatedAt, CancellationToken cancellationToken = default)
     {
@@ -52,6 +54,10 @@ internal sealed class ProjectActivationService(AipmsDbContext db) : IProjectActi
                 // Remember activation even without a template, so retries cannot add a later plan.
                 project.MilestonesInitialized = true;
                 await db.SaveChangesAsync(cancellationToken);
+            }
+            if (blueprintService is not null)
+            {
+                await blueprintService.ApplyBlueprintToProjectAsync(projectId, actorUserId, activatedAt, null, cancellationToken);
             }
             if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         }

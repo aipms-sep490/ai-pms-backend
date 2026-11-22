@@ -3,7 +3,7 @@ namespace AIPMS.Application.Features.Semesters;
 /// <summary>
 /// Valid status values for AcademicSemester and ProjectPeriod (mirror DB CHECK constraints).
 /// </summary>
-internal static class SemesterStatuses
+public static class SemesterStatuses
 {
     public const string Draft = "DRAFT";
     public const string Upcoming = "UPCOMING";
@@ -21,7 +21,7 @@ internal static class SemesterStatuses
 /// <summary>
 /// Valid period_type values for ProjectPeriod (mirror DB CHECK constraint).
 /// </summary>
-internal static class PeriodTypes
+public static class PeriodTypes
 {
     public const string Registration = "REGISTRATION";
     public const string ProjectReview = "PROJECT_REVIEW";

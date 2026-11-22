@@ -211,6 +211,7 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         entity.Priority = priority;
         entity.StartAt = startAt;
         entity.DueAt = dueAt;
+        entity.IsUserCustomized = true;
         entity.UpdatedAt = DateTime.UtcNow;
         entity.ConcurrencyToken = Guid.NewGuid();
 
@@ -226,17 +227,23 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         if (entity is not null)
         {
             if (await HasHistoricalDataAsync(id, cancellationToken))
-                throw new AIPMS.Application.Common.Exceptions.ConflictException("Task evidence and comments must be retained. Cancel the task instead.");
+                throw new AIPMS.Application.Common.Exceptions.ConflictException(
+                    "Task evidence, core blueprint gate tasks, and comments must be retained. Cancel the task instead.",
+                    AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.RestrictedDelete);
             context.Tasks.Remove(entity);
             try { await context.SaveChangesAsync(cancellationToken); }
             catch (DbUpdateException ex) when (ex.InnerException is Microsoft.Data.SqlClient.SqlException { Number: 547 })
-            { throw new AIPMS.Application.Common.Exceptions.ConflictException("The task has related records and cannot be deleted."); }
+            {
+                throw new AIPMS.Application.Common.Exceptions.ConflictException(
+                    "The task has related records and cannot be deleted.",
+                    AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.RestrictedDelete);
+            }
         }
     }
 
     public async Task<bool> HasHistoricalDataAsync(long id, CancellationToken cancellationToken)
     {
-        if (await context.Tasks.AnyAsync(t => t.Id == id && t.SprintId != null, cancellationToken)
+        if (await context.Tasks.AnyAsync(t => t.Id == id && (t.SprintId != null || t.IsCoreGateTask), cancellationToken)
             || await context.Set<AIPMS.Infrastructure.Persistence.Models.SprintTaskEvent>().AnyAsync(e => e.TaskId == id, cancellationToken)) return true;
         if (await context.TaskComments.AnyAsync(c => c.TaskId == id, cancellationToken)
             || await context.Files.AnyAsync(f => f.TaskId == id, cancellationToken)

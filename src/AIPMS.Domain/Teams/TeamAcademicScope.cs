@@ -6,6 +6,12 @@ public static class AcademicTrackCodes
     public const string MktOnly = "MKT_ONLY";
     public const string ItMkt = "IT_MKT";
     public static bool IsValid(string? trackCode) => trackCode is ItOnly or MktOnly or ItMkt;
+    public static string? Normalize(string? trackCode)
+    {
+        if (string.IsNullOrWhiteSpace(trackCode)) return null;
+        var norm = trackCode.Trim().ToUpperInvariant();
+        return IsValid(norm) ? norm : null;
+    }
 }
 
 public sealed record MajorRequirement(long MajorId, int MinMembers, int MaxMembers, string Responsibility);

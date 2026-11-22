@@ -73,6 +73,10 @@ public sealed class ProjectGateInstance
     public decimal? Weight { get; set; }
     public DateTime? WindowStart { get; set; }
     public DateTime? WindowEnd { get; set; }
+    public DateTime? SubmissionDueAt { get; set; }
+    public DateTime? ReviewWindowEndAt { get; set; }
+    public DateTime? RevisionDueAt { get; set; }
+    public string? OffsetRuleJson { get; set; }
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
     public DateTime CreatedAt { get; set; }
     public AIPMS.Infrastructure.Persistence.Generated.Models.Project Project { get; set; } = null!;
