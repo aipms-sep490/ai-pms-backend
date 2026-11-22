@@ -117,7 +117,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
     private static EvaluationSchemeDto Map(EvaluationScheme r) => new(r.Id, r.RootId ?? r.Id, r.Version, r.ProjectId, r.ProjectPeriodId,
         r.Name, r.Status, r.PassThreshold, r.ConcurrencyToken.ToString("N"), r.PolicyVersionId,
         r.Components.OrderBy(c => c.Id).Select(c => new SchemeComponentDto(c.Id, c.Name, c.Scope, c.MajorId, c.RubricId,
-            c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, Weights(c), c.Stage)).ToArray(),
+            c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, Weights(c), c.Stage, c.TargetScope, c.IsIntegration)).ToArray(),
         JsonSerializer.Deserialize<SchemeStudent[]>(r.StudentsJson)!, r.CalculationRule, Policy(r), r.LockedAt);
     private static SchemePolicyInput? Policy(EvaluationScheme row) => row.GovernanceJson is null ? null
         : JsonSerializer.Deserialize<SchemePolicyInput>(row.GovernanceJson);
@@ -155,10 +155,10 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var registration = await Registration(row.ProjectId, ct);
         var majors = registration.Scope.Requirements.Select(x => x.MajorId).Distinct().ToArray();
         EvaluationSchemeRules.Validate(row.Components.Select(c => new SchemeComponentInput(c.Name, c.Scope, c.MajorId, c.RubricId,
-            c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, Weights(c), c.Stage ?? "DEFENSE")).ToArray(), majors, row.PassThreshold);
+            c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, Weights(c), c.Stage ?? "DEFENSE", c.TargetScope, c.IsIntegration)).ToArray(), majors, row.PassThreshold);
         var policy = Policy(row) ?? throw new ConflictException("Scheme approval/calculation provenance is unknown; create an explicit new version.");
         VersionedResultCalculator.Validate(policy, row.Components.Select(c => new SchemeComponentInput(c.Name, c.Scope, c.MajorId,
-            c.RubricId, c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, Weights(c), c.Stage ?? "DEFENSE")).ToArray(), majors);
+            c.RubricId, c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, Weights(c), c.Stage ?? "DEFENSE", c.TargetScope, c.IsIntegration)).ToArray(), majors);
         foreach (var component in row.Components)
         {
             await ComponentAuthority(component.RubricId, row.ProjectId, ct, checkAuthority: false);
@@ -202,12 +202,12 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         {
             var policy = input.Policy ?? new SchemePolicyInput();
             row.GovernanceJson = JsonSerializer.Serialize(policy);
-            row.CalculationRule = policy.CalculationVersion == "LEGACY_V1" ? EvaluationSchemeRules.CalculationRule : VersionedResultCalculator.Version;
+            row.CalculationRule = VersionedResultCalculator.CalculationRuleFor(policy);
         }
         row.ConcurrencyToken = Guid.NewGuid();
         row.Components = input.Components.Select(c => new EvaluationSchemeComponent { Name = c.Name, Scope = c.Scope, MajorId = c.MajorId,
             RubricId = c.RubricId, ProjectWeightPercent = c.ProjectWeightPercent, StudentWeightPercent = c.StudentWeightPercent,
-            RequiredEvaluators = c.RequiredEvaluators, Stage = c.Stage,
+            RequiredEvaluators = c.RequiredEvaluators, Stage = c.Stage, TargetScope = c.TargetScope, IsIntegration = c.IsIntegration,
             EvaluatorWeightsJson = c.EvaluatorWeights is null ? null : JsonSerializer.Serialize(c.EvaluatorWeights.OrderBy(w => w?.EvaluatorId)) }).ToList();
         await Validate(row, ct);
         if (!id.HasValue) db.Add(row);
@@ -238,6 +238,8 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             component.StudentWeightPercent = change.StudentWeightPercent;
             component.RequiredEvaluators = change.RequiredEvaluators;
             component.Stage = change.Stage;
+            component.TargetScope = change.TargetScope;
+            component.IsIntegration = change.IsIntegration;
             component.EvaluatorWeightsJson = change.EvaluatorWeights is null ? null : JsonSerializer.Serialize(change.EvaluatorWeights.OrderBy(w => w?.EvaluatorId));
             await Validate(row, ct);
             row.ConcurrencyToken = Guid.NewGuid();
@@ -283,14 +285,15 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var row = new EvaluationScheme { RootId = source.RootId ?? source.Id, ProjectId = source.ProjectId, ProjectPeriodId = source.ProjectPeriodId,
             Version = await db.Set<EvaluationScheme>().Where(x => x.ProjectId == source.ProjectId).MaxAsync(x => x.Version, ct) + 1,
             Name = source.Name, PassThreshold = source.PassThreshold,
-            CalculationRule = Policy(source)?.CalculationVersion == "LEGACY_V1" ? EvaluationSchemeRules.CalculationRule : VersionedResultCalculator.Version,
+            CalculationRule = VersionedResultCalculator.CalculationRuleFor(Policy(source)),
             GovernanceJson = JsonSerializer.Serialize((Policy(source) ?? new SchemePolicyInput()) with {
                 IsDemo = true, ApprovalStatus = "DEMO", ApprovalReference = null }),
             CreatedBy = Actor, CreatedAt = Now, ConcurrencyToken = Guid.NewGuid(),
             StudentsJson = source.StudentsJson, RegistrationSnapshotJson = source.RegistrationSnapshotJson,
             Components = source.Components.Select(c => new EvaluationSchemeComponent { Name = c.Name, Scope = c.Scope, MajorId = c.MajorId,
                 RubricId = c.RubricId, ProjectWeightPercent = c.ProjectWeightPercent, StudentWeightPercent = c.StudentWeightPercent,
-                RequiredEvaluators = c.RequiredEvaluators, Stage = c.Stage, EvaluatorWeightsJson = c.EvaluatorWeightsJson }).ToList() };
+                RequiredEvaluators = c.RequiredEvaluators, Stage = c.Stage, TargetScope = c.TargetScope, IsIntegration = c.IsIntegration,
+                EvaluatorWeightsJson = c.EvaluatorWeightsJson }).ToList() };
         db.Add(row); await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_VERSIONED", "EVALUATION_SCHEME", row.Id, Map(row), ct); return Map(row);
     }, ct);
     public async Task DeleteAsync(long id, string token, CancellationToken ct) => await evaluations.InTransactionAsync(async () =>
@@ -351,7 +354,12 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         {
             var readiness = await cold.ProgressCore(assignment.ProjectId, ct, system: true);
             if (!readiness.Ready) throw new ConflictException("Complete COLD before defense grading: " + string.Join(", ", readiness.Blockers), "COLD_NOT_READY");
-            if (!await db.Set<DefenseSession>().AnyAsync(s => s.ProjectId == assignment.ProjectId && s.Status == "SCHEDULED"
+            // POL-06 (AGENTS.md §1.3): Defense room scheduling is optional (non-blocking) unless explicitly enabled on the period.
+            var requireDefenseRoom = await db.ProjectPeriods.AsNoTracking()
+                .Where(p => p.Id == assignment.PeriodId)
+                .Select(p => p.EnableDefenseRoomScheduling)
+                .SingleOrDefaultAsync(ct);
+            if (requireDefenseRoom && !await db.Set<DefenseSession>().AnyAsync(s => s.ProjectId == assignment.ProjectId && s.Status == "SCHEDULED"
                 && db.Set<DefenseCommittee>().Any(c => c.Id == s.CommitteeId && c.Status == "CONFIRMED"), ct))
                 throw new ConflictException("Schedule defense before grading its rubric.", "DEFENSE_SESSION_REQUIRED");
         }

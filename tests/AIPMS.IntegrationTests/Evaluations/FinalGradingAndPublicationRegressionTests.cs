@@ -61,9 +61,9 @@ public sealed class FinalGradingAndPublicationRegressionTests(EvaluationDraftDat
         var projectUrl = $"/api/v1/projects/{s.ProjectId}/result";
         var studentResultUrl = $"/api/v1/projects/{s.ProjectId}/students/{s.Scope.Users.Student}/result";
 
-        // Regression 09: Student cannot view unpublished score (returns 404)
+        // Regression 09 / TEST-P0-06: Student cannot view unpublished score (returns 403 RESULT_NOT_PUBLISHED)
         var preRead = await student.GetAsync(studentResultUrl);
-        Assert.Equal(HttpStatusCode.NotFound, preRead.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, preRead.StatusCode);
 
         // 1. Setup Approved Scheme (Official)
         var schemeDraft = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync("/api/v1/evaluation-schemes", new SaveEvaluationSchemeRequest(
@@ -86,7 +86,7 @@ public sealed class FinalGradingAndPublicationRegressionTests(EvaluationDraftDat
         Assert.Contains(unreadyPreview.Blockers, b => b.StartsWith("EVALUATION_NOT_FINALIZED") || b.StartsWith("MISSING_EVALUATOR"));
 
         var publishBlocked = await staff.PostAsJsonAsync(studentResultUrl, new PublishProjectResultRequest(unreadyPreview.ConfirmationToken));
-        Assert.Equal(HttpStatusCode.Conflict, publishBlocked.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, publishBlocked.StatusCode);
 
         // 2. Assign Evaluators
         var commonComp = scheme.Components.Single(c => c.Scope == "COMMON");

@@ -8,9 +8,17 @@ public sealed record ResultContributionDto(long AssignmentId, long EvaluationId,
     decimal WeightPercent, decimal Score, string EvaluationConcurrencyToken);
 public sealed record ProjectResultPreviewDto(long ProjectId, bool CanPublish, IReadOnlyList<string> Blockers,
     decimal? TotalScore, decimal? PassThreshold, string? Outcome, string ConfirmationToken, IReadOnlyList<ResultContributionDto> Contributions,
-    AIPMS.Application.Features.Evaluations.DTOs.ResultBreakdownDto? Breakdown = null);
+    AIPMS.Application.Features.Evaluations.DTOs.ResultBreakdownDto? Breakdown = null,
+    string? OutcomeDetail = null);
 public sealed record ProjectResultDto(long Id, long ProjectId, long FinalSubmissionId, decimal TotalScore, decimal PassThreshold,
     string Outcome, string CalculationRule, long PublishedBy, DateTime PublishedAt, string PolicyConcurrencyToken,
     IReadOnlyList<ResultContributionDto> Contributions, long? SchemeId = null, long? PolicyVersionId = null, string? FrozenInputs = null,
     AIPMS.Application.Features.Evaluations.DTOs.ResultBreakdownDto? Breakdown = null,
-    int Version = 1, long? RevisionId = null, int? SupersedesVersion = null);
+    int Version = 1, long? RevisionId = null, int? SupersedesVersion = null,
+    string? OutcomeDetail = null);
+public sealed record BatchPublishResultRequest(string ConfirmationToken);
+public sealed record BatchPublishResultDto(ProjectResultDto ProjectResult,
+    IReadOnlyList<AIPMS.Application.Features.Evaluations.DTOs.StudentResultDto> StudentResults);
+public sealed record RecordDefenseAbsenceRequest(string Reason, string? MinutesReference = null);
+public sealed record StudentDefenseAbsenceDto(long Id, long ProjectId, long StudentId, long RecordedBy,
+    string Reason, string? MinutesReference, DateTime RecordedAt);

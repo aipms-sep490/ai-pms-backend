@@ -96,6 +96,13 @@ public partial class AipmsDbContext
             entity.Property(e => e.EvidenceGuidance)
                 .HasMaxLength(1000)
                 .HasColumnName("evidence_guidance");
+            entity.Property(e => e.TargetScope)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasColumnName("target_scope");
+            entity.Property(e => e.IsIntegration)
+                .HasDefaultValue(false)
+                .HasColumnName("is_integration");
             entity.HasMany(e => e.Levels)
                 .WithOne(e => e.RubricCriterion)
                 .HasForeignKey(e => e.RubricCriterionId)

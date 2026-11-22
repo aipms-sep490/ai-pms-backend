@@ -18,7 +18,7 @@ internal static class PublishedResultResolver
         with { Id = row.Id, Version = 1, RevisionId = null, SupersedesVersion = null };
     internal static StudentResultDto Root(StudentResult row) => new(row.Id, row.ProjectId, row.StudentId, row.MajorId, row.SchemeId,
         row.TotalScore, row.PassThreshold, row.Outcome, row.CalculationRule, row.PublishedBy, DateTime.SpecifyKind(row.PublishedAt, DateTimeKind.Utc),
-        row.SnapshotJson, ResultSnapshotReader.Read(row.SnapshotJson, row.CalculationRule, row.StudentId, row.MajorId));
+        row.SnapshotJson, ResultSnapshotReader.Read(row.SnapshotJson, row.CalculationRule, row.StudentId, row.MajorId), OutcomeDetail: row.OutcomeDetail);
     internal static ProjectResultDto Project(ResultRevision row) => JsonSerializer.Deserialize<ProjectResultDto>(row.SnapshotJson)!
         with { Version = row.Version, RevisionId = row.Id, SupersedesVersion = row.Version - 1 };
     internal static StudentResultDto Student(ResultRevision row) => JsonSerializer.Deserialize<StudentResultDto>(row.SnapshotJson)!

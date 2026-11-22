@@ -104,7 +104,7 @@ public sealed partial class EvaluationDraftEndpointTests
         var keep = draft.Scores.Single(c => c.IsRequired != required);
         var partial = await Body<EvaluationDraftDto>(await lecturer.PutAsJsonAsync(DraftUrl(draft.Id) + "/draft",
             new SaveEvaluationDraftRequest(draft.ConcurrencyToken, null, [new(keep.RubricCriterionId, keep.Score, null)])));
-        Assert.Equal(HttpStatusCode.Conflict, (await Finalize(lecturer, partial)).StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await Finalize(lecturer, partial)).StatusCode);
         await NotFinalized(draft.Id);
     }
 

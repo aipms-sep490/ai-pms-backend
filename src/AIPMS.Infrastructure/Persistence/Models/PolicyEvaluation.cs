@@ -57,6 +57,8 @@ public sealed class EvaluationSchemeComponent
     public decimal ProjectWeightPercent { get; set; }
     public decimal StudentWeightPercent { get; set; }
     public int RequiredEvaluators { get; set; }
+    public string? TargetScope { get; set; }
+    public bool IsIntegration { get; set; }
 }
 public sealed class StudentResult
 {
@@ -68,6 +70,7 @@ public sealed class StudentResult
     public decimal TotalScore { get; set; }
     public decimal PassThreshold { get; set; }
     public string Outcome { get; set; } = "";
+    public string? OutcomeDetail { get; set; }
     public string CalculationRule { get; set; } = "";
     public long PublishedBy { get; set; }
     public DateTime PublishedAt { get; set; }
@@ -77,4 +80,31 @@ public sealed class StudentResultEvaluation
 {
     public long ResultId { get; set; }
     public long EvaluationId { get; set; }
+}
+public sealed class GateIndividualProcessScore
+{
+    public long Id { get; set; }
+    public long ProjectId { get; set; }
+    public long GateInstanceId { get; set; }
+    public long StudentId { get; set; }
+    public long SupervisorAssignmentId { get; set; }
+    public decimal Score { get; set; }
+    public decimal GateWeightPercent { get; set; }
+    public string? MentorReferenceNotes { get; set; }
+    public string? Comments { get; set; }
+    public string Status { get; set; } = "DRAFT";
+    public Guid ConcurrencyToken { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public DateTime? FinalizedAt { get; set; }
+}
+public sealed class StudentDefenseAbsence
+{
+    public long Id { get; set; }
+    public long ProjectId { get; set; }
+    public long StudentId { get; set; }
+    public long RecordedBy { get; set; }
+    public string Reason { get; set; } = "";
+    public string? MinutesReference { get; set; }
+    public DateTime RecordedAt { get; set; }
 }

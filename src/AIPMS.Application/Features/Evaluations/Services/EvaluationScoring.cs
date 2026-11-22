@@ -1,5 +1,6 @@
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Evaluations.Models;
+using AIPMS.Domain.Exceptions;
 
 namespace AIPMS.Application.Features.Evaluations.Services;
 
@@ -9,8 +10,11 @@ public static class EvaluationScoring
     {
         var preview = Preview(criteria, 10m);
         if (preview.Total is not decimal total)
-            throw new ConflictException("Every weighted criterion needs an explicit score before finalization. Missing criteria: "
-                + string.Join(", ", preview.MissingCriterionIds));
+            throw new DomainException("Every weighted criterion needs an explicit score before finalization. Missing criteria: "
+                + string.Join(", ", preview.MissingCriterionIds),
+                WorkflowErrorCodes.IncompleteScores,
+                new ProblemMetadata(BlockingRequirements: preview.MissingCriterionIds
+                    .Select(id => new BlockingRequirement($"MISSING_CRITERION:{id}", $"Missing explicit score for criterion {id}.")).ToArray()));
         return total;
     }
 

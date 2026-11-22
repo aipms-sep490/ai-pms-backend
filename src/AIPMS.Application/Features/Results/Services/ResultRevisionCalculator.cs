@@ -24,7 +24,7 @@ public static class ResultRevisionCalculator
             return amendments.Count == 0 ? baseline : CalculateCore(frozenInputs, amendments);
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException or NullReferenceException
-            or FormatException or ArgumentException or ArithmeticException)
+            or FormatException or ArgumentException or ArithmeticException or AIPMS.Domain.Exceptions.DomainException)
         { throw Unknown(); }
     }
     private static RevisionCalculation CalculateCore(string json, IReadOnlyList<ScoreAmendmentInput> amendments)
@@ -38,13 +38,13 @@ public static class ResultRevisionCalculator
         try
         {
             var componentInputs = scheme.Components.Select(c => new SchemeComponentInput(c.Name, c.Scope,
-                c.MajorId, c.RubricId, c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, c.EvaluatorWeights, c.Stage!)).ToArray();
+                c.MajorId, c.RubricId, c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, c.EvaluatorWeights, c.Stage!, c.TargetScope, c.IsIntegration)).ToArray();
             var majorIds = scheme.Students.Select(s => s.MajorId).Distinct().ToArray();
             EvaluationSchemeRules.Validate(componentInputs, majorIds, scheme.PassThreshold);
             VersionedResultCalculator.Validate(policy, componentInputs, majorIds);
         }
         catch (ValidationException) { throw Unknown(); }
-        if (scheme.CalculationRule != (policy.CalculationVersion == "LEGACY_V1" ? EvaluationSchemeRules.CalculationRule : VersionedResultCalculator.Version)
+        if (scheme.CalculationRule != VersionedResultCalculator.CalculationRuleFor(policy)
             || scheme.Components.Select(c => c.Id).Distinct().Count() != scheme.Components.Count
             || scheme.Components.Any(c => c.RequiredEvaluators <= 0 || c.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL")
                 || (c.Scope == "COMMON") != (c.MajorId is null) || c.Scope == "INDIVIDUAL" && c.ProjectWeightPercent != 0
@@ -133,7 +133,7 @@ public static class ResultRevisionCalculator
             return new ResultComponentScoreDto(c.Id, c.Name, c.Scope, c.MajorId,
                 target is null ? c.ProjectWeightPercent : c.StudentWeightPercent,
                 c.EvaluatorWeights is null ? values.Average(v => v.Score) : values.Sum(v => v.Score * v.Weight / 100m),
-                c.RequiredEvaluators, values.Count, c.Stage);
+                c.RequiredEvaluators, values.Count, c.Stage, c.TargetScope, c.IsIntegration);
         }).ToArray();
         var raw = VersionedResultCalculator.Total(components, policy, target is not null) ?? throw Unknown();
         var final = VersionedResultCalculator.Round(raw, policy);
@@ -141,9 +141,12 @@ public static class ResultRevisionCalculator
         var major = components.Where(c => c.Scope == "MAJOR_SPECIFIC").ToArray();
         var majors = major.GroupBy(c => c.MajorId!.Value).OrderBy(g => g.Key)
             .Select(g => new ResultMajorScoreDto(g.Key, g.Sum(c => c.Score!.Value * c.WeightPercent) / g.Sum(c => c.WeightPercent))).ToArray();
+        var (_, outcomeDetail) = VersionedResultCalculator.EvaluateOutcome(final, scheme.PassThreshold, components, policy,
+            oldBreakdown.OutcomeDetail == "DEFENSE_ABSENT");
         var breakdown = oldBreakdown with { UnroundedTotal = raw, Components = components, MajorBreakdown = majors,
             CommonScore = common.Length == 0 ? null : common.Sum(c => c.Score!.Value * c.WeightPercent) / common.Sum(c => c.WeightPercent),
-            MajorAggregate = major.Length == 0 ? null : major.Sum(c => c.Score!.Value * c.WeightPercent) / major.Sum(c => c.WeightPercent) };
+            MajorAggregate = major.Length == 0 ? null : major.Sum(c => c.Score!.Value * c.WeightPercent) / major.Sum(c => c.WeightPercent),
+            OutcomeDetail = oldBreakdown.OutcomeDetail is not null || policy.CalculationVersion == VersionedResultCalculator.PolV4Version ? outcomeDetail : oldBreakdown.OutcomeDetail };
         root["Breakdown"] = JsonSerializer.SerializeToNode(breakdown);
         root["Contributions"] = JsonSerializer.SerializeToNode(contributions);
         foreach (var entry in root["Evaluations"]!.AsArray())

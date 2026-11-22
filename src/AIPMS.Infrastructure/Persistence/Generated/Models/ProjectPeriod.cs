@@ -41,6 +41,8 @@ public partial class ProjectPeriod
 
     public long? RubricId { get; set; }
 
+    public bool EnableDefenseRoomScheduling { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }

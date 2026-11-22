@@ -15,6 +15,8 @@ public sealed record RubricCriterionDto(long Id, long CriterionId, string Name, 
     public string? CriterionCode { get; init; }
     public string? LearningOutcome { get; init; }
     public string? EvidenceGuidance { get; init; }
+    public string? TargetScope { get; init; }
+    public bool IsIntegration { get; init; }
     public IReadOnlyList<RubricCriterionLevelDto> Levels { get; init; } = [];
     public IReadOnlyList<RubricCriterionDto> Children { get; init; } = [];
 }
@@ -76,6 +78,8 @@ public static class RubricDtoMapper
                 CriterionCode = c.CriterionCode,
                 LearningOutcome = c.LearningOutcome,
                 EvidenceGuidance = c.EvidenceGuidance,
+                TargetScope = c.TargetScope,
+                IsIntegration = c.IsIntegration,
                 Levels = c.Levels,
                 Children = byParent[c.Id].OrderBy(x => x.SortOrder).ThenBy(x => x.Id).Select(x => mapped[x.Id]).ToArray()
             });

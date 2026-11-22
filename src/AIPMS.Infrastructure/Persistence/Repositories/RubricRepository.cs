@@ -128,6 +128,8 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
                 CriterionCode = c.Criterion.Code,
                 LearningOutcome = c.LearningOutcome,
                 EvidenceGuidance = c.EvidenceGuidance,
+                TargetScope = c.TargetScope,
+                IsIntegration = c.IsIntegration,
                 Levels = c.Levels.OrderBy(l => l.LevelOrder)
                     .Select(l => new RubricCriterionLevelDto(l.LevelOrder, l.Label, l.Descriptor, l.ScoreFrom, l.ScoreTo))
                     .ToArray()
@@ -202,6 +204,8 @@ internal sealed class RubricRepository(AipmsDbContext context) : IRubricReposito
                 IsRequired = c.IsRequired,
                 LearningOutcome = c.LearningOutcome?.Trim(),
                 EvidenceGuidance = c.EvidenceGuidance?.Trim(),
+                TargetScope = c.TargetScope?.Trim(),
+                IsIntegration = c.IsIntegration,
                 CreatedAt = now,
                 UpdatedAt = now,
                 // Own definitions for every version, including every descendant.

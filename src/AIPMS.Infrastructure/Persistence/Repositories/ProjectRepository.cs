@@ -1049,5 +1049,9 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             excludeProjectId,
             cancellationToken);
     }
+
+    public Task<bool> HasOpenAppealsAsync(long projectId, CancellationToken cancellationToken) =>
+        context.Set<ResultAppealRequest>().AsNoTracking()
+            .AnyAsync(a => a.ProjectId == projectId && (a.Status == "PENDING" || a.Status == "UNDER_REVIEW"), cancellationToken);
 }
 

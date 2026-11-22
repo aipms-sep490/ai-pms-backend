@@ -258,6 +258,7 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.Evaluations.Abstractions.IEvaluationAssignmentAccessService,
             Services.Projects.EvaluationAssignmentAccessService>();
         services.AddScoped<IEvaluationSchemeService, EvaluationSchemeService>();
+        services.AddScoped<IIndividualProcessScoringService, IndividualProcessScoringService>();
         services.AddScoped<IResultHistoryService, ResultHistoryService>();
         services.AddScoped<ResultRevisionStore>();
         services.AddScoped<Application.Features.Appeals.Abstractions.IAppealService, ResultAppealService>();

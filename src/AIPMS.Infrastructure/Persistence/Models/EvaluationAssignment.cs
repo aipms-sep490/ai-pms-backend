@@ -4,6 +4,7 @@ public sealed class EvaluationAssignment
 {
     public string? Stage { get; set; }
     public long? ColdPackageId { get; set; }
+    public long? DefenseSessionId { get; set; }
     public long Id { get; set; }
     public long ProjectId { get; set; }
     public long EvaluatorId { get; set; }

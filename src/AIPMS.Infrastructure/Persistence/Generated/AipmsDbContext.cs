@@ -1159,6 +1159,9 @@ public partial class AipmsDbContext : DbContext
             entity.Property(e => e.MinTeamSize)
                 .HasDefaultValue(3)
                 .HasColumnName("min_team_size");
+            entity.Property(e => e.EnableDefenseRoomScheduling)
+                .HasDefaultValue(false)
+                .HasColumnName("enable_defense_room_scheduling");
             entity.Property(e => e.Name)
                 .HasMaxLength(255)
                 .HasColumnName("name");

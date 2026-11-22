@@ -54,6 +54,8 @@ public static class RubricHierarchy
             {
                 LearningOutcome = c.LearningOutcome,
                 EvidenceGuidance = c.EvidenceGuidance,
+                TargetScope = c.TargetScope,
+                IsIntegration = c.IsIntegration,
                 Levels = c.Levels.Select(l => new RubricCriterionLevelInput(l.LevelOrder, l.Label, l.Descriptor, l.ScoreFrom, l.ScoreTo)).ToArray(),
                 Children = children[c.Id].OrderBy(x => x.SortOrder).ThenBy(x => x.Id).Select(x => mapped[x.Id]).ToArray()
             });

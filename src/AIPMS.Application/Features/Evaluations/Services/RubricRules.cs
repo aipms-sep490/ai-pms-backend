@@ -41,6 +41,9 @@ public static class RubricRules
     {
         void ValidateNode(RubricCriterionInput node, bool isParent)
         {
+            if (node.TargetScope is not null && node.TargetScope is not ("PROJECT" or "MAJOR" or "STUDENT"))
+                throw new DomainException($"Criterion '{node.Name}' has invalid targetScope '{node.TargetScope}'. Allowed values: PROJECT, MAJOR, STUDENT.", "RUBRIC_INVALID_TARGET_SCOPE");
+
             if (isParent && node.Levels.Count > 0)
                 throw new DomainException($"Parent criterion '{node.Name}' cannot have quality levels.", "RUBRIC_PARENT_HAS_LEVELS");
 

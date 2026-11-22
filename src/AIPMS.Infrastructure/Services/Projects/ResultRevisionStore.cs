@@ -147,14 +147,20 @@ internal sealed class ResultRevisionStore(AipmsDbContext db, IAuditTrail audit, 
             string snapshot;
             if (t.Current.Key == 0) {
                 var old = JsonSerializer.Deserialize<ProjectResultDto>(t.Current.ResultJson)!;
+                var detail = t.Calculation.Breakdown.OutcomeDetail;
+                var outcome = detail is "FAILED_TOTAL" or "FAILED_COMPONENT_FLOOR" or "DEFENSE_ABSENT" ? "FAILED"
+                    : t.Calculation.TotalScore >= old.PassThreshold ? "PASSED" : "FAILED";
                 snapshot = JsonSerializer.Serialize(old with { TotalScore = t.Calculation.TotalScore,
-                    Outcome = t.Calculation.TotalScore >= old.PassThreshold ? "PASSED" : "FAILED", PublishedBy = publisher, PublishedAt = now,
+                    Outcome = outcome, OutcomeDetail = detail ?? old.OutcomeDetail, PublishedBy = publisher, PublishedAt = now,
                     Version = version, SupersedesVersion = t.Current.Version, RevisionId = null,
                     FrozenInputs = t.Calculation.FrozenInputs, Breakdown = t.Calculation.Breakdown, Contributions = t.Calculation.Contributions });
             } else {
                 var old = JsonSerializer.Deserialize<StudentResultDto>(t.Current.ResultJson)!;
+                var detail = t.Calculation.Breakdown.OutcomeDetail;
+                var outcome = detail is "FAILED_TOTAL" or "FAILED_COMPONENT_FLOOR" or "DEFENSE_ABSENT" ? "FAILED"
+                    : t.Calculation.TotalScore >= old.PassThreshold ? "PASSED" : "FAILED";
                 snapshot = JsonSerializer.Serialize(old with { TotalScore = t.Calculation.TotalScore,
-                    Outcome = t.Calculation.TotalScore >= old.PassThreshold ? "PASSED" : "FAILED", PublishedBy = publisher, PublishedAt = now,
+                    Outcome = outcome, OutcomeDetail = detail ?? old.OutcomeDetail, PublishedBy = publisher, PublishedAt = now,
                     Version = version, SupersedesVersion = t.Current.Version, RevisionId = null,
                     SnapshotJson = t.Calculation.FrozenInputs, Breakdown = t.Calculation.Breakdown });
             }
