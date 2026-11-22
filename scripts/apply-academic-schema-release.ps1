@@ -21,7 +21,8 @@ $scripts = @(
     '20261117_user_avatars.sql',
     '20261118_task_dependency_impacts.sql',
     '20261122_add_task_criteria.sql',
-    '20261122_add_meeting_video_ai.sql'
+    '20261122_add_meeting_video_ai.sql',
+    '20261122_add_ai_copilot_snapshots.sql'
 )
 
 $neutral = [System.Data.Common.DbConnectionStringBuilder]::new()
