@@ -57,6 +57,7 @@ public partial class AipmsDbContext
         ConfigureAcademicKnowledge(modelBuilder);
         ConfigureRiskHistory(modelBuilder);
         ConfigureAcademicBlueprints(modelBuilder);
+        ConfigureProjectChecklists(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
         {
             entity.ToTable("rubric_versions", table =>

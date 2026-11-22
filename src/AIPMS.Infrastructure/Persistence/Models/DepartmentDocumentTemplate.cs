@@ -19,4 +19,5 @@ public sealed class DepartmentDocumentTemplate
     public long UploadedBy { get; set; }
     public DateTime UploadedAt { get; set; }
     public DateTime? PublishedAt { get; set; }
+    public string Scope { get; set; } = "MAJOR_SPECIFIC";
 }

@@ -297,11 +297,11 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         {
             var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == projectId, token) ?? throw new NotFoundException("Project", projectId);
             var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, token);
-            await RequireProjectLeader(projectId, token);
             var instances = await EnsureInstances(project, scope, token);
             var gate = instances.SingleOrDefault(x => x.Code == gateCode) ?? throw new NotFoundException("ProjectGate", 0);
             var requirementId = ParseId(input.RequirementId, "requirementId");
             var req = gate.Requirements.SingleOrDefault(x => x.Id == requirementId) ?? throw new NotFoundException("ReviewGateRequirement", requirementId);
+            await RequireEvidenceDraftUploader(projectId, req, token);
             var externalLink = string.Equals(req.Type, "EXTERNAL_LINK", StringComparison.OrdinalIgnoreCase);
             if (string.Equals(req.Type, "FILE", StringComparison.OrdinalIgnoreCase))
                 throw new ValidationException(new Dictionary<string, string[]> { ["file"] = ["FILE requirements must use multipart upload."] });
@@ -345,7 +345,6 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             {
                 var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == projectId, token) ?? throw new NotFoundException("Project", projectId);
                 var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, token);
-                await RequireProjectLeader(projectId, token);
                 var gate = (await EnsureInstances(project, scope, token)).SingleOrDefault(x => x.Code == gateCode) ?? throw new NotFoundException("ProjectGate", gateCode);
                 if (gate.ReviewEligibility == "BLOCKED" && gate.Status != "REVISION_REQUIRED") throw new ConflictException("The previous gate must be passed before submitting evidence.");
                 var now = Now;
@@ -353,6 +352,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
                     throw new ConflictException("The review gate submission window is closed.", "GATE_WINDOW_CLOSED");
                 var requirementId = ParseId(input.RequirementId, "requirementId");
                 var req = gate.Requirements.SingleOrDefault(x => x.Id == requirementId) ?? throw new NotFoundException("ReviewGateRequirement", requirementId);
+                await RequireEvidenceDraftUploader(projectId, req, token);
                 if (string.Equals(req.Type, "EXTERNAL_LINK", StringComparison.OrdinalIgnoreCase))
                     throw new ValidationException(new Dictionary<string, string[]> { ["file"] = ["EXTERNAL_LINK requirements are not supported by this contract."] });
                 CheckToken(gate.ConcurrencyToken, input.ConcurrencyToken);
@@ -835,7 +835,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         if (gate.ReviewEligibility == "BLOCKED" && gate.Status != "REVISION_REQUIRED") throw new ConflictException("The previous gate must be passed before submitting this gate.");
 
         var missingOrUnready = latestByReq
-            .Where(x => x.Req.Required && (x.Latest is null || x.Latest.ScanStatus != FileScanStatuses.Ready))
+            .Where(x => x.Req.Required && x.Req.VerificationStatus != "WAIVED_WITHDRAWN" && (x.Latest is null || x.Latest.ScanStatus != FileScanStatuses.Ready))
             .Select(x => new BlockingRequirement(
                 x.Latest is null ? $"MISSING_EVIDENCE:{x.Req.Code}" : $"EVIDENCE_NOT_READY:{x.Req.Code}:{x.Latest.ScanStatus}",
                 x.Latest is null
@@ -1238,6 +1238,32 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
     }
     private async Task RequireProjectLeader(long projectId, CancellationToken ct)
     { if (!await db.TeamMembers.AnyAsync(x => x.Team.Project != null && x.Team.Project.Id == projectId && x.UserId == Actor && x.IsLeader && x.LeftAt == null, ct)) throw new ForbiddenException("Only the active project leader may submit evidence."); }
+
+    private async Task RequireEvidenceDraftUploader(long projectId, ProjectGateRequirement requirement, CancellationToken ct)
+    {
+        var member = await db.TeamMembers.AsNoTracking()
+            .Where(x => x.Team.Project != null && x.Team.Project.Id == projectId && x.UserId == Actor && x.LeftAt == null)
+            .Select(x => new { x.IsLeader, x.User.MajorId })
+            .FirstOrDefaultAsync(ct)
+            ?? throw new ForbiddenException("Only active team members may upload draft gate evidence.");
+
+        if (requirement.Scope == "MAJOR_SPECIFIC")
+        {
+            if (member.IsLeader) return;
+            var frozenMajor = await FrozenMemberMajor(projectId, Actor, ct) ?? member.MajorId;
+            if (requirement.MajorId.HasValue && frozenMajor == requirement.MajorId.Value) return;
+            throw new ForbiddenException("Only the project leader or a team member belonging to the target major may upload MAJOR_SPECIFIC draft evidence.");
+        }
+
+        if (requirement.Scope == "INDIVIDUAL")
+        {
+            if (requirement.TargetStudentId == Actor) return;
+            throw new ForbiddenException("Only the target student may upload INDIVIDUAL gate evidence.");
+        }
+
+        if (!member.IsLeader)
+            throw new ForbiddenException("Only the active project leader may upload COMMON or INTEGRATION gate evidence.");
+    }
 
     private static ReviewGateTemplateDto Map(ReviewGateTemplate x) => new(x.Id.ToString(), x.ProjectPeriodId, x.Code, x.Name, x.Mode, x.Major, x.Status, x.Version.ToString("0.##"), x.ConcurrencyToken.ToString("N"), x.Gates.Count, x.Gates.OrderBy(g => g.Sequence).Select(g => new ReviewGateDefinitionDto(g.Id.ToString(), g.Code, g.Sequence, g.Title, g.Objective, g.Required, g.BlockNextGate, g.BlocksDefense, g.WindowStart, g.WindowEnd, g.WindowStart, g.WindowEnd, g.ReviewerPolicy, g.ReviewScope, g.Requirements.OrderBy(r => r.Id).Select(r => new ReviewGateRequirementDto(r.Id.ToString(), r.Code, r.Title, r.Description, r.Type, r.Scope, r.MajorId, r.TargetStudentId, r.Verification, r.Required)).ToArray(), g.Weight)).ToArray());
     private static AssignedReviewItemDto AssignmentDto(GateReviewerAssignment x, AIPMS.Infrastructure.Persistence.Generated.Models.Project project, long? latestPackageId = null) => new(x.Id.ToString(), project.Id.ToString(), project.Code, project.Title, x.GateInstance.Code, x.GateInstance.Title, x.Scope, x.GateInstance.WindowEnd, x.Status, x.LatestDecision,

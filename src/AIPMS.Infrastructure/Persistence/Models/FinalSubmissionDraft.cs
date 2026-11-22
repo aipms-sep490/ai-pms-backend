@@ -11,6 +11,12 @@ public sealed class FinalSubmissionDraft
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public Guid ConcurrencyToken { get; set; }
+    public string LockWorkflowStatus { get; set; } = "OPEN";
+    public long? LockRequestedBy { get; set; }
+    public DateTime? LockRequestedAt { get; set; }
+    public long? LockedBySupervisorId { get; set; }
+    public long? ForceLockedBy { get; set; }
+    public string? ForceLockReason { get; set; }
     public ICollection<FinalSubmissionDraftItem> Items { get; set; } = new List<FinalSubmissionDraftItem>();
 }
 

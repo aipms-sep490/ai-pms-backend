@@ -49,6 +49,15 @@ public sealed class ReviewGateRequirement
     public long? TargetStudentId { get; set; }
     public string Verification { get; set; } = "HUMAN";
     public bool Required { get; set; } = true;
+    public string TargetCardinality { get; set; } = "PROJECT";
+    public string? DeliveryStage { get; set; }
+    public bool FeedsCold { get; set; }
+    public bool FeedsDefense { get; set; }
+    public string? InputKind { get; set; }
+    public long? TemplateDocumentId { get; set; }
+    public string? CarryForwardFromCode { get; set; }
+    public string? PolicyTag { get; set; }
+    public string? RubricCriterionRef { get; set; }
 }
 
 public sealed class ProjectGateInstance
@@ -98,6 +107,15 @@ public sealed class ProjectGateRequirement
     public string VerificationStatus { get; set; } = "PENDING";
     public long? LatestEvidenceId { get; set; }
     public string? ReviewerFeedback { get; set; }
+    public string TargetCardinality { get; set; } = "PROJECT";
+    public string? DeliveryStage { get; set; }
+    public bool FeedsCold { get; set; }
+    public bool FeedsDefense { get; set; }
+    public string? InputKind { get; set; }
+    public long? TemplateDocumentId { get; set; }
+    public string? CarryForwardFromCode { get; set; }
+    public string? PolicyTag { get; set; }
+    public string? RubricCriterionRef { get; set; }
     public ProjectGateInstance GateInstance { get; set; } = null!;
     public ICollection<GateEvidence> Evidence { get; set; } = [];
 }
