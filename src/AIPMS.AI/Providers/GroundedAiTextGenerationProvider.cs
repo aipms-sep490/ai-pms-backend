@@ -13,7 +13,7 @@ using AIPMS.Application.Features.AiAssistant.Models;
 
 namespace AIPMS.AI.Providers;
 
-public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options = null) : IAiTextGenerationProvider
+public sealed partial class GroundedAiTextGenerationProvider(AiAssistantOptions? options = null) : IAiTextGenerationProvider
 {
     private readonly AiAssistantOptions _options = options ?? new AiAssistantOptions();
     public string ModelVersion => "GROUNDED_LOCAL_V1";
@@ -53,6 +53,11 @@ public sealed class GroundedAiTextGenerationProvider(AiAssistantOptions? options
              (userPrompt.Contains("\"ReportId\":") || userPrompt.Contains("\"reportId\":"))))
         {
             return GenerateReportSummaryJson(userPrompt);
+        }
+
+        if (systemPrompt.Contains("AI_SUITE_", StringComparison.Ordinal))
+        {
+            return GenerateAiSuiteJson(systemPrompt, userPrompt);
         }
 
         if (systemPrompt.Contains("MEETING_AI_MINUTES", StringComparison.Ordinal)

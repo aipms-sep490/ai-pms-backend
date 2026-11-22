@@ -21,7 +21,8 @@ public sealed class OpenAiTextGenerationProvider(
         if (systemPrompt.Contains("PROJECT_SETUP", StringComparison.Ordinal)
             || systemPrompt.Contains("RUBRIC_SETUP", StringComparison.Ordinal)
             || systemPrompt.Contains("MEETING_AI_MINUTES", StringComparison.Ordinal)
-            || systemPrompt.Contains("MEETING_AI_COACH", StringComparison.Ordinal))
+            || systemPrompt.Contains("MEETING_AI_COACH", StringComparison.Ordinal)
+            || systemPrompt.Contains("AI_SUITE_", StringComparison.Ordinal))
             return Math.Max(configured, 2800);
         if (systemPrompt.Contains("structuredReport", StringComparison.Ordinal)
             || systemPrompt.Contains("MEETING_AI_PULSE", StringComparison.Ordinal)

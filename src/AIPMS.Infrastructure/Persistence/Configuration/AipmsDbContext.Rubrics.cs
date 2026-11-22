@@ -28,6 +28,7 @@ public partial class AipmsDbContext
         ConfigureGateSessionScripts(modelBuilder);
         ConfigureMeetingCollaboration(modelBuilder);
         ConfigureMeetingVideoAi(modelBuilder);
+        ConfigureAiCopilotSnapshots(modelBuilder);
         ConfigureSprints(modelBuilder);
         ConfigureMilestoneDependencies(modelBuilder);
         ConfigureTaskDependencyImpacts(modelBuilder);
