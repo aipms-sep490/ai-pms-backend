@@ -15,6 +15,8 @@ public partial class DeliverableVersion
 
     public string? SubmissionNote { get; set; }
 
+    public string? Changelog { get; set; }
+
     public string Status { get; set; } = null!;
 
     public DateTime SubmittedAt { get; set; }

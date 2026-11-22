@@ -303,6 +303,9 @@ public partial class AipmsDbContext : DbContext
                 .HasDefaultValue("SUBMITTED")
                 .HasColumnName("status");
             entity.Property(e => e.SubmissionNote).HasColumnName("submission_note");
+            entity.Property(e => e.Changelog)
+                .HasMaxLength(2000)
+                .HasColumnName("changelog");
             entity.Property(e => e.SubmittedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")

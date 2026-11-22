@@ -22,6 +22,7 @@ public partial class AipmsDbContext
             e.Property(x => x.DecidedAt).HasColumnName("decided_at").HasPrecision(0);
             e.Property(x => x.CreatedAt).HasColumnName("created_at").HasPrecision(0);
             e.Property(x => x.SupersededByDecisionId).HasColumnName("superseded_by_decision_id");
+            e.Property(x => x.SourceMessageId).HasColumnName("source_message_id");
             e.HasOne<M.Meeting>().WithMany().HasForeignKey(x => x.MeetingId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<M.User>().WithMany().HasForeignKey(x => x.DecidedBy).OnDelete(DeleteBehavior.NoAction);
         });

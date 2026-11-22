@@ -846,6 +846,14 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             throw new DomainException("Every mandatory evidence item must be uploaded and READY before submitting the gate snapshot.",
                 "EVIDENCE_NOT_READY", new ProblemMetadata(BlockingRequirements: missingOrUnready));
 
+        var openCriticalComments = await db.Set<EvidenceAnchoredComment>().AsNoTracking()
+            .CountAsync(c => c.ProjectId == projectId && c.GateInstanceId == gate.Id
+                && c.Severity == "CRITICAL" && c.Status == "OPEN", token);
+        if (openCriticalComments > 0)
+            throw new DomainException(
+                $"Cannot submit gate '{gate.Code}' while {openCriticalComments} CRITICAL anchored comment(s) remain OPEN.",
+                WorkflowErrorCodes.UnresolvedCriticalComments);
+
         var maxRound = await db.Set<ReviewGatePackage>().Where(p => p.GateInstanceId == gate.Id).MaxAsync(p => (int?)p.RoundNumber, token) ?? 0;
         var now = Now;
         var package = new ReviewGatePackage

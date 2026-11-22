@@ -77,6 +77,7 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.AcademicBlueprints.Abstractions.IAcademicBlueprintService, AcademicBlueprintService>();
         services.AddScoped<AIPMS.Application.Features.ProjectChecklists.Abstractions.IProjectChecklistService, ProjectChecklistService>();
         services.AddScoped<AIPMS.Application.Features.ProjectLabels.Abstractions.IProjectLabelService, ProjectLabelService>();
+        services.AddScoped<AIPMS.Application.Features.ProjectHub.Abstractions.IProjectHubService, ProjectHubService>();
         services.AddScoped<AIPMS.Application.Features.AcademicTracking.Abstractions.IDefenseSchedulerV4Service, DefenseSchedulerV4Service>();
         services.AddScoped<AIPMS.Application.Features.DepartmentDocuments.Abstractions.IDepartmentDocumentService, DepartmentDocumentService>();
         services.AddScoped<AIPMS.Application.Features.Files.Abstractions.IOfficePreviewService, OfficePreviewService>();

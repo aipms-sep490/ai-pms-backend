@@ -44,6 +44,7 @@ public partial class Task
     public string? DisciplineSubStatus { get; set; }
     public string? HandoffFlag { get; set; }
     public DateTime? HandoffFlaggedAt { get; set; }
+    public long? SourceMessageId { get; set; }
 
     public virtual User CreatedByNavigation { get; set; } = null!;
 
