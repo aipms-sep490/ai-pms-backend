@@ -21,7 +21,11 @@ public sealed record DeliverableReviewResponseDto(long RunId, long ProjectId, lo
     IReadOnlyList<DeliverableReviewCitationDto> Citations, bool InsufficientEvidence,
     string? LimitationNote, string GenerationStatus);
 public sealed record CreateAssistantConversationRequest(long? ProjectId = null, string Scope = "ACADEMIC");
-public sealed record AssistantConversationDto(long Id, string Title, long? ProjectId, string Scope, int Revision, DateTime UpdatedAt);
+public sealed record UpdateAssistantConversationRequest(string? Title = null, bool? IsPinned = null);
+public sealed record SubmitAssistantFeedbackRequest(short Rating, string? Note = null);
+public sealed record AssistantFeedbackDto(long RunId, short Rating, string? Note, DateTime FeedbackAt);
+public sealed record AssistantProjectOptionDto(long Id, string Code, string Title, string Status, string RoleLabel);
+public sealed record AssistantConversationDto(long Id, string Title, long? ProjectId, string Scope, int Revision, DateTime UpdatedAt, bool IsPinned = false, int TurnCount = 0);
 public sealed record AssistantTurnDto(long Id, string Query, DateTime SentAt, AcademicAssistantResponseDto Response);
 public sealed record AssistantConversationDetailDto(AssistantConversationDto Conversation, IReadOnlyList<AssistantTurnDto> Turns, bool HasMore);
 public sealed record AssistantMeetingDraftDto(DateTimeOffset? StartAt, DateTimeOffset? EndAt,
@@ -183,4 +187,4 @@ public sealed record KnowledgeCitationDto(long DocumentId, long VersionId, strin
 public sealed record KnowledgeDocumentDto(long Id, string Title, string DocumentType, long? DepartmentId, long? AcademicSemesterId, long? ProjectPeriodId, string Status, string CurrentVersion, DateTime CreatedAt, DateTime UpdatedAt);
 public sealed record KnowledgeVersionDto(long Id, long DocumentId, string Version, string Status, string? SourceFileName, DateTime? EffectiveFrom, DateTime? EffectiveTo, DateTime CreatedAt, DateTime? PublishedAt, int ChunkCount);
 public sealed record AssistantAttachmentDto(string FileName, string MediaType);
-public sealed record AcademicAssistantResponseDto(string Answer, string AnswerType, IReadOnlyList<KnowledgeCitationDto> Citations, IReadOnlyList<AIPMS.Application.Features.AiAssistant.Models.EvidenceReferenceDto> ProjectEvidence, bool InsufficientEvidence, string? LimitationNote, string GenerationStatus, DateTime GeneratedAt, long? RunId = null, IReadOnlyList<AssistantAttachmentDto>? Attachments = null, long? ConversationId = null, int? Revision = null, AssistantDraftDto? Draft = null, AssistantStructuredReportDto? StructuredReport = null);
+public sealed record AcademicAssistantResponseDto(string Answer, string AnswerType, IReadOnlyList<KnowledgeCitationDto> Citations, IReadOnlyList<AIPMS.Application.Features.AiAssistant.Models.EvidenceReferenceDto> ProjectEvidence, bool InsufficientEvidence, string? LimitationNote, string GenerationStatus, DateTime GeneratedAt, long? RunId = null, IReadOnlyList<AssistantAttachmentDto>? Attachments = null, long? ConversationId = null, int? Revision = null, AssistantDraftDto? Draft = null, AssistantStructuredReportDto? StructuredReport = null, IReadOnlyList<string>? FollowUpSuggestions = null, short? FeedbackRating = null);

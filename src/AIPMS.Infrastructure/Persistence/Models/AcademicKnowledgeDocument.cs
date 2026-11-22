@@ -70,6 +70,9 @@ public sealed class AcademicKnowledgeQueryRun
     public string ResultJson { get; set; } = "{}";
     public DateTime StartedAt { get; set; }
     public DateTime CompletedAt { get; set; }
+    public short? FeedbackRating { get; set; }
+    public string? FeedbackNote { get; set; }
+    public DateTime? FeedbackAt { get; set; }
 }
 
 public sealed class AcademicKnowledgePublication

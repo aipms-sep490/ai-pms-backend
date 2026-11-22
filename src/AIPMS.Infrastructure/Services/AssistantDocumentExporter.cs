@@ -31,9 +31,60 @@ internal static class AssistantDocumentExporter
         };
     }
 
+    internal static AssistantExport CreateConversationExport(string conversationTitle, IReadOnlyList<AssistantTurnDto> turns, string format)
+    {
+        var safeTitle = string.IsNullOrWhiteSpace(conversationTitle) ? "Hội thoại Trợ lý AI-PMS" : conversationTitle.Trim();
+        var content = new StringBuilder();
+        content.AppendLine($"# {safeTitle}");
+        content.AppendLine($"Xuất từ Trợ lý AI-PMS · Tổng cộng {turns.Count} lượt hỏi đáp");
+        content.AppendLine("Lưu ý: Nội dung do trợ lý AI hỗ trợ tham khảo, không thay thế quyết định học vụ chính thức.");
+        content.AppendLine();
+
+        for (var i = 0; i < turns.Count; i++)
+        {
+            var turn = turns[i];
+            var vnTime = turn.SentAt.Kind == DateTimeKind.Utc
+                ? turn.SentAt.AddHours(7)
+                : DateTime.SpecifyKind(turn.SentAt, DateTimeKind.Utc).AddHours(7);
+            content.AppendLine($"## Lượt {i + 1} · {vnTime:dd/MM/yyyy HH:mm} (UTC+7)");
+            content.AppendLine($"**Người dùng:** {turn.Query}");
+            content.AppendLine();
+            content.AppendLine("**Trợ lý AI-PMS:**");
+            content.AppendLine(turn.Response.Answer);
+            if (turn.Response.Citations.Count > 0)
+            {
+                content.AppendLine();
+                content.AppendLine("Tài liệu tham chiếu:");
+                foreach (var src in turn.Response.Citations)
+                    content.AppendLine($"- {src.Title} (v{src.Version}{(src.Section is not null ? $" · {src.Section}" : "")}{(src.Page.HasValue ? $" · trang {src.Page}" : "")})");
+            }
+            if (turn.Response.ProjectEvidence.Count > 0)
+            {
+                content.AppendLine();
+                content.AppendLine("Nguồn đồ án:");
+                foreach (var ev in turn.Response.ProjectEvidence.Take(6))
+                    content.AppendLine($"- {ev.Title}{(ev.PeriodOrDate is not null ? $" ({ev.PeriodOrDate})" : "")}");
+            }
+            content.AppendLine();
+            content.AppendLine("---");
+            content.AppendLine();
+        }
+
+        var text = content.ToString();
+        var lines = text.Replace("\r", "").Split('\n').Select(Plain).ToArray();
+        return format switch
+        {
+            "txt" or "md" => new($"hoi-thoai-tro-ly-ai.{format}", "text/plain; charset=utf-8",
+                Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(format == "md" ? text : string.Join("\n", lines))).ToArray()),
+            "docx" => new("hoi-thoai-tro-ly-ai.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Word(lines, safeTitle)),
+            "pdf" => new("hoi-thoai-tro-ly-ai.pdf", "application/pdf", UnicodePdf.Write(safeTitle, lines)),
+            _ => throw new ArgumentException("Hỗ trợ xuất hội thoại dạng Markdown (md), TXT, Word (docx) và PDF (pdf).")
+        };
+    }
+
     private static string Plain(string text) => Regex.Replace(text, @"^#{1,6}\s+", "").Replace("**", "").Replace("`", "");
 
-    private static byte[] Word(string[] lines)
+    private static byte[] Word(string[] lines, string docTitle = "Tài liệu trợ lý AI")
     {
         using var output = new MemoryStream();
         using (var archive = new ZipArchive(output, ZipArchiveMode.Create, true))
@@ -55,7 +106,7 @@ internal static class AssistantDocumentExporter
             Xml("_rels/.rels", new XElement(rel + "Relationships", new XElement(rel + "Relationship", new XAttribute("Id", "rId1"), new XAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"), new XAttribute("Target", "word/document.xml"))));
             Xml("word/_rels/document.xml.rels", new XElement(rel + "Relationships", new XElement(rel + "Relationship", new XAttribute("Id", "rId1"), new XAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"), new XAttribute("Target", "styles.xml"))));
             Xml("word/styles.xml", new XElement(w + "styles", new XElement(w + "style", new XAttribute(w + "type", "paragraph"), new XAttribute(w + "styleId", "Title"), new XElement(w + "name", new XAttribute(w + "val", "Title")))));
-            Xml("word/document.xml", new XElement(w + "document", new XElement(w + "body", Paragraph("Tài liệu trợ lý AI", true), lines.Select(line => Paragraph(line)),
+            Xml("word/document.xml", new XElement(w + "document", new XElement(w + "body", Paragraph(docTitle, true), lines.Select(line => Paragraph(line)),
                 new XElement(w + "sectPr", new XElement(w + "pgSz", new XAttribute(w + "w", "12240"), new XAttribute(w + "h", "15840")),
                     new XElement(w + "pgMar", new XAttribute(w + "top", "1080"), new XAttribute(w + "bottom", "1080"), new XAttribute(w + "left", "1080"), new XAttribute(w + "right", "1080"), new XAttribute(w + "header", "360"), new XAttribute(w + "footer", "360"), new XAttribute(w + "gutter", "0"))))));
         }

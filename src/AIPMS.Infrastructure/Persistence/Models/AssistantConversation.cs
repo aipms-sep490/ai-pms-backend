@@ -8,6 +8,7 @@ public sealed class AssistantConversation
     public long? DepartmentId { get; set; }
     public string Scope { get; set; } = "ACADEMIC";
     public string Title { get; set; } = "Cuộc trò chuyện mới";
+    public bool IsPinned { get; set; }
     public int Revision { get; set; }
     public DateTime UpdatedAt { get; set; }
     public DateTime? DeletedAt { get; set; }
