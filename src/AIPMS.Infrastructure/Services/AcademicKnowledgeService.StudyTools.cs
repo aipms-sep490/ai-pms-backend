@@ -57,11 +57,47 @@ internal sealed partial class AcademicKnowledgeService
             (context.TasksTruncated ? "Đây là một phần dữ liệu, không phải toàn bộ tiến độ nhóm.\n" : "\n");
         var payload = JsonSerializer.Deserialize<ProjectEvidencePayload>(context.FormattedEvidenceText);
         if (payload is null) return result + "Chưa có dữ liệu chi tiết để tổng hợp.";
+        if (payload.Stats is { } stats)
+        {
+            result += $"Tổng quan: Hoàn thành **{stats.DoneTasks}/{stats.TotalTasks}** công việc (quá hạn: {stats.OverdueTasks}, bị chặn: {stats.BlockedTasks}, cần rà soát mở lại: {stats.ReworkImpactTasks}).";
+            if (stats.TotalDeliverables > 0)
+                result += $" Tài liệu bàn giao: đạt {stats.AcceptedDeliverables}/{stats.TotalDeliverables}, cần sửa: {stats.RevisionRequiredDeliverables}, chưa xong/chờ nộp: {stats.PendingDeliverables}.";
+            if (stats.TotalColdItems > 0)
+                result += $" Chấm nguội: đã nộp {stats.SubmittedColdItems}/{stats.TotalColdItems}, nháp: {stats.DraftColdItems}, chưa làm: {stats.MissingColdItems}.";
+            result += "\n";
+        }
+        var deliverables = payload.Deliverables ?? [];
+        if (deliverables.Count > 0)
+        {
+            result += "\n## Tài liệu & hạng mục bàn giao\n" + string.Join("\n", deliverables.Take(8).Select(d =>
+                $"- **{d.Title}** ({(string.IsNullOrWhiteSpace(d.MilestoneTitle) ? "Chưa gắn mốc" : d.MilestoneTitle)}): {d.Status}" +
+                (d.LatestVersionNumber > 0 ? $", v{d.LatestVersionNumber} ({d.FileNames.Count} tệp)" : ", chưa nộp tệp") +
+                (string.IsNullOrWhiteSpace(d.LatestFeedback) ? "." : $" — Phản hồi GVHD: {d.LatestFeedback}"))) + "\n";
+        }
+        var coldReports = payload.ColdReports ?? [];
+        if (coldReports.Count > 0)
+        {
+            result += "\n## Báo cáo chấm nguội\n" + string.Join("\n", coldReports.Take(6).Select(c =>
+                $"- **{c.Name}** ({c.ReportType}): {c.SubmissionStatus}, v{c.LatestVersion} ({c.FileCount} tệp).")) + "\n";
+        }
+        var gates = payload.ReviewGates ?? [];
+        if (gates.Count > 0)
+        {
+            result += "\n## Tiến trình Review Gates\n" + string.Join("\n", gates.Take(4).Select(g =>
+                $"- **{g.GateCode} ({g.Title})**: {g.Status} · đạt {g.Requirements.Count(r => r.VerificationStatus is "VERIFIED" or "APPROVED" or "ACCEPTED")}/{g.Requirements.Count} yêu cầu.")) + "\n";
+        }
         var actionable = payload.Tasks.Where(t => t.Status is not ("DONE" or "CANCELLED"))
-            .OrderByDescending(t => t.IsOverdue).ThenByDescending(t => t.IsBlocked).ThenBy(t => t.DueAt ?? "9999").Take(10).ToArray();
-        result += "\n## Việc cần chú ý\n" + (actionable.Length == 0 ? "Không có việc đang mở trong phần dữ liệu đã truy hồi.\n" :
-            string.Join("\n", actionable.Select(t => $"- {t.Title}: {(t.IsOverdue ? "quá hạn" : t.IsBlocked ? "đang vướng mắc" : "đang mở")}; hạn {t.DueAt ?? "chưa đặt"} (UTC).")) + "\n");
-        result += "\n## Mốc tiến độ\n" + string.Join("\n", payload.Milestones.Take(10).Select(m => $"- {m.Title}: {m.Status}; hạn {m.DueDate ?? "chưa đặt"}."));
-        return result + "\n\nGợi ý: kiểm tra việc quá hạn/vướng mắc trước, xác nhận người phụ trách và cập nhật trạng thái sau khi hoàn tất. Đây là gợi ý, không tự thay đổi dữ liệu.";
+            .OrderByDescending(t => t.IsOverdue).ThenByDescending(t => t.IsBlocked).ThenByDescending(t => t.PendingImpactCount > 0).ThenBy(t => t.DueAt ?? "9999").Take(10).ToArray();
+        result += "\n## Công việc cần chú ý\n" + (actionable.Length == 0 ? "Không có việc đang mở trong phần dữ liệu đã truy hồi.\n" :
+            string.Join("\n", actionable.Select(t =>
+                $"- {t.Title}: " +
+                $"{(t.IsOverdue ? "quá hạn" : t.IsBlocked ? "đang vướng mắc" : t.PendingImpactCount > 0 ? "cần rà soát tác động" : "đang mở")}" +
+                (string.IsNullOrWhiteSpace(t.MilestoneTitle) ? "" : $"; mốc: {t.MilestoneTitle}") +
+                (t.AssigneeNames is { Count: > 0 } ? $"; phụ trách: {string.Join(", ", t.AssigneeNames)}" : "") +
+                (t.BlockingTaskTitles is { Count: > 0 } ? $"; bị chặn bởi: {string.Join(", ", t.BlockingTaskTitles)}" : "") +
+                $"; hạn {t.DueAt ?? "chưa đặt"} (UTC).")) + "\n");
+        result += "\n## Mốc tiến độ\n" + string.Join("\n", payload.Milestones.Take(10).Select(m =>
+            $"- **{m.Title}**: {m.Status} ({m.DoneTasks}/{m.TotalTasks} việc); hạn {m.DueDate ?? "chưa đặt"}."));
+        return result + "\n\nGợi ý: kiểm tra tài liệu cần sửa và việc quá hạn/vướng mắc trước, xác nhận người phụ trách và cập nhật trạng thái sau khi hoàn tất. Đây là gợi ý, không tự thay đổi dữ liệu.";
     }
 }

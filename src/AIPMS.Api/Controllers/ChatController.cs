@@ -71,6 +71,8 @@ public sealed class ChatController(IChatService chat,ICurrentUser user) : Contro
     public Task<ChatConversationDto> Mute(long id, ChatMuteRequest input, CancellationToken ct) => chat.MuteAsync(Actor, id, input, ct);
     [HttpPost("conversations/{id:long}/ai/summary"), EnableRateLimiting("chat-write"), ProducesResponseType<ChatAiSummaryDto>(200)]
     public Task<ChatAiSummaryDto> Summarize(long id, ChatAiSummaryRequest request, CancellationToken ct) => chat.SummarizeAsync(Actor, id, request, ct);
+    [HttpPost("conversations/{id:long}/ai/assist"), EnableRateLimiting("chat-write"), ProducesResponseType<ChatAiAssistDto>(200)]
+    public Task<ChatAiAssistDto> Assist(long id, ChatAiAssistRequest request, CancellationToken ct) => chat.AssistAsync(Actor, id, request, ct);
 }
 
 public sealed class ChatUploadForm

@@ -11,13 +11,18 @@ using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace AIPMS.Infrastructure.Services.Topics;
 
 internal sealed class TopicSimilarityReviewService(AipmsDbContext db, ICurrentUser currentUser,
-    IAiTextGenerationProvider provider, IConfiguration configuration, IAuditTrail audit, TimeProvider clock)
+    IAiTextGenerationProvider provider, IConfiguration configuration, IAuditTrail audit, TimeProvider clock,
+    ILogger<TopicSimilarityReviewService>? logger = null)
     : ITopicSimilarityReviewService
 {
+    private static readonly string[] ComparableProjectStatuses =
+        ["SUBMITTED", "UNDER_REVIEW", "APPROVED", "ACTIVE", "FINAL_SUBMISSION", "COMPLETED", "ARCHIVED"];
+
     public async Task<TopicAiSimilarityResultDto> CheckAsync(TopicAiSimilarityRequest input, CancellationToken ct)
     {
         var scope = await Authorize(input, ct);
@@ -30,12 +35,24 @@ internal sealed class TopicSimilarityReviewService(AipmsDbContext db, ICurrentUs
             .Select(p => new { p.Id, p.AcademicSemesterId }).Take(3).ToArrayAsync(ct);
         var periodIds = periods.Select(p => p.Id).ToArray();
         var semesterIds = periods.Select(p => p.AcademicSemesterId).Distinct().ToArray();
+        if (semesterIds.Length == 0)
+        {
+            semesterIds = await db.AcademicSemesters.AsNoTracking()
+                .Where(s => s.OrganizationId == scope.OrganizationId)
+                .OrderByDescending(s => s.StartDate).ThenByDescending(s => s.Id)
+                .Select(s => s.Id).Take(3).ToArrayAsync(ct);
+            if (!semesterIds.Contains(scope.SemesterId))
+                semesterIds = [scope.SemesterId, .. semesterIds.Take(2)];
+            periodIds = await db.ProjectPeriods.AsNoTracking()
+                .Where(p => semesterIds.Contains(p.AcademicSemesterId))
+                .Select(p => p.Id).ToArrayAsync(ct);
+        }
         var topics = db.Set<ProjectTopic>().AsNoTracking().Where(t => t.Status == "PUBLISHED"
             && periodIds.Contains(t.ProjectPeriodId) && t.LeadDepartmentId == scope.DepartmentId
             && (!scope.TopicId.HasValue || t.Id != scope.TopicId.Value));
         var projects = db.Projects.AsNoTracking().Where(p => p.Team.AcademicSemester.OrganizationId == scope.OrganizationId
             && semesterIds.Contains(p.Team.AcademicSemesterId)
-            && (p.Status == "APPROVED" || p.Status == "ACTIVE" || p.Status == "COMPLETED")
+            && ComparableProjectStatuses.Contains(p.Status)
             && (!scope.ProjectId.HasValue || p.Id != scope.ProjectId.Value)
             && (p.ProjectMajors.Any(pm => pm.Major.DepartmentId == scope.DepartmentId)
                 || db.Set<ProjectRegistrationSnapshot>().Any(s => s.ProjectId == p.Id && s.LeadDepartmentId == scope.DepartmentId))
@@ -58,7 +75,7 @@ internal sealed class TopicSimilarityReviewService(AipmsDbContext db, ICurrentUs
             .Concat(metadata.Select(p => new TopicSimilarityCandidate(p.Id, "PROJECT", p.Title, p.SemesterCode,
                 null, null, null, p.Domain, p.Keywords))).ToArray();
         var truncated = total > candidates.Length;
-        var analysis = await TopicSimilarityAnalyzer.Analyze(provider, configuration, input, candidates, truncated, ct);
+        var analysis = await TopicSimilarityAnalyzer.Analyze(provider, configuration, input, candidates, truncated, ct, logger);
         // Model latency must not permit a former leader or a changed academic scope to receive the result.
         if (await Authorize(input, ct) != scope)
             throw new ConflictException("Phạm vi nhóm đã thay đổi. Hãy tải lại và kiểm tra đề tài lần nữa.");
@@ -83,16 +100,36 @@ internal sealed class TopicSimilarityReviewService(AipmsDbContext db, ICurrentUs
         var team = await db.Teams.AsNoTracking().Where(t => t.Id == input.TeamId
             && t.AcademicSemester.OrganizationId == actor.OrganizationId
             && t.TeamMembers.Any(m => m.UserId == userId && m.IsLeader && m.LeftAt == null))
-            .Select(t => new { ProjectId = t.Project == null ? (long?)null : t.Project.Id,
-                TopicId = t.Project == null ? null : t.Project.TopicId }).SingleOrDefaultAsync(ct);
-        if (team is null || input.ProjectId.HasValue && input.ProjectId != team.ProjectId)
+            .Select(t => new { t.Id, t.AcademicSemesterId }).SingleOrDefaultAsync(ct);
+        if (team is null)
             throw new ForbiddenException("Chỉ trưởng nhóm hiện tại được kiểm tra đề tài trong phạm vi nhóm của mình.");
+        long? projectId = null;
+        long? topicId = null;
+        if (input.ProjectId.HasValue)
+        {
+            var project = await db.Projects.AsNoTracking()
+                .Where(p => p.Id == input.ProjectId.Value && p.TeamId == input.TeamId)
+                .Select(p => new { p.Id, p.TopicId }).SingleOrDefaultAsync(ct);
+            if (project is null)
+                throw new ForbiddenException("Chỉ trưởng nhóm hiện tại được kiểm tra đề tài trong phạm vi nhóm của mình.");
+            projectId = project.Id;
+            topicId = project.TopicId;
+        }
+        else
+        {
+            var latestProject = await db.Projects.AsNoTracking()
+                .Where(p => p.TeamId == input.TeamId && p.Status != "REJECTED")
+                .OrderByDescending(p => p.Id)
+                .Select(p => new { p.Id, p.TopicId }).FirstOrDefaultAsync(ct);
+            projectId = latestProject?.Id;
+            topicId = latestProject?.TopicId;
+        }
         var configuration = await db.Set<TeamAcademicConfiguration>().AsNoTracking()
             .Where(s => s.TeamId == input.TeamId).Select(s => new { s.LeadDepartmentId, s.ConcurrencyToken }).SingleOrDefaultAsync(ct);
         var departmentId = configuration?.LeadDepartmentId ?? actor.DepartmentId.Value;
         if (!await repository.IsActiveDepartmentAsync(departmentId, actor.OrganizationId.Value, ct))
             throw new ForbiddenException("Phạm vi khoa chủ trì của nhóm không còn hợp lệ.");
-        return new(userId, actor.OrganizationId.Value, departmentId, team.ProjectId, team.TopicId, configuration?.ConcurrencyToken);
+        return new(userId, actor.OrganizationId.Value, departmentId, team.AcademicSemesterId, projectId, topicId, configuration?.ConcurrencyToken);
     }
 
     private static string[] Keywords(string json)
@@ -101,6 +138,6 @@ internal sealed class TopicSimilarityReviewService(AipmsDbContext db, ICurrentUs
         catch (JsonException) { return []; }
     }
 
-    private sealed record ReviewScope(long ActorId, long OrganizationId, long DepartmentId,
+    private sealed record ReviewScope(long ActorId, long OrganizationId, long DepartmentId, long SemesterId,
         long? ProjectId, long? TopicId, Guid? ScopeVersion);
 }

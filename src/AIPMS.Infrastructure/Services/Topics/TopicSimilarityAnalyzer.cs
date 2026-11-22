@@ -1,9 +1,12 @@
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using AIPMS.Application.Features.AiAssistant.Abstractions;
 using AIPMS.Application.Features.Topics.DTOs;
 using AIPMS.Domain.Topics;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace AIPMS.Infrastructure.Services.Topics;
 
@@ -21,7 +24,7 @@ internal static class TopicSimilarityAnalyzer
 
     internal static async Task<TopicSimilarityAnalysis> Analyze(IAiTextGenerationProvider provider,
         IConfiguration configuration, TopicAiSimilarityRequest input, TopicSimilarityCandidate[] candidates,
-        bool truncated, CancellationToken ct)
+        bool truncated, CancellationToken ct, ILogger? logger = null)
     {
         ct.ThrowIfCancellationRequested();
         if (candidates.Length == 0)
@@ -40,7 +43,7 @@ internal static class TopicSimilarityAnalyzer
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue<int?>("AiAssistant:TimeoutSeconds") ?? 20, 1, 20)));
+            timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue<int?>("AiAssistant:TimeoutSeconds") ?? 30, 1, 90)));
             var proposal = Proposal(input);
             var evidence = selected.Select((candidate, index) => new { key = index + 1, text = Evidence(candidate) }).ToArray();
             var raw = await provider.GenerateTextAsync(
@@ -50,9 +53,9 @@ internal static class TopicSimilarityAnalyzer
                 "Return at most 5 genuinely relevant matches. Shared generic technology alone is not high similarity. " +
                 "HIGH: substantially same problem, audience and core outcome; MEDIUM: meaningful overlapping scope; LOW: limited overlap worth checking. " +
                 "Explain similarities AND differences in Vietnamese. Never invent missing scope. " +
-                "Return ONLY JSON {\"matches\":[{\"key\":1,\"level\":\"HIGH|MEDIUM|LOW\",\"reason\":\"...\",\"sharedAspects\":[\"...\"],\"differences\":[\"...\"],\"candidateExcerpt\":\"...\",\"proposalExcerpt\":\"...\"}]}. " +
-                "Use supplied keys exactly once, ordered by relevance. Each match needs a verbatim exact quote of 8-300 characters from its candidate text " +
-                "and a verbatim exact quote of 8-300 characters from proposal text. Each quote must be one continuous substring, no ellipses. " +
+                "Return ONLY raw JSON without Markdown code fences: {\"matches\":[{\"key\":1,\"level\":\"HIGH|MEDIUM|LOW\",\"reason\":\"...\",\"sharedAspects\":[\"...\"],\"differences\":[\"...\"],\"candidateExcerpt\":\"...\",\"proposalExcerpt\":\"...\"}]}. " +
+                "Use supplied keys exactly once, ordered by relevance. Each match needs a verbatim exact quote from its candidate text " +
+                "and a verbatim exact quote from proposal text (at least 8 characters when the source text has 8+ characters, otherwise the exact title). Each quote must be one continuous substring, no ellipses. " +
                 "Reason: max 400 characters. SharedAspects/differences: 1-3 short strings each, max 180 characters. " +
                 "An empty matches array means no meaningful match among supplied candidates, never global uniqueness.",
                 JsonSerializer.Serialize(new { proposal, candidates = evidence }), timeout.Token);
@@ -63,7 +66,11 @@ internal static class TopicSimilarityAnalyzer
                 limitation, selected.Length, provider.ModelVersion);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch { return Fallback(); }
+        catch (Exception ex)
+        {
+            logger?.LogWarning("Topic AI similarity fallback: {FailureType}; {Message}", ex.GetType().Name, ex.Message);
+            return Fallback();
+        }
     }
 
     // Include recent sources even with no shared words, so paraphrases are not eliminated by lexical retrieval alone.
@@ -97,8 +104,9 @@ internal static class TopicSimilarityAnalyzer
     internal static IReadOnlyList<TopicAiSimilarityMatchDto> Parse(string raw, TopicAiSimilarityRequest input,
         TopicSimilarityCandidate[] selected)
     {
-        if (raw.Length > 16000) throw new JsonException("Response too large.");
-        using var document = JsonDocument.Parse(raw);
+        var cleaned = AiJsonSanitizer.ExtractJsonObject(raw);
+        if (cleaned.Length == 0 || cleaned.Length > 20000) throw new JsonException("Response empty or too large.");
+        using var document = JsonDocument.Parse(cleaned);
         var rows = document.RootElement.GetProperty("matches").EnumerateArray().ToArray();
         if (rows.Length > 5) throw new JsonException("Too many matches.");
         var seen = new HashSet<int>();
@@ -109,31 +117,59 @@ internal static class TopicSimilarityAnalyzer
             var key = row.GetProperty("key").GetInt32();
             if (key <= 0 || key > selected.Length || !seen.Add(key)) throw new JsonException("Invalid evidence key.");
             var candidate = selected[key - 1];
+            var candidateEvidence = Evidence(candidate);
             var level = row.GetProperty("level").GetString();
             if (level is not ("HIGH" or "MEDIUM" or "LOW")) throw new JsonException("Invalid similarity level.");
             var reason = Text(row, "reason", 1, 400);
-            var candidateQuote = Text(row, "candidateExcerpt", 8, 300);
-            var proposalQuote = Text(row, "proposalExcerpt", 8, 300);
-            if (!Evidence(candidate).Contains(candidateQuote, StringComparison.Ordinal) || !proposal.Contains(proposalQuote, StringComparison.Ordinal))
+            var candidateQuote = Text(row, "candidateExcerpt", 3, 300);
+            var proposalQuote = Text(row, "proposalExcerpt", 3, 300);
+            if (!IsGroundedQuote(candidateEvidence, candidate.Title, candidateQuote) || !IsGroundedQuote(proposal, input.Title, proposalQuote))
                 throw new JsonException("Ungrounded quotation.");
+            var shared = Strings(row, "sharedAspects", allowEmptyFallback: null);
+            var differences = Strings(row, "differences", allowEmptyFallback: level == "HIGH"
+                ? "Chưa ghi nhận điểm khác biệt rõ rệt từ thông tin hiện có."
+                : null);
             result.Add(new(candidate.Id, candidate.SourceType, candidate.Title, candidate.SemesterCode, level, reason,
-                Strings(row, "sharedAspects"), Strings(row, "differences"), candidateQuote, proposalQuote));
+                shared, differences, candidateQuote, proposalQuote));
         }
         return result.OrderBy(x => x.SimilarityLevel == "HIGH" ? 0 : x.SimilarityLevel == "MEDIUM" ? 1 : 2).ToArray();
     }
 
+    private static bool IsGroundedQuote(string source, string? title, string quote)
+    {
+        if (quote.Contains("...", StringComparison.Ordinal) || quote.Contains('…')) return false;
+        var normQuote = NormalizeWhitespace(quote);
+        if (normQuote.Length == 0) return false;
+        var normSource = NormalizeWhitespace(source);
+        if (normQuote.Length < 8)
+        {
+            var normTitle = string.IsNullOrWhiteSpace(title) ? "" : NormalizeWhitespace(title);
+            var matchesExactShortTitle = normTitle.Length is >= 3 and < 8
+                && string.Equals(normQuote, normTitle, StringComparison.OrdinalIgnoreCase);
+            var matchesExactShortSource = normSource.Length is >= 3 and < 8
+                && string.Equals(normQuote, normSource, StringComparison.OrdinalIgnoreCase);
+            return matchesExactShortTitle || matchesExactShortSource;
+        }
+        return source.Contains(quote, StringComparison.Ordinal)
+            || normSource.Contains(normQuote, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeWhitespace(string value) =>
+        Regex.Replace(value.Normalize(NormalizationForm.FormC).Trim(), @"\s+", " ");
+
     private static string Text(JsonElement value, string name, int minimum, int maximum)
     {
-        var text = value.GetProperty(name).GetString();
+        var text = value.GetProperty(name).GetString()?.Trim();
         if (string.IsNullOrWhiteSpace(text) || text.Length < minimum || text.Length > maximum) throw new JsonException("Invalid explanation.");
         return text;
     }
 
-    private static string[] Strings(JsonElement value, string name)
+    private static string[] Strings(JsonElement value, string name, string? allowEmptyFallback)
     {
-        var rows = value.GetProperty(name).EnumerateArray().Select(item => item.GetString()).ToArray();
-        if (rows.Length is < 1 or > 3 || rows.Any(text => string.IsNullOrWhiteSpace(text) || text.Length > 180))
-            throw new JsonException("Invalid explanation list.");
-        return rows.Select(text => text!).ToArray();
+        var rows = value.GetProperty(name).EnumerateArray().Select(item => item.GetString()?.Trim())
+            .Where(text => !string.IsNullOrWhiteSpace(text)).Select(text => text!.Length > 180 ? text[..180] : text).Take(3).ToArray();
+        if (rows.Length == 0)
+            return allowEmptyFallback is not null ? [allowEmptyFallback] : throw new JsonException("Invalid explanation list.");
+        return rows;
     }
 }

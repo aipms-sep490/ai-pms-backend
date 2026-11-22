@@ -30,6 +30,7 @@ public partial class AipmsDbContext
         ConfigureSprints(modelBuilder);
         ConfigureMilestoneDependencies(modelBuilder);
         ConfigureTaskDependencyImpacts(modelBuilder);
+        ConfigureTaskCriteria(modelBuilder);
         ConfigureAiRuns(modelBuilder);
         ConfigureAiDeliverableReview(modelBuilder);
         ConfigureProjectRequirements(modelBuilder);

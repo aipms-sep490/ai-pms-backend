@@ -24,6 +24,20 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
         [FromQuery] long? meetingId, [FromServices] IWorkflowAssistanceService assistance, CancellationToken ct) =>
         assistance.GetAsync(projectId, mode, meetingId, ct);
 
+    [HttpPost("/api/v1/projects/{projectId:long}/ai/setup/apply")]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<ApplyProjectSetupResultDto>(200)]
+    public Task<ApplyProjectSetupResultDto> ApplyProjectSetup(long projectId, [FromBody] ApplyProjectSetupRequest request,
+        [FromServices] IAiSetupService setup, CancellationToken ct) =>
+        setup.ApplyProjectSetupAsync(projectId, request, ct);
+
+    [HttpPost("ai/rubric-setup/apply")]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<ApplyRubricSetupResultDto>(200)]
+    public Task<ApplyRubricSetupResultDto> ApplyRubricSetup([FromBody] ApplyRubricSetupRequest request,
+        [FromServices] IAiSetupService setup, CancellationToken ct) =>
+        setup.ApplyRubricSetupAsync(request, ct);
+
     [HttpGet("assistant/review-rubrics")]
     public Task<IReadOnlyList<AssistantRubricOption>> ReviewRubrics([FromQuery] long projectId, CancellationToken ct) => service.ReviewRubricsAsync(projectId, ct);
     [HttpPost("/api/v1/projects/{projectId:long}/ai/deliverables/{deliverableVersionId:long}/review")]

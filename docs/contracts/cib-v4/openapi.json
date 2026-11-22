@@ -124,6 +124,113 @@
         }
       }
     },
+    "/api/v1/projects/{projectId}/ai/setup/apply": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyProjectSetupRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyProjectSetupRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyProjectSetupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyProjectSetupResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyProjectSetupResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyProjectSetupResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/ai/rubric-setup/apply": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRubricSetupRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRubricSetupRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRubricSetupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyRubricSetupResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyRubricSetupResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyRubricSetupResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/academic/assistant/review-rubrics": {
       "get": {
         "tags": [
@@ -9916,6 +10023,205 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ChatAiSummaryDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat/conversations/{id}/ai/assist": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatAiAssistRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatAiAssistRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatAiAssistRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatAiAssistDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatAiAssistDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatAiAssistDto"
                 }
               }
             }
@@ -55408,6 +55714,171 @@
         }
       }
     },
+    "/api/v1/tasks/{id}/criteria": {
+      "get": {
+        "tags": [
+          "Tasks"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCriteriaListDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCriteriaListDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCriteriaListDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tasks"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceTaskCriteriaRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceTaskCriteriaRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceTaskCriteriaRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCriteriaListDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCriteriaListDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCriteriaListDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{id}/criteria/{criterionId}": {
+      "patch": {
+        "tags": [
+          "Tasks"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "criterionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToggleTaskCriterionRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToggleTaskCriterionRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ToggleTaskCriterionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCriteriaListDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCriteriaListDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCriteriaListDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{id}/dependency-impacts": {
       "get": {
         "tags": [
@@ -60952,6 +61423,9 @@
           },
           "draft": {
             "$ref": "#/components/schemas/AssistantDraftDto"
+          },
+          "structuredReport": {
+            "$ref": "#/components/schemas/AssistantStructuredReportDto"
           }
         },
         "additionalProperties": false
@@ -61572,6 +62046,178 @@
         },
         "additionalProperties": false
       },
+      "ApplyProjectSetupRequest": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "milestones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantSetupMilestoneDto"
+            },
+            "nullable": true
+          },
+          "deliverables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantSetupDeliverableDto"
+            },
+            "nullable": true
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantSetupTaskDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyProjectSetupResultDto": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "replay": {
+            "type": "boolean"
+          },
+          "milestonesCreated": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "deliverablesCreated": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tasksCreated": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "taskCriteriaCreated": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dependenciesCreated": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreatedSetupItemRef"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyRubricSetupRequest": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "departmentId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "academicSemesterId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "majorId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationStage": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationScope": {
+            "type": "string",
+            "nullable": true
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantRubricCriterionDraftDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyRubricSetupResultDto": {
+        "type": "object",
+        "properties": {
+          "rubricId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "criteriaCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "replay": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "ApproveRubricRequest": {
         "type": "object",
         "properties": {
@@ -61815,6 +62461,40 @@
         },
         "additionalProperties": false
       },
+      "AssistantContextCoverageDto": {
+        "type": "object",
+        "properties": {
+          "projectTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectStage": {
+            "type": "string",
+            "nullable": true
+          },
+          "tasksScanned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tasksTotal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "deliverablesCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "coldItemsCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reviewGatesCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
       "AssistantConversationDetailDto": {
         "type": "object",
         "properties": {
@@ -61865,6 +62545,57 @@
         },
         "additionalProperties": false
       },
+      "AssistantDiagnosticItemDto": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "location": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "progressText": {
+            "type": "string",
+            "nullable": true
+          },
+          "issueDetail": {
+            "type": "string",
+            "nullable": true
+          },
+          "owner": {
+            "type": "string",
+            "nullable": true
+          },
+          "dueAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "target": {
+            "type": "string",
+            "nullable": true
+          },
+          "resourceId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "citationId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "AssistantDraftDto": {
         "type": "object",
         "properties": {
@@ -61895,6 +62626,12 @@
               "$ref": "#/components/schemas/AssistantDraftDto"
             },
             "nullable": true
+          },
+          "setupPlan": {
+            "$ref": "#/components/schemas/AssistantProjectSetupPlanDto"
+          },
+          "rubricSetup": {
+            "$ref": "#/components/schemas/AssistantRubricSetupPlanDto"
           }
         },
         "additionalProperties": false
@@ -61930,6 +62667,44 @@
           },
           "inviteAll": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantProjectSetupPlanDto": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "milestones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantSetupMilestoneDto"
+            },
+            "nullable": true
+          },
+          "deliverables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantSetupDeliverableDto"
+            },
+            "nullable": true
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantSetupTaskDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -61972,6 +62747,87 @@
         },
         "additionalProperties": false
       },
+      "AssistantRubricCriterionDraftDto": {
+        "type": "object",
+        "properties": {
+          "tempKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "parentTempKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "criterionCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "weightPercent": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxScore": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "isRequired": {
+            "type": "boolean"
+          },
+          "learningOutcome": {
+            "type": "string",
+            "nullable": true
+          },
+          "evidenceGuidance": {
+            "type": "string",
+            "nullable": true
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantRubricLevelDraftDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantRubricLevelDraftDto": {
+        "type": "object",
+        "properties": {
+          "levelOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "descriptor": {
+            "type": "string",
+            "nullable": true
+          },
+          "scoreFrom": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "scoreTo": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "AssistantRubricOption": {
         "type": "object",
         "properties": {
@@ -61989,6 +62845,207 @@
           },
           "assignedToProject": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantRubricSetupPlanDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationStage": {
+            "type": "string",
+            "nullable": true
+          },
+          "evaluationScope": {
+            "type": "string",
+            "nullable": true
+          },
+          "majorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantRubricCriterionDraftDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantSetupDeliverableDto": {
+        "type": "object",
+        "properties": {
+          "tempKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliverableType": {
+            "type": "string",
+            "nullable": true
+          },
+          "milestoneRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "evidenceScope": {
+            "type": "string",
+            "nullable": true
+          },
+          "targetMajorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "acceptanceCriteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantSetupMilestoneDto": {
+        "type": "object",
+        "properties": {
+          "tempKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "existingMilestoneId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "startDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "dueDate": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantSetupTaskDto": {
+        "type": "object",
+        "properties": {
+          "tempKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "priority": {
+            "type": "string",
+            "nullable": true
+          },
+          "milestoneRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "assigneeNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "primaryMajorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "acceptanceCriteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "dependsOnRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantStructuredReportDto": {
+        "type": "object",
+        "properties": {
+          "summaryTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/AssistantContextCoverageDto"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantDiagnosticItemDto"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -62407,6 +63464,112 @@
         },
         "additionalProperties": false
       },
+      "ChatAiAssistDto": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "nullable": true
+          },
+          "mode": {
+            "type": "string",
+            "nullable": true
+          },
+          "answer": {
+            "type": "string",
+            "nullable": true
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatAiReferenceDto"
+            },
+            "nullable": true
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "generationStatus": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChatAiAssistRequest": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "nullable": true
+          },
+          "query": {
+            "type": "string",
+            "nullable": true
+          },
+          "draftText": {
+            "type": "string",
+            "nullable": true
+          },
+          "tone": {
+            "type": "string",
+            "nullable": true
+          },
+          "messageCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChatAiReferenceDto": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "nullable": true
+          },
+          "senderName": {
+            "type": "string",
+            "nullable": true
+          },
+          "excerpt": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChatAiSuggestedMeeting": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "suggestedTimeNote": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceMessageId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ChatAiSummaryDto": {
         "type": "object",
         "properties": {
@@ -62446,6 +63609,23 @@
           "generationStatus": {
             "type": "string",
             "nullable": true
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "smartReplies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "suggestedMeeting": {
+            "$ref": "#/components/schemas/ChatAiSuggestedMeeting"
           }
         },
         "additionalProperties": false
@@ -64631,6 +65811,28 @@
             "nullable": true
           },
           "curriculumCode": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreatedSetupItemRef": {
+        "type": "object",
+        "properties": {
+          "tempKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "kind": {
             "type": "string",
             "nullable": true
           }
@@ -72515,6 +73717,19 @@
         },
         "additionalProperties": false
       },
+      "ReplaceTaskCriteriaRequest": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskCriterionInput"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ReplaceTaskDisciplinesRequest": {
         "type": "object",
         "properties": {
@@ -77111,6 +78326,90 @@
         },
         "additionalProperties": false
       },
+      "TaskCriteriaListDto": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "completedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "canManage": {
+            "type": "boolean"
+          },
+          "canToggle": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskCriterionDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskCriterionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "taskId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "isCompleted": {
+            "type": "boolean"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completedBy": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "completedByName": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskCriterionInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "isCompleted": {
+            "type": "boolean",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "TaskDependencyDto": {
         "type": "object",
         "properties": {
@@ -78160,6 +79459,15 @@
               "$ref": "#/components/schemas/TimelineTaskDependencyDto"
             },
             "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ToggleTaskCriterionRequest": {
+        "type": "object",
+        "properties": {
+          "isCompleted": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
