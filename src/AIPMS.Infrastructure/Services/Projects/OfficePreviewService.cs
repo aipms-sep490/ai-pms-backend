@@ -22,10 +22,13 @@ internal sealed class OfficePreviewService : IOfficePreviewService
     {
         if (bytes.Length is 0 or > MaxBytes) throw Invalid("Office preview accepts files up to 5 MiB; download larger originals.");
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
-        if (extension is not (".docx" or ".xlsx")) throw Invalid("Only DOCX and XLSX can be previewed here.");
+        if (extension is not (".docx" or ".xlsx" or ".pptx" or ".zip"))
+            throw Invalid("Only DOCX, XLSX, PPTX, and ZIP can be previewed here.");
         try
         {
             using var archive = new ZipArchive(new MemoryStream(bytes, false), ZipArchiveMode.Read);
+            if (extension == ".zip")
+                return ZipTree(archive);
             if (archive.Entries.Count is < 2 or > 1000 || archive.GetEntry("[Content_Types].xml") is null)
                 throw Invalid("The Office package is invalid.");
             long expanded = 0;
@@ -36,11 +39,55 @@ internal sealed class OfficePreviewService : IOfficePreviewService
                     || entry.FullName.StartsWith("xl/externalLinks/", StringComparison.OrdinalIgnoreCase))
                     throw Invalid("The Office package contains unsafe or excessive content.");
             }
-            return extension == ".docx" ? Word(archive) : Workbook(archive);
+            return extension switch
+            {
+                ".docx" => Word(archive),
+                ".pptx" => Slides(archive),
+                _ => Workbook(archive)
+            };
         }
         catch (InvalidDataException) { throw Invalid("The Office package is damaged."); }
         catch (XmlException) { throw Invalid("The Office document XML is invalid."); }
         catch (ArgumentException) { throw Invalid("The Office document structure is invalid."); }
+    }
+
+    private static OfficePreviewDto Slides(ZipArchive archive)
+    {
+        var slideEntries = archive.Entries
+            .Where(e => e.FullName.StartsWith("ppt/slides/slide", StringComparison.OrdinalIgnoreCase)
+                && e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(e => e.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (slideEntries.Length == 0) throw Invalid("PPTX contains no slides.");
+        var truncated = slideEntries.Length > 50;
+        var slides = new List<string>();
+        XNamespace drawing = "http://schemas.openxmlformats.org/drawingml/2006/main";
+        foreach (var (entry, idx) in slideEntries.Take(50).Select((e, i) => (e, i + 1)))
+        {
+            var doc = ReadXml(entry);
+            var text = string.Join(" ", doc.Descendants(drawing + "t").Select(t => t.Value).Where(v => !string.IsNullOrWhiteSpace(v)));
+            slides.Add($"Slide {idx}: {(string.IsNullOrWhiteSpace(text) ? "(No text)" : (text.Length > 1000 ? text[..1000] : text))}");
+        }
+        return new("PPTX_SLIDES", slides, [], truncated);
+    }
+
+    private static OfficePreviewDto ZipTree(ZipArchive archive)
+    {
+        if (archive.Entries.Count > 10_000) throw Invalid("ZIP archive exceeds maximum entry limit.");
+        var truncated = archive.Entries.Count > 500;
+        var entries = new List<ZipPreviewEntry>();
+        long totalExpanded = 0;
+        foreach (var entry in archive.Entries)
+        {
+            if (entry.FullName.Contains("..", StringComparison.Ordinal) || entry.FullName.Contains(':'))
+                throw Invalid("ZIP archive contains unsafe entry paths.");
+            totalExpanded += entry.Length;
+            if (totalExpanded > 500L * 1024 * 1024)
+                throw Invalid("ZIP archive exceeds safe expanded size.");
+            if (entries.Count < 500)
+                entries.Add(new(entry.FullName, entry.Length, entry.CompressedLength, entry.FullName.EndsWith('/')));
+        }
+        return new("ZIP_TREE", [], [], truncated, entries);
     }
 
     private static OfficePreviewDto Word(ZipArchive archive)

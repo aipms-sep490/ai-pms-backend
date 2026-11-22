@@ -114,6 +114,10 @@ public sealed class GateEvidence
     public long SubmittedBy { get; set; }
     public DateTime SubmittedAt { get; set; }
     public string Status { get; set; } = "SUBMITTED";
+    public string ScanStatus { get; set; } = "READY";
+    public string? ScanProvider { get; set; }
+    public DateTime? ScannedAt { get; set; }
+    public string? ScanDetails { get; set; }
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
     public ProjectGateRequirement Requirement { get; set; } = null!;
 }
@@ -145,6 +149,7 @@ public sealed class GateEvidenceVerification
     public long Id { get; set; }
     public long EvidenceId { get; set; }
     public long AssignmentId { get; set; }
+    public long? PackageId { get; set; }
     public string Decision { get; set; } = "ACCEPTED";
     public string? Feedback { get; set; }
     public long ReviewerId { get; set; }
@@ -155,10 +160,48 @@ public sealed class GateDecision
 {
     public long Id { get; set; }
     public long AssignmentId { get; set; }
+    public long? PackageId { get; set; }
     public string Decision { get; set; } = "PASSED";
     public string Notes { get; set; } = "";
     public long DecidedBy { get; set; }
     public DateTime DecidedAt { get; set; }
+}
+
+public sealed class ReviewGatePackage
+{
+    public long Id { get; set; }
+    public long ProjectId { get; set; }
+    public long GateInstanceId { get; set; }
+    public int RoundNumber { get; set; }
+    public string IdempotencyKey { get; set; } = "";
+    public string RequestHash { get; set; } = "";
+    public string? Notes { get; set; }
+    public long SubmittedBy { get; set; }
+    public DateTime SubmittedAt { get; set; }
+    public ICollection<ReviewGatePackageItem> Items { get; set; } = [];
+}
+
+public sealed class ReviewGatePackageItem
+{
+    public long Id { get; set; }
+    public long PackageId { get; set; }
+    public long RequirementId { get; set; }
+    public long EvidenceId { get; set; }
+    public int EvidenceVersion { get; set; }
+    public string Sha256 { get; set; } = "";
+}
+
+public sealed class FilePreviewDerivative
+{
+    public long Id { get; set; }
+    public long? FileId { get; set; }
+    public long? GateEvidenceId { get; set; }
+    public string DerivativeType { get; set; } = "OFFICE_TEXT";
+    public string Status { get; set; } = "READY";
+    public string? PayloadJson { get; set; }
+    public string? ErrorReason { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }
 
 public sealed class ProjectGateScopeDecision

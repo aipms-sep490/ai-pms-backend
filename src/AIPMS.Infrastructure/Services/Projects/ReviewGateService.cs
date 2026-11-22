@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.IO;
 using System.Threading.Tasks;
@@ -9,9 +11,12 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Deliverables.Models;
 using AIPMS.Application.Features.Deliverables.DTOs;
 using AIPMS.Application.Features.Deliverables.Services;
+using AIPMS.Application.Features.Files;
+using AIPMS.Application.Features.Files.Abstractions;
 using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.ReviewGates;
 using AIPMS.Application.Features.ReviewGates.Abstractions;
+using AIPMS.Domain.Exceptions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using UserModel = AIPMS.Infrastructure.Persistence.Generated.Models.User;
 using AIPMS.Infrastructure.Persistence.Models;
@@ -21,7 +26,8 @@ using Microsoft.Data.SqlClient;
 namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser current, IProjectRepository transactions,
-    IAuditTrail audit, TimeProvider clock, IFileStorage storage, ColdSubmissionService cold) : IReviewGateService
+    IAuditTrail audit, TimeProvider clock, IFileStorage storage, ColdSubmissionService cold,
+    IFileSecurityScanner scanner, ISignedPreviewTokenService previewTokens, IOfficePreviewService officePreview) : IReviewGateService
 {
     private long Actor => current.UserId ?? throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
@@ -326,7 +332,12 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
     public async Task<StudentReviewTimelineDto> SubmitEvidenceFile(long projectId, string gateCode, SubmitReviewGateFileRequest input, UploadContent upload, CancellationToken ct)
     {
         var actor = Actor;
-        var validated = await UploadValidator.ReadAsync(upload, ct);
+        var validated = await UploadValidator.ReadAsync(upload, ct, allowArchiveVideoTier: true, allowQuarantineFallback: true);
+        FileScanResult scan;
+        using (var scanStream = new MemoryStream(validated.Bytes, writable: false))
+        {
+            scan = await scanner.ScanAsync(scanStream, validated.FileName, validated.ContentType, ct);
+        }
         string? key = null;
         try
         {
@@ -337,6 +348,9 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
                 await RequireProjectLeader(projectId, token);
                 var gate = (await EnsureInstances(project, scope, token)).SingleOrDefault(x => x.Code == gateCode) ?? throw new NotFoundException("ProjectGate", gateCode);
                 if (gate.ReviewEligibility == "BLOCKED" && gate.Status != "REVISION_REQUIRED") throw new ConflictException("The previous gate must be passed before submitting evidence.");
+                var now = Now;
+                if ((gate.WindowStart.HasValue && now < gate.WindowStart.Value) || (gate.WindowEnd.HasValue && now > gate.WindowEnd.Value))
+                    throw new ConflictException("The review gate submission window is closed.", "GATE_WINDOW_CLOSED");
                 var requirementId = ParseId(input.RequirementId, "requirementId");
                 var req = gate.Requirements.SingleOrDefault(x => x.Id == requirementId) ?? throw new NotFoundException("ReviewGateRequirement", requirementId);
                 if (string.Equals(req.Type, "EXTERNAL_LINK", StringComparison.OrdinalIgnoreCase))
@@ -344,18 +358,40 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
                 CheckToken(gate.ConcurrencyToken, input.ConcurrencyToken);
                 var latest = await db.GateEvidence.Where(x => x.RequirementId == req.Id).OrderByDescending(x => x.Version).FirstOrDefaultAsync(token);
                 if (input.ExpectedVersion != (latest?.Version ?? 0)) throw new ConflictException("The evidence changed; reload before submitting.");
-                var newKey = Guid.NewGuid().ToString("N");
-                await storage.WriteAsync(newKey, new MemoryStream(validated.Bytes, writable: false), token);
-                key = newKey;
-                var evidence = new GateEvidence { ProjectId = projectId, RequirementId = req.Id, Version = (latest?.Version ?? 0) + 1,
+
+                var newKey = "";
+                if (scan.IsSafe)
+                {
+                    newKey = Guid.NewGuid().ToString("N");
+                    await storage.WriteAsync(newKey, new MemoryStream(validated.Bytes, writable: false), token);
+                    key = newKey;
+                }
+                var evidence = new GateEvidence
+                {
+                    ProjectId = projectId, RequirementId = req.Id, Version = (latest?.Version ?? 0) + 1,
                     ArtifactName = validated.FileName, ContentType = validated.ContentType, SizeBytes = validated.Bytes.LongLength,
-                    Sha256 = validated.Sha256, StorageKey = newKey, Notes = input.Notes?.Trim(), SubmittedBy = actor, SubmittedAt = Now, Status = "SUBMITTED" };
+                    Sha256 = validated.Sha256, StorageKey = newKey, Notes = input.Notes?.Trim(), SubmittedBy = actor, SubmittedAt = now,
+                    Status = scan.IsSafe ? "SUBMITTED" : FileScanStatuses.Quarantined,
+                    ScanStatus = scan.Status, ScanProvider = scan.Provider, ScannedAt = now, ScanDetails = scan.Details
+                };
                 db.GateEvidence.Add(evidence); await db.SaveChangesAsync(token);
-                req.LatestEvidenceId = evidence.Id; req.VerificationStatus = "SUBMITTED"; ResetOverride(gate); gate.Status = "IN_REVIEW"; gate.ReviewEligibility = "READY"; gate.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync(token);
-                await NotifyGateChanged(projectId, gate.Id, gate.Code, "Evidence file submitted for review.", token);
-                await ReopenAssignmentsForRevision(gate, token);
-                await audit.RecordAsync(new(actor, "REVIEW_GATE_EVIDENCE_FILE_SUBMITTED", "REVIEW_GATE", gate.Id,
-                    new Dictionary<string, object?> { ["requirementId"] = req.Id, ["version"] = evidence.Version, ["sha256"] = evidence.Sha256 }), token);
+                if (scan.IsSafe)
+                {
+                    req.LatestEvidenceId = evidence.Id; req.VerificationStatus = "SUBMITTED";
+                    ResetOverride(gate); gate.Status = "IN_REVIEW"; gate.ReviewEligibility = "READY";
+                    gate.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync(token);
+                    await NotifyGateChanged(projectId, gate.Id, gate.Code, "Evidence file submitted for review.", token);
+                    await ReopenAssignmentsForRevision(gate, token);
+                    await audit.RecordAsync(new(actor, "REVIEW_GATE_EVIDENCE_FILE_SUBMITTED", "REVIEW_GATE", gate.Id,
+                        new Dictionary<string, object?> { ["requirementId"] = req.Id, ["version"] = evidence.Version, ["sha256"] = evidence.Sha256, ["scanStatus"] = evidence.ScanStatus }), token);
+                }
+                else
+                {
+                    req.LatestEvidenceId = evidence.Id; req.VerificationStatus = FileScanStatuses.Quarantined;
+                    gate.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync(token);
+                    await audit.RecordAsync(new(actor, "REVIEW_GATE_EVIDENCE_QUARANTINED", "REVIEW_GATE", gate.Id,
+                        new Dictionary<string, object?> { ["requirementId"] = req.Id, ["version"] = evidence.Version, ["reason"] = scan.Details }), token);
+                }
                 var current = await db.ProjectGateInstances.AsNoTracking().Include(x => x.Requirements).ThenInclude(x => x.Evidence).Where(x => x.ProjectId == projectId).OrderBy(x => x.Sequence).ToArrayAsync(token);
                 return await TimelineDto(project, scope, current, token);
             }, ct);
@@ -434,9 +470,126 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
                 throw new ForbiddenException("The evidence is outside the review assignment scope.", WorkflowErrorCodes.ScopeAccessDenied);
             }
         }
+        if (evidence.ScanStatus != FileScanStatuses.Ready)
+            throw new ConflictException("Evidence file is quarantined or not ready for download.", "FILE_QUARANTINED");
         if (string.IsNullOrWhiteSpace(evidence.StorageKey)) throw new ValidationException(new Dictionary<string, string[]> { ["evidence"] = ["This evidence is an external link and has no downloadable file."] });
-        try { return new(await storage.OpenReadAsync(evidence.StorageKey, ct), evidence.ContentType, evidence.ArtifactName); }
+        try { return new(await storage.OpenReadAsync(evidence.StorageKey, ct), evidence.ContentType, evidence.ArtifactName, evidence.SizeBytes); }
         catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { throw new NotFoundException("ReviewGateEvidenceFile", evidence.Id); }
+    }
+
+    public async Task<SignedPreviewTokenDto> IssueEvidencePreviewToken(long projectId, string gateCode, long requirementId, int version, CancellationToken ct)
+    {
+        await RequireActiveActor(ct);
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
+        var evidence = await db.GateEvidence.AsNoTracking().Include(x => x.Requirement).ThenInclude(x => x.GateInstance)
+            .SingleOrDefaultAsync(x => x.ProjectId == projectId && x.RequirementId == requirementId && x.Version == version && x.Requirement.GateInstance.Code == gateCode, ct)
+            ?? throw new NotFoundException("ReviewGateEvidence", requirementId);
+        await EnsureCanReadGateEvidenceAsync(projectId, scope, evidence, ct);
+        if (evidence.ScanStatus != FileScanStatuses.Ready)
+            throw new ConflictException("Evidence file is quarantined or failed preview and cannot be streamed.", "FILE_QUARANTINED");
+        var expires = Now.AddMinutes(5);
+        var token = previewTokens.Issue(new SignedPreviewClaims("GATE_EVIDENCE", evidence.Id, Actor, null, expires));
+        var basePath = $"/api/v1/projects/{projectId}/review-gates/{gateCode}/requirements/{requirementId}/evidence/{version}";
+        return new(token, expires, $"{basePath}/stream?token={Uri.EscapeDataString(token)}", $"{basePath}/safe-preview",
+            evidence.ContentType, evidence.ArtifactName, evidence.ScanStatus);
+    }
+
+    public async Task<FileDownload> StreamEvidence(long projectId, string gateCode, long requirementId, int version, string token, CancellationToken ct)
+    {
+        await RequireActiveActor(ct);
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
+        var evidence = await db.GateEvidence.AsNoTracking().Include(x => x.Requirement).ThenInclude(x => x.GateInstance)
+            .SingleOrDefaultAsync(x => x.ProjectId == projectId && x.RequirementId == requirementId && x.Version == version && x.Requirement.GateInstance.Code == gateCode, ct)
+            ?? throw new NotFoundException("ReviewGateEvidence", requirementId);
+        if (previewTokens.Validate(token, "GATE_EVIDENCE", evidence.Id, Actor) is null)
+            throw new ForbiddenException("Preview stream token is invalid, expired, or bound to another user.", WorkflowErrorCodes.Forbidden);
+        await EnsureCanReadGateEvidenceAsync(projectId, scope, evidence, ct);
+        if (evidence.ScanStatus != FileScanStatuses.Ready)
+            throw new ConflictException("Evidence file is quarantined or not ready for streaming.", "FILE_QUARANTINED");
+        if (string.IsNullOrWhiteSpace(evidence.StorageKey))
+            throw new ValidationException(new Dictionary<string, string[]> { ["evidence"] = ["External links cannot be streamed."] });
+        try { return new(await storage.OpenReadAsync(evidence.StorageKey, ct), evidence.ContentType, evidence.ArtifactName, evidence.SizeBytes); }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { throw new NotFoundException("ReviewGateEvidenceFile", evidence.Id); }
+    }
+
+    public async Task<OfficePreviewDto> SafePreviewEvidence(long projectId, string gateCode, long requirementId, int version, CancellationToken ct)
+    {
+        await RequireActiveActor(ct);
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
+        var evidence = await db.GateEvidence.AsNoTracking().Include(x => x.Requirement).ThenInclude(x => x.GateInstance)
+            .SingleOrDefaultAsync(x => x.ProjectId == projectId && x.RequirementId == requirementId && x.Version == version && x.Requirement.GateInstance.Code == gateCode, ct)
+            ?? throw new NotFoundException("ReviewGateEvidence", requirementId);
+        await EnsureCanReadGateEvidenceAsync(projectId, scope, evidence, ct);
+        if (evidence.ScanStatus != FileScanStatuses.Ready)
+            throw new ConflictException("Quarantined or unready evidence cannot be previewed.", "FILE_QUARANTINED");
+        if (string.IsNullOrWhiteSpace(evidence.StorageKey))
+            throw new ValidationException(new Dictionary<string, string[]> { ["evidence"] = ["External links do not have binary derivatives."] });
+
+        var cached = await db.Set<FilePreviewDerivative>().AsNoTracking()
+            .FirstOrDefaultAsync(d => d.GateEvidenceId == evidence.Id, ct);
+        if (cached is { Status: "READY", PayloadJson: not null })
+            return JsonSerializer.Deserialize<OfficePreviewDto>(cached.PayloadJson)!;
+        if (cached is { Status: "PREVIEW_FAILED" })
+            throw new ConflictException(cached.ErrorReason ?? "Preview conversion failed for this file.", "PREVIEW_FAILED");
+
+        await using var stream = await storage.OpenReadAsync(evidence.StorageKey, ct);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms, ct);
+        var bytes = ms.ToArray();
+        try
+        {
+            var result = officePreview.Preview(evidence.ArtifactName, bytes);
+            var derivType = result.Kind switch
+            {
+                "PPTX_SLIDES" => "PPTX_SLIDES",
+                "XLSX_GRID" => "XLSX_GRID",
+                "ZIP_TREE" => "ZIP_TREE",
+                _ => "OFFICE_TEXT"
+            };
+            var now = Now;
+            db.Set<FilePreviewDerivative>().Add(new FilePreviewDerivative
+            {
+                GateEvidenceId = evidence.Id,
+                DerivativeType = derivType,
+                Status = "READY",
+                PayloadJson = JsonSerializer.Serialize(result),
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+            await db.SaveChangesAsync(ct);
+            return result;
+        }
+        catch (ValidationException ex)
+        {
+            var now = Now;
+            var reason = ex.Errors.Values.SelectMany(v => v).FirstOrDefault() ?? "Unsupported or unsafe preview content.";
+            db.Set<FilePreviewDerivative>().Add(new FilePreviewDerivative
+            {
+                GateEvidenceId = evidence.Id,
+                DerivativeType = "OFFICE_TEXT",
+                Status = "PREVIEW_FAILED",
+                ErrorReason = reason.Length > 500 ? reason[..500] : reason,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+            await db.SaveChangesAsync(ct);
+            throw new ConflictException(reason, "PREVIEW_FAILED");
+        }
+    }
+
+    private async Task EnsureCanReadGateEvidenceAsync(long projectId, ProjectAcademicScope scope, GateEvidence evidence, CancellationToken ct)
+    {
+        if (await IsAdmin(ct)) return;
+        if (await CanReadEvidence(projectId, scope, evidence.Requirement, ct)) return;
+        var now = Now;
+        var hasRevokedOrExpired = await db.GateReviewerAssignments.AsNoTracking().AnyAsync(
+            x => x.GateInstanceId == evidence.Requirement.GateInstanceId && x.ReviewerId == Actor
+                && (x.Status == "REVOKED"
+                    || (x.ValidFrom != null && x.ValidFrom > now)
+                    || (x.ValidUntil != null && now > x.ValidUntil)), ct);
+        if (hasRevokedOrExpired)
+            throw new ForbiddenException("This review assignment has been revoked or expired.", WorkflowErrorCodes.AssignmentRevoked);
+        throw new ForbiddenException("The evidence is outside the review assignment scope.", WorkflowErrorCodes.ScopeAccessDenied);
     }
 
     public async Task<ReviewGateArchiveManifest> ArchiveManifest(long projectId, string gateCode, CancellationToken ct)
@@ -489,12 +642,39 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         if (!await db.Users.AnyAsync(x => x.Id == Actor && x.Status == "ACTIVE", token)) throw new ForbiddenException("The reviewer account is inactive.");
         if (await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, row.GateInstance.ProjectId, Actor, token))
             throw new ConflictException("A project's current or former primary supervisor, or active mentor, cannot review its own gate.", WorkflowErrorCodes.EvaluatorRoleConflict);
-        var evidence = requirement.Evidence.OrderByDescending(x => x.Version).FirstOrDefault() ?? throw new ConflictException("No evidence has been submitted.");
+        var latestPackage = await db.Set<ReviewGatePackage>().Include(p => p.Items)
+            .Where(p => p.GateInstanceId == row.GateInstanceId)
+            .OrderByDescending(p => p.RoundNumber)
+            .FirstOrDefaultAsync(token);
+        if (input.PackageId.HasValue && (latestPackage is null || latestPackage.Id != input.PackageId.Value))
+            throw new ConflictException("The review package snapshot is stale. Reload the latest submitted gate snapshot.", WorkflowErrorCodes.StaleEvidenceVersion);
+
+        GateEvidence? evidence;
+        if (latestPackage is not null && latestPackage.Items.SingleOrDefault(i => i.RequirementId == requirement.Id) is { } pinnedItem)
+        {
+            evidence = requirement.Evidence.SingleOrDefault(e => e.Id == pinnedItem.EvidenceId)
+                ?? await db.GateEvidence.SingleOrDefaultAsync(e => e.Id == pinnedItem.EvidenceId, token);
+        }
+        else
+        {
+            evidence = requirement.Evidence.OrderByDescending(x => x.Version).FirstOrDefault();
+        }
+        if (evidence is null) throw new ConflictException("No evidence has been submitted.");
+        if ((input.EvidenceId.HasValue && input.EvidenceId.Value != evidence.Id)
+            || (input.EvidenceVersion.HasValue && input.EvidenceVersion.Value != evidence.Version))
+            throw new ConflictException("The evidence version is stale or does not match the frozen gate snapshot.", WorkflowErrorCodes.StaleEvidenceVersion);
+        if (evidence.ScanStatus != FileScanStatuses.Ready)
+            throw new ConflictException("Quarantined or unready evidence cannot be verified.", "FILE_QUARANTINED");
         if (input.Decision is not ("ACCEPTED" or "REJECTED")) throw new ValidationException(new Dictionary<string, string[]> { ["decision"] = ["Decision must be ACCEPTED or REJECTED."] });
-        db.GateEvidenceVerifications.Add(new GateEvidenceVerification { EvidenceId = evidence.Id, AssignmentId = row.Id, Decision = input.Decision, Feedback = input.Feedback?.Trim(), ReviewerId = Actor, CreatedAt = Now });
+        db.GateEvidenceVerifications.Add(new GateEvidenceVerification
+        {
+            EvidenceId = evidence.Id, AssignmentId = row.Id, PackageId = latestPackage?.Id,
+            Decision = input.Decision, Feedback = input.Feedback?.Trim(), ReviewerId = Actor, CreatedAt = Now
+        });
         evidence.Status = input.Decision; requirement.VerificationStatus = input.Decision; requirement.ReviewerFeedback = input.Feedback?.Trim(); row.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync(token);
-        await audit.RecordAsync(new(Actor, "REVIEW_GATE_EVIDENCE_VERIFIED", "REVIEW_GATE_ASSIGNMENT", row.Id, new Dictionary<string, object?> { ["requirementId"] = requirement.Id, ["decision"] = input.Decision }), token);
-        var project = await db.Projects.AsNoTracking().SingleAsync(x => x.Id == row.GateInstance.ProjectId, token); return AssignmentDto(row, project);
+        await audit.RecordAsync(new(Actor, "REVIEW_GATE_EVIDENCE_VERIFIED", "REVIEW_GATE_ASSIGNMENT", row.Id,
+            new Dictionary<string, object?> { ["requirementId"] = requirement.Id, ["evidenceId"] = evidence.Id, ["evidenceVersion"] = evidence.Version, ["packageId"] = latestPackage?.Id, ["decision"] = input.Decision }), token);
+        var project = await db.Projects.AsNoTracking().SingleAsync(x => x.Id == row.GateInstance.ProjectId, token); return AssignmentDto(row, project, latestPackage?.Id);
     }, ct);
 
     public Task<AssignedReviewItemDto> Decide(long assignmentId, SubmitReviewGateDecisionRequest input, CancellationToken ct) => transactions.InTransactionAsync(async token =>
@@ -506,7 +686,14 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         CheckToken(row.ConcurrencyToken, input.ConcurrencyToken);
         if (input.Decision is not ("PASSED" or "REVISION_REQUIRED") || string.IsNullOrWhiteSpace(input.Notes)) throw new ValidationException(new Dictionary<string, string[]> { ["decision"] = ["A decision and notes are required."] });
         if (input.Decision == "PASSED" && row.GateInstance.Requirements.Any(x => x.Required && x.VerificationStatus != "ACCEPTED")) throw new ValidationException(new Dictionary<string, string[]> { ["gate"] = ["All mandatory evidence must be accepted before passing the gate."] });
-        db.GateDecisions.Add(new GateDecision { AssignmentId = row.Id, Decision = input.Decision, Notes = input.Notes.Trim(), DecidedBy = Actor, DecidedAt = Now });
+        var latestPkgId = await db.Set<ReviewGatePackage>().AsNoTracking()
+            .Where(p => p.GateInstanceId == row.GateInstanceId)
+            .OrderByDescending(p => p.RoundNumber)
+            .Select(p => (long?)p.Id)
+            .FirstOrDefaultAsync(token);
+        if (input.PackageId.HasValue && latestPkgId != input.PackageId.Value)
+            throw new ConflictException("The review package snapshot is stale.", WorkflowErrorCodes.StaleEvidenceVersion);
+        db.GateDecisions.Add(new GateDecision { AssignmentId = row.Id, PackageId = latestPkgId, Decision = input.Decision, Notes = input.Notes.Trim(), DecidedBy = Actor, DecidedAt = Now });
         row.LatestDecision = input.Decision; row.ReviewerNotes = input.Notes.Trim(); row.Status = input.Decision == "PASSED" ? "DECIDED" : "PENDING_REVIEW"; row.ConcurrencyToken = Guid.NewGuid();
         var activeAssignments = await db.GateReviewerAssignments.Where(x => x.GateInstanceId == row.GateInstanceId && x.Status != "REVOKED").ToArrayAsync(token);
         var panel = activeAssignments.Select(x => x.ReviewerId).Distinct().ToArray();
@@ -613,16 +800,82 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
 
     public Task<StudentReviewTimelineDto> SubmitForReview(long projectId, string gateCode, SubmitReviewGateForReviewRequest input, CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
+        var idempotencyKey = input.IdempotencyKey?.Trim();
+        if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 128)
+            throw new ValidationException(new Dictionary<string, string[]> { ["idempotencyKey"] = ["Idempotency-Key header (1..128 characters) is required to submit a gate package snapshot."] });
+
+        await AcademicAssignmentGuard.LockProjectAsync(db, projectId, token);
         var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == projectId, token) ?? throw new NotFoundException("Project", projectId);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, token, true); await RequireProjectLeader(projectId, token);
         var gate = await db.ProjectGateInstances.Include(x => x.Requirements).ThenInclude(x => x.Evidence).SingleOrDefaultAsync(x => x.ProjectId == projectId && x.Code == gateCode, token) ?? throw new NotFoundException("ProjectGate", 0);
+
+        // Collect latest evidence per requirement to compute deterministic payload hash before checking idempotency.
+        var latestByReq = gate.Requirements.OrderBy(r => r.Id).Select(r => new
+        {
+            Req = r,
+            Latest = r.Evidence.OrderByDescending(e => e.Version).FirstOrDefault()
+        }).ToArray();
+
+        var hashMaterial = $"{projectId}|{gate.Id}|{input.Notes?.Trim() ?? ""}|"
+            + string.Join(";", latestByReq.Where(x => x.Latest is not null).Select(x => $"{x.Req.Id}:{x.Latest!.Id}:{x.Latest.Version}:{x.Latest.Sha256}"));
+        var requestHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hashMaterial))).ToLowerInvariant();
+
+        var existingPkg = await db.Set<ReviewGatePackage>().AsNoTracking()
+            .SingleOrDefaultAsync(p => p.GateInstanceId == gate.Id && p.IdempotencyKey == idempotencyKey, token);
+        if (existingPkg is not null)
+        {
+            if (!string.Equals(existingPkg.RequestHash, requestHash, StringComparison.Ordinal))
+                throw new ConflictException("This Idempotency-Key was already used with a different gate package payload.", WorkflowErrorCodes.IdempotencyConflict);
+            var existingTimeline = await db.ProjectGateInstances.AsNoTracking().Include(x => x.Requirements).ThenInclude(x => x.Evidence)
+                .Where(x => x.ProjectId == projectId).OrderBy(x => x.Sequence).ToArrayAsync(token);
+            return await TimelineDto(project, scope, existingTimeline, token);
+        }
+
         CheckToken(gate.ConcurrencyToken, input.ConcurrencyToken);
         if (gate.ReviewEligibility == "BLOCKED" && gate.Status != "REVISION_REQUIRED") throw new ConflictException("The previous gate must be passed before submitting this gate.");
-        if (gate.Requirements.Any(x => x.Required && x.Evidence.Count == 0)) throw new ValidationException(new Dictionary<string, string[]> { ["evidence"] = ["Every mandatory evidence item must be submitted before review."] });
-        ResetOverride(gate); gate.Status = "IN_REVIEW"; gate.ReviewEligibility = "READY"; gate.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync(token);
+
+        var missingOrUnready = latestByReq
+            .Where(x => x.Req.Required && (x.Latest is null || x.Latest.ScanStatus != FileScanStatuses.Ready))
+            .Select(x => new BlockingRequirement(
+                x.Latest is null ? $"MISSING_EVIDENCE:{x.Req.Code}" : $"EVIDENCE_NOT_READY:{x.Req.Code}:{x.Latest.ScanStatus}",
+                x.Latest is null
+                    ? $"Mandatory evidence '{x.Req.Title}' has not been uploaded."
+                    : $"Mandatory evidence '{x.Req.Title}' is '{x.Latest.ScanStatus}' and must be READY."))
+            .ToArray();
+        if (missingOrUnready.Length > 0)
+            throw new DomainException("Every mandatory evidence item must be uploaded and READY before submitting the gate snapshot.",
+                "EVIDENCE_NOT_READY", new ProblemMetadata(BlockingRequirements: missingOrUnready));
+
+        var maxRound = await db.Set<ReviewGatePackage>().Where(p => p.GateInstanceId == gate.Id).MaxAsync(p => (int?)p.RoundNumber, token) ?? 0;
+        var now = Now;
+        var package = new ReviewGatePackage
+        {
+            ProjectId = projectId,
+            GateInstanceId = gate.Id,
+            RoundNumber = maxRound + 1,
+            IdempotencyKey = idempotencyKey,
+            RequestHash = requestHash,
+            Notes = input.Notes?.Trim(),
+            SubmittedBy = Actor,
+            SubmittedAt = now,
+            Items = latestByReq
+                .Where(x => x.Latest is not null && x.Latest.ScanStatus == FileScanStatuses.Ready)
+                .Select(x => new ReviewGatePackageItem
+                {
+                    RequirementId = x.Req.Id,
+                    EvidenceId = x.Latest!.Id,
+                    EvidenceVersion = x.Latest.Version,
+                    Sha256 = x.Latest.Sha256
+                }).ToList()
+        };
+        db.Set<ReviewGatePackage>().Add(package);
+
+        ResetOverride(gate); gate.Status = "IN_REVIEW"; gate.ReviewEligibility = "READY"; gate.ConcurrencyToken = Guid.NewGuid();
+        await db.SaveChangesAsync(token);
         await NotifyGateChanged(projectId, gate.Id, gate.Code, "Gate submitted for review.", token);
         await ReopenAssignmentsForRevision(gate, token);
-        await audit.RecordAsync(new(Actor, "REVIEW_GATE_SUBMITTED_FOR_REVIEW", "PROJECT_GATE", gate.Id, new Dictionary<string, object?> { ["projectId"] = projectId, ["gateCode"] = gateCode, ["notes"] = input.Notes }), token);
+        await audit.RecordAsync(new(Actor, "REVIEW_GATE_SUBMITTED_FOR_REVIEW", "PROJECT_GATE", gate.Id,
+            new Dictionary<string, object?> { ["projectId"] = projectId, ["gateCode"] = gateCode, ["packageId"] = package.Id, ["roundNumber"] = package.RoundNumber, ["notes"] = input.Notes }), token);
         var current = await db.ProjectGateInstances.AsNoTracking().Include(x => x.Requirements).ThenInclude(x => x.Evidence).Where(x => x.ProjectId == projectId).OrderBy(x => x.Sequence).ToArrayAsync(token);
         return await TimelineDto(project, scope, current, token);
     }, ct);
@@ -807,6 +1060,16 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         var mode = scope.MajorIds.Count > 1 ? "INTERDISCIPLINARY" : "SINGLE_MAJOR";
         var majorNames = await db.Majors.AsNoTracking().Where(x => scope.MajorIds.Contains(x.Id)).OrderBy(x => x.Id).Select(x => x.Name).ToArrayAsync(ct);
         var policyVersion = gates.FirstOrDefault()?.TemplateVersion.ToString("0.##") ?? "UNKNOWN";
+        var gateIds = gates.Select(g => g.Id).ToArray();
+        var allPackages = gateIds.Length == 0
+            ? []
+            : await db.Set<ReviewGatePackage>().AsNoTracking()
+                .Where(p => gateIds.Contains(p.GateInstanceId))
+                .Select(p => new { p.GateInstanceId, p.Id, p.RoundNumber })
+                .ToListAsync(ct);
+        var latestPackages = allPackages
+            .GroupBy(p => p.GateInstanceId)
+            .ToDictionary(grp => grp.Key, grp => grp.OrderByDescending(p => p.RoundNumber).First());
         var timelineGatesList = new List<StudentGateInstanceDto>(gates.Length);
         foreach (var g in gates)
         {
@@ -820,13 +1083,14 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
                 ? (IReadOnlyList<ReviewGateBlockingReasonDto>)[new("PREVIOUS_GATE_REQUIRED", null, "Cổng trước chưa đạt.")]
                 : visibleRequirements.Where(x => x.Required && x.VerificationStatus != "ACCEPTED")
                     .Select(x => new ReviewGateBlockingReasonDto("EVIDENCE_REQUIRED", x.Code, "Minh chứng bắt buộc chưa được chấp thuận.")).ToArray();
+            var pkg = latestPackages.GetValueOrDefault(g.Id);
             timelineGatesList.Add(new StudentGateInstanceDto(
                 g.Id.ToString(), g.Code, g.Title, g.Objective, g.Status, g.ReviewEligibility, g.Required,
                 g.WindowStart, g.WindowEnd, blockingReasons,
                 visibleRequirements.Select(r => new StudentGateRequirementDto(
                     r.Id.ToString(), r.Code, r.Title, r.Type, r.Scope, r.Required,
                     r.VerificationStatus, Artifact(r, g.Code), r.ReviewerFeedback)).ToArray(),
-                g.ConcurrencyToken.ToString("N"), g.Weight, g.DecisionSource));
+                g.ConcurrencyToken.ToString("N"), g.Weight, g.DecisionSource, pkg?.Id, pkg?.RoundNumber));
         }
         var timelineGates = timelineGatesList.ToArray();
         var weights = gates.Select(g => g.Weight).ToArray();
@@ -867,7 +1131,8 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         var latest = r.Evidence.OrderByDescending(x => x.Version).FirstOrDefault();
         return latest is null ? null : new(latest.Version, latest.ArtifactName, latest.SubmittedAt, latest.SubmittedBy.ToString(), latest.Notes,
             latest.ContentType, latest.SizeBytes, latest.Sha256,
-            $"/api/v1/projects/{latest.ProjectId}/review-gates/{gateCode}/requirements/{latest.RequirementId}/evidence/{latest.Version}/download", latest.LinkUrl);
+            $"/api/v1/projects/{latest.ProjectId}/review-gates/{gateCode}/requirements/{latest.RequirementId}/evidence/{latest.Version}/download",
+            latest.LinkUrl, latest.Id, latest.ScanStatus, latest.ScanDetails);
     }
     private static void CheckToken(Guid current, string? input) { if (!Guid.TryParse(input, out var value) || value != current) throw new ConflictException("The review gate changed; reload before retrying."); }
     private static void ResetOverride(ProjectGateInstance gate)
@@ -975,12 +1240,12 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
     { if (!await db.TeamMembers.AnyAsync(x => x.Team.Project != null && x.Team.Project.Id == projectId && x.UserId == Actor && x.IsLeader && x.LeftAt == null, ct)) throw new ForbiddenException("Only the active project leader may submit evidence."); }
 
     private static ReviewGateTemplateDto Map(ReviewGateTemplate x) => new(x.Id.ToString(), x.ProjectPeriodId, x.Code, x.Name, x.Mode, x.Major, x.Status, x.Version.ToString("0.##"), x.ConcurrencyToken.ToString("N"), x.Gates.Count, x.Gates.OrderBy(g => g.Sequence).Select(g => new ReviewGateDefinitionDto(g.Id.ToString(), g.Code, g.Sequence, g.Title, g.Objective, g.Required, g.BlockNextGate, g.BlocksDefense, g.WindowStart, g.WindowEnd, g.WindowStart, g.WindowEnd, g.ReviewerPolicy, g.ReviewScope, g.Requirements.OrderBy(r => r.Id).Select(r => new ReviewGateRequirementDto(r.Id.ToString(), r.Code, r.Title, r.Description, r.Type, r.Scope, r.MajorId, r.TargetStudentId, r.Verification, r.Required)).ToArray(), g.Weight)).ToArray());
-    private static AssignedReviewItemDto AssignmentDto(GateReviewerAssignment x, AIPMS.Infrastructure.Persistence.Generated.Models.Project project) => new(x.Id.ToString(), project.Id.ToString(), project.Code, project.Title, x.GateInstance.Code, x.GateInstance.Title, x.Scope, x.GateInstance.WindowEnd, x.Status, x.LatestDecision,
+    private static AssignedReviewItemDto AssignmentDto(GateReviewerAssignment x, AIPMS.Infrastructure.Persistence.Generated.Models.Project project, long? latestPackageId = null) => new(x.Id.ToString(), project.Id.ToString(), project.Code, project.Title, x.GateInstance.Code, x.GateInstance.Title, x.Scope, x.GateInstance.WindowEnd, x.Status, x.LatestDecision,
         x.GateInstance.Requirements.Where(r => x.Scope == "COMMON" && r.Scope == "COMMON"
             || x.Scope == "MAJOR_SPECIFIC" && r.Scope == "MAJOR_SPECIFIC" && r.MajorId == x.MajorId
             || x.Scope == "INDIVIDUAL" && r.Scope == "INDIVIDUAL" && r.TargetStudentId == x.StudentId)
             .Select(r => new StudentGateRequirementDto(r.Id.ToString(), r.Code, r.Title, r.Type, r.Scope, r.Required, r.VerificationStatus, Artifact(r, x.GateInstance.Code), r.ReviewerFeedback)).ToArray(),
-        x.ReviewerNotes, x.ConcurrencyToken.ToString("N"));
+        x.ReviewerNotes, x.ConcurrencyToken.ToString("N"), LatestPackageId: latestPackageId);
     private async Task<ProjectReviewMatrixRowDto> MatrixRow(long projectId, CancellationToken ct)
     {
         var project = await db.Projects.AsNoTracking().Include(x => x.ProjectMajors).ThenInclude(x => x.Major).ThenInclude(x => x.Department).SingleAsync(x => x.Id == projectId, ct);

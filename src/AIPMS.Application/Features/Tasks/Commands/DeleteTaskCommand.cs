@@ -54,10 +54,12 @@ public sealed class DeleteTaskCommandHandler(
             throw new ForbiddenException("You are not authorized to delete tasks for this project.");
         }
 
-        // Delete Task Policy: Reject if meaningful historical execution data exists
+        // Delete Task Policy: Reject if meaningful historical execution data or locked evidence references exist
         if (await repository.HasHistoricalDataAsync(request.Id, cancellationToken))
         {
-            throw new ConflictException("Task cannot be deleted because it contains historical execution data, assignees, or dependencies. Update the status to CANCELLED instead.");
+            throw new ConflictException(
+                "Task cannot be deleted because it contains historical execution data, locked evidence references, assignees, or dependencies. Update the status to CANCELLED instead.",
+                WorkflowErrorCodes.RestrictedDelete);
         }
 
         await repository.DeleteAsync(request.Id, cancellationToken);

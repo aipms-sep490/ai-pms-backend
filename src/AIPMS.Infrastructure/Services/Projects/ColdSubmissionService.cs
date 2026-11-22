@@ -25,7 +25,7 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluationDraftRepository evaluations,
     IDeliverableRepository files, ICurrentUser current, IFileStorage storage, IAuditTrail audit,
-    TimeProvider clock, ILogger<ColdSubmissionService> logger) : IColdSubmissionService
+    TimeProvider clock, ILogger<ColdSubmissionService> logger, IFileSecurityScanner scanner) : IColdSubmissionService
 {
     private long Actor => current.IsAuthenticated && current.UserId is long id ? id : throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;

@@ -22,7 +22,9 @@ $scripts = @(
     '20261118_task_dependency_impacts.sql',
     '20261122_add_task_criteria.sql',
     '20261123_assignment_validity_and_scope_indexes.sql',
-    '20261124_pol01_pol03_scoring_and_optional_defense.sql'
+    '20261124_pol01_pol03_scoring_and_optional_defense.sql',
+    '20261125_file_scan_and_gate_package_snapshots.sql',
+    '20261126_file_preview_derivatives.sql'
 )
 
 $neutral = [System.Data.Common.DbConnectionStringBuilder]::new()

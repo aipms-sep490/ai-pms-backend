@@ -32,5 +32,8 @@ public interface IReviewGateService
     Task<DefenseReadinessDto> DefenseReadiness(long projectId, CancellationToken ct);
     Task<DefenseReadinessDto> DefenseReadinessByKey(string projectKey, CancellationToken ct);
     Task<FileDownload> DownloadEvidence(long projectId, string gateCode, long requirementId, int version, CancellationToken ct);
+    Task<AIPMS.Application.Abstractions.Security.SignedPreviewTokenDto> IssueEvidencePreviewToken(long projectId, string gateCode, long requirementId, int version, CancellationToken ct);
+    Task<FileDownload> StreamEvidence(long projectId, string gateCode, long requirementId, int version, string token, CancellationToken ct);
+    Task<AIPMS.Application.Features.Files.OfficePreviewDto> SafePreviewEvidence(long projectId, string gateCode, long requirementId, int version, CancellationToken ct);
     Task<ReviewGateArchiveManifest> ArchiveManifest(long projectId, string gateCode, CancellationToken ct);
 }

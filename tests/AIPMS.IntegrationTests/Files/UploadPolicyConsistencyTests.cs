@@ -34,15 +34,16 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         Assert.NotNull(policies);
         Assert.Equal(12, policies.Count);
 
-        // Verify existing tiers remain unchanged and project files alone advertise resumable 500 MiB.
+        // Verify POL-06 tiers (including 100 MiB ZIP/Video for Gate/Cold) and 500 MiB resumable project files.
         var distinctLimits = policies.Select(p => p.MaxBytes).Distinct().OrderBy(b => b).ToArray();
-        Assert.Equal(6, distinctLimits.Length);
+        Assert.Equal(7, distinctLimits.Length);
         Assert.Equal(UploadPolicies.UserAvatarLimit, distinctLimits[0]); // 2 MiB
         Assert.Equal(UploadPolicies.Tier6MiB, distinctLimits[1]);   // 6 MiB
         Assert.Equal(UploadPolicies.Tier10MiB, distinctLimits[2]);  // 10 MiB
         Assert.Equal(UploadPolicies.Tier11MiB, distinctLimits[3]); // 11 MiB
         Assert.Equal(UploadPolicies.EffectiveFileLimit, distinctLimits[4]); // 20 MiB
-        Assert.Equal(UploadPolicies.ProjectFileLimit, distinctLimits[5]); // 500 MiB, chunked
+        Assert.Equal(UploadPolicies.Tier100MiB, distinctLimits[5]); // 100 MiB (POL-06 ZIP/Video)
+        Assert.Equal(UploadPolicies.ProjectFileLimit, distinctLimits[6]); // 500 MiB, chunked
 
         foreach (var policy in policies)
         {
@@ -56,11 +57,11 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     }
 
     [Theory]
-    [InlineData("REVIEW_GATE_EVIDENCE", 20 * 1024 * 1024, "20 MiB")]
+    [InlineData("REVIEW_GATE_EVIDENCE", 100 * 1024 * 1024, "100 MiB (ZIP/Video); 20 MiB (Tài liệu/Ảnh)")]
     [InlineData("DELIVERABLE_VERSION", 20 * 1024 * 1024, "20 MiB")]
     [InlineData("PROJECT_FILE", 500 * 1024 * 1024, "500 MiB")]
     [InlineData("STUDENT_QUALIFICATION", 20 * 1024 * 1024, "20 MiB")]
-    [InlineData("COLD_SUBMISSION", 11 * 1024 * 1024, "11 MiB")]
+    [InlineData("COLD_SUBMISSION", 100 * 1024 * 1024, "100 MiB (ZIP/Video); 20 MiB (Tài liệu/Ảnh)")]
     [InlineData("RESULT_APPEAL", 11 * 1024 * 1024, "11 MiB")]
     [InlineData("CHAT_ATTACHMENT", 11 * 1024 * 1024, "11 MiB")]
     [InlineData("ACADEMIC_ASSISTANT_ASK", 10 * 1024 * 1024, "10 MiB/tệp; 20 MiB/tổng")]
@@ -118,6 +119,12 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
                     ((IRequestSizeLimitMetadata)typeof(ProjectFileUploadSessionsController).GetMethod("Append")!
                         .GetCustomAttribute<RequestSizeLimitAttribute>()!).MaxRequestBodySize);
             }
+            else if (policy.ParentType is "REVIEW_GATE_EVIDENCE" or "COLD_SUBMISSION")
+            {
+                Assert.Equal(UploadValidator.MaxArchiveVideoBytes, policy.MaxBytes);
+                Assert.Null(policy.ChunkSizeBytes);
+                Assert.Null(policy.SingleRequestMaxBytes);
+            }
             else
             {
                 Assert.True(policy.MaxBytes <= UploadValidator.MaxBytes,
@@ -159,7 +166,9 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
                 continue;
             }
             Assert.True(limit >= UploadPolicies.UserAvatarTransportLimit);
-            Assert.True(limit == UploadPolicies.MultipartTransportCeiling || limit <= UploadPolicies.Tier11MiB);
+            Assert.True(limit == UploadPolicies.MultipartTransportCeiling
+                || limit == UploadPolicies.MultipartArchiveCeiling
+                || limit <= UploadPolicies.Tier11MiB);
         }
     }
 
@@ -200,6 +209,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             UploadPolicies.ColdSubmissionLimit,
             UploadPolicies.ResultAppealLimit,
             UploadPolicies.MultipartTransportCeiling,
+            UploadPolicies.MultipartArchiveCeiling,
             UploadPolicies.ProjectFileChunkSize,
             16 * 1024
         };
@@ -209,13 +219,14 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             Assert.Contains(limit, validConstants);
         }
 
-        // Seven endpoints allow multipart overhead, eight match a published file tier,
-        // and the avatar route reserves 1 MiB beyond its 2 MiB file limit.
         var multipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartTransportCeiling);
-        Assert.Equal(7, multipartCount);
+        Assert.Equal(6, multipartCount);
+
+        var archiveMultipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartArchiveCeiling);
+        Assert.Equal(2, archiveMultipartCount);
 
         var directMatchCount = endpointsWithLimit.Count(e => UploadPolicies.All.Any(p => p.MaxBytes == e.Limit));
-        Assert.Equal(8, directMatchCount);
+        Assert.Equal(7, directMatchCount);
         Assert.Single(endpointsWithLimit, e => e.Limit == UploadPolicies.UserAvatarTransportLimit);
         Assert.Single(endpointsWithLimit, e => e.Limit == UploadPolicies.ProjectFileChunkSize
             && e.Method.DeclaringType == typeof(ProjectFileUploadSessionsController) && e.Method.Name == "Append");

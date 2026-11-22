@@ -239,7 +239,8 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         if (await context.Tasks.AnyAsync(t => t.Id == id && t.SprintId != null, cancellationToken)
             || await context.Set<AIPMS.Infrastructure.Persistence.Models.SprintTaskEvent>().AnyAsync(e => e.TaskId == id, cancellationToken)) return true;
         if (await context.TaskComments.AnyAsync(c => c.TaskId == id, cancellationToken)
-            || await context.Files.AnyAsync(f => f.TaskId == id, cancellationToken)) return true;
+            || await context.Files.AnyAsync(f => f.TaskId == id, cancellationToken)
+            || await context.Set<ProjectEvidence>().AnyAsync(e => e.TaskId == id, cancellationToken)) return true;
         var hasHistory = await context.TaskStatusHistories.AnyAsync(h => h.TaskId == id, cancellationToken);
         if (hasHistory) return true;
 

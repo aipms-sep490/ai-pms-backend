@@ -407,8 +407,26 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
     public async Task DeleteFileAsync(long id, CancellationToken ct)
     {
         RequireTransaction();
-        db.Files.Remove(await db.Files.SingleAsync(f => f.Id == id, ct));
-        await db.SaveChangesAsync(ct);
+        var file = await db.Files.SingleAsync(f => f.Id == id, ct);
+        var referencedInLedger = await db.Set<M.ProjectEvidence>().AnyAsync(e => e.FileId == id, ct);
+        var referencedInCold = await db.Set<ColdSubmissionFile>().AnyAsync(c => c.FileId == id, ct);
+        var referencedInFinal = file.DeliverableVersionId.HasValue
+            && await db.Set<FinalSubmissionItem>().AnyAsync(i => i.DeliverableVersionId == file.DeliverableVersionId.Value, ct);
+        if (referencedInLedger || referencedInCold || referencedInFinal)
+            throw new ConflictException(
+                "This file is referenced by locked evidence, a gate snapshot, or a final submission and cannot be deleted.",
+                WorkflowErrorCodes.RestrictedDelete);
+        try
+        {
+            db.Files.Remove(file);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is SqlException { Number: 547 })
+        {
+            throw new ConflictException(
+                "This file is referenced by another locked record and cannot be deleted.",
+                WorkflowErrorCodes.RestrictedDelete);
+        }
     }
 
     private async Task ValidateTargetAsync(long projectId, long actorId, string scope, long? majorId, long? studentId,

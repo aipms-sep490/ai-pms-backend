@@ -508,6 +508,21 @@ public partial class AipmsDbContext : DbContext
                 .IsUnicode(false)
                 .IsFixedLength()
                 .HasColumnName("checksum_sha256");
+            entity.Property(e => e.ScanStatus)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("READY")
+                .HasColumnName("scan_status");
+            entity.Property(e => e.ScanProvider)
+                .HasMaxLength(50)
+                .IsUnicode(false)
+                .HasColumnName("scan_provider");
+            entity.Property(e => e.ScannedAt)
+                .HasPrecision(0)
+                .HasColumnName("scanned_at");
+            entity.Property(e => e.ScanDetails)
+                .HasMaxLength(1000)
+                .HasColumnName("scan_details");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
