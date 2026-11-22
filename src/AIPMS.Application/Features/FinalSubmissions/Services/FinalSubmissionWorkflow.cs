@@ -35,7 +35,7 @@ public sealed class FinalSubmissionWorkflow(IFinalSubmissionRepository repositor
     private static void Current(string expected, string? supplied)
     {
         if (!Guid.TryParse(supplied, out var token) || token != Guid.Parse(expected))
-            throw new ConflictException("The draft or required checklist changed. Reload before retrying.");
+            throw new ConflictException("The draft or required checklist changed. Reload before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);
     }
 
     public Task<FinalRequirementsDto> Requirements(long projectId, CancellationToken ct) => drafts.InTransactionAsync(async () =>
@@ -151,7 +151,15 @@ public sealed class FinalSubmissionWorkflow(IFinalSubmissionRepository repositor
         var project = await Project(projectId, actor, true, ct);
         if (!project.IsLeader) throw new ForbiddenException("Only the current student leader can submit the final package.");
         var result = await Check(project, ct);
-        if (!result.Checklist.CanSubmit) throw new ConflictException(string.Join(", ", result.Checklist.Blockers));
+        if (!result.Checklist.CanSubmit)
+        {
+            var code = result.Checklist.Blockers.Contains(WorkflowErrorCodes.Gate3NotPassed)
+                ? WorkflowErrorCodes.Gate3NotPassed
+                : result.Checklist.Blockers.Contains(WorkflowErrorCodes.ProjectNotActive)
+                    ? WorkflowErrorCodes.ProjectNotActive
+                    : null;
+            throw new ConflictException(string.Join(", ", result.Checklist.Blockers), code);
+        }
         Current(result.Checklist.DraftConcurrencyToken!, input.DraftConcurrencyToken);
         Current(result.Checklist.RequirementsConcurrencyToken!, input.RequirementsConcurrencyToken);
         var required = result.Checklist.Items.Select(i => i.DeliverableId).ToHashSet();

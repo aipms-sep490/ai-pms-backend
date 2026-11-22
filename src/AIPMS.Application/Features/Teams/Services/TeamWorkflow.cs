@@ -53,8 +53,13 @@ public sealed class TeamWorkflow(
     private async Task<(TeamRegistrationWindow Window, TeamFormationPolicy Policy)> ContextAsync(
         long semesterId, CancellationToken ct, bool legacy = true)
     {
-        var window = await repository.GetOpenWindowAsync(semesterId, Now, ct)
-            ?? throw new ConflictException("No unambiguous active registration window exists in this semester.");
+        var window = await repository.GetOpenWindowAsync(semesterId, Now, ct);
+        if (window is null)
+        {
+            if (await repository.HasExpiredRegistrationWindowAsync(semesterId, Now, ct))
+                throw new ConflictException("The registration window has closed (N1).", WorkflowErrorCodes.RegistrationWindowClosed);
+            throw new ConflictException("No unambiguous active registration window exists in this semester.");
+        }
         var policy = await policies.GetAsync(window.PeriodId, ct);
         if (policy is null || !policy.IsValid)
             throw new ConflictException("Team formation policy is not configured for this registration period (BE-12).");

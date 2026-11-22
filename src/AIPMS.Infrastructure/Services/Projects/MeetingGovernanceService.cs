@@ -61,15 +61,17 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         var project = await db.Projects.FromSqlInterpolated($"SELECT * FROM dbo.projects WITH (UPDLOCK,HOLDLOCK) WHERE id={initial.ProjectId}").SingleAsync(ct);
         var meeting = await db.Meetings.FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK,HOLDLOCK) WHERE id={id}").SingleAsync(ct);
         if (!await MeetingGovernanceAuthority.CanManage(db, meeting, Actor, ct)) throw new ForbiddenException();
-        if (project.Status != "ACTIVE" || !MeetingGovernanceRules.CanManageActions(meeting.Status))
-            throw new ConflictException("The project or meeting is read-only.");
+        if (project.Status != "ACTIVE")
+            throw new ConflictException("The project is not ACTIVE.", WorkflowErrorCodes.ProjectNotActive);
+        if (!MeetingGovernanceRules.CanManageActions(meeting.Status))
+            throw new ConflictException("The meeting is read-only.");
         return meeting;
     }
 
     private static void Current(Guid current, string supplied)
     {
         if (!Guid.TryParse(supplied, out var token) || token != current)
-            throw new ConflictException("The resource changed. Reload before saving.");
+            throw new ConflictException("The resource changed. Reload before saving.", WorkflowErrorCodes.StaleConcurrencyToken);
     }
 
     public async Task<MeetingDecisionDto> Decide(long meetingId, CreateMeetingDecisionRequest input, CancellationToken ct)

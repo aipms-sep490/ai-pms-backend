@@ -95,4 +95,15 @@ public sealed class EvaluationDraftsController(ISender sender, IEvaluationAssign
     [ProducesResponseType<EvaluationDraftDto>(200)]
     public async Task<ActionResult<EvaluationDraftDto>> FinalizeEvaluation(long id, FinalizeEvaluationRequest request, CancellationToken ct) =>
         Ok(await sender.Send(new FinalizeEvaluationCommand(id, request), ct));
+
+    [HttpPost("api/v1/projects/{projectId:long}/evaluations/batch-finalize")]
+    [ProducesResponseType<BatchFinalizeEvaluationsResponse>(200)]
+    [ProducesResponseType<ProblemDetails>(422)]
+    public async Task<ActionResult<BatchFinalizeEvaluationsResponse>> BatchFinalize(long projectId, BatchFinalizeEvaluationsRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new BatchFinalizeEvaluationsCommand(projectId, request), ct));
+
+    [HttpGet("api/v1/projects/{projectId:long}/scoring-workbench")]
+    [ProducesResponseType<ProjectScoringWorkbenchDto>(200)]
+    public Task<ProjectScoringWorkbenchDto> ScoringWorkbench(long projectId, CancellationToken ct) =>
+        assignmentAccess.GetWorkbenchAsync(projectId, ct);
 }

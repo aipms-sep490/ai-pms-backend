@@ -48,7 +48,7 @@ internal sealed class ExecutionConcurrencyBehavior<TRequest, TResponse>(
             {
                 var project = await db.Projects.FromSqlInterpolated($"SELECT * FROM dbo.projects WITH (UPDLOCK,HOLDLOCK) WHERE id={id}").AsNoTracking().SingleAsync(ct);
                 if (!await access.CanAccessAsync(userId, id, ct)) throw new ForbiddenException();
-                if (project.Status != "ACTIVE") throw new ConflictException("Project is not ACTIVE.");
+                if (project.Status != "ACTIVE") throw new ConflictException("Project is not ACTIVE.", WorkflowErrorCodes.ProjectNotActive);
             }
             foreach (var write in writes.OrderBy(w => w.Resource).ThenBy(w => w.Id))
             {
