@@ -28,6 +28,14 @@ internal sealed class EvaluationAssignmentAccessService(
 {
     private sealed record InternalEvidenceItem(EvaluationAssignmentEvidenceItemDto Dto, string? StorageKey);
 
+    private bool IsWithinValidity(EvaluationAssignment row)
+    {
+        var now = clock.GetUtcNow().UtcDateTime;
+        return row.Status == "ACTIVE"
+            && (!row.ValidFrom.HasValue || row.ValidFrom.Value <= now)
+            && (!row.ValidUntil.HasValue || now <= row.ValidUntil.Value);
+    }
+
     private async Task<(EvaluationAssignment Row, bool CanScore)> Load(long id, CancellationToken ct)
     {
         var actor = currentUser.UserId ?? throw new UnauthorizedException();
@@ -39,16 +47,20 @@ internal sealed class EvaluationAssignmentAccessService(
         var academicActor = await evaluations.GetActorAsync(actor, ct) ?? throw new ForbiddenException();
         var project = await evaluations.GetProjectAsync(row.ProjectId, ct) ?? throw new NotFoundException("Project", row.ProjectId);
         var manager = account.Admin || AcademicAuthority.ManagesComponent(academicActor, project, row.DepartmentId);
-        var evaluator = account.Lecturer && row.EvaluatorId == actor && row.Status == "ACTIVE" && account.DepartmentId == row.DepartmentId
+        var withinValidity = IsWithinValidity(row);
+        if (!manager && row.EvaluatorId == actor && !withinValidity)
+            throw new ForbiddenException("This evaluation assignment has been revoked or expired.", WorkflowErrorCodes.AssignmentRevoked);
+        var evaluator = account.Lecturer && row.EvaluatorId == actor && withinValidity && account.DepartmentId == row.DepartmentId
             && academicActor.IsLecturer && project.ActiveScope
             && (row.EvaluationType != "SUPERVISOR" || await db.SupervisorAssignments.AnyAsync(a => a.ProjectId == row.ProjectId && a.SupervisorProfile.UserId == actor && a.IsPrimary && a.EndedAt == null, ct));
-        if (!manager && !evaluator) throw new ForbiddenException("The assignment is outside your scope.");
+        if (!manager && !evaluator) throw new ForbiddenException("The assignment is outside your scope.", WorkflowErrorCodes.ScopeAccessDenied);
         return (row, evaluator && project.Status == "FINAL_SUBMISSION" && row.Scope is "COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL");
     }
 
     private async Task ValidateEvidenceAssignment(EvaluationAssignment row, CancellationToken ct)
     {
-        if (row.Status != "ACTIVE") throw new ForbiddenException("Revoked assignments cannot access evidence.");
+        if (!IsWithinValidity(row))
+            throw new ForbiddenException("Revoked or expired assignments cannot access evidence.", WorkflowErrorCodes.AssignmentRevoked);
         if (row.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL")) return;
         var component = await db.Set<EvaluationSchemeComponent>().AsNoTracking()
             .SingleOrDefaultAsync(c => c.Id == row.ComponentId, ct);
@@ -332,7 +344,7 @@ internal sealed class EvaluationAssignmentAccessService(
             if (inAllProjectItems)
             {
                 // File belongs to project locked submission but outside the scope of THIS assignment
-                throw new ForbiddenException("The requested file is outside the scope of this evaluation assignment.");
+                throw new ForbiddenException("The requested file is outside the scope of this evaluation assignment.", WorkflowErrorCodes.ScopeAccessDenied);
             }
 
             throw new NotFoundException("File", fileId);

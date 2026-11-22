@@ -14,6 +14,8 @@ public sealed class EvaluationAssignment
     public string Status { get; set; } = "ACTIVE";
     public long AssignedBy { get; set; }
     public DateTime AssignedAt { get; set; }
+    public DateTime? ValidFrom { get; set; }
+    public DateTime? ValidUntil { get; set; }
     public DateTime? RevokedAt { get; set; }
     public string? RevocationReason { get; set; }
     public Guid ConcurrencyToken { get; set; }

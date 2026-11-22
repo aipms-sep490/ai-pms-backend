@@ -11,7 +11,7 @@ internal sealed class ProjectAccessService(AipmsDbContext context, TimeProvider?
 {
     public async Task<bool> CanAccessAsync(long userId, long projectId, CancellationToken cancellationToken = default)
     {
-        var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+        _ = clock;
         var actor = await context.Users.AsNoTracking().Where(u => u.Id == userId && u.Status == "ACTIVE")
             .Select(u => new { u.DepartmentId,
                 HasScope = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive,
@@ -26,13 +26,12 @@ internal sealed class ProjectAccessService(AipmsDbContext context, TimeProvider?
         }
         var isStudent = actor.Roles.Contains(AppRoles.Student);
         var isLecturer = actor.Roles.Contains(AppRoles.Lecturer);
+        // A pending supervisor request never grants workspace, file, or deliverable access.
         return await context.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId
             && ((isStudent
                     && p.Team.TeamMembers.Any(m => m.UserId == userId && m.LeftAt == null))
                 || (isLecturer
-                    && (p.SupervisorAssignments.Any(a => a.EndedAt == null && a.SupervisorProfile.UserId == userId)
-                        || p.SupervisorRequests.Any(r => r.SupervisorProfile.UserId == userId
-                            && r.Status == "PENDING" && (r.ExpiresAt == null || r.ExpiresAt > now))))),
+                    && p.SupervisorAssignments.Any(a => a.EndedAt == null && a.SupervisorProfile.UserId == userId))),
             cancellationToken);
     }
 }

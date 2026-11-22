@@ -79,7 +79,7 @@ internal sealed partial class ColdSubmissionService
                                 && final.Finalization.Evidence.ColdPackageId == binding.PackageId && final.Finalization.Evidence.ColdEvidenceHash == binding.Hash
                                 && (final.Finalization.Evidence.ColdSubmissionIds ?? []).SequenceEqual(binding.SubmissionIds)) complete.Add(final);
                         }
-                        catch (ConflictException ex) when (ex.Code is "DEFENSE_COMMITTEE_REQUIRED" or "DEFENSE_COMMITTEE_BINDING_REQUIRED" or "DEFENSE_COMMITTEE_CHANGED" or "DEFENSE_SUPERVISOR_CONFLICT")
+                        catch (ConflictException ex) when (ex.Code is "DEFENSE_COMMITTEE_REQUIRED" or "DEFENSE_COMMITTEE_BINDING_REQUIRED" or "DEFENSE_COMMITTEE_CHANGED" or "DEFENSE_SUPERVISOR_CONFLICT" or WorkflowErrorCodes.EvaluatorRoleConflict)
                         { blockers.Add($"COLD_COMMITTEE_INVALID:{assignment.Id}"); }
                         catch (ConflictException) { blockers.Add($"COLD_EVIDENCE_CHANGED:{assignment.Id}"); }
                         catch (ForbiddenException) { blockers.Add($"COLD_COMMITTEE_INVALID:{assignment.Id}"); }

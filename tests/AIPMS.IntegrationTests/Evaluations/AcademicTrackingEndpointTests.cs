@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Storage;
+using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.AcademicTracking;
 using AIPMS.Application.Features.Cold;
@@ -722,7 +723,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         Assert.Contains("GATE_FIXED_PANEL_CONFLICT", await different.Content.ReadAsStringAsync());
         var supervisor = await staff.PostAsJsonAsync(url, Request("R2", project.Primary));
         Assert.Equal(HttpStatusCode.Conflict, supervisor.StatusCode);
-        Assert.Contains("REVIEWER_CONFLICT", await supervisor.Content.ReadAsStringAsync());
+        Assert.Contains(WorkflowErrorCodes.EvaluatorRoleConflict, await supervisor.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -750,7 +751,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         var response = await staff.PostAsJsonAsync(Project(x.S.ProjectId) + "/defense-committees",
             new CreateCommitteeRequest("Invalid panel", [new(x.Primary, x.Major)]));
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Contains("DEFENSE_SUPERVISOR_CONFLICT", await response.Content.ReadAsStringAsync());
+        Assert.Contains(WorkflowErrorCodes.EvaluatorRoleConflict, await response.Content.ReadAsStringAsync());
     }
 
     [Fact]

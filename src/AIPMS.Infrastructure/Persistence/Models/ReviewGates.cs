@@ -133,6 +133,8 @@ public sealed class GateReviewerAssignment
     public DateTime? RevokedAt { get; set; }
     public long? RevokedBy { get; set; }
     public string? RevocationReason { get; set; }
+    public DateTime? ValidFrom { get; set; }
+    public DateTime? ValidUntil { get; set; }
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
     public DateTime CreatedAt { get; set; }
     public ProjectGateInstance GateInstance { get; set; } = null!;

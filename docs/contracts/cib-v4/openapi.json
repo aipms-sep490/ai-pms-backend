@@ -71171,8 +71171,70 @@
             "nullable": true,
             "example": "STALE_CONCURRENCY_TOKEN"
           },
+          "errorCode": {
+            "type": "string",
+            "description": "Legacy alias of code retained for backward compatibility.",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message aligned with detail/title.",
+            "nullable": true
+          },
           "traceId": {
             "type": "string"
+          },
+          "correlationId": {
+            "type": "string",
+            "description": "Request correlation identifier (X-Correlation-Id header or traceId fallback).",
+            "nullable": true
+          },
+          "fieldErrors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Validation errors keyed by field name (omitted on 401/403/404).",
+            "nullable": true
+          },
+          "blockingRequirements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            },
+            "description": "Structured blocking requirements explaining why a workflow transition was rejected (omitted on 401/403/404).",
+            "nullable": true
+          },
+          "currentState": {
+            "type": "string",
+            "nullable": true
+          },
+          "expectedState": {
+            "type": "string",
+            "nullable": true
+          },
+          "policyVersion": {
+            "type": "string",
+            "nullable": true
+          },
+          "retryable": {
+            "type": "boolean",
+            "nullable": true
           }
         },
         "additionalProperties": {}

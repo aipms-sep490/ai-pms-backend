@@ -18,6 +18,8 @@ public interface IEvaluationDraftRepository
     Task<bool> HasLockedSubmissionAsync(long projectId, CancellationToken ct);
     Task<EvaluationPeriod?> GetPeriodAsync(long id, DateTime now, CancellationToken ct);
     Task<bool> IsCurrentSupervisorAsync(long projectId, long userId, CancellationToken ct);
+    Task<bool> HasBeenPrimarySupervisorAsync(long projectId, long userId, CancellationToken ct) =>
+        IsCurrentSupervisorAsync(projectId, userId, ct);
     Task<EvaluationAssignmentRecord?> GetAssignmentAsync(long id, CancellationToken ct);
     Task<EvaluationAssignmentRecord> AssignAsync(long projectId, long evaluatorId, long periodId,
         long rubricId, long departmentId, string type, long actorId, DateTime now, CancellationToken ct);

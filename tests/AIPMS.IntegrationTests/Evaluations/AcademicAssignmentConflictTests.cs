@@ -22,7 +22,7 @@ public sealed partial class EvaluationDraftEndpointTests
         var primary = await db.SupervisorAssignments.Where(a => a.ProjectId == s.ProjectId)
             .Select(a => a.SupervisorProfile.UserId).SingleAsync();
         var input = await ScopedRequest(staff, s, primary);
-        await AssertCode(await staff.PostAsJsonAsync(AssignUrl(s.ProjectId), input), "PRIMARY_EVALUATOR_CONFLICT");
+        await AssertCode(await staff.PostAsJsonAsync(AssignUrl(s.ProjectId), input), WorkflowErrorCodes.EvaluatorRoleConflict);
         var page = await Body<AIPMS.Application.Common.Models.PagedResult<EligibleEvaluatorDto>>(await staff.GetAsync(
             CandidatesUrl(s) + $"&componentId={input.ComponentId}&scope=COMMON&pageSize=1"));
         Assert.Equal(2, page.TotalCount);
@@ -44,6 +44,73 @@ public sealed partial class EvaluationDraftEndpointTests
         Assert.Equal("FINALIZED", (await Body<EvaluationDraftDto>(await Finalize(evaluator, draft))).Status);
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(AssignUrl(s.ProjectId),
             await ScopedRequest(staff, s, type: "SUPERVISOR"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task TEST_P0_04_Revoked_and_expired_evaluation_assignments_return_403_ASSIGNMENT_REVOKED_without_writes()
+    {
+        var s = await database.Seed();
+        using var app = new EvaluationFactory(database);
+        using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
+        using var evaluator = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
+
+        var assigned = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync(AssignUrl(s.ProjectId),
+            await ScopedRequest(staff, s, s.Scope.Users.Lecturer)));
+        var draft = await Create(evaluator, assigned.Id);
+
+        // 1. Expire ValidUntil before now -> Save, Finalize, Detail, Evidence all fail with 403 ASSIGNMENT_REVOKED.
+        await using (var db = database.CreateContext())
+        {
+            var row = await db.Set<EvaluationAssignment>().SingleAsync(a => a.Id == assigned.Id);
+            row.ValidFrom = EvaluationDraftDatabaseFixture.Now.AddDays(-2);
+            row.ValidUntil = EvaluationDraftDatabaseFixture.Now.AddSeconds(-1);
+            await db.SaveChangesAsync();
+        }
+
+        var saveExpired = await Save(evaluator, draft, s);
+        Assert.Equal(HttpStatusCode.Forbidden, saveExpired.StatusCode);
+        Assert.Contains(WorkflowErrorCodes.AssignmentRevoked, await saveExpired.Content.ReadAsStringAsync());
+
+        var finalizeExpired = await Finalize(evaluator, draft);
+        Assert.Equal(HttpStatusCode.Forbidden, finalizeExpired.StatusCode);
+        Assert.Contains(WorkflowErrorCodes.AssignmentRevoked, await finalizeExpired.Content.ReadAsStringAsync());
+
+        var detailExpired = await evaluator.GetAsync($"/api/v1/evaluation-assignments/{assigned.Id}");
+        Assert.Equal(HttpStatusCode.Forbidden, detailExpired.StatusCode);
+        Assert.Contains(WorkflowErrorCodes.AssignmentRevoked, await detailExpired.Content.ReadAsStringAsync());
+
+        var evidenceExpired = await evaluator.GetAsync($"/api/v1/evaluation-assignments/{assigned.Id}/evidence");
+        Assert.Equal(HttpStatusCode.Forbidden, evidenceExpired.StatusCode);
+        Assert.Contains(WorkflowErrorCodes.AssignmentRevoked, await evidenceExpired.Content.ReadAsStringAsync());
+
+        // 2. Restore ValidUntil within window -> Save succeeds cleanly.
+        await using (var db = database.CreateContext())
+        {
+            var row = await db.Set<EvaluationAssignment>().SingleAsync(a => a.Id == assigned.Id);
+            row.ValidUntil = EvaluationDraftDatabaseFixture.Now.AddDays(1);
+            await db.SaveChangesAsync();
+        }
+        draft = await Body<EvaluationDraftDto>(await Save(evaluator, draft, s));
+        Assert.NotNull(draft.TotalScore);
+
+        // 3. Revoke assignment -> Save & Finalize immediately return 403 ASSIGNMENT_REVOKED with zero new writes.
+        var revokeRes = await staff.PostAsJsonAsync($"/api/v1/evaluation-assignments/{assigned.Id}/revoke",
+            new RevokeEvaluatorRequest(assigned.ConcurrencyToken, "Immediate revocation test"));
+        Assert.Equal(HttpStatusCode.OK, revokeRes.StatusCode);
+
+        var saveRevoked = await Save(evaluator, draft, s);
+        Assert.Equal(HttpStatusCode.Forbidden, saveRevoked.StatusCode);
+        Assert.Contains(WorkflowErrorCodes.AssignmentRevoked, await saveRevoked.Content.ReadAsStringAsync());
+
+        var finalizeRevoked = await Finalize(evaluator, draft);
+        Assert.Equal(HttpStatusCode.Forbidden, finalizeRevoked.StatusCode);
+        Assert.Contains(WorkflowErrorCodes.AssignmentRevoked, await finalizeRevoked.Content.ReadAsStringAsync());
+
+        await using (var verify = database.CreateContext())
+        {
+            Assert.False(await verify.Set<EvaluationFinalization>().AnyAsync(f => f.EvaluationId == draft.Id));
+            Assert.False(await verify.AuditLogs.AnyAsync(a => a.Action == "EVALUATION_FINALIZED" && a.EntityId == draft.Id.ToString()));
+        }
     }
 }
 

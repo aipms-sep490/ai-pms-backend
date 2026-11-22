@@ -16,7 +16,7 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluationDraftRepository
+internal sealed class EvaluationDraftRepository(AipmsDbContext db, TimeProvider? clock = null) : IEvaluationDraftRepository
 {
     public async Task<EvaluationAssignmentRecord> AssignScopedAsync(long projectId, long evaluatorId, long periodId, long departmentId,
         string type, long actorId, DateTime now, ScopedAssignmentContext scope, CancellationToken ct)
@@ -105,13 +105,16 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         db.SupervisorAssignments.AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null && a.IsPrimary
             && a.SupervisorProfile.UserId == userId, ct);
 
+    public Task<bool> HasBeenPrimarySupervisorAsync(long projectId, long userId, CancellationToken ct) =>
+        AcademicAssignmentGuard.HasBeenPrimarySupervisorAsync(db, projectId, userId, ct);
+
     public async Task<PagedResult<EligibleEvaluatorDto>> GetEligibleEvaluatorsAsync(long projectId, long departmentId,
         int page, int pageSize, CancellationToken ct)
     {
         var candidates = db.Users.AsNoTracking().Where(u => u.Status == "ACTIVE" && u.DepartmentId == departmentId
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
             && u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER")
-            && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.EndedAt == null
+            && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId
                 && a.IsPrimary && a.AssignmentType == "PRIMARY" && a.SupervisorProfile.UserId == u.Id)
             && !db.Set<EvaluationAssignment>().Any(a => a.ProjectId == projectId && a.EvaluatorId == u.Id
                 && a.EvaluationType == "LECTURER" && a.Status == "ACTIVE"))
@@ -125,7 +128,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
     private static EvaluationAssignmentRecord Map(EvaluationAssignment a, DateTime? dueAt = null) => new(a.Id, a.ProjectId, a.EvaluatorId,
         a.RubricId, a.ProjectPeriodId, a.DepartmentId, a.EvaluationType, a.Status, a.AssignedBy,
         a.AssignedAt, a.RevokedAt, a.ConcurrencyToken.ToString("N"), a.Scope, a.MajorId, a.StudentId,
-        a.ComponentId, a.PolicyVersionId, a.Stage, a.ColdPackageId, DueAt: dueAt);
+        a.ComponentId, a.PolicyVersionId, a.Stage, a.ColdPackageId, DueAt: dueAt,
+        ValidFrom: a.ValidFrom, ValidUntil: a.ValidUntil);
 
     public async Task<EvaluationAssignmentRecord?> GetAssignmentAsync(long id, CancellationToken ct)
     {
@@ -198,10 +202,14 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
         return AcademicAuthority.IsLead(actor, project) ? project.DepartmentIds : [actor.DepartmentId!.Value];
     }
 
-    private IQueryable<EvaluationAssignment> EligibleAssignments(EvaluationActor actor, bool manager, IReadOnlyList<long>? managedDepartments = null) =>
-        db.Set<EvaluationAssignment>().AsNoTracking().Where(a =>
+    private IQueryable<EvaluationAssignment> EligibleAssignments(EvaluationActor actor, bool manager, IReadOnlyList<long>? managedDepartments = null)
+    {
+        var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+        return db.Set<EvaluationAssignment>().AsNoTracking().Where(a =>
             (manager && (actor.IsAdmin || (actor.IsStaff && managedDepartments != null && managedDepartments.Contains(a.DepartmentId))))
             || (actor.IsLecturer && a.EvaluatorId == actor.Id && a.DepartmentId == actor.DepartmentId && a.Status == "ACTIVE"
+                && (a.ValidFrom == null || a.ValidFrom <= now)
+                && (a.ValidUntil == null || now <= a.ValidUntil)
                 && db.Projects.Any(p => p.Id == a.ProjectId && p.Team.AcademicSemester.Organization.IsActive
                     && p.ProjectMajors.Any(m => m.Major.DepartmentId == a.DepartmentId && m.Major.IsActive
                         && m.Major.Department.IsActive && m.Major.Department.OrganizationId == p.Team.AcademicSemester.OrganizationId)
@@ -209,6 +217,7 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db) : IEvaluation
                         && m.Major.Department.OrganizationId == p.Team.AcademicSemester.OrganizationId))
                 && (a.EvaluationType != "SUPERVISOR" || db.SupervisorAssignments.Any(s => s.ProjectId == a.ProjectId
                     && s.EndedAt == null && s.IsPrimary && s.SupervisorProfile.UserId == actor.Id))));
+    }
 
     public async Task<PagedResult<EvaluationAssignmentRecord>> ListAssignmentsAsync(long? projectId, EvaluationActor actor,
         string? status, int page, int pageSize, CancellationToken ct)
