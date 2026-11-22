@@ -19,9 +19,13 @@ public sealed class OpenAiTextGenerationProvider(
     {
         var configured = Math.Clamp(options.OpenAi.MaxCompletionTokens, 256, 4096);
         if (systemPrompt.Contains("PROJECT_SETUP", StringComparison.Ordinal)
-            || systemPrompt.Contains("RUBRIC_SETUP", StringComparison.Ordinal))
+            || systemPrompt.Contains("RUBRIC_SETUP", StringComparison.Ordinal)
+            || systemPrompt.Contains("MEETING_AI_MINUTES", StringComparison.Ordinal)
+            || systemPrompt.Contains("MEETING_AI_COACH", StringComparison.Ordinal))
             return Math.Max(configured, 2800);
-        if (systemPrompt.Contains("structuredReport", StringComparison.Ordinal))
+        if (systemPrompt.Contains("structuredReport", StringComparison.Ordinal)
+            || systemPrompt.Contains("MEETING_AI_PULSE", StringComparison.Ordinal)
+            || systemPrompt.Contains("MEETING_AI_ASK", StringComparison.Ordinal))
             return Math.Max(configured, 1800);
         return configured;
     }

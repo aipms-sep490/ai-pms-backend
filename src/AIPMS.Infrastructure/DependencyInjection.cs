@@ -311,6 +311,7 @@ public static class DependencyInjection
         services.AddScoped<IMeetingRepository, MeetingRepository>();
         services.AddScoped<IMeetingVideoMetadataRepository, MeetingVideoMetadataRepository>();
         services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IMeetingVideoService, MeetingVideoService>();
+        services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IMeetingVideoAiService, MeetingVideoAiService>();
         services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IVideoProviderEventService, VideoProviderEventService>();
         services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IVideoCleanupScheduler, VideoCleanupScheduler>();
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();
