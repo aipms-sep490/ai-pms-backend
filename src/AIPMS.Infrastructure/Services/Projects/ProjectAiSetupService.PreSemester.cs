@@ -178,6 +178,24 @@ internal sealed partial class ProjectAiSetupService
         if (leadDeptId != actor.DepartmentId)
             throw new ForbiddenException("Bạn chỉ có thể tạo đề tài hàng loạt trong phạm vi bộ môn được phân công.");
 
+        var period = await db.ProjectPeriods.AsNoTracking()
+            .Include(p => p.AcademicSemester)
+                .ThenInclude(s => s.Organization)
+            .SingleOrDefaultAsync(p => p.Id == request.ProjectPeriodId, ct);
+        if (period is not null)
+        {
+            var nowUtc = clock.GetUtcNow().UtcDateTime;
+            if (!string.Equals(period.PeriodType, "REGISTRATION", StringComparison.OrdinalIgnoreCase))
+                throw new ConflictException($"Kỳ đồ án \"{period.Name}\" ({period.Code}) không phải kỳ Đăng ký (REGISTRATION) nên không thể tạo bản nháp đề tài.");
+            if (period.AcademicSemester?.Organization is { IsActive: false }
+                || period.Status is "CLOSED" or "ARCHIVED"
+                || period.AcademicSemester?.Status is "CLOSED" or "ARCHIVED"
+                || period.EndAt <= nowUtc)
+            {
+                throw new ConflictException($"Kỳ đăng ký \"{period.Name}\" ({period.Code}) đã đóng, đã lưu trữ hoặc đã hết hạn nên không thể tạo bản nháp đề tài. Hãy chọn một kỳ đăng ký đang mở hoặc bản nháp còn hạn.");
+            }
+        }
+
         var orgMajors = await db.Majors.AsNoTracking()
             .Where(m => m.IsActive && m.Department.OrganizationId == actor.OrganizationId)
             .Select(m => new { m.Id, m.Code, m.Name, m.DepartmentId })
@@ -296,25 +314,30 @@ internal sealed partial class ProjectAiSetupService
                 var reason = ex is ValidationException vex
                     ? string.Join("; ", vex.Errors.SelectMany(kv => kv.Value).Take(3))
                     : ex.Message;
+                if (string.Equals(reason, "Topic requires a registration period in an active organization that has not closed or ended.", StringComparison.OrdinalIgnoreCase))
+                    reason = "Kỳ đăng ký đã đóng, đã lưu trữ hoặc đã hết hạn nên không thể tạo bản nháp đề tài.";
                 skipped.Add(new(tempKey, code, title, string.IsNullOrWhiteSpace(reason) ? "Dữ liệu đề tài không đạt ràng buộc của kỳ đăng ký." : reason));
             }
         }
 
         var result = new ApplyTopicBatchSetupResultDto(created.Count, skipped.Count, false, created, skipped, warnings);
-        db.AiSetupApplications.Add(new AiSetupApplication
+        if (created.Count > 0)
         {
-            ActorId = actorId,
-            IdempotencyKey = request.IdempotencyKey,
-            ScopeType = "TOPIC_BATCH",
-            ProjectId = null,
-            RunId = request.RunId,
-            ResultJson = JsonSerializer.Serialize(result),
-            CreatedAt = clock.GetUtcNow().UtcDateTime
-        });
-        await db.SaveChangesAsync(ct);
+            db.AiSetupApplications.Add(new AiSetupApplication
+            {
+                ActorId = actorId,
+                IdempotencyKey = request.IdempotencyKey,
+                ScopeType = "TOPIC_BATCH",
+                ProjectId = null,
+                RunId = request.RunId,
+                ResultJson = JsonSerializer.Serialize(result),
+                CreatedAt = clock.GetUtcNow().UtcDateTime
+            });
+            await db.SaveChangesAsync(ct);
 
-        await audit.RecordAsync(new AuditEntry(actorId, "AI_TOPIC_BATCH_SETUP_APPLIED", "PROJECT_PERIOD", request.ProjectPeriodId,
-            new Dictionary<string, object?> { ["runId"] = request.RunId, ["createdCount"] = created.Count, ["skippedCount"] = skipped.Count }), ct);
+            await audit.RecordAsync(new AuditEntry(actorId, "AI_TOPIC_BATCH_SETUP_APPLIED", "PROJECT_PERIOD", request.ProjectPeriodId,
+                new Dictionary<string, object?> { ["runId"] = request.RunId, ["createdCount"] = created.Count, ["skippedCount"] = skipped.Count }), ct);
+        }
         return result;
     }
 

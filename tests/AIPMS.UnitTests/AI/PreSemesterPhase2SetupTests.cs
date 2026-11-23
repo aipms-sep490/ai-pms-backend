@@ -206,6 +206,61 @@ public sealed class PreSemesterPhase2SetupTests
     }
 
     [Fact]
+    public async Task ApplyTopicBatchSetup_RejectsArchivedPeriodUpfront_AndDoesNotPersistIdempotencyWhenZeroCreated()
+    {
+        await using var db = SeedAcademicDb();
+        var now = new DateTime(2026, 11, 23, 12, 0, 0, DateTimeKind.Utc);
+        var archivedSem = new M.AcademicSemester
+        {
+            Id = 50,
+            OrganizationId = 1,
+            Code = "F8-20261030",
+            Name = "Kỳ đã lưu trữ",
+            StartDate = new DateOnly(2026, 9, 1),
+            EndDate = new DateOnly(2026, 12, 30),
+            Status = "ARCHIVED",
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        var archivedPeriod = new M.ProjectPeriod
+        {
+            Id = 1099,
+            AcademicSemesterId = 50,
+            Code = "F8-REG-20261030",
+            Name = "F8 Đăng ký",
+            PeriodType = "REGISTRATION",
+            StartAt = now.AddDays(-20),
+            EndAt = now.AddDays(20),
+            Status = "ARCHIVED",
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        db.AcademicSemesters.Add(archivedSem);
+        db.ProjectPeriods.Add(archivedPeriod);
+        await db.SaveChangesAsync(Ct);
+
+        var sender = new StubTopicSender(rejectCode: "ONLY_BAD");
+        var svc = new ProjectAiSetupService(db, new TestUser(1, ["DEPARTMENT_STAFF"]), new AllowGuard(), sender, new TestAudit(), new FixedTestClock(), new FakeReviewGateService(), new FakeColdService());
+
+        var archivedReq = new ApplyTopicBatchSetupRequest(Guid.NewGuid(), 16, 1099, 10,
+        [
+            new("TOP_1", "CAP_99", "Đề tài hợp lệ", null, null, null, null, "EdTech", [], [], "SINGLE_MAJOR", 100, "SE", [])
+        ]);
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => svc.ApplyTopicBatchSetupAsync(archivedReq, Ct));
+        Assert.Contains("đã lưu trữ", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, sender.CreatedCount);
+
+        var allSkippedReq = new ApplyTopicBatchSetupRequest(Guid.NewGuid(), 17, 1000, 10,
+        [
+            new("TOP_1", "ONLY_BAD", "Đề tài trùng mã", null, null, null, null, "EdTech", [], [], "SINGLE_MAJOR", 100, "SE", [])
+        ]);
+        var zeroResult = await svc.ApplyTopicBatchSetupAsync(allSkippedReq, Ct);
+        Assert.Equal(0, zeroResult.CreatedCount);
+        Assert.Equal(1, zeroResult.SkippedCount);
+        Assert.Empty(db.AiSetupApplications.ToList());
+    }
+
+    [Fact]
     public async Task ApplyColdTemplateSetup_NormalizesCodes_EnsuresRequired_AndReplaysIdempotently()
     {
         await using var db = SeedAcademicDb();
