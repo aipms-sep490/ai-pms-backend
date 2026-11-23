@@ -340,3 +340,28 @@ public sealed record DepartmentExecutiveBriefDto(
     IReadOnlyList<DepartmentSupervisorLoadDto> SupervisorAlerts,
     IReadOnlyList<string> WeeklyPriorityActions,
     AiSnapshotMetaDto Meta);
+
+// #9 Evaluation Scheme AI Suggest (advisory draft from real PUBLISHED Rubrics)
+public sealed record EvaluationSchemeSuggestComponentDto(
+    string Name,
+    string Scope,
+    long? MajorId,
+    string? MajorName,
+    long RubricId,
+    string RubricCode,
+    string RubricName,
+    string Stage,
+    decimal ProjectWeightPercent,
+    decimal StudentWeightPercent,
+    int RequiredEvaluators,
+    string Rationale);
+
+public sealed record EvaluationSchemeSuggestDto(
+    long ProjectId,
+    string SuggestedName,
+    decimal SuggestedPassThreshold,
+    string Summary,
+    bool UsedAi,
+    IReadOnlyList<EvaluationSchemeSuggestComponentDto> Components,
+    IReadOnlyList<string> Warnings,
+    AiSnapshotMetaDto Meta);

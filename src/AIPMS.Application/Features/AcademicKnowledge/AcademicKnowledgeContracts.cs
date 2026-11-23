@@ -328,11 +328,44 @@ public sealed record ApplyColdTemplateSetupResultDto(
     bool Replay,
     IReadOnlyList<string>? Warnings = null);
 
+// Stream G: AI Milestone Template Setup Plan (Admin Only)
+public sealed record AssistantMilestoneTemplateItemDraftDto(
+    string Title,
+    string? Description,
+    int? StartOffsetDays,
+    int? DueOffsetDays,
+    int SortOrder);
+
+public sealed record AssistantMilestoneTemplateSetupPlanDto(
+    string Name,
+    string? Description,
+    string Summary,
+    IReadOnlyList<AssistantMilestoneTemplateItemDraftDto> Items,
+    IReadOnlyList<string> Warnings);
+
+public sealed record ApplyMilestoneTemplateSetupRequest(
+    Guid IdempotencyKey,
+    long? RunId,
+    long? ExistingTemplateId,
+    string Name,
+    string? Description,
+    IReadOnlyList<AssistantMilestoneTemplateItemDraftDto> Items);
+
+public sealed record ApplyMilestoneTemplateSetupResultDto(
+    long TemplateId,
+    long VersionId,
+    int VersionNumber,
+    string Name,
+    string Status,
+    int ItemsCount,
+    bool Replay,
+    IReadOnlyList<string>? Warnings = null);
+
 public sealed record AssistantDraftDto(string Kind, string Title, string Description, AssistantMeetingDraftDto? Meeting = null,
     AssistantTaskDraftDto? Task = null, AssistantReportDraftDto? Report = null, IReadOnlyList<AssistantDraftDto>? Tasks = null,
     AssistantProjectSetupPlanDto? SetupPlan = null, AssistantRubricSetupPlanDto? RubricSetup = null,
     AssistantReviewGateSetupPlanDto? ReviewGateSetup = null, AssistantTopicBatchPlanDto? TopicBatchSetup = null,
-    AssistantColdTemplateSetupPlanDto? ColdTemplateSetup = null);
+    AssistantColdTemplateSetupPlanDto? ColdTemplateSetup = null, AssistantMilestoneTemplateSetupPlanDto? MilestoneTemplateSetup = null);
 public sealed record AssistantStreamEvent(string Type, string? Text = null, AcademicAssistantResponseDto? Response = null);
 public sealed record AssistantUpload(string FileName, byte[] Content);
 public sealed record AssistantExport(string FileName, string ContentType, byte[] Content);

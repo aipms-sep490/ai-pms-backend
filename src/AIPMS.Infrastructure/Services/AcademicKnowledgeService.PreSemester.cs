@@ -489,4 +489,16 @@ internal sealed partial class AcademicKnowledgeService
             ],
             ["Khung mẫu gợi ý cục bộ. Có thể chỉnh sửa hoặc thêm đầu mục trước khi lưu phiên bản mới."]);
     }
+
+    private static AssistantMilestoneTemplateSetupPlanDto BuildLocalMilestoneTemplateSetup(string query) => new(
+        "Mẫu mốc đồ án tốt nghiệp 14 tuần (Nháp AI)",
+        $"Lộ trình mốc tiêu chuẩn gợi ý theo yêu cầu: {query.Trim()}",
+        "Bộ 4 mốc tiêu chuẩn tương ứng học kỳ 14 tuần (0–98 ngày) ở trạng thái DRAFT để Quản trị viên tinh chỉnh trước khi công bố.",
+        [
+            new("Mốc 1: Khởi tạo & Đặc tả yêu cầu", "Chốt phạm vi bài toán, cam kết nhóm và tài liệu SRS/Proposal.", 0, 21, 0),
+            new("Mốc 2: Thiết kế kiến trúc & Dữ liệu", "Hoàn thiện tài liệu SDD, thiết kế cơ sở dữ liệu và nguyên mẫu giao diện.", 22, 42, 1),
+            new("Mốc 3: Triển khai & Kiểm thử giữa kỳ", "Xây dựng các chức năng cốt lõi, tích hợp và đánh giá Review Gate 2.", 43, 77, 2),
+            new("Mốc 4: Hoàn thiện, Bàn giao & Bảo vệ", "Kiểm thử toàn hệ thống, nộp hồ sơ chấm nguội và chuẩn bị bảo vệ hội đồng.", 78, 98, 3)
+        ],
+        ["Khung mốc gợi ý cục bộ (0–98 ngày). Khi áp dụng sẽ lưu phiên bản DRAFT để Quản trị viên kiểm tra và công bố thủ công."]);
 }

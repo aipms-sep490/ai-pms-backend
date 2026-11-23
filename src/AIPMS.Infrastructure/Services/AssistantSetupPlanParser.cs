@@ -321,6 +321,32 @@ internal static class AssistantSetupPlanParser
         return new(name, scope, majorName, summary, reports, StringList(value, "warnings", 10, 400));
     }
 
+    public static AssistantMilestoneTemplateSetupPlanDto? ParseMilestoneTemplateSetup(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object) return null;
+        var name = Text(value, "name", 200);
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        var summary = Text(value, "summary", 1000) ?? "Bộ mốc mẫu nháp đề xuất bởi AI. Kiểm tra ngày lệch (offset) trước khi lưu bản nháp.";
+        var items = new List<AssistantMilestoneTemplateItemDraftDto>();
+        if (value.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            var idx = 0;
+            foreach (var item in arr.EnumerateArray().Take(20))
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var title = Text(item, "title", 200);
+                if (string.IsNullOrWhiteSpace(title)) continue;
+                int? startOff = item.TryGetProperty("startOffsetDays", out var sEl) && sEl.ValueKind == JsonValueKind.Number && sEl.TryGetInt32(out var so) && so >= 0 ? Math.Min(so, 365) : null;
+                int? dueOff = item.TryGetProperty("dueOffsetDays", out var dEl) && dEl.ValueKind == JsonValueKind.Number && dEl.TryGetInt32(out var doff) && doff >= 0 ? Math.Min(doff, 365) : null;
+                if (startOff.HasValue && dueOff.HasValue && dueOff < startOff) dueOff = startOff;
+                items.Add(new(title, Text(item, "description", 1000), startOff, dueOff, idx));
+                idx++;
+            }
+        }
+        if (items.Count == 0) return null;
+        return new(name, Text(value, "description", 1000), summary, items, StringList(value, "warnings", 10, 400));
+    }
+
     public static AssistantStructuredReportDto? ParseStructuredReport(
         JsonElement root,
         ProjectBoundedContext? context,

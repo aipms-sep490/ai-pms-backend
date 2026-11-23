@@ -67,19 +67,43 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
         await tx.CommitAsync(ct);
     }
 
-    public async Task<MilestoneTemplateVersionDto> CreateVersionAsync(long templateId, long actorId, DateTime now, CancellationToken ct)
+    public async Task<MilestoneTemplateVersionDto> CreateVersionAsync(long templateId, long actorId, DateTime now, CancellationToken ct, long? copyFromVersionId = null)
     {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await MilestoneTemplateLock.AcquireAsync(db, ct);
         await EnsureAdminAsync(actorId, ct);
         var template = await LoadTemplateForUpdateAsync(templateId, ct);
         if (template.Status != "ACTIVE") throw new ConflictException("Only active templates can receive a new version.");
+        List<M.MilestoneTemplateItem>? sourceItems = null;
+        if (copyFromVersionId.HasValue)
+        {
+            var srcVersion = await db.MilestoneTemplateVersions.AsNoTracking().Include(v => v.Items)
+                .SingleOrDefaultAsync(v => v.Id == copyFromVersionId.Value && v.MilestoneTemplateId == templateId, ct)
+                ?? throw new NotFoundException("MilestoneTemplateVersion", copyFromVersionId.Value);
+            sourceItems = srcVersion.Items.OrderBy(i => i.SortOrder).ThenBy(i => i.Id).ToList();
+        }
         var max = await db.MilestoneTemplateVersions.Where(v => v.MilestoneTemplateId == templateId)
             .Select(v => (int?)v.VersionNumber).MaxAsync(ct) ?? 0;
         var entity = new M.MilestoneTemplateVersion { MilestoneTemplateId = templateId, VersionNumber = max + 1, Status = "DRAFT", CreatedBy = actorId, CreatedAt = now, UpdatedAt = now };
+        if (sourceItems is { Count: > 0 })
+        {
+            foreach (var item in sourceItems)
+            {
+                entity.Items.Add(new M.MilestoneTemplateItem
+                {
+                    Title = item.Title,
+                    Description = item.Description,
+                    StartOffsetDays = item.StartOffsetDays,
+                    DueOffsetDays = item.DueOffsetDays,
+                    SortOrder = item.SortOrder,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+        }
         db.MilestoneTemplateVersions.Add(entity);
         await db.SaveChangesAsync(ct);
-        await audit.RecordAsync(new AuditEntry(actorId, "MILESTONE_TEMPLATE_VERSION_CREATED", "MILESTONE_TEMPLATE_VERSION", entity.Id, new Dictionary<string, object?> { ["templateId"] = templateId, ["version"] = entity.VersionNumber }), ct);
+        await audit.RecordAsync(new AuditEntry(actorId, "MILESTONE_TEMPLATE_VERSION_CREATED", "MILESTONE_TEMPLATE_VERSION", entity.Id, new Dictionary<string, object?> { ["templateId"] = templateId, ["version"] = entity.VersionNumber, ["copiedFromVersionId"] = copyFromVersionId }), ct);
         await tx.CommitAsync(ct);
         return ToDto(await LoadVersionAsync(entity.Id, ct));
     }
