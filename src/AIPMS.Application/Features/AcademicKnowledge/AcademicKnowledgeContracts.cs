@@ -7,7 +7,7 @@ public sealed record CreateKnowledgeDocumentRequest(string Title, string Documen
 public sealed record CreateKnowledgeVersionRequest(string Version, string Content, string? SourceFileName, DateTime? EffectiveFrom, DateTime? EffectiveTo, IReadOnlyList<KnowledgeChunkInput>? Chunks);
 public sealed record AcademicAssistantAskRequest(string Query, string Scope = "ACADEMIC", long? ProjectId = null,
     long? ConversationId = null, int? ExpectedRevision = null, string? PageContext = null, string? DraftKind = null,
-    string? ToolMode = null, long? RubricId = null);
+    string? ToolMode = null, long? RubricId = null, long? ProjectPeriodId = null);
 public sealed record AssistantRubricOption(long Id, string Title, int Version, bool AssignedToProject);
 public sealed record DeliverableReviewRequest(long RubricId, long? ChecklistId = null, string Scope = "MAJOR_SPECIFIC");
 public sealed record DeliverableReviewCriterionDto(long CriterionId, string CriterionName, string Status,
@@ -180,9 +180,159 @@ public sealed record ApplyRubricSetupResultDto(
     bool Replay,
     IReadOnlyList<string>? Warnings = null);
 
+// Stream C: AI Review Gate Setup Plan (Draft ReviewGateTemplate for Department Staff)
+public sealed record AssistantReviewGateRequirementDraftDto(
+    string Code,
+    string Title,
+    string? Description,
+    string Type,
+    string Scope,
+    string? MajorName,
+    string Verification,
+    bool Required);
+
+public sealed record AssistantReviewGateDraftDto(
+    string Code,
+    int Sequence,
+    string Title,
+    string Objective,
+    decimal? Weight,
+    string? StartDate,
+    string? EndDate,
+    bool Required,
+    bool BlockNextGate,
+    bool BlocksDefense,
+    string ReviewerPolicy,
+    string ReviewScope,
+    IReadOnlyList<AssistantReviewGateRequirementDraftDto> Requirements);
+
+public sealed record AssistantReviewGateSetupPlanDto(
+    string Code,
+    string Name,
+    string Mode,
+    string? MajorCode,
+    string Summary,
+    IReadOnlyList<AssistantReviewGateDraftDto> Gates,
+    IReadOnlyList<string> Warnings);
+
+public sealed record ApplyReviewGateSetupRequest(
+    Guid IdempotencyKey,
+    long? RunId,
+    long? ProjectPeriodId,
+    string Code,
+    string Name,
+    string Mode,
+    string? Major,
+    IReadOnlyList<AssistantReviewGateDraftDto> Gates);
+
+public sealed record ApplyReviewGateSetupResultDto(
+    long TemplateId,
+    string Code,
+    string Name,
+    string Status,
+    int GatesCount,
+    bool Replay,
+    IReadOnlyList<string>? Warnings = null);
+
+// Stream D: AI Topic Batch Extractor (Draft Topics with 3-period similarity check)
+public sealed record AssistantTopicRequirementDraftDto(
+    long? MajorId,
+    string? MajorName,
+    int MinMembers,
+    int MaxMembers,
+    string Responsibility);
+
+public sealed record AssistantTopicDraftDto(
+    string TempKey,
+    string Code,
+    string Title,
+    string? Description,
+    string? ProblemStatement,
+    string? Objectives,
+    string? ExpectedOutput,
+    string? Domain,
+    IReadOnlyList<string> Technologies,
+    IReadOnlyList<string> Keywords,
+    string ProjectMode,
+    long? PrimaryMajorId,
+    string? PrimaryMajorName,
+    IReadOnlyList<AssistantTopicRequirementDraftDto> Requirements,
+    bool DuplicateTitleConflict = false,
+    string? DuplicateTitleDetail = null,
+    string? SimilarityWarning = null,
+    double? HighestSimilarityScore = null);
+
+public sealed record AssistantTopicBatchPlanDto(
+    string Summary,
+    IReadOnlyList<AssistantTopicDraftDto> Topics,
+    IReadOnlyList<string> Warnings);
+
+public sealed record ApplyTopicBatchSetupRequest(
+    Guid IdempotencyKey,
+    long? RunId,
+    long ProjectPeriodId,
+    long? LeadDepartmentId,
+    IReadOnlyList<AssistantTopicDraftDto> Topics);
+
+public sealed record TopicBatchCreatedItemDto(string TempKey, long TopicId, string Code, string Title, string Status);
+public sealed record TopicBatchSkippedItemDto(string TempKey, string Code, string Title, string Reason);
+
+public sealed record ApplyTopicBatchSetupResultDto(
+    int CreatedCount,
+    int SkippedCount,
+    bool Replay,
+    IReadOnlyList<TopicBatchCreatedItemDto> Created,
+    IReadOnlyList<TopicBatchSkippedItemDto> Skipped,
+    IReadOnlyList<string> Warnings);
+
+// Stream E: AI Knowledge Base Auto-Ingest Preview
+public sealed record KnowledgeExtractPreviewDto(
+    string SourceFileName,
+    string SuggestedTitle,
+    string SuggestedDocumentType,
+    string Summary,
+    string Content,
+    IReadOnlyList<KnowledgeChunkInput> Chunks,
+    bool UsedAi,
+    IReadOnlyList<string> Warnings);
+
+// Stream F: AI Cold Report Template Setup Plan
+public sealed record AssistantColdReportItemDraftDto(
+    string Code,
+    string Name,
+    bool Required);
+
+public sealed record AssistantColdTemplateSetupPlanDto(
+    string Name,
+    string Scope,
+    string? MajorName,
+    string Summary,
+    IReadOnlyList<AssistantColdReportItemDraftDto> Reports,
+    IReadOnlyList<string> Warnings);
+
+public sealed record ApplyColdTemplateSetupRequest(
+    Guid IdempotencyKey,
+    long? RunId,
+    long ProjectPeriodId,
+    string Scope,
+    long? MajorId,
+    string Name,
+    IReadOnlyList<AssistantColdReportItemDraftDto> Reports);
+
+public sealed record ApplyColdTemplateSetupResultDto(
+    long TemplateId,
+    string Name,
+    int Version,
+    string Scope,
+    int ReportsCount,
+    bool Replay,
+    IReadOnlyList<string>? Warnings = null);
+
 public sealed record AssistantDraftDto(string Kind, string Title, string Description, AssistantMeetingDraftDto? Meeting = null,
     AssistantTaskDraftDto? Task = null, AssistantReportDraftDto? Report = null, IReadOnlyList<AssistantDraftDto>? Tasks = null,
-    AssistantProjectSetupPlanDto? SetupPlan = null, AssistantRubricSetupPlanDto? RubricSetup = null);
+    AssistantProjectSetupPlanDto? SetupPlan = null, AssistantRubricSetupPlanDto? RubricSetup = null,
+    AssistantReviewGateSetupPlanDto? ReviewGateSetup = null, AssistantTopicBatchPlanDto? TopicBatchSetup = null,
+    AssistantColdTemplateSetupPlanDto? ColdTemplateSetup = null);
 public sealed record AssistantStreamEvent(string Type, string? Text = null, AcademicAssistantResponseDto? Response = null);
 public sealed record AssistantUpload(string FileName, byte[] Content);
 public sealed record AssistantExport(string FileName, string ContentType, byte[] Content);

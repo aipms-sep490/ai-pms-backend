@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Text.Json;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
+using AIPMS.Application.Abstractions.Storage;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
@@ -13,6 +14,7 @@ using AIPMS.Application.Features.AcademicKnowledge;
 using AIPMS.Application.Features.AcademicKnowledge.Abstractions;
 using AIPMS.Application.Features.AiAssistant.Abstractions;
 using AIPMS.Application.Features.AiAssistant.Models;
+using AIPMS.Application.Features.Topics.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
@@ -29,7 +31,9 @@ internal sealed partial class AcademicKnowledgeService(
     IAiContextRetriever projectContext,
     TimeProvider clock,
     IConfiguration configuration,
-    ILogger<AcademicKnowledgeService>? logger = null) : IAcademicKnowledgeService
+    ILogger<AcademicKnowledgeService>? logger = null,
+    IFileStorage? fileStorage = null,
+    ITopicRepository? topicRepository = null) : IAcademicKnowledgeService
 {
     public async Task<PagedResult<KnowledgeDocumentDto>> ListAsync(long? departmentId, string? status, int page, int pageSize, CancellationToken ct)
     {
@@ -134,17 +138,17 @@ internal sealed partial class AcademicKnowledgeService(
         if (scope is not ("ACADEMIC" or "PROJECT" or "COMBINED")) throw new ArgumentException("Invalid scope.");
         if (scope != "ACADEMIC" && request.ProjectId is null) throw new ArgumentException("ProjectId is required.");
         if (request.DraftKind is not (null or "TASK" or "MEETING")) throw new ArgumentException("Invalid draft kind.");
-        if (request.ToolMode is not (null or "PROGRESS" or "REPORT_REVIEW" or "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP")) throw new ArgumentException("Invalid assistant tool.");
+        if (request.ToolMode is not (null or "PROGRESS" or "REPORT_REVIEW" or "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP")) throw new ArgumentException("Invalid assistant tool.");
         if (request.ToolMode is "PROGRESS" or "REPORT_REVIEW" or "PROJECT_SETUP" && (request.ProjectId is null || scope == "ACADEMIC"))
             throw new ArgumentException("Mở trợ lý trong đồ án để dùng chức năng này.");
-        if (request.ToolMode == "RUBRIC_SETUP" && !await db.UserRoles.AnyAsync(r => r.UserId == actor.Id && (r.Role.Code == AppRoles.Admin || r.Role.Code == AppRoles.DepartmentStaff), ct))
-            throw new ForbiddenException("Chỉ cán bộ khoa hoặc quản trị viên được yêu cầu thiết lập bộ tiêu chí rubric.");
+        if (request.ToolMode is "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP" && !await db.UserRoles.AnyAsync(r => r.UserId == actor.Id && (r.Role.Code == AppRoles.Admin || r.Role.Code == AppRoles.DepartmentStaff), ct))
+            throw new ForbiddenException("Chỉ cán bộ khoa hoặc quản trị viên được yêu cầu trợ lý soạn nháp cấu hình đầu kỳ.");
         if (request.ToolMode == "REPORT_REVIEW" && (files.Count == 0 || request.RubricId is null))
             throw new ArgumentException("Chọn rubric đã công bố và đính kèm báo cáo cần nhận xét.");
         if (request.RubricId != null && request.ToolMode != "REPORT_REVIEW") throw new ArgumentException("Rubric chỉ dùng trong chế độ nhận xét báo cáo.");
         if (request.ToolMode == "PROGRESS" && files.Count > 0) throw new ArgumentException("Chế độ tiến độ dùng dữ liệu hệ thống; hãy bỏ tệp đính kèm.");
         if (request.PageContext?.Length > 160) throw new ArgumentException("Page context too long.");
-        var documentTool = request.ToolMode is "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP";
+        var documentTool = request.ToolMode is "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP";
         var expectedDraftKind = request.DraftKind ?? (documentTool ? request.ToolMode : null);
         var conversation = request.ConversationId.HasValue ? await OwnedConversationAsync(request.ConversationId.Value, ct) : null;
         if (conversation != null && (conversation.ProjectId != request.ProjectId || conversation.Scope != scope || conversation.Revision != request.ExpectedRevision))
@@ -272,6 +276,15 @@ internal sealed partial class AcademicKnowledgeService(
                 "Every proposed deliverable and task should include 2-4 concrete, verifiable acceptanceCriteria tailored to the project. Only copy exact member/major names from projectOverview; leave ambiguous assignees empty. Use ISO8601 +07:00 for dueAt when dates are requested. Ensure dependsOnRefs is acyclic. Never claim data is already saved; the user will review and click Apply. " +
                 "toolMode RUBRIC_SETUP: design an editable draft grading rubric tailored to the user's request. Return draft:{kind:\"RUBRIC_SETUP\",title:\"...\",description:\"...\",rubricSetup:{code:\"RUBRIC_...\",name:\"...\",description:\"...\",projectMode:\"SINGLE_MAJOR|INTERDISCIPLINARY\",evaluationStage:\"ON_GOING|COLD|DEFENSE\",evaluationScope:\"COMMON|MAJOR_SPECIFIC|INDIVIDUAL\",majorName:null,criteria:[{tempKey:\"C1\",parentTempKey:null,criterionCode:\"C1\",name:\"...\",description:\"...\",weightPercent:30,maxScore:10,isRequired:true,learningOutcome:\"...\",evidenceGuidance:\"...\",levels:[{levelOrder:1,label:\"Xuất sắc\",descriptor:\"...\",scoreFrom:8.5,scoreTo:10}]}],warnings:[]}}. " +
                 "Root criteria weightPercent MUST sum to exactly 100. If a criterion has children, its children's weightPercent MUST sum to 100. Include 3-4 clear scoring levels per leaf criterion. Mark draft as needing human approval/publishing. " +
+                "toolMode REVIEW_GATE_SETUP: design an editable draft Review Gate template (G1..Gn) from attached syllabus/schedule or prompt, aligned with academicSetupContext.targetPeriod dates and availableMajors. " +
+                "Return draft:{kind:\"REVIEW_GATE_SETUP\",title:\"...\",description:\"...\",reviewGateSetup:{code:\"GATE_...\",name:\"...\",mode:\"SINGLE_MAJOR|INTERDISCIPLINARY\",majorCode:null,summary:\"...\",gates:[{code:\"G1\",sequence:1,title:\"...\",objective:\"...\",weight:30,startDate:\"yyyy-MM-dd\",endDate:\"yyyy-MM-dd\",required:true,blockNextGate:true,blocksDefense:false,reviewerPolicy:\"SUPERVISOR|LECTURER|COUNCIL|DEPARTMENT_STAFF\",reviewScope:\"COMMON|MAJOR_SPECIFIC|HYBRID\",requirements:[{code:\"G1_SRS\",title:\"...\",description:\"...\",type:\"FILE|EXTERNAL_LINK|TEXT|ARTIFACT\",scope:\"COMMON|MAJOR_SPECIFIC\",majorName:null,verification:\"HUMAN|AUTO\",required:true}]}],warnings:[]}}. " +
+                "Gate weights MUST sum to exactly 100 (or all null). Keep gate startDate/endDate inside targetPeriod when supplied. Every gate MUST have >= 1 requirement. Only copy exact major names/codes from academicSetupContext.availableMajors. " +
+                "toolMode TOPIC_BATCH_SETUP: extract or draft up to 25 capstone topics from attached DOCX/PDF/XLSX files or prompt. " +
+                "Return draft:{kind:\"TOPIC_BATCH_SETUP\",title:\"...\",description:\"...\",topicBatchSetup:{summary:\"...\",topics:[{tempKey:\"TOP_1\",code:\"TOPIC_01\",title:\"...\",description:\"...\",problemStatement:\"...\",objectives:\"...\",expectedOutput:\"...\",domain:\"...\",technologies:[\"...\"],keywords:[\"...\"],projectMode:\"SINGLE_MAJOR|INTERDISCIPLINARY\",primaryMajorId:null,primaryMajorName:null,requirements:[{majorId:null,majorName:null,minMembers:3,maxMembers:5,responsibility:\"...\"}]}],warnings:[]}}. " +
+                "Ensure every topic has concrete problemStatement, objectives, expectedOutput, domain, technologies, keywords and realistic requirements. Only copy real majorId/majorName from academicSetupContext.availableMajors; never invent IDs. " +
+                "toolMode COLD_TEMPLATE_SETUP: design an editable Cold Report Template tailored to the requested discipline/major or attached syllabus. " +
+                "Return draft:{kind:\"COLD_TEMPLATE_SETUP\",title:\"...\",description:\"...\",coldTemplateSetup:{name:\"...\",scope:\"COMMON|MAJOR_SPECIFIC\",majorName:null,summary:\"...\",reports:[{code:\"UPPER_SNAKE_CODE\",name:\"...\",required:true}],warnings:[]}}. " +
+                "Every report code MUST use ASCII UPPER_SNAKE_CASE (A-Z, 0-9, _ only, <= 60 chars), distinct, with >= 1 required=true report. " +
                 "For these document tools mark all unprovided dates, people and decisions [Cần bổ sung]; separate proposals from supplied facts. " +
                 "Write an editable document in answer with clear headings and bullets. The application provides download buttons; never invent download URLs. " +
                 "When expectedDraftKind is present, add draft:{kind,title,description}, kind must equal expectedDraftKind. Never execute actions or invent IDs. Otherwise omit draft. " +
@@ -313,10 +326,12 @@ internal sealed partial class AcademicKnowledgeService(
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue<int?>("AiAssistant:TimeoutSeconds") ?? 40, 1, 90)));
                 var localTime = clock.GetUtcNow().ToOffset(TimeSpan.FromHours(7));
+                var academicSetupContext = await BuildAcademicSetupContextAsync(actor.DepartmentId, request.ProjectPeriodId, request.ToolMode, ct);
                 var prompt = JsonSerializer.Serialize(new
                 {
                     query, sources, projectSources,
                     projectOverview = projectSummaryData,
+                    academicSetupContext,
                     projectContext = request.ToolMode == "WEEKLY_REPORT" ? context?.FormattedEvidenceText : null,
                     fileSources, conversationHistory = memory,
                     pageContext = request.PageContext, draftKind = request.DraftKind, expectedDraftKind, toolMode = request.ToolMode,
@@ -407,6 +422,10 @@ internal sealed partial class AcademicKnowledgeService(
                     citations = []; projectEvidence = [];
                 }
             }
+        }
+        if (draft?.TopicBatchSetup is not null)
+        {
+            draft = await EnrichTopicBatchWithSimilarityAsync(draft, actor.DepartmentId, ct);
         }
         // Retrieved project context is not a relevant answer by itself. Only a
         // validated model citation or the explicit progress tool may expose it.
@@ -663,6 +682,12 @@ internal sealed partial class AcademicKnowledgeService(
             return ["Giải thích cách phân bổ task cho từng thành viên", "Bổ sung thêm tiêu chí nghiệm thu cho mốc tiếp theo"];
         if (draftKind == "RUBRIC_SETUP")
             return ["Gợi ý mô tả mức điểm Xuất sắc và Trung bình", "Kiểm tra lại cân bằng trọng số giữa các tiêu chí"];
+        if (draftKind == "REVIEW_GATE_SETUP")
+            return ["Bổ sung thêm yêu cầu minh chứng chuyên ngành cho từng cổng", "Điều chỉnh tỷ trọng và điều kiện chặn bảo vệ ở cổng cuối"];
+        if (draftKind == "TOPIC_BATCH_SETUP")
+            return ["Đề xuất thêm đề tài liên ngành phù hợp chương trình đào tạo", "Bổ sung yêu cầu sản phẩm đầu ra cụ thể hơn cho các đề tài"];
+        if (draftKind == "COLD_TEMPLATE_SETUP")
+            return ["Tùy chỉnh thêm đầu mục báo cáo phụ lục minh chứng", "Kiểm tra lại danh sách báo cáo bắt buộc và không bắt buộc"];
         if (toolMode == "REPORT_REVIEW")
             return ["Gợi ý cách viết lại phần còn thiếu minh chứng", "Kiểm tra các tiêu chí bắt buộc dễ bị trừ điểm"];
         if (hasProject)
@@ -708,12 +733,18 @@ internal sealed partial class AcademicKnowledgeService(
             "WORK_PLAN" => "Nháp kế hoạch làm việc",
             "PROJECT_SETUP" => "Kế hoạch thiết lập mốc, tiêu chí & công việc",
             "RUBRIC_SETUP" => "Bộ tiêu chí đánh giá (Nháp AI)",
+            "REVIEW_GATE_SETUP" => "Khung cổng thẩm định (Nháp AI)",
+            "TOPIC_BATCH_SETUP" => "Danh sách đề tài hàng loạt (Nháp AI)",
+            "COLD_TEMPLATE_SETUP" => "Mẫu hồ sơ chấm nguội (Nháp AI)",
             _ => "Nháp từ trợ lý AI"
         };
         var notes = ExtractDraftNotes(kind, query);
         var report = kind == "WEEKLY_REPORT" ? BuildLocalWeeklyReport(context) : null;
         AssistantProjectSetupPlanDto? setupPlan = null;
         AssistantRubricSetupPlanDto? rubricSetup = null;
+        AssistantReviewGateSetupPlanDto? reviewGateSetup = null;
+        AssistantTopicBatchPlanDto? topicBatchSetup = null;
+        AssistantColdTemplateSetupPlanDto? coldTemplateSetup = null;
         if (kind == "PROJECT_SETUP")
         {
             setupPlan = BuildLocalProjectSetup(query, context);
@@ -722,6 +753,18 @@ internal sealed partial class AcademicKnowledgeService(
         {
             rubricSetup = BuildLocalRubricSetup(query);
         }
+        else if (kind == "REVIEW_GATE_SETUP")
+        {
+            reviewGateSetup = BuildLocalReviewGateSetup(query);
+        }
+        else if (kind == "TOPIC_BATCH_SETUP")
+        {
+            topicBatchSetup = BuildLocalTopicBatchSetup(query);
+        }
+        else if (kind == "COLD_TEMPLATE_SETUP")
+        {
+            coldTemplateSetup = BuildLocalColdTemplateSetup(query);
+        }
         var description = kind switch
         {
             "WEEKLY_REPORT" => WeeklyReportDescription(report!, context),
@@ -729,6 +772,9 @@ internal sealed partial class AcademicKnowledgeService(
             "WORK_PLAN" => $"Mục tiêu: {missing}\nSản phẩm bàn giao: {missing}\nMốc thời gian: {missing}\n\nChưa có đầu việc đủ cụ thể để tách thành task.",
             "PROJECT_SETUP" => setupPlan!.Summary,
             "RUBRIC_SETUP" => $"Khung bộ tiêu chí nháp cho yêu cầu: {query.Trim()}. Kiểm tra trọng số (tổng 100%) và bấm Áp dụng để lưu dưới dạng bản nháp DRAFT.",
+            "REVIEW_GATE_SETUP" => reviewGateSetup!.Summary,
+            "TOPIC_BATCH_SETUP" => topicBatchSetup!.Summary,
+            "COLD_TEMPLATE_SETUP" => coldTemplateSetup!.Summary,
             _ => $"Nội dung: {missing}"
         };
         if (!string.IsNullOrWhiteSpace(notes)) description += $"\n\nGhi chú bạn cung cấp:\n{notes}";
@@ -736,7 +782,8 @@ internal sealed partial class AcademicKnowledgeService(
         return new AssistantDraftDto(kind, title, description,
             Meeting: kind == "MEETING" ? new AssistantMeetingDraftDto(null, null, null, null, null, null, false) : null,
             Task: kind == "TASK" ? new AssistantTaskDraftDto(null, null, null, Array.Empty<string>(), null) : null,
-            Report: report, Tasks: tasks, SetupPlan: setupPlan, RubricSetup: rubricSetup);
+            Report: report, Tasks: tasks, SetupPlan: setupPlan, RubricSetup: rubricSetup,
+            ReviewGateSetup: reviewGateSetup, TopicBatchSetup: topicBatchSetup, ColdTemplateSetup: coldTemplateSetup);
     }
 
     private static AssistantProjectSetupPlanDto BuildLocalProjectSetup(string query, ProjectBoundedContext? context)
