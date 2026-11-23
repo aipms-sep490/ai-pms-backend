@@ -109,7 +109,10 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
             x.Qualification.RejectionReason,
             x.Qualification.ConcurrencyToken,
             x.Qualification.CreatedAt,
-            x.Qualification.UpdatedAt));
+            x.Qualification.UpdatedAt,
+            x.Qualification.VerifiedBy != null
+                ? context.Users.Where(v => v.Id == x.Qualification.VerifiedBy).Select(v => v.FullName).FirstOrDefault()
+                : null));
     }
 
     public Task<StudentQualificationModel?> GetForUserAsync(
@@ -197,7 +200,10 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
                 x.Qualification.RejectionReason,
                 x.Qualification.ConcurrencyToken,
                 x.Qualification.CreatedAt,
-                x.Qualification.UpdatedAt))
+                x.Qualification.UpdatedAt,
+                x.Qualification.VerifiedBy != null
+                    ? context.Users.Where(v => v.Id == x.Qualification.VerifiedBy).Select(v => v.FullName).FirstOrDefault()
+                    : null))
             .ToListAsync(cancellationToken);
 
         return new(items, page, pageSize, total);

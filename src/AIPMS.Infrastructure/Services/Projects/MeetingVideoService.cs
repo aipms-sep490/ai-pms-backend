@@ -37,12 +37,16 @@ internal sealed class MeetingVideoService(AipmsDbContext db, ICurrentUser curren
         if (!participant) reasons.Add("MEETING_PARTICIPANT_REQUIRED");
         if (!manager) { reasons.Add("VIDEO_START_FORBIDDEN"); reasons.Add("VIDEO_END_FORBIDDEN"); }
         var window = Window(meeting);
-        if (Now < window.AvailableFrom) reasons.Add("VIDEO_JOIN_TOO_EARLY");
-        if (window.AvailableUntil is DateTime end && Now > end) reasons.Add("VIDEO_JOIN_WINDOW_CLOSED");
         var valid = enabled && meeting.Project.Status == "ACTIVE" && meeting.Status == "SCHEDULED";
         var active = session is { Status: "CREATED" or "LIVE" };
+        var activeReady = active && session!.StartedAt != null;
+        if (!activeReady)
+        {
+            if (Now < window.AvailableFrom) reasons.Add("VIDEO_JOIN_TOO_EARLY");
+            if (window.AvailableUntil is DateTime end && Now > end) reasons.Add("VIDEO_JOIN_WINDOW_CLOSED");
+        }
         var caps = new VideoCapabilities(valid && manager && !active,
-            valid && participant && active && session!.StartedAt != null && InWindow(meeting),
+            valid && participant && activeReady,
             valid && manager && participant && active, false);
         // Metadata reads must not require an online media provider. Count remains unknown until queried reliably.
         return new(meetingId, meeting.Status, meeting.MeetingDeliveryMode, meeting.VideoChannel,
@@ -118,7 +122,6 @@ internal sealed class MeetingVideoService(AipmsDbContext db, ICurrentUser curren
         if (session.Status == "ENDED") throw State("VIDEO_SESSION_ENDED");
         if (session.Status == "FAILED") throw State("VIDEO_SESSION_FAILED");
         if (session.StartedAt is null) throw State("VIDEO_SESSION_NOT_STARTED");
-        if (!InWindow(meeting)) throw State(Now < Window(meeting).AvailableFrom ? "VIDEO_JOIN_TOO_EARLY" : "VIDEO_JOIN_WINDOW_CLOSED");
         var binding = await db.MeetingVideoParticipantBindings.SingleOrDefaultAsync(x => x.MeetingVideoSessionId == session.Id && x.UserId == actor, ct);
         if (binding is null)
         {
@@ -203,7 +206,6 @@ internal sealed class MeetingVideoService(AipmsDbContext db, ICurrentUser curren
         if (m.Status != "SCHEDULED") throw State("MEETING_NOT_SCHEDULED");
         if (m.VideoChannel != "IN_APP_VIDEO") throw State("VIDEO_NOT_ENABLED");
     }
-    private bool InWindow(Meeting m) => Now >= Window(m).AvailableFrom && (Window(m).AvailableUntil is null || Now <= Window(m).AvailableUntil);
     private VideoJoinWindow Window(Meeting m) => new(m.StartAt.AddMinutes(-settings.JoinOpenBeforeMinutes), m.EndAt?.AddMinutes(settings.JoinCloseAfterMinutes));
     private static ConflictException State(string code) => new("The video operation is not available in the current state.", code);
     private static ForbiddenException Denied(string code) => new("You do not have permission for this video operation.", code);

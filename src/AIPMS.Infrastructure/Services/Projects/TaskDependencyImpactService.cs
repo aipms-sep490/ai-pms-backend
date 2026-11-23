@@ -48,8 +48,26 @@ public sealed class TaskDependencyImpactService(AipmsDbContext db, ICurrentUser 
                 canReview && x.Status == "PENDING" && (x.PredecessorTask.Status == "DONE" || x.PredecessorTask.Status == "CANCELLED"),
                 x.Status != "PENDING" ? null : x.PredecessorTask.Status != "DONE" && x.PredecessorTask.Status != "CANCELLED"
                     ? "Cần hoàn tất hoặc xác nhận hủy công việc tiền nhiệm trước khi kết luận ảnh hưởng."
-                    : !canReview ? "Chỉ trưởng nhóm hoặc giảng viên hướng dẫn chính được kết luận khi đồ án đang thực hiện." : null))
+                    : !canReview ? "Chỉ trưởng nhóm hoặc giảng viên hướng dẫn chính được kết luận khi đồ án đang thực hiện." : null,
+                null, null))
             .ToListAsync(ct);
+        if (rows.Count > 0)
+        {
+            var userIds = rows.Select(x => x.ReopenedBy)
+                .Concat(rows.Where(x => x.ReviewedBy.HasValue).Select(x => x.ReviewedBy!.Value))
+                .Distinct().ToArray();
+            var userNames = await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var r = rows[i];
+                rows[i] = r with
+                {
+                    ReopenedByName = userNames.GetValueOrDefault(r.ReopenedBy),
+                    ReviewedByName = r.ReviewedBy.HasValue ? userNames.GetValueOrDefault(r.ReviewedBy.Value) : null
+                };
+            }
+        }
         if (scoped is not null && (await new AiActorScope(db, current).Read(task.ProjectId, ct)).Hash != scoped.Hash)
             throw new ForbiddenException("Phân công đã thay đổi; hãy tải lại trước khi xem.");
         return new(taskId, canReview, rows);

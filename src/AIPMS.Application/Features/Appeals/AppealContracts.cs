@@ -22,13 +22,15 @@ public sealed record AppealDecisionRequest(string ConcurrencyToken, string Decis
 public sealed record WithdrawAppealRequest(string ConcurrencyToken, string Reason);
 public sealed record AppealFileDto(long FileId, string FileName, string ContentType, long SizeBytes, string Sha256, string DownloadUrl);
 public sealed record AppealEventDto(long Id, string Action, long ActorId, DateTime At, string? Reason,
-    long? BundleId, IReadOnlyList<ScoreAmendmentInput> Amendments);
+    long? BundleId, IReadOnlyList<ScoreAmendmentInput> Amendments, string? ActorName = null);
 public sealed record CorrectionRequestDto(long Id, long ProjectId, string Source, string TargetType, long? StudentId,
     int ResultVersion, long ComponentId, string Scope, long? MajorId, string Status, long RequestedBy, long? ReviewerId,
     string Reason, string? Proposal, string? ReviewReason, string? DecisionReason, string ConcurrencyToken,
-    IReadOnlyList<string> AllowedActions, IReadOnlyList<string> Blockers, IReadOnlyList<AppealFileDto> Files);
+    IReadOnlyList<string> AllowedActions, IReadOnlyList<string> Blockers, IReadOnlyList<AppealFileDto> Files,
+    string? RequestedByName = null, string? ReviewerName = null, string? StudentName = null,
+    string? ComponentName = null, string? MajorName = null);
 public sealed record AppealPreviewDto(string ConfirmationToken, IReadOnlyList<ResultRevisionSummary> AffectedResults);
 public sealed record AppealReviewContextDto(long RequestId, long ComponentId, string Scope, long? MajorId, long? StudentId,
     string CalculationVersion, IReadOnlyList<AppealReviewEvaluationDto> Evaluations, IReadOnlyList<ScoreAmendmentInput> Amendments);
 public sealed record AppealReviewEvaluationDto(long Id, long AssignmentId, long EvaluatorId, long RubricId, string RubricName,
-    int RubricVersion, decimal? TotalScore, IReadOnlyList<EvaluationScoreRecord> Scores);
+    int RubricVersion, decimal? TotalScore, IReadOnlyList<EvaluationScoreRecord> Scores, string? EvaluatorName = null);

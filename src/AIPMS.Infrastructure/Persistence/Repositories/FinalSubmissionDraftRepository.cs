@@ -107,12 +107,15 @@ internal sealed class FinalSubmissionDraftRepository(AipmsDbContext db) : IFinal
         if (ids.Count == 0) return [];
         var rows = await db.DeliverableVersions.AsNoTracking().Include(v => v.Deliverable).Include(v => v.Files)
             .Where(v => ids.Contains(v.Id) && v.Deliverable.ProjectId == projectId).OrderBy(v => v.Id).ToListAsync(ct);
+        var uploaderIds = rows.SelectMany(v => v.Files).Select(f => f.UploadedBy).Distinct().ToArray();
+        var uploaderNames = uploaderIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => uploaderIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
         return rows.Select(v => new FinalDraftVersion(v.Id, v.Deliverable.ProjectId, v.DeliverableId,
             v.Deliverable.Title, v.VersionNumber, v.Status,
             v.Files.Count > 0 && v.Files.All(f => f.ProgressReportId is null && f.MeetingId is null && f.SupervisorFeedbackId is null
                 && f.FileSizeBytes > 0 && !string.IsNullOrWhiteSpace(f.OriginalFileName) && !string.IsNullOrWhiteSpace(f.StoragePath)
                 && f.ChecksumSha256 is { Length: 64 } hash && hash.All(Uri.IsHexDigit)),
-            v.Files.OrderBy(f => f.Id).Select(f => f.ToDto() with { CreatedAt = Utc(f.CreatedAt) }).ToArray())).ToArray();
+            v.Files.OrderBy(f => f.Id).Select(f => f.ToDto(uploaderNames.GetValueOrDefault(f.UploadedBy)) with { CreatedAt = Utc(f.CreatedAt) }).ToArray())).ToArray();
     }
 
     public async Task<FinalDraftRecord> SaveAsync(long projectId, long periodId, string? notes,

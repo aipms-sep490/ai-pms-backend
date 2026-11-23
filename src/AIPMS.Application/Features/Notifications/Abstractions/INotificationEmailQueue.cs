@@ -7,7 +7,9 @@ public sealed record NotificationEmailDelivery(
     string RecipientName,
     string Subject,
     string Body,
-    bool ShouldSend = true);
+    bool ShouldSend = true,
+    string? ActionUrl = null,
+    string? ActionLabel = null);
 
 public interface INotificationEmailQueue
 {

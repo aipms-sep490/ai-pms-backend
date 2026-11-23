@@ -81,7 +81,9 @@ public sealed record AuditRecord(
     string? IpAddress,
     string? UserAgent,
     string? DetailsJson,
-    DateTime OccurredAt);
+    DateTime OccurredAt,
+    string? ActorName = null,
+    string? EntityDisplayName = null);
 
 public sealed record AccessEvent(
     long Id,

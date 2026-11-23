@@ -361,10 +361,41 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
             }
             var mt = await db.Meetings.AsNoTracking().Where(m => m.ProjectId == projectId && m.MeetingParticipants.Any(p => p.UserId == scope.Actor))
                 .OrderByDescending(m => m.StartAt).ThenByDescending(m => m.Id).Take(5).ToArrayAsync(ct);
+            var mtIds = mt.Select(m => m.Id).ToArray();
+            var aiInsightsByMeeting = mtIds.Length == 0
+                ? new Dictionary<long, string>()
+                : (await db.Set<MeetingAiInsight>().AsNoTracking()
+                    .Where(i => mtIds.Contains(i.MeetingId) && i.Status == "COMPLETED")
+                    .OrderByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id)
+                    .Select(i => new { i.MeetingId, i.InsightType, i.SummaryText })
+                    .ToArrayAsync(ct))
+                    .GroupBy(i => i.MeetingId)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => Text(g.FirstOrDefault(x => x.InsightType == "FULL_MINUTES")?.SummaryText ?? g.First().SummaryText, 320));
+
             foreach (var m in mt)
             {
-                meetings.Add(new($"MTG-{m.Id}", m.Id, Text(m.Title, 180), m.Status, m.StartAt.ToString("O"), Text(m.Agenda), Text(m.MeetingNotes), Text(m.Minutes), Text(m.Decisions), Text(m.Blockers)));
-                evidence.Add(new("MEETING", $"MTG-{m.Id}", Text(m.Title, 180), m.StartAt.ToString("O"), $"/api/v1/meetings/{m.Id}", Text(m.Minutes ?? m.MeetingNotes ?? m.Agenda, 240)));
+                aiInsightsByMeeting.TryGetValue(m.Id, out var aiSummary);
+                var minutesText = Text(m.Minutes ?? aiSummary, 350);
+                meetings.Add(new($"MTG-{m.Id}", m.Id, Text(m.Title, 180), m.Status, m.StartAt.ToString("O"), Text(m.Agenda), Text(m.MeetingNotes), minutesText, Text(m.Decisions), Text(m.Blockers)));
+                var excerpt = Text(m.Minutes ?? aiSummary ?? m.MeetingNotes ?? m.Agenda, 280);
+                if (!string.IsNullOrWhiteSpace(m.Decisions))
+                    excerpt = Text($"{excerpt} | Quyết định: {m.Decisions}", 320);
+                evidence.Add(new("MEETING", $"MTG-{m.Id}", Text(m.Title, 180), m.StartAt.ToString("O"), $"/api/v1/meetings/{m.Id}", excerpt));
+            }
+
+            // Active / latest Sprint summary for Agile context
+            var sprints = await db.Set<Sprint>().AsNoTracking()
+                .Where(s => s.ProjectId == projectId)
+                .OrderByDescending(s => s.Status == "ACTIVE")
+                .ThenByDescending(s => s.StartAt)
+                .Take(2)
+                .ToArrayAsync(ct);
+            foreach (var sp in sprints)
+            {
+                var spDesc = $"Sprint ({sp.Status}) | Thời gian: {sp.StartAt:dd/MM/yyyy} – {sp.EndAt:dd/MM/yyyy}";
+                evidence.Add(new("SPRINT", $"SPRINT-{sp.Id}", Text(sp.Name, 160), $"{sp.StartAt:yyyy-MM-dd}/{sp.EndAt:yyyy-MM-dd}", $"/api/v1/projects/{projectId}/sprints", spDesc));
             }
         }
 

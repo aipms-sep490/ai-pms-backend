@@ -5,7 +5,7 @@ public sealed record SchemeComponentInput(string Name, string Scope, long? Major
     decimal ProjectWeightPercent, decimal StudentWeightPercent, int RequiredEvaluators,
     IReadOnlyList<SchemeEvaluatorWeight>? EvaluatorWeights = null, string Stage = "DEFENSE",
     string? TargetScope = null, bool IsIntegration = false);
-public sealed record SchemeEvaluatorWeight(long EvaluatorId, decimal WeightPercent);
+public sealed record SchemeEvaluatorWeight(long EvaluatorId, decimal WeightPercent, string? EvaluatorName = null);
 public sealed record SchemePolicyInput(bool IsDemo = true, string ApprovalStatus = "DEMO",
     string? ApprovalReference = null, string Formula = "COMPONENT_WEIGHTS",
     string CalculationVersion = "DECIMAL_V2", string RoundingMode = "AWAY_FROM_ZERO", int DecimalPlaces = 2,
@@ -36,7 +36,7 @@ public sealed record StudentResultDto(long Id, long ProjectId, long StudentId, l
 public sealed record ResultComponentScoreDto(long ComponentId, string Name, string Scope, long? MajorId,
     decimal WeightPercent, decimal? Score, int RequiredEvaluators, int FinalizedEvaluators, string? Stage = null,
     string? TargetScope = null, bool IsIntegration = false);
-public sealed record ResultMajorScoreDto(long MajorId, decimal? Score);
+public sealed record ResultMajorScoreDto(long MajorId, decimal? Score, string? MajorName = null);
 public sealed record EvaluationFormulaComponentDto(string Type, decimal WeightPercent);
 public sealed record EvaluationFormulaDto(IReadOnlyList<EvaluationFormulaComponentDto> Components, string? Description = null);
 

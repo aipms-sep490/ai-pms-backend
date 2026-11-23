@@ -43,7 +43,8 @@ public sealed record StudentGateRequirementDto(string Id, string Code, string Ti
     string VerificationStatus, ReviewGateArtifactDto? LatestArtifact, string? ReviewerFeedback);
 public sealed record ReviewGateArtifactDto(int Version, string Filename, DateTime SubmittedAt, string SubmittedBy, string? Notes,
     string ContentType = "application/octet-stream", long SizeBytes = 0, string Sha256 = "", string DownloadUrl = "", string? LinkUrl = null,
-    long? EvidenceId = null, string ScanStatus = "READY", string? ScanDetails = null);
+    long? EvidenceId = null, string ScanStatus = "READY", string? ScanDetails = null,
+    string? SubmittedByName = null);
 public sealed record ReviewGateArchiveEntry(long RequirementId, string RequirementCode, string RequirementTitle,
     int Version, string ArtifactName, bool IsLink, string? LinkUrl);
 public sealed record ReviewGateArchiveManifest(string ProjectCode, string GateCode, IReadOnlyList<ReviewGateArchiveEntry> Entries);
@@ -74,9 +75,10 @@ public sealed record ProjectReviewMatrixRowDto(string ProjectId, string ProjectN
     decimal TaskProgress, IReadOnlyDictionary<string, string> GateStatuses,
     IReadOnlyDictionary<string, IReadOnlyList<string>> BlockingReasons,
     IReadOnlyDictionary<string, string>? HybridScopes, IReadOnlyDictionary<string, string>? HybridScopeLabels = null,
-    bool HasTasks = true, IReadOnlyDictionary<string, string>? GateDecisionSources = null);
+    bool HasTasks = true, IReadOnlyDictionary<string, string>? GateDecisionSources = null,
+    string? ProjectCode = null);
 public sealed record DefenseReadinessDto(string ProjectId, string ProjectName, bool IsReady, int BlockedCount,
-    IReadOnlyList<DefenseConditionDto> Conditions);
+    IReadOnlyList<DefenseConditionDto> Conditions, string? ProjectCode = null);
 public sealed record DefenseConditionDto(string Id, string Title, bool? Satisfied, string Detail, bool IsMandatory);
 
 public sealed record RecordRoundScopeDecisionRequest(

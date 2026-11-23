@@ -139,8 +139,10 @@ public static class ResultRevisionCalculator
         var final = VersionedResultCalculator.Round(raw, policy);
         var common = components.Where(c => c.Scope == "COMMON").ToArray();
         var major = components.Where(c => c.Scope == "MAJOR_SPECIFIC").ToArray();
+        var majorNames = oldBreakdown.MajorBreakdown.ToDictionary(m => m.MajorId, m => m.MajorName);
         var majors = major.GroupBy(c => c.MajorId!.Value).OrderBy(g => g.Key)
-            .Select(g => new ResultMajorScoreDto(g.Key, g.Sum(c => c.Score!.Value * c.WeightPercent) / g.Sum(c => c.WeightPercent))).ToArray();
+            .Select(g => new ResultMajorScoreDto(g.Key, g.Sum(c => c.Score!.Value * c.WeightPercent) / g.Sum(c => c.WeightPercent),
+                majorNames.GetValueOrDefault(g.Key))).ToArray();
         var (_, outcomeDetail) = VersionedResultCalculator.EvaluateOutcome(final, scheme.PassThreshold, components, policy,
             oldBreakdown.OutcomeDetail == "DEFENSE_ABSENT");
         var breakdown = oldBreakdown with { UnroundedTotal = raw, Components = components, MajorBreakdown = majors,

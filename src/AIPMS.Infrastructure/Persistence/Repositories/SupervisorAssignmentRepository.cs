@@ -59,6 +59,7 @@ internal sealed class SupervisorAssignmentRepository(AipmsDbContext context,
 
     private async Task<SupervisorAssignmentModel[]> WithScopeAsync(IReadOnlyList<SupervisorAssignmentModel> assignments, CancellationToken ct)
     {
+        if (assignments.Count == 0) return [];
         var projectIds = assignments.Select(a => a.ProjectId).Distinct().ToArray();
         var snapshots = context.Set<ProjectRegistrationSnapshot>().AsNoTracking();
         var rows = await snapshots.Where(s => projectIds.Contains(s.ProjectId)
@@ -66,7 +67,18 @@ internal sealed class SupervisorAssignmentRepository(AipmsDbContext context,
             .Select(s => new { s.ProjectId, s.SnapshotJson }).ToListAsync(ct);
         var known = rows.Where(s => ProjectAcademicScopeReader.ParseEvidence(s.SnapshotJson) is not null)
             .Select(s => s.ProjectId).ToHashSet();
-        return assignments.Select(a => a with { HasKnownAcademicScope = known.Contains(a.ProjectId) }).ToArray();
+        var replacedIds = assignments.Where(a => a.ReplacesAssignmentId.HasValue)
+            .Select(a => a.ReplacesAssignmentId!.Value).Distinct().ToArray();
+        var replacedNames = replacedIds.Length == 0 ? new Dictionary<long, string>()
+            : await context.SupervisorAssignments.AsNoTracking()
+                .Where(a => replacedIds.Contains(a.Id))
+                .Select(a => new { a.Id, Name = a.SupervisorProfile.User.FullName })
+                .ToDictionaryAsync(a => a.Id, a => a.Name, ct);
+        return assignments.Select(a => a with
+        {
+            HasKnownAcademicScope = known.Contains(a.ProjectId),
+            ReplacesSupervisorName = a.ReplacesAssignmentId.HasValue ? replacedNames.GetValueOrDefault(a.ReplacesAssignmentId.Value) : null
+        }).ToArray();
     }
 
     public Task<bool> ProjectExistsAsync(long projectId, CancellationToken ct) =>

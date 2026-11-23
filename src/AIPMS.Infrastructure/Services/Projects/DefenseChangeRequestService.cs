@@ -20,10 +20,44 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
     private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
     private static ValidationException Invalid(string value) => new(new Dictionary<string, string[]> { ["changeRequest"] = [value] });
     private static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
-    private static DefenseChangeRequestDto Dto(DefenseScheduleChangeRequest row) => new(row.Id, row.DefenseSessionId,
-        row.RequesterId, row.CurrentRoomId, row.CurrentStartAt, row.CurrentEndAt, row.DesiredRoomId,
-        row.DesiredStartAt, row.DesiredEndAt, row.ReasonCategory, row.ReasonDetails, row.EvidenceFileUrl,
-        row.Status, row.ReviewerId, row.ReviewNote, row.ReviewedAt, row.ConcurrencyToken.ToString("N"), row.CreatedAt);
+    private async Task<DefenseChangeRequestDto[]> DtosAsync(IReadOnlyList<DefenseScheduleChangeRequest> rows, CancellationToken ct)
+    {
+        if (rows.Count == 0) return [];
+        var sessionIds = rows.Select(r => r.DefenseSessionId).Distinct().ToArray();
+        var sessions = await db.Set<DefenseSession>().AsNoTracking().Where(s => sessionIds.Contains(s.Id))
+            .Select(s => new { s.Id, s.ProjectId }).ToDictionaryAsync(s => s.Id, s => s.ProjectId, ct);
+        var projectIds = sessions.Values.Distinct().ToArray();
+        var projects = projectIds.Length == 0 ? new Dictionary<long, (string Code, string Title)>()
+            : (await db.Projects.AsNoTracking().Where(p => projectIds.Contains(p.Id))
+                .Select(p => new { p.Id, p.Code, p.Title }).ToArrayAsync(ct))
+                .ToDictionary(p => p.Id, p => (p.Code, p.Title));
+        var userIds = rows.Select(r => r.RequesterId)
+            .Concat(rows.Where(r => r.ReviewerId.HasValue).Select(r => r.ReviewerId!.Value))
+            .Distinct().ToArray();
+        var users = userIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var roomIds = rows.SelectMany(r => new[] { r.CurrentRoomId, r.DesiredRoomId }).Distinct().ToArray();
+        var rooms = roomIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Set<Room>().AsNoTracking().Where(r => roomIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, r => r.Code, ct);
+        return rows.Select(row =>
+        {
+            string? projectCode = null;
+            string? projectTitle = null;
+            if (sessions.TryGetValue(row.DefenseSessionId, out var pid) && projects.TryGetValue(pid, out var proj))
+            { projectCode = proj.Code; projectTitle = proj.Title; }
+            return new DefenseChangeRequestDto(row.Id, row.DefenseSessionId,
+                row.RequesterId, row.CurrentRoomId, row.CurrentStartAt, row.CurrentEndAt, row.DesiredRoomId,
+                row.DesiredStartAt, row.DesiredEndAt, row.ReasonCategory, row.ReasonDetails, row.EvidenceFileUrl,
+                row.Status, row.ReviewerId, row.ReviewNote, row.ReviewedAt, row.ConcurrencyToken.ToString("N"), row.CreatedAt,
+                projectCode, projectTitle,
+                users.TryGetValue(row.RequesterId, out var reqName) ? reqName : null,
+                rooms.TryGetValue(row.CurrentRoomId, out var curRoom) ? curRoom : null,
+                rooms.TryGetValue(row.DesiredRoomId, out var desRoom) ? desRoom : null,
+                row.ReviewerId.HasValue && users.TryGetValue(row.ReviewerId.Value, out var revName) ? revName : null);
+        }).ToArray();
+    }
+    private async Task<DefenseChangeRequestDto> DtoAsync(DefenseScheduleChangeRequest row, CancellationToken ct) =>
+        (await DtosAsync([row], ct))[0];
     private static void Token(Guid actual, string value)
     {
         if (!Guid.TryParse(value, out var received) || received != actual)
@@ -134,7 +168,7 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
         db.Add(row); await db.SaveChangesAsync(ct);
         await audit.RecordAsync(new(Actor, "DEFENSE_CHANGE_REQUESTED", "DEFENSE_CHANGE_REQUEST", row.Id,
             new Dictionary<string, object?> { ["sessionId"] = sessionId, ["desiredRoomId"] = row.DesiredRoomId }), ct);
-        await tx.CommitAsync(ct); return Dto(row);
+        await tx.CommitAsync(ct); return await DtoAsync(row, ct);
     }
 
     public async Task<DefenseChangeRequestDto> Decide(long id, DecideDefenseChangeRequest input, CancellationToken ct)
@@ -166,7 +200,7 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
         await audit.RecordAsync(new(Actor, "DEFENSE_CHANGE_" + input.Decision, "DEFENSE_CHANGE_REQUEST", row.Id,
             new Dictionary<string, object?> { ["sessionId"] = session.Id, ["oldRoomId"] = row.CurrentRoomId,
                 ["newRoomId"] = row.DesiredRoomId, ["reviewNote"] = row.ReviewNote }), ct);
-        await tx.CommitAsync(ct); return Dto(row);
+        await tx.CommitAsync(ct); return await DtoAsync(row, ct);
     }
 
     public async Task<DefenseChangeRequestDto> Withdraw(long id, WithdrawDefenseChangeRequest input, CancellationToken ct)
@@ -181,7 +215,7 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync(new(Actor, "DEFENSE_CHANGE_WITHDRAWN", "DEFENSE_CHANGE_REQUEST", row.Id,
             new Dictionary<string, object?> { ["sessionId"] = row.DefenseSessionId }), ct);
-        await tx.CommitAsync(ct); return Dto(row);
+        await tx.CommitAsync(ct); return await DtoAsync(row, ct);
     }
 
     private async Task<DefenseSession> RequireSessionOfficer(long sessionId, CancellationToken ct)
@@ -197,10 +231,10 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
     public async Task<IReadOnlyList<DefenseChangeRequestDto>> ListForSession(long sessionId, CancellationToken ct)
     {
         await RequireSessionOfficer(sessionId, ct);
-        return (await db.Set<DefenseScheduleChangeRequest>().AsNoTracking()
+        var rows = await db.Set<DefenseScheduleChangeRequest>().AsNoTracking()
             .Where(r => r.DefenseSessionId == sessionId)
-            .OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).ToArrayAsync(ct))
-            .Select(Dto).ToArray();
+            .OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).ToArrayAsync(ct);
+        return await DtosAsync(rows, ct);
     }
 
     public async Task<IReadOnlyList<RoomDto>> RoomsForSession(long sessionId, CancellationToken ct)
@@ -238,6 +272,7 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
         var sessions = db.Set<DefenseSession>().AsNoTracking().Where(s => projects.Contains(s.ProjectId)).Select(s => s.Id);
         var query = db.Set<DefenseScheduleChangeRequest>().AsNoTracking().Where(r => sessions.Contains(r.DefenseSessionId));
         if (status is not null) query = query.Where(r => r.Status == status);
-        return (await query.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).ToArrayAsync(ct)).Select(Dto).ToArray();
+        var rows = await query.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).ToArrayAsync(ct);
+        return await DtosAsync(rows, ct);
     }
 }

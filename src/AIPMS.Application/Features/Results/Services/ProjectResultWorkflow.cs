@@ -55,7 +55,20 @@ public sealed class ProjectResultWorkflow(IProjectResultRepository repository, I
                 throw new ForbiddenException("Results have not been published yet.", "RESULT_NOT_PUBLISHED");
             throw new NotFoundException("ProjectResult", projectId);
         }
-        return result with { FrozenInputs = null,
-            Breakdown = ResultSnapshotReader.Read(result.FrozenInputs, result.CalculationRule) };
+        var breakdown = ResultSnapshotReader.Read(result.FrozenInputs, result.CalculationRule);
+        if (result.Breakdown is { MajorBreakdown.Count: > 0 })
+        {
+            var names = result.Breakdown.MajorBreakdown
+                .Where(m => m.MajorName is not null)
+                .ToDictionary(m => m.MajorId, m => m.MajorName);
+            if (names.Count > 0)
+                breakdown = breakdown with
+                {
+                    MajorBreakdown = breakdown.MajorBreakdown
+                        .Select(m => m.MajorName is null && names.TryGetValue(m.MajorId, out var name) ? m with { MajorName = name } : m)
+                        .ToArray()
+                };
+        }
+        return result with { FrozenInputs = null, Breakdown = breakdown };
     }, ct);
 }

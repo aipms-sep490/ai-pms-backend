@@ -15,10 +15,14 @@ public interface IAcademicKnowledgeService
     Task<AcademicAssistantResponseDto> AskAsync(AcademicAssistantAskRequest request, CancellationToken ct);
     Task<AcademicAssistantResponseDto> AskWithFilesAsync(AcademicAssistantAskRequest request, IReadOnlyList<AssistantUpload> files, CancellationToken ct);
     Task<AssistantExport> ExportAsync(long runId, string format, CancellationToken ct);
+    Task<AssistantExport> ExportConversationAsync(long conversationId, string format, CancellationToken ct);
     Task<AssistantConversationDto> CreateConversationAsync(CreateAssistantConversationRequest request, CancellationToken ct);
-    Task<IReadOnlyList<AssistantConversationDto>> ConversationsAsync(long? projectId, long? beforeId, CancellationToken ct);
+    Task<IReadOnlyList<AssistantConversationDto>> ConversationsAsync(long? projectId, long? beforeId, CancellationToken ct, string? search = null);
     Task<AssistantConversationDetailDto> ConversationAsync(long id, long? beforeTurnId, CancellationToken ct);
+    Task<AssistantConversationDto> UpdateConversationAsync(long id, UpdateAssistantConversationRequest request, CancellationToken ct);
     Task DeleteConversationAsync(long id, CancellationToken ct);
+    Task<AssistantFeedbackDto> SubmitFeedbackAsync(long runId, SubmitAssistantFeedbackRequest request, CancellationToken ct);
+    Task<IReadOnlyList<AssistantProjectOptionDto>> AccessibleProjectsAsync(CancellationToken ct);
     Task<KnowledgeCitationDto> CitationAsync(long runId, int index, CancellationToken ct);
     Task<AcademicAssistantResponseDto> AskStreamingAsync(AcademicAssistantAskRequest request, IReadOnlyList<AssistantUpload> files, Func<AssistantStreamEvent, Task> emit, CancellationToken ct);
 }

@@ -22,7 +22,8 @@ public sealed record StudentQualificationDto(
     string? RejectionReason,
     Guid ConcurrencyToken,
     DateTime CreatedAt,
-    DateTime UpdatedAt)
+    DateTime UpdatedAt,
+    string? VerifiedByName = null)
 {
     public bool IsCurrentlyVerified(DateTime utcNow) =>
         VerificationStatus == StudentQualificationStatuses.Verified
@@ -49,7 +50,7 @@ public static class StudentQualificationDtoMapper
         model.DepartmentId, model.MajorId, model.QualificationType, model.TrainingStatus,
         model.VerificationStatus, model.CertificateNumber, model.CertificateFileId,
         model.IssuedAt, model.ExpiresAt, model.VerifiedBy, model.VerifiedAt,
-        model.RejectionReason, model.ConcurrencyToken, model.CreatedAt, model.UpdatedAt);
+        model.RejectionReason, model.ConcurrencyToken, model.CreatedAt, model.UpdatedAt, model.VerifiedByName);
 }
 
 public sealed record ProjectPeriodQualificationPolicyDto(

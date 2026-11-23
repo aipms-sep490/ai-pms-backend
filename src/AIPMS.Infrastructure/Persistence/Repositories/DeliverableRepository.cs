@@ -214,15 +214,26 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<DeliverableVersionDto?> GetVersionAsync(long id, CancellationToken ct) =>
-        (await db.DeliverableVersions.AsNoTracking().Include(v => v.Files).SingleOrDefaultAsync(v => v.Id == id, ct))?.ToDto();
+    public async Task<DeliverableVersionDto?> GetVersionAsync(long id, CancellationToken ct)
+    {
+        var version = await db.DeliverableVersions.AsNoTracking().Include(v => v.Files).SingleOrDefaultAsync(v => v.Id == id, ct);
+        if (version is null) return null;
+        var userIds = version.Files.Select(f => f.UploadedBy).Append(version.SubmittedBy).Distinct().ToArray();
+        var names = await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return version.ToDto(names);
+    }
 
     public async Task<PagedResult<DeliverableVersionDto>> VersionsAsync(long id, int page, int pageSize, CancellationToken ct)
     {
         var query = db.DeliverableVersions.AsNoTracking().Where(v => v.DeliverableId == id);
         var count = await query.LongCountAsync(ct);
         var items = await query.OrderByDescending(v => v.VersionNumber).Skip((page - 1) * pageSize).Take(pageSize).Include(v => v.Files).ToListAsync(ct);
-        return new(items.Select(v => v.ToDto()).ToArray(), page, pageSize, count);
+        var userIds = items.Select(v => v.SubmittedBy)
+            .Concat(items.SelectMany(v => v.Files).Select(f => f.UploadedBy))
+            .Distinct().ToArray();
+        var names = userIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return new(items.Select(v => v.ToDto(names)).ToArray(), page, pageSize, count);
     }
 
     public async Task<DeliverableVersionDto> SubmitAsync(long id, int number, long actorId, string? note,
@@ -248,8 +259,18 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
                 .Select(a => a.SupervisorProfile.UserId).Distinct().ToListAsync(ct);
             if (reviewers.Count > 0)
             {
+                var project = await db.Projects.AsNoTracking().Where(p => p.Id == item.ProjectId)
+                    .Select(p => new { p.Code, p.Title }).FirstOrDefaultAsync(ct);
+                var actorName = await db.Users.AsNoTracking().Where(u => u.Id == actorId)
+                    .Select(u => u.FullName).FirstOrDefaultAsync(ct);
+                var rawTitle = project is null
+                    ? $"Nộp phiên bản mới sản phẩm bàn giao: {item.Title}"
+                    : $"Nộp phiên bản mới sản phẩm bàn giao ({project.Code}): {item.Title}";
+                var safeTitle = rawTitle.Length <= 255 ? rawTitle : rawTitle[..255];
+                var projectLabel = project is null ? "" : string.IsNullOrWhiteSpace(project.Title) ? $" của đồ án {project.Code}" : $" của đồ án {project.Code} - {project.Title}";
+                var content = $"{(string.IsNullOrWhiteSpace(actorName) ? "Sinh viên" : actorName)} đã nộp phiên bản v{number} cho sản phẩm bàn giao \"{item.Title}\"{projectLabel} và sẵn sàng để xem xét.";
                 db.Notifications.Add(new() { CreatedBy = actorId, NotificationType = "DELIVERABLE_SUBMITTED",
-                    Title = "Deliverable version submitted", Content = $"A new version of deliverable {id} is ready for review.",
+                    Title = safeTitle, Content = content,
                     RelatedEntityType = "DELIVERABLE_VERSION", RelatedEntityId = version.Id, CreatedAt = now, UpdatedAt = now,
                     NotificationRecipients = reviewers.Select(user => new M.NotificationRecipient { UserId = user, CreatedAt = now, UpdatedAt = now }).ToArray() });
                 await db.SaveChangesAsync(ct);
@@ -325,7 +346,8 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         var file = await db.Files.AsNoTracking().Include(f => f.DeliverableVersion).ThenInclude(v => v!.Deliverable)
             .Include(f => f.ProgressReport).Include(f => f.Meeting).Include(f => f.SupervisorFeedback).Include(f => f.Task).ThenInclude(t => t!.Milestone).SingleOrDefaultAsync(f => f.Id == id, ct);
         if (file is null) return null;
-        return new(file.ToDto(), file.StoragePath,
+        var uploaderName = await db.Users.AsNoTracking().Where(u => u.Id == file.UploadedBy).Select(u => u.FullName).FirstOrDefaultAsync(ct);
+        return new(file.ToDto(uploaderName), file.StoragePath,
             file.Task?.Milestone.ProjectId ?? file.DeliverableVersion?.Deliverable.ProjectId ?? file.ProgressReport?.ProjectId ?? file.Meeting?.ProjectId ?? file.SupervisorFeedback?.ProjectId ?? 0,
             new[] { file.TaskId, file.DeliverableVersionId, file.ProgressReportId, file.MeetingId, file.SupervisorFeedbackId }.Count(x => x.HasValue));
     }
@@ -401,7 +423,8 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         else throw new InvalidOperationException("Standalone uploads require an editable report, meeting or task parent.");
         db.Files.Add(result);
         await db.SaveChangesAsync(ct);
-        return result.ToDto();
+        var uploaderName = await db.Users.AsNoTracking().Where(u => u.Id == actorId).Select(u => u.FullName).FirstOrDefaultAsync(ct);
+        return result.ToDto(uploaderName);
     }
 
     public async Task DeleteFileAsync(long id, CancellationToken ct)

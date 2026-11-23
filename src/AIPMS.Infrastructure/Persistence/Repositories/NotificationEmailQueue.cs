@@ -2,16 +2,21 @@ using System.Data;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Features.Notifications.Abstractions;
+using AIPMS.Infrastructure.Email;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using StorageDelivery = AIPMS.Infrastructure.Persistence.Models.NotificationEmailDelivery;
 using AppDelivery = AIPMS.Application.Features.Notifications.Abstractions.NotificationEmailDelivery;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-internal sealed class NotificationEmailQueue(AipmsDbContext db, IProjectAccessService? access = null) : INotificationEmailQueue
+internal sealed class NotificationEmailQueue(
+    AipmsDbContext db,
+    IProjectAccessService? access = null,
+    IOptions<EmailSettings>? emailOptions = null) : INotificationEmailQueue
 {
     public async Task<AppDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct, string? notificationType = null)
     {
@@ -43,17 +48,72 @@ internal sealed class NotificationEmailQueue(AipmsDbContext db, IProjectAccessSe
         await tx.CommitAsync(ct);
         var source = await db.Set<StorageDelivery>().AsNoTracking()
             .Where(d => d.NotificationRecipientId == row.NotificationRecipientId)
-            .Select(d => new { d.NotificationRecipient.NotificationId, d.NotificationRecipient.UserId,
-                d.NotificationRecipient.Notification.NotificationType, Delivery = new AppDelivery(d.NotificationRecipientId, claimedAttempt,
-                d.NotificationRecipient.User.Email, d.NotificationRecipient.User.FullName,
-                d.NotificationRecipient.Notification.Title, d.NotificationRecipient.Notification.Content, true) })
+            .Select(d => new
+            {
+                d.NotificationRecipient.NotificationId,
+                d.NotificationRecipient.UserId,
+                d.NotificationRecipient.Notification.NotificationType,
+                d.NotificationRecipient.Notification.RelatedEntityType,
+                d.NotificationRecipient.Notification.RelatedEntityId,
+                Delivery = new AppDelivery(
+                    d.NotificationRecipientId,
+                    claimedAttempt,
+                    d.NotificationRecipient.User.Email,
+                    d.NotificationRecipient.User.FullName,
+                    d.NotificationRecipient.Notification.Title,
+                    d.NotificationRecipient.Notification.Content,
+                    true,
+                    null,
+                    null)
+            })
             .SingleAsync(ct);
-        if (source.NotificationType != IMeetingReminderService.NotificationType) return source.Delivery;
-        var current = await MeetingReminderService.CurrentEmailAsync(db, access ?? new ProjectAccessService(db),
-            source.NotificationId, source.UserId, nowUtc, ct);
-        if (current is { } email) return source.Delivery with { Subject = email.Subject, Body = email.Body };
-        await MarkFailedAsync(row.NotificationRecipientId, nowUtc, MeetingReminderService.SuppressedCode, true, ct, claimedAttempt);
-        return source.Delivery with { ShouldSend = false };
+        var frontendBaseUrl = emailOptions?.Value.ResolveFrontendBaseUrl();
+
+        if (source.NotificationType == IMeetingReminderService.NotificationType)
+        {
+            var current = await MeetingReminderService.CurrentEmailAsync(
+                db,
+                access ?? new ProjectAccessService(db),
+                source.NotificationId,
+                source.UserId,
+                nowUtc,
+                ct,
+                frontendBaseUrl);
+            if (current is { } email)
+            {
+                return source.Delivery with
+                {
+                    Subject = email.Subject,
+                    Body = email.Body,
+                    ActionUrl = email.ActionUrl,
+                    ActionLabel = email.ActionLabel
+                };
+            }
+            await MarkFailedAsync(row.NotificationRecipientId, nowUtc, MeetingReminderService.SuppressedCode, true, ct, claimedAttempt);
+            return source.Delivery with { ShouldSend = false };
+        }
+
+        if (source.RelatedEntityType == "MEETING" && source.RelatedEntityId is long meetingId)
+        {
+            var meeting = await db.Meetings.AsNoTracking()
+                .Include(m => m.Project)
+                .SingleOrDefaultAsync(m => m.Id == meetingId, ct);
+            if (meeting is not null)
+            {
+                var links = await MeetingReminderService.BuildMeetingLinksAsync(db, meeting, source.UserId, frontendBaseUrl, ct);
+                var body = source.Delivery.Body.Contains(links.ActionUrl, StringComparison.OrdinalIgnoreCase)
+                    ? source.Delivery.Body
+                    : $"{source.Delivery.Body}\n• {links.ActionLabel}: {links.ActionUrl}";
+                return source.Delivery with
+                {
+                    Body = body,
+                    ActionUrl = links.ActionUrl,
+                    ActionLabel = links.ActionLabel
+                };
+            }
+        }
+
+        return source.Delivery;
     }
 
     public Task MarkSentAsync(long recipientId, DateTime nowUtc, CancellationToken ct, int? expectedAttempt = null) =>

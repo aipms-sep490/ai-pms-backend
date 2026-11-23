@@ -170,7 +170,7 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
             if (existing is not null)
             {
                 if (existing.Notes != notes) throw new ConflictException("This source/major is already recorded with different metadata.");
-                return Map(existing);
+                return (await MapEvidenceAsync([(existing, existing.VerificationStatus)], token))[0];
             }
             var row = new ProjectEvidence { ProjectId = projectId, MajorId = request.MajorId, SourceType = request.SourceType,
                 SourceId = request.SourceId, Notes = notes, SubmittedBy = Actor, SubmittedAt = Now, VerificationStatus = "PENDING",
@@ -178,8 +178,9 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
                 MeetingId = request.SourceType == "MEETING" ? request.SourceId : null, ProgressReportId = request.SourceType == "PROGRESS_REPORT" ? request.SourceId : null,
                 FileId = request.SourceType == "FILE" ? request.SourceId : null };
             db.ProjectEvidence.Add(row); await db.SaveChangesAsync(token);
-            await Audit("PROJECT_EVIDENCE_CREATED", "PROJECT_EVIDENCE", row.Id, Map(row), token);
-            return Map(row);
+            var dto = (await MapEvidenceAsync([(row, row.VerificationStatus)], token))[0];
+            await Audit("PROJECT_EVIDENCE_CREATED", "PROJECT_EVIDENCE", row.Id, dto, token);
+            return dto;
         }, ct);
 
     public async Task<PagedResult<ProjectEvidenceDto>> EvidenceAsync(long projectId, string? sourceType, long? majorId, string? verificationStatus, int page, int pageSize, CancellationToken ct)
@@ -215,7 +216,7 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         // A ledger reference never substitutes for file metadata/download authorization.
         foreach (var row in rows.Where(x => x.Evidence.FileId.HasValue)) await fileWorkflow.FileAsync(row.Evidence.FileId!.Value, ct);
-        return new(rows.Select(x => Map(x.Evidence, x.EffectiveStatus)).ToArray(), page, pageSize, count);
+        return new(await MapEvidenceAsync(rows.Select(x => (x.Evidence, x.EffectiveStatus)).ToArray(), ct), page, pageSize, count);
     }
 
     private sealed record Source(long ProjectId, string Status, long? TaskId = null);
@@ -310,7 +311,55 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
     }
     private Task Audit(string action, string entity, long id, object data, CancellationToken ct) =>
         audit.RecordAsync(new(Actor, action, entity, id, new Dictionary<string, object?> { ["data"] = data }), ct);
-    private static ProjectEvidenceDto Map(ProjectEvidence x, string? effectiveStatus = null) => new(x.Id, x.ProjectId, x.SourceType, x.SourceId, x.MajorId,
-        x.MajorId is null ? "UNCLASSIFIED" : "CLASSIFIED", effectiveStatus ?? x.VerificationStatus, x.SubmittedBy, x.SubmittedAt, x.Notes,
-        x.SourceType == "FILE" ? $"/api/v1/files/{x.SourceId}/download" : null);
+    private async Task<ProjectEvidenceDto[]> MapEvidenceAsync(IReadOnlyList<(ProjectEvidence Evidence, string EffectiveStatus)> rows, CancellationToken ct)
+    {
+        if (rows.Count == 0) return [];
+        var userIds = rows.Select(x => x.Evidence.SubmittedBy).Distinct().ToArray();
+        var majorIds = rows.Where(x => x.Evidence.MajorId.HasValue).Select(x => x.Evidence.MajorId!.Value).Distinct().ToArray();
+        var userNames = userIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var majorNames = majorIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Majors.AsNoTracking().Where(m => majorIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.Name, ct);
+
+        var taskIds = rows.Where(x => x.Evidence.SourceType == "TASK").Select(x => x.Evidence.SourceId).Distinct().ToArray();
+        var deliverableIds = rows.Where(x => x.Evidence.SourceType == "DELIVERABLE").Select(x => x.Evidence.SourceId).Distinct().ToArray();
+        var meetingIds = rows.Where(x => x.Evidence.SourceType == "MEETING").Select(x => x.Evidence.SourceId).Distinct().ToArray();
+        var reportIds = rows.Where(x => x.Evidence.SourceType == "PROGRESS_REPORT").Select(x => x.Evidence.SourceId).Distinct().ToArray();
+        var fileIds = rows.Where(x => x.Evidence.SourceType == "FILE").Select(x => x.Evidence.SourceId).Distinct().ToArray();
+
+        var taskTitles = taskIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Tasks.AsNoTracking().Where(t => taskIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Title, ct);
+        var deliverableTitles = deliverableIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Deliverables.AsNoTracking().Where(d => deliverableIds.Contains(d.Id)).ToDictionaryAsync(d => d.Id, d => d.Title, ct);
+        var meetingTitles = meetingIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Meetings.AsNoTracking().Where(m => meetingIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.Title, ct);
+        var reportTitles = reportIds.Length == 0 ? new Dictionary<long, string>()
+            : (await db.ProgressReports.AsNoTracking().Where(r => reportIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.Summary, r.PeriodStart, r.PeriodEnd }).ToArrayAsync(ct))
+                .ToDictionary(r => r.Id, r => !string.IsNullOrWhiteSpace(r.Summary)
+                    ? (r.Summary.Length <= 100 ? r.Summary : r.Summary[..100] + "…")
+                    : $"Báo cáo tiến độ ({r.PeriodStart:dd/MM/yyyy} - {r.PeriodEnd:dd/MM/yyyy})");
+        var fileTitles = fileIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Files.AsNoTracking().Where(f => fileIds.Contains(f.Id)).ToDictionaryAsync(f => f.Id, f => f.OriginalFileName, ct);
+
+        return rows.Select(item =>
+        {
+            var x = item.Evidence;
+            string? sourceTitle = x.SourceType switch
+            {
+                "TASK" => taskTitles.GetValueOrDefault(x.SourceId),
+                "DELIVERABLE" => deliverableTitles.GetValueOrDefault(x.SourceId),
+                "MEETING" => meetingTitles.GetValueOrDefault(x.SourceId),
+                "PROGRESS_REPORT" => reportTitles.GetValueOrDefault(x.SourceId),
+                "FILE" => fileTitles.GetValueOrDefault(x.SourceId),
+                _ => null
+            };
+            return new ProjectEvidenceDto(x.Id, x.ProjectId, x.SourceType, x.SourceId, x.MajorId,
+                x.MajorId is null ? "UNCLASSIFIED" : "CLASSIFIED", item.EffectiveStatus, x.SubmittedBy, x.SubmittedAt, x.Notes,
+                x.SourceType == "FILE" ? $"/api/v1/files/{x.SourceId}/download" : null,
+                userNames.GetValueOrDefault(x.SubmittedBy),
+                x.MajorId.HasValue ? majorNames.GetValueOrDefault(x.MajorId.Value) : null,
+                sourceTitle);
+        }).ToArray();
+    }
 }

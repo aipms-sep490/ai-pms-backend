@@ -2,6 +2,7 @@ using System.Data;
 using System.Globalization;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Security;
+using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Notifications.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
@@ -51,7 +52,7 @@ internal sealed class MeetingReminderService(AipmsDbContext db, IProjectAccessSe
         {
             occurrence = new() { ProjectId = project.Id, OccurrenceKey = key, Notification = new()
             {
-                NotificationType = IMeetingReminderService.NotificationType, Title = Subject(meeting), Content = Body(meeting, project.Code),
+                NotificationType = IMeetingReminderService.NotificationType, Title = Subject(meeting), Content = InAppBody(meeting, project.Code, project.Title),
                 RelatedEntityType = "MEETING", RelatedEntityId = meeting.Id, CreatedAt = nowUtc, UpdatedAt = nowUtc
             } };
             db.Set<ScheduledNotificationOccurrence>().Add(occurrence);
@@ -71,8 +72,16 @@ internal sealed class MeetingReminderService(AipmsDbContext db, IProjectAccessSe
             && p.RsvpStatus != "DECLINED"
             && (p.AttendanceStatus == null || p.AttendanceStatus == "INVITED" || p.AttendanceStatus == "ACCEPTED"));
 
-    internal static async Task<(string Subject, string Body)?> CurrentEmailAsync(AipmsDbContext db, IProjectAccessService access,
-        long notificationId, long userId, DateTime now, CancellationToken ct)
+    internal sealed record MeetingEmailContent(string Subject, string Body, string ActionUrl, string ActionLabel);
+
+    internal static async Task<MeetingEmailContent?> CurrentEmailAsync(
+        AipmsDbContext db,
+        IProjectAccessService access,
+        long notificationId,
+        long userId,
+        DateTime now,
+        CancellationToken ct,
+        string? frontendBaseUrl = null)
     {
         var occurrence = await db.Set<ScheduledNotificationOccurrence>().AsNoTracking().Where(o => o.NotificationId == notificationId)
             .Select(o => new { o.ProjectId, o.OccurrenceKey, MeetingId = o.Notification.RelatedEntityId }).SingleOrDefaultAsync(ct);
@@ -82,22 +91,166 @@ internal sealed class MeetingReminderService(AipmsDbContext db, IProjectAccessSe
             || meeting.StartAt <= now || occurrence.OccurrenceKey != Key(meeting.Id, meeting.StartAt)
             || !await EligibleParticipants(db, meeting.Id).AnyAsync(p => p.UserId == userId, ct)
             || !await access.CanAccessAsync(userId, meeting.ProjectId, ct)) return null;
-        return (Subject(meeting), Body(meeting, meeting.Project.Code));
+
+        var links = await BuildMeetingLinksAsync(db, meeting, userId, frontendBaseUrl, ct);
+        return new MeetingEmailContent(
+            Subject(meeting),
+            EmailBody(meeting, meeting.Project.Code, meeting.Project.Title, links),
+            links.ActionUrl,
+            links.ActionLabel);
+    }
+
+    internal sealed record MeetingLinks(string ActionUrl, string ActionLabel, string DetailUrl, string? ExternalUrl);
+
+    internal static async Task<MeetingLinks> BuildMeetingLinksAsync(
+        AipmsDbContext db,
+        M.Meeting meeting,
+        long userId,
+        string? frontendBaseUrl,
+        CancellationToken ct)
+    {
+        var baseUrl = NormalizeBaseUrl(frontendBaseUrl);
+
+        var isTeamMember = await db.TeamMembers.AsNoTracking()
+            .AnyAsync(tm => tm.TeamId == meeting.Project.TeamId && tm.UserId == userId && tm.LeftAt == null, ct);
+
+        string routePrefix;
+        if (isTeamMember)
+        {
+            routePrefix = $"/project/meetings/{meeting.Id}";
+        }
+        else
+        {
+            var supervisorAssignment = await db.SupervisorAssignments.AsNoTracking()
+                .Where(a => a.ProjectId == meeting.ProjectId && a.EndedAt == null && a.SupervisorProfile.UserId == userId)
+                .OrderByDescending(a => a.IsPrimary)
+                .Select(a => new { a.IsPrimary, a.AssignmentType, a.MajorId })
+                .FirstOrDefaultAsync(ct);
+
+            if (supervisorAssignment is not null && !supervisorAssignment.IsPrimary
+                && supervisorAssignment.AssignmentType == "DISCIPLINE_MENTOR"
+                && supervisorAssignment.MajorId is long majorId)
+            {
+                routePrefix = $"/mentor/projects/{meeting.ProjectId}/majors/{majorId}/meetings/{meeting.Id}";
+            }
+            else if (supervisorAssignment is not null)
+            {
+                routePrefix = $"/supervisor/projects/{meeting.ProjectId}/meetings/{meeting.Id}";
+            }
+            else
+            {
+                var isLecturer = await db.UserRoles.AsNoTracking()
+                    .AnyAsync(ur => ur.UserId == userId && ur.Role.Code == AppRoles.Lecturer, ct);
+                routePrefix = isLecturer
+                    ? $"/supervisor/projects/{meeting.ProjectId}/meetings/{meeting.Id}"
+                    : $"/project/meetings/{meeting.Id}";
+            }
+        }
+
+        var detailUrl = $"{baseUrl}{routePrefix}";
+        var videoUrl = $"{detailUrl}/video";
+        var externalUrl = IsSafeHttpUrl(meeting.OnlineUrl) ? meeting.OnlineUrl!.Trim() : null;
+
+        if (meeting.VideoChannel == "EXTERNAL_LINK" && externalUrl is not null)
+            return new MeetingLinks(externalUrl, "Tham gia cuộc họp trực tuyến", detailUrl, externalUrl);
+
+        if (meeting.VideoChannel == "IN_APP_VIDEO")
+            return new MeetingLinks(videoUrl, "Tham gia phòng họp video ngay", detailUrl, null);
+
+        return new MeetingLinks(detailUrl, "Xem chi tiết cuộc họp", detailUrl, externalUrl);
+    }
+
+    internal static string FormatVnTime(DateTime utcTime) =>
+        DateTime.SpecifyKind(utcTime, DateTimeKind.Utc).AddHours(7).ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
+
+    internal static string FormatDeliveryLabel(M.Meeting meeting)
+    {
+        if (meeting.VideoChannel == "IN_APP_VIDEO") return "Họp trực tuyến (Phòng video AI-PMS)";
+        if (meeting.VideoChannel == "EXTERNAL_LINK") return "Họp trực tuyến (Liên kết ngoài)";
+        return (meeting.MeetingDeliveryMode ?? "").ToUpperInvariant() switch
+        {
+            "REMOTE" => "Trực tuyến",
+            "HYBRID" => "Kết hợp trực tiếp & trực tuyến",
+            "ONSITE" => "Trực tiếp",
+            _ => string.IsNullOrWhiteSpace(meeting.Location) ? "Trực tuyến" : "Trực tiếp"
+        };
+    }
+
+    internal static string FormatLocation(M.Meeting meeting)
+    {
+        if (!string.IsNullOrWhiteSpace(meeting.Location)) return meeting.Location.Trim();
+        if (meeting.VideoChannel is "IN_APP_VIDEO" or "EXTERNAL_LINK") return "Phòng họp trực tuyến";
+        return "Trực tuyến";
+    }
+
+    internal static bool IsSafeHttpUrl(string? url) =>
+        !string.IsNullOrWhiteSpace(url)
+        && Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+
+    private static string NormalizeBaseUrl(string? baseUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(baseUrl)
+            && Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            return uri.GetLeftPart(UriPartial.Authority);
+        }
+        return "http://localhost:5173";
     }
 
     private static string Subject(M.Meeting meeting)
     {
-        var title = "Meeting starts soon: " + meeting.Title.Replace('\r', ' ').Replace('\n', ' ');
+        var title = "Sắp đến giờ họp: " + meeting.Title.Replace('\r', ' ').Replace('\n', ' ').Trim();
         return title.Length <= 255 ? title : title[..255];
     }
 
-    private static string Body(M.Meeting meeting, string projectCode)
+    private static string InAppBody(M.Meeting meeting, string projectCode, string? projectTitle)
     {
-        var start = DateTime.SpecifyKind(meeting.StartAt, DateTimeKind.Utc).AddHours(7).ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
-        var location = string.IsNullOrWhiteSpace(meeting.Location) ? "Online" : meeting.Location;
-        var channel = meeting.VideoChannel == "IN_APP_VIDEO" ? "Open AI-PMS > Meetings > this meeting to join the video room."
-            : meeting.VideoChannel == "EXTERNAL_LINK" ? "Meeting link: " + meeting.OnlineUrl : "";
-        return $"Your meeting is starting soon.\n\nMeeting: {meeting.Title}\nProject: {projectCode}\nStart: {start} (Vietnam, UTC+7)\nLocation: {location}\n{channel}";
+        var start = FormatVnTime(meeting.StartAt);
+        var delivery = FormatDeliveryLabel(meeting);
+        var location = FormatLocation(meeting);
+        var projectLabel = string.IsNullOrWhiteSpace(projectTitle) ? projectCode : $"{projectCode} – {projectTitle}";
+
+        var lines = new List<string>
+        {
+            $"Cuộc họp \"{meeting.Title}\" sắp bắt đầu lúc {start} (Việt Nam, UTC+7).",
+            $"• Đồ án: {projectLabel}",
+            $"• Hình thức: {delivery}",
+            $"• Địa điểm: {location}"
+        };
+
+        if (meeting.VideoChannel == "EXTERNAL_LINK" && IsSafeHttpUrl(meeting.OnlineUrl))
+            lines.Add($"• Liên kết tham gia: {meeting.OnlineUrl!.Trim()}");
+        else if (meeting.VideoChannel == "IN_APP_VIDEO")
+            lines.Add("• Tham gia: Nhấn \"Xem cuộc họp\" bên dưới để vào phòng họp video AI-PMS.");
+
+        return string.Join('\n', lines);
+    }
+
+    private static string EmailBody(M.Meeting meeting, string projectCode, string? projectTitle, MeetingLinks links)
+    {
+        var start = FormatVnTime(meeting.StartAt);
+        var delivery = FormatDeliveryLabel(meeting);
+        var location = FormatLocation(meeting);
+        var projectLabel = string.IsNullOrWhiteSpace(projectTitle) ? projectCode : $"{projectCode} – {projectTitle}";
+
+        var lines = new List<string>
+        {
+            $"Cuộc họp \"{meeting.Title}\" của nhóm sắp diễn ra. Vui lòng chuẩn bị nội dung và tham gia đúng giờ.",
+            string.Empty,
+            $"• Cuộc họp: {meeting.Title}",
+            $"• Đồ án: {projectLabel}",
+            $"• Thời gian bắt đầu: {start} (Việt Nam, UTC+7)",
+            $"• Hình thức: {delivery}",
+            $"• Địa điểm: {location}",
+            $"• {links.ActionLabel}: {links.ActionUrl}"
+        };
+
+        if (!string.Equals(links.ActionUrl, links.DetailUrl, StringComparison.OrdinalIgnoreCase))
+            lines.Add($"• Chi tiết cuộc họp & biên bản trên AI-PMS: {links.DetailUrl}");
+
+        return string.Join('\n', lines);
     }
 
     private static void Validate(DateTime now, int minutes)

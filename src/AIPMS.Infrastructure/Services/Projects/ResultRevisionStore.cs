@@ -24,7 +24,7 @@ internal sealed class ResultRevisionStore(AipmsDbContext db, IAuditTrail audit, 
     { if (db.Database.CurrentTransaction is null) throw new InvalidOperationException("Revision mutation requires a locked project transaction."); }
     internal async Task<Target[]> Current(long projectId, CancellationToken ct)
     {
-        var project = await PublishedResultResolver.Project(db, projectId, ct);
+        var project = await PublishedResultResolver.Project(db, projectId, ct, enrich: false);
         var students = await db.Set<StudentResult>().AsNoTracking().Where(r => r.ProjectId == projectId).OrderBy(r => r.StudentId).Take(1001).ToArrayAsync(ct);
         if (students.Length > 1000) throw new ConflictException("Correction is bounded to 1000 published student targets.");
         var revisions = await db.Set<ResultRevision>().AsNoTracking().Where(r => r.ProjectId == projectId && r.StudentId != null

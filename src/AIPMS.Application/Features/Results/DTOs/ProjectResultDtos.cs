@@ -5,7 +5,7 @@ public sealed record ConfigureResultPolicyRequest(decimal PassThreshold, IReadOn
 public sealed record ResultPolicyDto(long ProjectId, decimal PassThreshold, string ConcurrencyToken, bool IsLocked, IReadOnlyList<ResultAssignmentInput> Assignments);
 public sealed record PublishProjectResultRequest(string ConfirmationToken);
 public sealed record ResultContributionDto(long AssignmentId, long EvaluationId, long EvaluatorId, long RubricId,
-    decimal WeightPercent, decimal Score, string EvaluationConcurrencyToken);
+    decimal WeightPercent, decimal Score, string EvaluationConcurrencyToken, string? EvaluatorName = null);
 public sealed record ProjectResultPreviewDto(long ProjectId, bool CanPublish, IReadOnlyList<string> Blockers,
     decimal? TotalScore, decimal? PassThreshold, string? Outcome, string ConfirmationToken, IReadOnlyList<ResultContributionDto> Contributions,
     AIPMS.Application.Features.Evaluations.DTOs.ResultBreakdownDto? Breakdown = null,

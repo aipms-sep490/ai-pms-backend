@@ -37,7 +37,11 @@ internal static class NotificationDtoMapper
             "TEAM_LEADER_CHANGE_REJECTED" => "notification.teamLeaderChange.rejected",
 
             "MEETING_SCHEDULED" => "notification.meeting.scheduled",
+            "MEETING_START_REMINDER" => "notification.meeting.startReminder",
+            "MEETING_ACTION_ASSIGNED" => "notification.meetingAction.assigned",
             "PROGRESS_REPORT_SUBMITTED" => "notification.progressReport.submitted",
+            "DELIVERABLE_SUBMITTED" => "notification.deliverable.submitted",
+            "TASK_DEPENDENCY_IMPACT" => "notification.task.dependencyImpact",
 
             "STUDENT_RESULT_PUBLISHED" => "notification.studentResult.published",
             "PROJECT_RESULT_PUBLISHED" => "notification.projectResult.published",
@@ -51,17 +55,31 @@ internal static class NotificationDtoMapper
             "COLD_EVALUATOR_ASSIGNED" => "notification.cold.evaluator.assigned",
             "FINAL_SUBMISSION_LOCKED" => "notification.finalSubmission.locked",
 
-            "APPEAL_SUBMITTED" => "notification.appeal.submitted",
+            "APPEAL_REQUESTED" => "notification.appeal.requested",
+            "APPEAL_REVIEWER_ASSIGNED" => "notification.appeal.reviewerAssigned",
+            "APPEAL_REVIEWED" => "notification.appeal.reviewed",
             "APPEAL_DECIDED" => "notification.appeal.decided",
-            "APPEAL_STATUS_CHANGED" => "notification.appeal.statusChanged",
 
-            "REVIEW_GATE_DECISION" => "notification.reviewGate.decision",
-            "INTERDISCIPLINARY_REVIEW_DECISION" => "notification.interdisciplinaryReview.decision",
-            "DEFENSE_READINESS_CHANGED" => "notification.defenseReadiness.changed",
+            "REVIEW_GATE_UPDATED" => "notification.reviewGate.updated",
+            "REVIEW_GATE_3_SCHEDULED" => "notification.reviewGate3.scheduled",
+            "REVIEW_GATE_3_SCHEDULE_CHANGED" => "notification.reviewGate3.scheduleChanged",
+            "DEFENSE_SCHEDULED" => "notification.defense.scheduled",
+            "DEFENSE_SCHEDULE_CHANGED" => "notification.defense.scheduleChanged",
+            "DEFENSE_CANCELLED" => "notification.defense.cancelled",
+
+            "PROJECT_RISK_ALERT" => "notification.projectRisk.alert",
+            "PROJECT_RISK_MEDIUM" => "notification.projectRisk.medium",
+            "PROJECT_RISK_HIGH" => "notification.projectRisk.high",
+            "PROJECT_RISK_CRITICAL" => "notification.projectRisk.critical",
 
             "TASK_DEADLINE_REMINDER" => "notification.task.deadlineReminder",
+            "TASK_OVERDUE" => "notification.task.overdue",
             "DELIVERABLE_DEADLINE_REMINDER" => "notification.deliverable.deadlineReminder",
-            "DEADLINE_REMINDER" => "notification.deadline.reminder",
+            "DELIVERABLE_OVERDUE" => "notification.deliverable.overdue",
+            "FINAL_SUBMISSION_DEADLINE_REMINDER" => "notification.finalSubmission.deadlineReminder",
+            "FINAL_SUBMISSION_OVERDUE" => "notification.finalSubmission.overdue",
+
+            "INDUSTRY_INVITATION" => "notification.industry.invitation",
 
             _ => $"notification.{ToCamelCase(notificationType)}"
         };

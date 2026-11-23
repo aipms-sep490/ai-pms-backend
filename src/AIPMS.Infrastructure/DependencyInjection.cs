@@ -189,6 +189,24 @@ public static class DependencyInjection
                     ? timeout : settings.TimeoutSeconds;
                 settings.PasswordResetUrl =
                     configuration["Email:PasswordResetUrl"] ?? settings.PasswordResetUrl;
+                var configuredFrontend = configuration["Email:FrontendBaseUrl"];
+                if (!string.IsNullOrWhiteSpace(configuredFrontend))
+                {
+                    settings.FrontendBaseUrl = configuredFrontend.Trim().TrimEnd('/');
+                }
+                else
+                {
+                    var corsOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+                    var httpsOrigin = corsOrigins
+                        .Where(o => Uri.TryCreate(o, UriKind.Absolute, out var u)
+                            && u.Scheme == Uri.UriSchemeHttps
+                            && !u.IsLoopback)
+                        .LastOrDefault();
+                    if (!string.IsNullOrWhiteSpace(httpsOrigin))
+                    {
+                        settings.FrontendBaseUrl = httpsOrigin.Trim().TrimEnd('/');
+                    }
+                }
             })
             .Validate(static settings => settings.Port is >= 1 and <= 65535,
                 "Email:Port must be a valid TCP port.")
@@ -201,6 +219,11 @@ public static class DependencyInjection
                     out var uri)
                     && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps),
                 "Email:PasswordResetUrl must be an absolute HTTP or HTTPS URL.")
+            .Validate(
+                static settings => string.IsNullOrWhiteSpace(settings.FrontendBaseUrl)
+                    || (Uri.TryCreate(settings.FrontendBaseUrl, UriKind.Absolute, out var fUri)
+                        && (fUri.Scheme == Uri.UriSchemeHttp || fUri.Scheme == Uri.UriSchemeHttps)),
+                "Email:FrontendBaseUrl must be an absolute HTTP or HTTPS URL.")
             .ValidateOnStart();
 
         services.AddDbContext<AipmsDbContext>((serviceProvider, options) =>
@@ -317,6 +340,8 @@ public static class DependencyInjection
         services.AddScoped<IMeetingRepository, MeetingRepository>();
         services.AddScoped<IMeetingVideoMetadataRepository, MeetingVideoMetadataRepository>();
         services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IMeetingVideoService, MeetingVideoService>();
+        services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IMeetingVideoAiService, MeetingVideoAiService>();
+        services.AddScoped<AIPMS.Application.Features.AiSuite.Abstractions.IAiSuiteService, Services.AiSuite.AiSuiteService>();
         services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IVideoProviderEventService, VideoProviderEventService>();
         services.AddScoped<AIPMS.Application.Features.Meetings.Abstractions.IVideoCleanupScheduler, VideoCleanupScheduler>();
         services.AddScoped<IProjectProgressDataReader, ProjectProgressDataReader>();

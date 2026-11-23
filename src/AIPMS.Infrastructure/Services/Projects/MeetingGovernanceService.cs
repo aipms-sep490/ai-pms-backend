@@ -40,7 +40,10 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         var q = db.MeetingDecisions.AsNoTracking().Where(x => x.MeetingId == meetingId);
         var count = await q.LongCountAsync(ct);
         var rows = await q.OrderByDescending(x => x.Id).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(ct);
-        return new(rows.Select(DecisionDto).ToArray(), page, pageSize, count);
+        var userIds = rows.Select(x => x.DecidedBy).Distinct().ToArray();
+        var userNames = userIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return new(rows.Select(x => DecisionDto(x, userNames.GetValueOrDefault(x.DecidedBy))).ToArray(), page, pageSize, count);
     }
 
     public async Task<PagedResult<MeetingActionItemDto>> Actions(long meetingId, int page, int pageSize, CancellationToken ct)
@@ -50,7 +53,14 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         var q = db.MeetingActionItems.AsNoTracking().Where(x => x.MeetingId == meetingId);
         var count = await q.LongCountAsync(ct);
         var rows = await q.OrderByDescending(x => x.Id).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(ct);
-        return new(rows.Select(ActionDto).ToArray(), page, pageSize, count);
+        var userIds = rows.Select(x => x.CreatedBy)
+            .Concat(rows.Where(x => x.AssigneeUserId.HasValue).Select(x => x.AssigneeUserId!.Value))
+            .Distinct().ToArray();
+        var userNames = userIds.Length == 0 ? new Dictionary<long, string>()
+            : await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return new(rows.Select(x => ActionDto(x,
+            x.AssigneeUserId.HasValue ? userNames.GetValueOrDefault(x.AssigneeUserId.Value) : null,
+            userNames.GetValueOrDefault(x.CreatedBy))).ToArray(), page, pageSize, count);
     }
 
     private async Task<M.Meeting> Lock(long id, CancellationToken ct)
@@ -92,7 +102,8 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
             new Dictionary<string, object?> { ["meetingId"] = meetingId, ["projectId"] = meeting.ProjectId }), ct);
         await MeetingNotesHistory.Capture(db, meeting, Actor, now, ct);
         await tx.CommitAsync(ct);
-        return DecisionDto(row);
+        var deciderName = await db.Users.AsNoTracking().Where(u => u.Id == row.DecidedBy).Select(u => u.FullName).FirstOrDefaultAsync(ct);
+        return DecisionDto(row, deciderName);
     }
 
     public async Task<MeetingDecisionDto> SupersedeDecision(long meetingId, long decisionId, CreateMeetingDecisionRequest input, CancellationToken ct)
@@ -171,19 +182,37 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         if (definitionChanged) await MeetingNotesHistory.Capture(db, meeting, Actor, now, ct);
         if (row.AssigneeUserId is { } recipientId && recipientId != Actor)
         {
+            var projectCode = await db.Projects.AsNoTracking().Where(p => p.Id == meeting.ProjectId).Select(p => p.Code).FirstOrDefaultAsync(ct);
+            var actorName = await db.Users.AsNoTracking().Where(u => u.Id == Actor).Select(u => u.FullName).FirstOrDefaultAsync(ct);
+            var rawTitle = actionId.HasValue
+                ? $"Cập nhật đầu việc cuộc họp: {meeting.Title}"
+                : $"Bạn được giao đầu việc mới từ cuộc họp: {meeting.Title}";
+            var safeTitle = rawTitle.Length <= 255 ? rawTitle : rawTitle[..255];
+            var projectClause = string.IsNullOrWhiteSpace(projectCode) ? "" : $" (đồ án {projectCode})";
+            var actorClause = string.IsNullOrWhiteSpace(actorName) ? "" : $" bởi {actorName}";
+            var content = actionId.HasValue
+                ? $"Đầu việc \"{row.Title}\" từ cuộc họp \"{meeting.Title}\"{projectClause} đã được cập nhật{actorClause}."
+                : $"Đầu việc \"{row.Title}\" từ cuộc họp \"{meeting.Title}\"{projectClause} đã được giao cho bạn{actorClause}.";
             var notification = new M.Notification { CreatedBy = Actor, NotificationType = "MEETING_ACTION_ASSIGNED",
-                Title = "Meeting action updated", Content = row.Title, RelatedEntityType = "MEETING_ACTION_ITEM",
+                Title = safeTitle, Content = content, RelatedEntityType = "MEETING_ACTION_ITEM",
                 RelatedEntityId = row.Id, CreatedAt = now, UpdatedAt = now };
             notification.NotificationRecipients.Add(new() { UserId = recipientId, CreatedAt = now, UpdatedAt = now });
             db.Notifications.Add(notification);
             await db.SaveChangesAsync(ct);
         }
         await tx.CommitAsync(ct);
-        return ActionDto(row);
+        var ids = row.AssigneeUserId.HasValue ? new[] { row.CreatedBy, row.AssigneeUserId.Value }.Distinct().ToArray() : new[] { row.CreatedBy };
+        var names = await db.Users.AsNoTracking().Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        return ActionDto(row,
+            row.AssigneeUserId.HasValue ? names.GetValueOrDefault(row.AssigneeUserId.Value) : null,
+            names.GetValueOrDefault(row.CreatedBy));
     }
 
-    private static MeetingDecisionDto DecisionDto(MeetingDecision x) => new(x.Id, x.MeetingId, x.Content, x.DecidedBy, x.DecidedAt, x.SupersededByDecisionId);
+    private static MeetingDecisionDto DecisionDto(MeetingDecision x, string? decidedByName = null) =>
+        new(x.Id, x.MeetingId, x.Content, x.DecidedBy, x.DecidedAt, x.SupersededByDecisionId, decidedByName);
     private static ValidationException Invalid(string message) => new(new Dictionary<string, string[]> { ["input"] = [message] });
-    private static MeetingActionItemDto ActionDto(MeetingActionItem x) => new(x.Id, x.MeetingId, x.Title, x.Description,
-        x.AssigneeUserId, x.DueAt, x.Status, x.ConcurrencyToken.ToString("N"), x.CreatedBy, x.CreatedAt, x.UpdatedAt);
+    private static MeetingActionItemDto ActionDto(MeetingActionItem x, string? assigneeName = null, string? createdByName = null) =>
+        new(x.Id, x.MeetingId, x.Title, x.Description,
+            x.AssigneeUserId, x.DueAt, x.Status, x.ConcurrencyToken.ToString("N"), x.CreatedBy, x.CreatedAt, x.UpdatedAt,
+            assigneeName, createdByName);
 }

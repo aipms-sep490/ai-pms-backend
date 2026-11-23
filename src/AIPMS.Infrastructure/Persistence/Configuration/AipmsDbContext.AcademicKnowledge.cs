@@ -80,6 +80,7 @@ public partial class AipmsDbContext
             e.Property(x => x.Scope).HasMaxLength(20).IsRequired(); e.Property(x => x.QueryHash).HasMaxLength(64).IsRequired();
             e.Property(x => x.Status).HasMaxLength(24).IsRequired(); e.Property(x => x.ModelVersion).HasMaxLength(128).IsRequired();
             e.Property(x => x.EvidenceJson).IsRequired(); e.Property(x => x.ResultJson).IsRequired();
+            e.Property(x => x.FeedbackNote).HasMaxLength(400);
             e.HasIndex(x => new { x.ActorId, x.Id });
             e.HasOne<AIPMS.Infrastructure.Persistence.Generated.Models.User>().WithMany().HasForeignKey(x => x.ActorId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<AIPMS.Infrastructure.Persistence.Generated.Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);

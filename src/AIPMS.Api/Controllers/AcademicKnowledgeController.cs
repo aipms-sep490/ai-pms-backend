@@ -87,13 +87,37 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     public Task<AssistantConversationDto> CreateConversation(CreateAssistantConversationRequest request, CancellationToken ct) => service.CreateConversationAsync(request, ct);
 
     [HttpGet("assistant/conversations")]
-    public Task<IReadOnlyList<AssistantConversationDto>> Conversations([FromQuery] long? projectId, [FromQuery] long? beforeId, CancellationToken ct) => service.ConversationsAsync(projectId, beforeId, ct);
+    public Task<IReadOnlyList<AssistantConversationDto>> Conversations([FromQuery] long? projectId, [FromQuery] long? beforeId, [FromQuery] string? search, CancellationToken ct) => service.ConversationsAsync(projectId, beforeId, ct, search);
 
     [HttpGet("assistant/conversations/{id:long}")]
     public Task<AssistantConversationDetailDto> Conversation(long id, [FromQuery] long? beforeTurnId, CancellationToken ct) => service.ConversationAsync(id, beforeTurnId, ct);
 
+    [HttpPatch("assistant/conversations/{id:long}")]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<AssistantConversationDto>(200)]
+    public Task<AssistantConversationDto> UpdateConversation(long id, [FromBody] UpdateAssistantConversationRequest request, CancellationToken ct) => service.UpdateConversationAsync(id, request, ct);
+
+    [HttpGet("assistant/conversations/{id:long}/download")]
+    [EnableRateLimiting("ai-assistant")]
+    public async Task<IActionResult> DownloadConversation(long id, [FromQuery] string format = "md", CancellationToken ct = default)
+    {
+        var file = await service.ExportConversationAsync(id, format, ct);
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(file.Content, file.ContentType, file.FileName);
+    }
+
     [HttpDelete("assistant/conversations/{id:long}")]
     public async Task<IActionResult> DeleteConversation(long id, CancellationToken ct) { await service.DeleteConversationAsync(id, ct); return NoContent(); }
+
+    [HttpPost("assistant/runs/{id:long}/feedback")]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<AssistantFeedbackDto>(200)]
+    public Task<AssistantFeedbackDto> SubmitFeedback(long id, [FromBody] SubmitAssistantFeedbackRequest request, CancellationToken ct) => service.SubmitFeedbackAsync(id, request, ct);
+
+    [HttpGet("assistant/projects")]
+    [ProducesResponseType<IReadOnlyList<AssistantProjectOptionDto>>(200)]
+    public Task<IReadOnlyList<AssistantProjectOptionDto>> AccessibleProjects(CancellationToken ct) => service.AccessibleProjectsAsync(ct);
 
     [HttpGet("assistant/runs/{id:long}/citations/{index:int}")]
     public async Task<KnowledgeCitationDto> Citation(long id, int index, CancellationToken ct)

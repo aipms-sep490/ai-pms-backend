@@ -45,7 +45,8 @@ public sealed record StudentQualificationModel(
     string? RejectionReason,
     Guid ConcurrencyToken,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    string? VerifiedByName = null);
 
 public sealed record StudentQualificationCertificateModel(
     long QualificationId,
