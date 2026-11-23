@@ -69,6 +69,7 @@ $requirements = @(
     [pscustomobject]@{ Kind = 'Check'; Object = 'dbo.task_criteria'; Name = 'ck_task_criteria_completion'; Migration = '20261122_add_task_criteria.sql' }
     [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.ai_setup_applications'; Column = ''; Migration = '20261122_add_task_criteria.sql' }
     [pscustomobject]@{ Kind = 'Index'; Object = 'dbo.ai_setup_applications'; Name = 'uq_ai_setup_applications_actor_key'; Migration = '20261122_add_task_criteria.sql' }
+    [pscustomobject]@{ Kind = 'CheckAllowsSemesterRollover'; Object = 'dbo.ai_setup_applications'; Name = 'ck_ai_setup_applications_scope'; Migration = '20261124_expand_ai_setup_scopes.sql' }
     [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.task_dependency_impacts'; Column = ''; Migration = '20261118_task_dependency_impacts.sql' }
     [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'id'; Migration = '20261118_task_dependency_impacts.sql' }
     [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_dependency_impacts'; Column = 'task_id'; Migration = '20261118_task_dependency_impacts.sql' }
@@ -158,10 +159,11 @@ try {
                     'ForeignKey' { "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID(@object, N'U') AND name = @name AND is_disabled = 0 AND is_not_trusted = 0) THEN 1 ELSE 0 END" }
                     'Check' { "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(@object, N'U') AND name = @name AND is_disabled = 0 AND is_not_trusted = 0) THEN 1 ELSE 0 END" }
                     'CheckAllowsCommon' { "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(@object, N'U') AND name = @name AND is_disabled = 0 AND is_not_trusted = 0 AND definition LIKE '%COMMON%') THEN 1 ELSE 0 END" }
+                    'CheckAllowsSemesterRollover' { "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(@object, N'U') AND name = @name AND is_disabled = 0 AND is_not_trusted = 0 AND definition LIKE '%SEMESTER_ROLLOVER%') THEN 1 ELSE 0 END" }
                 }
                 [void]$command.Parameters.AddWithValue('@object', $requirement.Object)
                 if ($requirement.Kind -in @('Column', 'NullableColumn')) { [void]$command.Parameters.AddWithValue('@column', $requirement.Column) }
-                if ($requirement.Kind -in @('Index', 'ForeignKey', 'Check', 'CheckAllowsCommon')) { [void]$command.Parameters.AddWithValue('@name', $requirement.Name) }
+                if ($requirement.Kind -in @('Index', 'ForeignKey', 'Check', 'CheckAllowsCommon', 'CheckAllowsSemesterRollover')) { [void]$command.Parameters.AddWithValue('@name', $requirement.Name) }
                 if ([int]$command.ExecuteScalar() -ne 1) { $missing += $requirement }
             } finally { $command.Dispose() }
         }

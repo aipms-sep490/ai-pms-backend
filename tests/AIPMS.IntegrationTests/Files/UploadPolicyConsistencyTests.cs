@@ -156,7 +156,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             }
         }
 
-        Assert.Equal(19, endpointsWithLimit.Count);
+        Assert.Equal(21, endpointsWithLimit.Count);
 
         foreach (var (method, limit) in endpointsWithLimit)
         {
@@ -196,7 +196,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         }
 
         // All file, workbook, audio clip, and preview endpoints must have [RequestSizeLimit].
-        Assert.Equal(19, endpointsWithLimit.Count);
+        Assert.Equal(21, endpointsWithLimit.Count);
 
         // Every endpoint's limit must match a recognized constant in UploadPolicies
         var validConstants = new[]
@@ -222,7 +222,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         }
 
         var multipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartTransportCeiling);
-        Assert.Equal(6, multipartCount);
+        Assert.Equal(8, multipartCount);
 
         var archiveMultipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartArchiveCeiling);
         Assert.Equal(2, archiveMultipartCount);

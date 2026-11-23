@@ -4025,14 +4025,14 @@ BEGIN
         id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_ai_setup_applications PRIMARY KEY,
         actor_id bigint NOT NULL,
         idempotency_key uniqueidentifier NOT NULL,
-        scope_type varchar(24) NOT NULL,
+        scope_type varchar(32) NOT NULL,
         project_id bigint NULL,
         run_id bigint NULL,
         result_json nvarchar(max) NOT NULL,
         created_at datetime2(7) NOT NULL CONSTRAINT df_ai_setup_applications_created_at DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT fk_ai_setup_applications_actor FOREIGN KEY (actor_id) REFERENCES dbo.users(id),
         CONSTRAINT fk_ai_setup_applications_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
-        CONSTRAINT ck_ai_setup_applications_scope CHECK (scope_type IN ('PROJECT', 'RUBRIC')),
+        CONSTRAINT ck_ai_setup_applications_scope CHECK (scope_type IN ('PROJECT', 'RUBRIC', 'REVIEW_GATE', 'COLD_TEMPLATE', 'TOPIC_BATCH', 'KNOWLEDGE_DOC', 'MILESTONE_TEMPLATE', 'SEMESTER_ROLLOVER')),
         CONSTRAINT uq_ai_setup_applications_actor_key UNIQUE (actor_id, idempotency_key)
     );
     CREATE INDEX ix_ai_setup_applications_project ON dbo.ai_setup_applications(project_id, created_at);

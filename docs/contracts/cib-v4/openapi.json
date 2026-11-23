@@ -941,6 +941,198 @@
         }
       }
     },
+    "/api/v1/academic/ai/review-gate-setup/apply": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyReviewGateSetupRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyReviewGateSetupRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyReviewGateSetupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyReviewGateSetupResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyReviewGateSetupResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyReviewGateSetupResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/ai/topic-batch-setup/apply": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyTopicBatchSetupRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyTopicBatchSetupRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyTopicBatchSetupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyTopicBatchSetupResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyTopicBatchSetupResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyTopicBatchSetupResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/ai/cold-template-setup/apply": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyColdTemplateSetupRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyColdTemplateSetupRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyColdTemplateSetupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyColdTemplateSetupResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyColdTemplateSetupResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyColdTemplateSetupResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/ai/milestone-template-setup/apply": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyMilestoneTemplateSetupRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyMilestoneTemplateSetupRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyMilestoneTemplateSetupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyMilestoneTemplateSetupResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyMilestoneTemplateSetupResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyMilestoneTemplateSetupResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/academic/assistant/review-rubrics": {
       "get": {
         "tags": [
@@ -1311,6 +1503,10 @@
                     "type": "integer",
                     "format": "int64"
                   },
+                  "ProjectPeriodId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "Files": {
                     "type": "array",
                     "items": {
@@ -1346,6 +1542,9 @@
                   "style": "form"
                 },
                 "RubricId": {
+                  "style": "form"
+                },
+                "ProjectPeriodId": {
                   "style": "form"
                 },
                 "Files": {
@@ -1833,6 +2032,10 @@
                     "type": "integer",
                     "format": "int64"
                   },
+                  "ProjectPeriodId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "Files": {
                     "type": "array",
                     "items": {
@@ -1868,6 +2071,9 @@
                   "style": "form"
                 },
                 "RubricId": {
+                  "style": "form"
+                },
+                "ProjectPeriodId": {
                   "style": "form"
                 },
                 "Files": {
@@ -2246,6 +2452,62 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/KnowledgeVersionDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/knowledge-documents/extract-preview": {
+      "post": {
+        "tags": [
+          "AcademicKnowledge"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "File": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "DepartmentDocumentId": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                }
+              },
+              "encoding": {
+                "File": {
+                  "style": "form"
+                },
+                "DepartmentDocumentId": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeExtractPreviewDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeExtractPreviewDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeExtractPreviewDto"
                 }
               }
             }
@@ -7998,6 +8260,146 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AppealAssistDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ai-suite/projects/{projectId}/evaluation-schemes/suggest": {
+      "post": {
+        "tags": [
+          "AiSuite"
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationSchemeSuggestDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationSchemeSuggestDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationSchemeSuggestDto"
                 }
               }
             }
@@ -36070,6 +36472,14 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "copyFromVersionId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "responses": {
@@ -40945,6 +41355,212 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/pre-semester/readiness": {
+      "get": {
+        "tags": [
+          "PreSemesterSetup"
+        ],
+        "parameters": [
+          {
+            "name": "semesterId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "departmentId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreSemesterReadinessDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreSemesterReadinessDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreSemesterReadinessDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/pre-semester/rollover/preview": {
+      "post": {
+        "tags": [
+          "PreSemesterSetup"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolloverPreviewRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolloverPreviewRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/RolloverPreviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolloverPreviewDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolloverPreviewDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolloverPreviewDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/pre-semester/rollover/apply": {
+      "post": {
+        "tags": [
+          "PreSemesterSetup"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolloverApplyRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolloverApplyRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/RolloverApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolloverApplyResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolloverApplyResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolloverApplyResultDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/academic/pre-semester/ai-diff-check": {
+      "post": {
+        "tags": [
+          "PreSemesterSetup"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "TargetSemesterId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "DepartmentId": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "File": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              },
+              "encoding": {
+                "TargetSemesterId": {
+                  "style": "form"
+                },
+                "DepartmentId": {
+                  "style": "form"
+                },
+                "File": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreSemesterAiDiffResponseDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreSemesterAiDiffResponseDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreSemesterAiDiffResponseDto"
                 }
               }
             }
@@ -72733,6 +73349,11 @@
             "type": "integer",
             "format": "int64",
             "nullable": true
+          },
+          "projectPeriodId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -73796,6 +74417,156 @@
         },
         "additionalProperties": false
       },
+      "ApplyColdTemplateSetupRequest": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "projectPeriodId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scope": {
+            "type": "string",
+            "nullable": true
+          },
+          "majorId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "reports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantColdReportItemDraftDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyColdTemplateSetupResultDto": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "scope": {
+            "type": "string",
+            "nullable": true
+          },
+          "reportsCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "replay": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyMilestoneTemplateSetupRequest": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "existingTemplateId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantMilestoneTemplateItemDraftDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyMilestoneTemplateSetupResultDto": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "versionId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "versionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "itemsCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "replay": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ApplyProjectSetupRequest": {
         "type": "object",
         "properties": {
@@ -73879,6 +74650,85 @@
         },
         "additionalProperties": false
       },
+      "ApplyReviewGateSetupRequest": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "projectPeriodId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "mode": {
+            "type": "string",
+            "nullable": true
+          },
+          "major": {
+            "type": "string",
+            "nullable": true
+          },
+          "gates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantReviewGateDraftDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyReviewGateSetupResultDto": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "gatesCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "replay": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ApplyRubricSetupRequest": {
         "type": "object",
         "properties": {
@@ -73935,6 +74785,16 @@
               "$ref": "#/components/schemas/AssistantRubricCriterionDraftDto"
             },
             "nullable": true
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "effectiveTo": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -73964,6 +74824,82 @@
           },
           "replay": {
             "type": "boolean"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyTopicBatchSetupRequest": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "runId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "projectPeriodId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "leadDepartmentId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantTopicDraftDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplyTopicBatchSetupResultDto": {
+        "type": "object",
+        "properties": {
+          "createdCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "skippedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "replay": {
+            "type": "boolean"
+          },
+          "created": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopicBatchCreatedItemDto"
+            },
+            "nullable": true
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopicBatchSkippedItemDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -74204,6 +75140,59 @@
         },
         "additionalProperties": false
       },
+      "AssistantColdReportItemDraftDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantColdTemplateSetupPlanDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "scope": {
+            "type": "string",
+            "nullable": true
+          },
+          "majorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "reports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantColdReportItemDraftDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "AssistantContextCoverageDto": {
         "type": "object",
         "properties": {
@@ -74382,6 +75371,18 @@
           },
           "rubricSetup": {
             "$ref": "#/components/schemas/AssistantRubricSetupPlanDto"
+          },
+          "reviewGateSetup": {
+            "$ref": "#/components/schemas/AssistantReviewGateSetupPlanDto"
+          },
+          "topicBatchSetup": {
+            "$ref": "#/components/schemas/AssistantTopicBatchPlanDto"
+          },
+          "coldTemplateSetup": {
+            "$ref": "#/components/schemas/AssistantColdTemplateSetupPlanDto"
+          },
+          "milestoneTemplateSetup": {
+            "$ref": "#/components/schemas/AssistantMilestoneTemplateSetupPlanDto"
           }
         },
         "additionalProperties": false
@@ -74439,6 +75440,66 @@
           },
           "inviteAll": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantMilestoneTemplateItemDraftDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "startOffsetDays": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "dueOffsetDays": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantMilestoneTemplateSetupPlanDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantMilestoneTemplateItemDraftDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -74540,6 +75601,142 @@
           },
           "plannedWork": {
             "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantReviewGateDraftDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "objective": {
+            "type": "string",
+            "nullable": true
+          },
+          "weight": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "startDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "endDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "blockNextGate": {
+            "type": "boolean"
+          },
+          "blocksDefense": {
+            "type": "boolean"
+          },
+          "reviewerPolicy": {
+            "type": "string",
+            "nullable": true
+          },
+          "reviewScope": {
+            "type": "string",
+            "nullable": true
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantReviewGateRequirementDraftDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantReviewGateRequirementDraftDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "scope": {
+            "type": "string",
+            "nullable": true
+          },
+          "majorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "verification": {
+            "type": "string",
+            "nullable": true
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantReviewGateSetupPlanDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "mode": {
+            "type": "string",
+            "nullable": true
+          },
+          "majorCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "gates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantReviewGateDraftDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "nullable": true
           }
         },
@@ -74872,6 +76069,145 @@
             "nullable": true
           },
           "primaryMajorName": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantTopicBatchPlanDto": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantTopicDraftDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantTopicDraftDto": {
+        "type": "object",
+        "properties": {
+          "tempKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "problemStatement": {
+            "type": "string",
+            "nullable": true
+          },
+          "objectives": {
+            "type": "string",
+            "nullable": true
+          },
+          "expectedOutput": {
+            "type": "string",
+            "nullable": true
+          },
+          "domain": {
+            "type": "string",
+            "nullable": true
+          },
+          "technologies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "projectMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "primaryMajorId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "primaryMajorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantTopicRequirementDraftDto"
+            },
+            "nullable": true
+          },
+          "duplicateTitleConflict": {
+            "type": "boolean"
+          },
+          "duplicateTitleDetail": {
+            "type": "string",
+            "nullable": true
+          },
+          "similarityWarning": {
+            "type": "string",
+            "nullable": true
+          },
+          "highestSimilarityScore": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssistantTopicRequirementDraftDto": {
+        "type": "object",
+        "properties": {
+          "majorId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "majorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "minMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "responsibility": {
             "type": "string",
             "nullable": true
           }
@@ -81080,6 +82416,103 @@
         },
         "additionalProperties": false
       },
+      "EvaluationSchemeSuggestComponentDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "scope": {
+            "type": "string",
+            "nullable": true
+          },
+          "majorId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "majorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "rubricId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "rubricCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "rubricName": {
+            "type": "string",
+            "nullable": true
+          },
+          "stage": {
+            "type": "string",
+            "nullable": true
+          },
+          "projectWeightPercent": {
+            "type": "number",
+            "format": "double"
+          },
+          "studentWeightPercent": {
+            "type": "number",
+            "format": "double"
+          },
+          "requiredEvaluators": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rationale": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "EvaluationSchemeSuggestDto": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "suggestedName": {
+            "type": "string",
+            "nullable": true
+          },
+          "suggestedPassThreshold": {
+            "type": "number",
+            "format": "double"
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "usedAi": {
+            "type": "boolean"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvaluationSchemeSuggestComponentDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "meta": {
+            "$ref": "#/components/schemas/AiSnapshotMetaDto"
+          }
+        },
+        "additionalProperties": false
+      },
       "EvaluationScoreDto": {
         "type": "object",
         "properties": {
@@ -83101,6 +84534,49 @@
             "type": "integer",
             "format": "int32",
             "readOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "KnowledgeExtractPreviewDto": {
+        "type": "object",
+        "properties": {
+          "sourceFileName": {
+            "type": "string",
+            "nullable": true
+          },
+          "suggestedTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "suggestedDocumentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "content": {
+            "type": "string",
+            "nullable": true
+          },
+          "chunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeChunkInput"
+            },
+            "nullable": true
+          },
+          "usedAi": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -86025,6 +87501,174 @@
             "type": "integer",
             "format": "int64",
             "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreSemesterAiDiffResponseDto": {
+        "type": "object",
+        "properties": {
+          "sourceFileName": {
+            "type": "string",
+            "nullable": true
+          },
+          "targetSemesterId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "usedAi": {
+            "type": "boolean"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreSemesterDiffFindingDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreSemesterDiffFindingDto": {
+        "type": "object",
+        "properties": {
+          "area": {
+            "type": "string",
+            "nullable": true
+          },
+          "severity": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "currentState": {
+            "type": "string",
+            "nullable": true
+          },
+          "documentRequirement": {
+            "type": "string",
+            "nullable": true
+          },
+          "recommendedAction": {
+            "type": "string",
+            "nullable": true
+          },
+          "route": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreSemesterReadinessDto": {
+        "type": "object",
+        "properties": {
+          "semesterId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "semesterCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "semesterName": {
+            "type": "string",
+            "nullable": true
+          },
+          "semesterStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "departmentId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "departmentName": {
+            "type": "string",
+            "nullable": true
+          },
+          "isAdmin": {
+            "type": "boolean"
+          },
+          "isDepartmentStaff": {
+            "type": "boolean"
+          },
+          "readyCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalRelevantCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreSemesterReadinessItemDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreSemesterReadinessItemDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "nullable": true
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "totalCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "draftCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "publishedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "route": {
+            "type": "string",
+            "nullable": true
+          },
+          "supportsRollover": {
+            "type": "boolean"
+          },
+          "supportsAiDraft": {
+            "type": "boolean"
+          },
+          "allowedByRole": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -90559,6 +92203,305 @@
             "nullable": true
           },
           "explanation": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RolloverApplyRequest": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceSemesterId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "targetSemesterId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "departmentId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "includeRubrics": {
+            "type": "boolean"
+          },
+          "includeReviewGates": {
+            "type": "boolean"
+          },
+          "includeColdTemplates": {
+            "type": "boolean"
+          },
+          "includePolicies": {
+            "type": "boolean"
+          },
+          "shiftDates": {
+            "type": "boolean"
+          },
+          "loadVietnamHolidays": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RolloverApplyResultDto": {
+        "type": "object",
+        "properties": {
+          "replay": {
+            "type": "boolean"
+          },
+          "createdCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "skippedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "holidaysLoadedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RolloverCreatedItemDto"
+            },
+            "nullable": true
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RolloverSkippedItemDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RolloverCreatedItemDto": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RolloverDateShiftDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "oldStart": {
+            "type": "string",
+            "nullable": true
+          },
+          "oldEnd": {
+            "type": "string",
+            "nullable": true
+          },
+          "newStart": {
+            "type": "string",
+            "nullable": true
+          },
+          "newEnd": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RolloverPreviewDto": {
+        "type": "object",
+        "properties": {
+          "sourceSemesterId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sourceSemesterCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "targetSemesterId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "targetSemesterCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "shiftDays": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalCandidates": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "actionableCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RolloverPreviewItemDto"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RolloverPreviewItemDto": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sourceCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceName": {
+            "type": "string",
+            "nullable": true
+          },
+          "proposedCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "proposedName": {
+            "type": "string",
+            "nullable": true
+          },
+          "targetPeriodId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "targetPeriodName": {
+            "type": "string",
+            "nullable": true
+          },
+          "willSkip": {
+            "type": "boolean"
+          },
+          "skipReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "dateShifts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RolloverDateShiftDto"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RolloverPreviewRequest": {
+        "type": "object",
+        "properties": {
+          "sourceSemesterId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "targetSemesterId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "departmentId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "includeRubrics": {
+            "type": "boolean"
+          },
+          "includeReviewGates": {
+            "type": "boolean"
+          },
+          "includeColdTemplates": {
+            "type": "boolean"
+          },
+          "includePolicies": {
+            "type": "boolean"
+          },
+          "shiftDates": {
+            "type": "boolean"
+          },
+          "loadVietnamHolidays": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RolloverSkippedItemDto": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
             "type": "string",
             "nullable": true
           }
@@ -96618,6 +98561,54 @@
             "format": "date-time"
           },
           "modelVersion": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TopicBatchCreatedItemDto": {
+        "type": "object",
+        "properties": {
+          "tempKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "topicId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TopicBatchSkippedItemDto": {
+        "type": "object",
+        "properties": {
+          "tempKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
             "type": "string",
             "nullable": true
           }

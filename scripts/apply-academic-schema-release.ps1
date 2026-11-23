@@ -25,6 +25,7 @@ $scripts = @(
     '20261122_add_ai_copilot_snapshots.sql',
     '20261123_upgrade_assistant_conversations_and_feedback.sql',
     '20261123_assignment_validity_and_scope_indexes.sql',
+    '20261124_expand_ai_setup_scopes.sql',
     '20261124_pol01_pol03_scoring_and_optional_defense.sql',
     '20261125_file_scan_and_gate_package_snapshots.sql',
     '20261126_file_preview_derivatives.sql',

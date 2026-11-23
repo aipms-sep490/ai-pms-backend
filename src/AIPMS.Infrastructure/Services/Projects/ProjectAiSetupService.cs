@@ -6,10 +6,12 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.AcademicKnowledge;
 using AIPMS.Application.Features.AcademicKnowledge.Abstractions;
+using AIPMS.Application.Features.Cold.Abstractions;
 using AIPMS.Application.Features.Evaluations.Commands;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.Milestones.Abstractions;
+using AIPMS.Application.Features.ReviewGates.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using MediatR;
@@ -18,13 +20,15 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.Infrastructure.Services.Projects;
 
-internal sealed class ProjectAiSetupService(
+internal sealed partial class ProjectAiSetupService(
     AipmsDbContext db,
     ICurrentUser currentUser,
     IProjectExecutionGuard executionGuard,
     ISender sender,
     IAuditTrail audit,
-    TimeProvider clock) : IAiSetupService
+    TimeProvider clock,
+    IReviewGateService? reviewGates = null,
+    IColdSubmissionService? coldService = null) : IAiSetupService
 {
     public async Task<ApplyProjectSetupResultDto> ApplyProjectSetupAsync(long projectId, ApplyProjectSetupRequest request, CancellationToken ct = default)
     {
@@ -390,13 +394,21 @@ internal sealed class ProjectAiSetupService(
             if (prev is not null) return prev with { Replay = true };
         }
 
+        var isAdmin = currentUser.Roles.Any(r => string.Equals(r, "ADMIN", StringComparison.OrdinalIgnoreCase));
         var user = await db.Users.AsNoTracking()
             .Where(u => u.Id == actorId && u.Status == "ACTIVE")
-            .Select(u => new { u.Id, u.DepartmentId, OrganizationId = u.Department == null ? (long?)null : u.Department.OrganizationId })
+            .Select(u => new
+            {
+                u.Id,
+                u.DepartmentId,
+                OrganizationId = u.Department == null ? (long?)null : u.Department.OrganizationId,
+            })
             .SingleOrDefaultAsync(ct) ?? throw new ForbiddenException("Tài khoản không hợp lệ.");
 
         var departmentId = request.DepartmentId ?? user.DepartmentId
             ?? throw new ArgumentException("Cần chỉ định khoa áp dụng cho bộ tiêu chí.");
+        if (!isAdmin && user.DepartmentId.HasValue && departmentId != user.DepartmentId.Value)
+            throw new ForbiddenException("Bạn chỉ có thể tạo bộ tiêu chí trong phạm vi bộ môn được phân công.");
 
         var semesterId = request.AcademicSemesterId;
         if (semesterId <= 0)
@@ -418,15 +430,24 @@ internal sealed class ProjectAiSetupService(
         var stage = request.EvaluationStage?.Trim().ToUpperInvariant();
         if (stage is not ("ON_GOING" or "COLD" or "DEFENSE")) stage = "DEFENSE";
 
+        var warnings = new List<string>();
+        var incompleteLeaves = CollectIncompleteLevelLeaves(criteriaInputs);
+        if (incompleteLeaves.Count > 0)
+        {
+            warnings.Add($"Có {incompleteLeaves.Count} tiêu chí lá chưa đủ 4 mức chất lượng mô tả chi tiết ({string.Join(", ", incompleteLeaves.Take(3))}{(incompleteLeaves.Count > 3 ? "…" : "")}). Hãy bổ sung trước khi gửi duyệt.");
+        }
+
         var createReq = new CreateRubricRequest(departmentId, semesterId, request.Code.Trim(), request.Name.Trim(), request.Description?.Trim(), criteriaInputs)
         {
             MajorId = majorId,
             ProjectMode = mode,
             EvaluationStage = stage,
-            EvaluationScope = scope
+            EvaluationScope = scope,
+            EffectiveFrom = request.EffectiveFrom,
+            EffectiveTo = request.EffectiveTo
         };
         var created = await sender.Send(new CreateRubricCommand(createReq), ct);
-        var result = new ApplyRubricSetupResultDto(created.Id, created.Code, created.Name, created.Status, request.Criteria.Count, false);
+        var result = new ApplyRubricSetupResultDto(created.Id, created.Code, created.Name, created.Status, request.Criteria.Count, false, warnings.Count > 0 ? warnings : null);
 
         db.AiSetupApplications.Add(new AiSetupApplication
         {
@@ -462,12 +483,20 @@ internal sealed class ProjectAiSetupService(
             var kids = string.IsNullOrEmpty(key) || !visited.Add(key)
                 ? []
                 : childrenByParent[key].Select((child, idx) => MapNode(child, idx + 1, new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase))).ToArray();
-            var levels = (node.Levels ?? [])
-                .OrderBy(l => l.LevelOrder)
-                .Select((l, idx) => new RubricCriterionLevelInput(l.LevelOrder > 0 ? l.LevelOrder : idx + 1, l.Label.Trim(), l.Descriptor.Trim(), l.ScoreFrom, l.ScoreTo))
-                .ToArray();
-            return new RubricCriterionInput(node.Name.Trim(), node.Description?.Trim(), node.WeightPercent,
-                node.MaxScore ?? 10m, sortOrder, node.IsRequired)
+            var hasKids = kids.Length > 0;
+            var levels = hasKids
+                ? []
+                : (node.Levels ?? [])
+                    .OrderBy(l => l.LevelOrder)
+                    .Select((l, idx) => new RubricCriterionLevelInput(l.LevelOrder > 0 ? l.LevelOrder : idx + 1, l.Label.Trim(), l.Descriptor.Trim(), l.ScoreFrom, l.ScoreTo))
+                    .ToArray();
+            return new RubricCriterionInput(
+                node.Name.Trim(),
+                node.Description?.Trim(),
+                node.WeightPercent,
+                hasKids ? null : (node.MaxScore ?? 10m),
+                sortOrder,
+                hasKids ? false : node.IsRequired)
             {
                 LearningOutcome = node.LearningOutcome?.Trim(),
                 EvidenceGuidance = node.EvidenceGuidance?.Trim(),
@@ -477,6 +506,22 @@ internal sealed class ProjectAiSetupService(
         }
 
         return roots.Select((root, idx) => MapNode(root, idx + 1, new HashSet<string>(StringComparer.OrdinalIgnoreCase))).ToArray();
+    }
+
+    private static List<string> CollectIncompleteLevelLeaves(IReadOnlyList<RubricCriterionInput> nodes)
+    {
+        var list = new List<string>();
+        foreach (var node in nodes)
+        {
+            if (node.Children.Count > 0)
+            {
+                list.AddRange(CollectIncompleteLevelLeaves(node.Children));
+                continue;
+            }
+            var validLevels = node.Levels is { Count: >= 4 } && node.Levels.All(l => !string.IsNullOrWhiteSpace(l.Descriptor));
+            if (!validLevels) list.Add(node.Name);
+        }
+        return list;
     }
 
     private static void ValidateNoDependencyCycles(IReadOnlyList<AssistantSetupTaskDto> tasks)

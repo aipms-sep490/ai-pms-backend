@@ -38,6 +38,35 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
         [FromServices] IAiSetupService setup, CancellationToken ct) =>
         setup.ApplyRubricSetupAsync(request, ct);
 
+    [HttpPost("ai/review-gate-setup/apply")]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<ApplyReviewGateSetupResultDto>(200)]
+    public Task<ApplyReviewGateSetupResultDto> ApplyReviewGateSetup([FromBody] ApplyReviewGateSetupRequest request,
+        [FromServices] IAiSetupService setup, CancellationToken ct) =>
+        setup.ApplyReviewGateSetupAsync(request, ct);
+
+    [HttpPost("ai/topic-batch-setup/apply")]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<ApplyTopicBatchSetupResultDto>(200)]
+    public Task<ApplyTopicBatchSetupResultDto> ApplyTopicBatchSetup([FromBody] ApplyTopicBatchSetupRequest request,
+        [FromServices] IAiSetupService setup, CancellationToken ct) =>
+        setup.ApplyTopicBatchSetupAsync(request, ct);
+
+    [HttpPost("ai/cold-template-setup/apply")]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<ApplyColdTemplateSetupResultDto>(200)]
+    public Task<ApplyColdTemplateSetupResultDto> ApplyColdTemplateSetup([FromBody] ApplyColdTemplateSetupRequest request,
+        [FromServices] IAiSetupService setup, CancellationToken ct) =>
+        setup.ApplyColdTemplateSetupAsync(request, ct);
+
+    [HttpPost("ai/milestone-template-setup/apply")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<ApplyMilestoneTemplateSetupResultDto>(200)]
+    public Task<ApplyMilestoneTemplateSetupResultDto> ApplyMilestoneTemplateSetup([FromBody] ApplyMilestoneTemplateSetupRequest request,
+        [FromServices] IAiSetupService setup, CancellationToken ct) =>
+        setup.ApplyMilestoneTemplateSetupAsync(request, ct);
+
     [HttpGet("assistant/review-rubrics")]
     public Task<IReadOnlyList<AssistantRubricOption>> ReviewRubrics([FromQuery] long projectId, CancellationToken ct) => service.ReviewRubricsAsync(projectId, ct);
     [HttpPost("/api/v1/projects/{projectId:long}/ai/deliverables/{deliverableVersionId:long}/review")]
@@ -214,6 +243,33 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     [HttpPost("knowledge-documents/{id:long}/reindex")]
     [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
     public Task<KnowledgeVersionDto> Reindex(long id, CancellationToken ct) => service.ReindexAsync(id, ct);
+
+    [HttpPost("knowledge-documents/extract-preview")]
+    [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
+    [EnableRateLimiting("ai-assistant")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
+    [ProducesResponseType<KnowledgeExtractPreviewDto>(200)]
+    public async Task<KnowledgeExtractPreviewDto> ExtractKnowledgePreview([FromForm] KnowledgeExtractPreviewForm input, CancellationToken ct)
+    {
+        AssistantUpload? upload = null;
+        if (input.File is not null)
+        {
+            if (input.File.Length is 0 or > UploadPolicies.AcademicAssistantFileLimit)
+                throw new ArgumentException("Tệp trích xuất tối đa 10 MB và không được rỗng.");
+            using var ms = new MemoryStream();
+            await input.File.CopyToAsync(ms, ct);
+            upload = new AssistantUpload(input.File.FileName, ms.ToArray());
+        }
+        return await service.ExtractKnowledgePreviewAsync(upload, input.DepartmentDocumentId, ct);
+    }
+}
+
+public sealed class KnowledgeExtractPreviewForm
+{
+    public IFormFile? File { get; set; }
+    public long? DepartmentDocumentId { get; set; }
 }
 
 public sealed class AssistantFilesForm
@@ -227,6 +283,7 @@ public sealed class AssistantFilesForm
     public string? DraftKind { get; set; }
     public string? ToolMode { get; set; }
     public long? RubricId { get; set; }
+    public long? ProjectPeriodId { get; set; }
     public List<IFormFile> Files { get; set; } = [];
-    public AcademicAssistantAskRequest ToRequest() => new(Query, Scope, ProjectId, ConversationId, ExpectedRevision, PageContext, DraftKind, ToolMode, RubricId);
+    public AcademicAssistantAskRequest ToRequest() => new(Query, Scope, ProjectId, ConversationId, ExpectedRevision, PageContext, DraftKind, ToolMode, RubricId, ProjectPeriodId);
 }

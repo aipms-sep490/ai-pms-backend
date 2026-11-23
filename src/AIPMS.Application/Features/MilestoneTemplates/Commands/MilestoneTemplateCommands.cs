@@ -9,7 +9,7 @@ namespace AIPMS.Application.Features.MilestoneTemplates.Commands;
 public sealed record CreateMilestoneTemplateCommand(string Name, string? Description) : IRequest<MilestoneTemplateDto>;
 public sealed record UpdateMilestoneTemplateCommand(long TemplateId, string Name, string? Description) : IRequest;
 public sealed record DeleteMilestoneTemplateCommand(long TemplateId) : IRequest;
-public sealed record CreateMilestoneTemplateVersionCommand(long TemplateId) : IRequest<MilestoneTemplateVersionDto>;
+public sealed record CreateMilestoneTemplateVersionCommand(long TemplateId, long? CopyFromVersionId = null) : IRequest<MilestoneTemplateVersionDto>;
 public sealed record PublishMilestoneTemplateVersionCommand(long VersionId) : IRequest;
 public sealed record AddMilestoneTemplateItemCommand(long VersionId, SaveMilestoneTemplateItemRequest Request) : IRequest<MilestoneTemplateVersionDto>;
 public sealed record UpdateMilestoneTemplateItemCommand(long ItemId, SaveMilestoneTemplateItemRequest Request) : IRequest<MilestoneTemplateVersionDto>;
@@ -31,7 +31,7 @@ public sealed class DeleteMilestoneTemplateHandler(IMilestoneTemplateRepository 
 { public Task Handle(DeleteMilestoneTemplateCommand r, CancellationToken ct) => repository.DeleteAsync(r.TemplateId, currentUser.UserId ?? throw new UnauthorizedException(), ct); }
 public sealed class CreateMilestoneTemplateVersionHandler(IMilestoneTemplateRepository repository, ICurrentUser currentUser, TimeProvider clock)
     : IRequestHandler<CreateMilestoneTemplateVersionCommand, MilestoneTemplateVersionDto>
-{ public Task<MilestoneTemplateVersionDto> Handle(CreateMilestoneTemplateVersionCommand r, CancellationToken ct) => repository.CreateVersionAsync(r.TemplateId, currentUser.UserId ?? throw new UnauthorizedException(), clock.GetUtcNow().UtcDateTime, ct); }
+{ public Task<MilestoneTemplateVersionDto> Handle(CreateMilestoneTemplateVersionCommand r, CancellationToken ct) => repository.CreateVersionAsync(r.TemplateId, currentUser.UserId ?? throw new UnauthorizedException(), clock.GetUtcNow().UtcDateTime, ct, r.CopyFromVersionId); }
 public sealed class PublishMilestoneTemplateVersionHandler(IMilestoneTemplateRepository repository, ICurrentUser currentUser, TimeProvider clock) : IRequestHandler<PublishMilestoneTemplateVersionCommand>
 { public Task Handle(PublishMilestoneTemplateVersionCommand r, CancellationToken ct) => repository.PublishVersionAsync(r.VersionId, currentUser.UserId ?? throw new UnauthorizedException(), clock.GetUtcNow().UtcDateTime, ct); }
 public sealed class AddMilestoneTemplateItemHandler(IMilestoneTemplateRepository repository, ICurrentUser currentUser, TimeProvider clock)
