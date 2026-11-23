@@ -35,9 +35,11 @@ public partial class AipmsDbContext
         builder.Entity<AiSetupApplication>(e =>
         {
             e.ToTable("ai_setup_applications", t =>
-                t.HasCheckConstraint("ck_ai_setup_applications_scope", "[scope_type] IN ('PROJECT','RUBRIC')"));
+                t.HasCheckConstraint(
+                    "ck_ai_setup_applications_scope",
+                    "[scope_type] IN ('PROJECT','RUBRIC','REVIEW_GATE','COLD_TEMPLATE','TOPIC_BATCH','KNOWLEDGE_DOC','MILESTONE_TEMPLATE','SEMESTER_ROLLOVER')"));
             e.HasKey(x => x.Id);
-            e.Property(x => x.ScopeType).HasMaxLength(24).IsUnicode(false);
+            e.Property(x => x.ScopeType).HasMaxLength(32).IsUnicode(false);
             e.HasOne<M.User>().WithMany().HasForeignKey(x => x.ActorId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<M.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
             e.HasIndex(x => new { x.ActorId, x.IdempotencyKey }).IsUnique();
