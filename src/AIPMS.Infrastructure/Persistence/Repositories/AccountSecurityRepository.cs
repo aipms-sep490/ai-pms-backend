@@ -51,12 +51,14 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
 
         if (!string.IsNullOrWhiteSpace(status))
         {
-            query = query.Where(user => user.Status == status);
+            var normalizedStatus = status.Trim().ToUpperInvariant();
+            query = query.Where(user => user.Status == normalizedStatus);
         }
 
         if (!string.IsNullOrWhiteSpace(role))
         {
-            query = query.Where(user => user.UserRoleUsers.Any(ur => ur.Role.Code == role));
+            var normalizedRole = role.Trim().ToUpperInvariant();
+            query = query.Where(user => user.UserRoleUsers.Any(ur => ur.Role.Code == normalizedRole));
         }
 
         if (departmentId.HasValue)

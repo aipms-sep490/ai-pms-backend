@@ -18652,6 +18652,14 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "semesterId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "requestBody": {

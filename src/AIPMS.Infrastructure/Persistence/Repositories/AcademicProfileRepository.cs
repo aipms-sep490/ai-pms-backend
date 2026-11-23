@@ -132,7 +132,10 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
             user.AcademicProfileReviewedAt = null; user.AcademicProfileRejectionReason = null; user.UpdatedAt = now;
             await db.SaveChangesAsync(ct);
         }
-        var result = await GetAsync(userId, ct) ?? throw new NotFoundException("User", userId);
+        var result = await db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(Projection)
+            .SingleOrDefaultAsync(ct) ?? throw new NotFoundException("User", userId);
         return result with { ConcurrencyToken = Convert.ToBase64String(user.RowVersion) };
     }
 

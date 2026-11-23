@@ -32,6 +32,7 @@ public interface IDepartmentStudentService
     Task<DepartmentStudentDetailDto> UpdateDepartmentStudentAcademicAsync(
         long studentUserId,
         UpdateDepartmentStudentAcademicRequest request,
+        long? semesterId = null,
         CancellationToken ct = default);
 
     Task<RosterFile> ExportDepartmentStudentsAsync(

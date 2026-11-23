@@ -333,7 +333,7 @@ internal sealed partial class ReviewGateService
         if (staffIds.Length > 0)
         {
             await V4WorkflowNotificationHelper.EmitAsync(
-                db, Actor, $"SLA_{slaTier}", title, content, entityType, entityId, staffIds, now, enqueueEmail: true, ct);
+                db, Actor, $"SLA_{slaTier}", title, content, entityType, entityId, staffIds, now, enqueueEmail: true, ct, excludeActor: false);
         }
 
         collector.Add(new SlaEventSummaryDto(entityType, entityId, roundNumber, departmentId, slaTier, DateTime.SpecifyKind(now, DateTimeKind.Utc)));

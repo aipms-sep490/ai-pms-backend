@@ -261,10 +261,23 @@ public sealed class DepartmentStudentAndNotificationV4Tests(EvaluationDraftDatab
         Assert.Equal(HttpStatusCode.Forbidden, crossRosterExport.StatusCode);
         Assert.Equal("SCOPE_ACCESS_DENIED", await ReadProblemCode(crossRosterExport));
 
-        // 4. Admin role/department user filters + Account Export (Admin 200, Staff 403)
-        var adminUsers = await ReadJson<PagedResult<UserAccountDto>>(await adminClient.GetAsync($"/api/v1/users?role=STUDENT&departmentId={s.Scope.Users.DepartmentId}"));
+        // 4. Admin role/department user filters (case-insensitive) + Account Export (Admin 200, Staff 403) + Admin updating Lecturer scope (no 404 regression)
+        var adminUsers = await ReadJson<PagedResult<UserAccountDto>>(await adminClient.GetAsync($"/api/v1/users?role=student&departmentId={s.Scope.Users.DepartmentId}"));
         Assert.Contains(adminUsers.Items, u => u.Id == pendingStudentId && u.ClassCode == "SE1805");
         Assert.DoesNotContain(adminUsers.Items, u => u.Id == otherStudentId);
+
+        var staffUser = await ReadJson<UserAccountDto>(await adminClient.GetAsync($"/api/v1/users/{otherStaffId}"));
+        var patchStaffScope = await adminClient.PatchAsJsonAsync(
+            $"/api/v1/users/{otherStaffId}/academic-profile",
+            new { departmentId = otherDeptId, majorId = otherMajorId, concurrencyToken = staffUser.ConcurrencyToken });
+        Assert.Equal(HttpStatusCode.OK, patchStaffScope.StatusCode);
+
+        // Active supervisor cannot have department/major reassigned mid-supervision (409 Conflict)
+        var lectUser = await ReadJson<UserAccountDto>(await adminClient.GetAsync($"/api/v1/users/{supervisorUserId}"));
+        var patchActiveSupScope = await adminClient.PatchAsJsonAsync(
+            $"/api/v1/users/{supervisorUserId}/academic-profile",
+            new { departmentId = s.Scope.Users.DepartmentId, majorId, concurrencyToken = lectUser.ConcurrencyToken });
+        Assert.Equal(HttpStatusCode.Conflict, patchActiveSupScope.StatusCode);
 
         var adminExport = await adminClient.GetAsync($"/api/v1/users/export?role=STUDENT&departmentId={s.Scope.Users.DepartmentId}");
         Assert.Equal(HttpStatusCode.OK, adminExport.StatusCode);
@@ -288,6 +301,13 @@ public sealed class DepartmentStudentAndNotificationV4Tests(EvaluationDraftDatab
             new SupervisorFinalLockDecisionRequest("RETURN_TO_OPEN", "Please upload final demo video."));
         Assert.Equal(HttpStatusCode.OK, returnLockRes.StatusCode);
 
+        // Re-request lock and sign LOCK -> emits FINAL_SUBMISSION_LOCKED (+ Email)
+        Assert.Equal(HttpStatusCode.OK, (await leaderClient.PostAsync($"/api/v1/projects/{s.ProjectId}/final-submission/request-lock", null)).StatusCode);
+        var signLockRes = await supervisorClient.PostAsJsonAsync(
+            $"/api/v1/projects/{s.ProjectId}/final-submission/supervisor-lock",
+            new SupervisorFinalLockDecisionRequest("LOCK", "Approved for defense."));
+        Assert.Equal(HttpStatusCode.OK, signLockRes.StatusCode);
+
         await using (var verify = database.CreateContext())
         {
             var types = await verify.Notifications.AsNoTracking()
@@ -299,10 +319,11 @@ public sealed class DepartmentStudentAndNotificationV4Tests(EvaluationDraftDatab
             Assert.Contains("CRITICAL_ANCHORED_COMMENT_ADDED", types);
             Assert.Contains("FINAL_LOCK_REQUESTED", types);
             Assert.Contains("FINAL_LOCK_RETURNED", types);
+            Assert.Contains("FINAL_SUBMISSION_LOCKED", types);
 
             // Critical 2-step Final Lock notifications enqueue SMTP email delivery
             var lockEmailQueued = await verify.Set<NotificationEmailDelivery>().AsNoTracking()
-                .AnyAsync(d => d.NotificationRecipient.Notification.NotificationType == "FINAL_LOCK_REQUESTED");
+                .AnyAsync(d => d.NotificationRecipient.Notification.NotificationType == "FINAL_SUBMISSION_LOCKED");
             Assert.True(lockEmailQueued);
         }
     }

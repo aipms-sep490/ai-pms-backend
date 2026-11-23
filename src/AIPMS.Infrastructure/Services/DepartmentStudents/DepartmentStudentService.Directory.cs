@@ -267,9 +267,12 @@ internal sealed partial class DepartmentStudentService
     public async Task<DepartmentStudentDetailDto> UpdateDepartmentStudentAcademicAsync(
         long studentUserId,
         UpdateDepartmentStudentAcademicRequest request,
+        long? semesterId = null,
         CancellationToken ct = default)
     {
         var (actorId, deptId) = await RequireDepartmentStaffAsync(ct);
+        if (semesterId.HasValue && semesterId.Value <= 0)
+            throw new ValidationException(new Dictionary<string, string[]> { ["semesterId"] = ["Semester ID must be positive."] });
         var classCode = NormalizeClassCode(request.ClassCode);
         var curriculumCode = string.IsNullOrWhiteSpace(request.CurriculumCode) ? null : request.CurriculumCode.Trim();
         if (curriculumCode is { Length: > 100 } || (curriculumCode is not null && curriculumCode.Any(char.IsControl)))
@@ -327,7 +330,7 @@ internal sealed partial class DepartmentStudentService
             }), ct);
 
         await tx.CommitAsync(ct);
-        return await GetDepartmentStudentDetailAsync(studentUserId, null, ct);
+        return await GetDepartmentStudentDetailAsync(studentUserId, semesterId, ct);
     }
 
     public async Task<RosterFile> ExportDepartmentStudentsAsync(

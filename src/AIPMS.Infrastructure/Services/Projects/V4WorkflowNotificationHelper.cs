@@ -23,9 +23,13 @@ internal static class V4WorkflowNotificationHelper
         IEnumerable<long> recipientIds,
         DateTime nowUtc,
         bool enqueueEmail,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool excludeActor = true)
     {
-        var distinctIds = recipientIds.Where(id => id > 0 && id != actorId).Distinct().ToArray();
+        var distinctIds = recipientIds
+            .Where(id => id > 0 && (!excludeActor || id != actorId))
+            .Distinct()
+            .ToArray();
         if (distinctIds.Length == 0) return;
 
         var activeIds = await db.Users.AsNoTracking()

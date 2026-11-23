@@ -359,6 +359,19 @@ internal sealed partial class ProjectChecklistService
             "FINAL_SUBMISSION", existingSub.Id,
             new Dictionary<string, object?> { ["projectId"] = projectId, ["coldManifestSha256"] = manifestSha, ["forceReason"] = forceReason }), ct);
 
+        var studentIds = await V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(db, projectId, ct);
+        var lockScope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: false);
+        var leadStaffIds = lockScope.LeadDepartmentId.HasValue
+            ? await V4WorkflowNotificationHelper.GetDepartmentStaffIdsAsync(db, lockScope.LeadDepartmentId.Value, ct)
+            : [];
+        await V4WorkflowNotificationHelper.EmitAsync(
+            db, ActorId, "FINAL_SUBMISSION_LOCKED",
+            $"Hồ sơ bàn giao cuối kỳ đã được khóa (Đồ án #{projectId})",
+            forceLockedBy.HasValue
+                ? $"Khoa đã thực hiện khóa cưỡng chế gói bàn giao cuối kỳ & hồ sơ chấm nguội. Lý do: {forceReason}"
+                : "GVHD Chính đã ký khóa gói bàn giao cuối kỳ & hồ sơ chấm nguội (Bước 2). Đồ án đã sẵn sàng chấm điểm.",
+            "PROJECT", projectId, studentIds.Concat(leadStaffIds), now, enqueueEmail: true, ct);
+
         return new PreDefenseLockStatusDto(projectId, project.Status, draft.LockWorkflowStatus,
             draft.LockRequestedBy, draft.LockRequestedAt, draft.LockedBySupervisorId, draft.ForceLockedBy, draft.ForceLockReason,
             manifestSha, existingSub.Id, coldPkg?.Id);

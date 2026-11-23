@@ -75,8 +75,9 @@ public sealed class DepartmentStudentsController(IDepartmentStudentService servi
     public Task<DepartmentStudentDetailDto> UpdateDepartmentStudentAcademic(
         long studentUserId,
         UpdateDepartmentStudentAcademicRequest request,
+        [FromQuery] long? semesterId = null,
         CancellationToken ct = default)
-        => service.UpdateDepartmentStudentAcademicAsync(studentUserId, request, ct);
+        => service.UpdateDepartmentStudentAcademicAsync(studentUserId, request, semesterId, ct);
 
     [Authorize(Roles = AppRoles.DepartmentStaff)]
     [HttpGet("/api/v1/departments/me/students/export")]
