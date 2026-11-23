@@ -390,6 +390,7 @@ public sealed class PreSemesterPhase2SetupTests
         public Task<byte[]> ExportTemplateWorkbook(long id, CancellationToken ct) => throw new NotImplementedException();
         public Task<GateWorkbookPreview> PreviewTemplateWorkbook(long id, byte[] content, CancellationToken ct) => throw new NotImplementedException();
         public Task<ReviewGateTemplateDto> PublishTemplate(long id, PublishReviewGateTemplateRequest? request, CancellationToken ct) => throw new NotImplementedException();
+        public Task DeleteTemplate(long id, CancellationToken ct) => throw new NotImplementedException();
         public Task<StudentReviewTimelineDto> Timeline(long projectId, CancellationToken ct) => throw new NotImplementedException();
         public Task<StudentReviewTimelineDto> MyTimeline(CancellationToken ct) => throw new NotImplementedException();
         public Task<StudentReviewTimelineDto> SubmitEvidence(long projectId, string gateCode, SubmitReviewGateEvidenceRequest request, CancellationToken ct) => throw new NotImplementedException();

@@ -288,6 +288,29 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         return Map(row);
     }, ct);
 
+    public Task DeleteTemplate(long id, CancellationToken ct) => transactions.InTransactionAsync(async token =>
+    {
+        await RequireTemplateAuthority(id, token);
+        var row = await db.ReviewGateTemplates.Include(x => x.Gates).ThenInclude(x => x.Requirements).SingleOrDefaultAsync(x => x.Id == id, token)
+            ?? throw new NotFoundException("ReviewGateTemplate", id);
+        if (!string.Equals(row.Status, "DRAFT", StringComparison.OrdinalIgnoreCase))
+            throw new ConflictException("Chỉ được xóa mẫu tiến trình ở trạng thái Bản nháp (DRAFT). Mẫu đã công bố không thể xóa.");
+        if (await db.ProjectGateInstances.AsNoTracking().AnyAsync(x => x.TemplateId == id, token))
+            throw new ConflictException("Mẫu tiến trình này đang được sử dụng bởi đồ án nên không thể xóa.");
+
+        var code = row.Code;
+        var name = row.Name;
+        var version = row.Version;
+        db.ReviewGateRequirements.RemoveRange(row.Gates.SelectMany(x => x.Requirements));
+        db.ReviewGateDefinitions.RemoveRange(row.Gates);
+        db.ReviewGateTemplates.Remove(row);
+        await db.SaveChangesAsync(token);
+
+        await audit.RecordAsync(new(Actor, "REVIEW_GATE_TEMPLATE_DELETED", "REVIEW_GATE_TEMPLATE", id,
+            new Dictionary<string, object?> { ["code"] = code, ["name"] = name, ["version"] = version }), token);
+        return true;
+    }, ct);
+
     public Task<StudentReviewTimelineDto> Timeline(long projectId, CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
         var project = await db.Projects.AsNoTracking().SingleOrDefaultAsync(x => x.Id == projectId, token)
