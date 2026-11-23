@@ -337,7 +337,12 @@ public sealed class PrP2CAllInOneHubTests(EvaluationDraftDatabaseFixture databas
         var timeline = await Body<ProjectAuditTimelineEntryDto[]>(await staff.GetAsync($"/api/v1/projects/{s.ProjectId}/hub/audit-timeline"));
         Assert.NotEmpty(timeline);
 
-        // Negative scope checks: out-of-scope staff and student receive 403 on health-pulse and audit-timeline
+        // Negative scope checks: out-of-scope staff, student, and pure Admin receive 403 on project Chat/health-pulse;
+        // pure Admin still retains read-only audit timeline access for security governance.
+        using var admin = app.CreateAuthenticatedClient(s.Scope.Users.Admin, roles: ["ADMIN"]);
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.GetAsync($"/api/v1/projects/{s.ProjectId}/hub/channels/IT")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.GetAsync($"/api/v1/projects/{s.ProjectId}/hub/health-pulse")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync($"/api/v1/projects/{s.ProjectId}/hub/audit-timeline")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await otherStaff.GetAsync($"/api/v1/projects/{s.ProjectId}/hub/health-pulse")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await otherStaff.GetAsync($"/api/v1/projects/{s.ProjectId}/hub/audit-timeline")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await leader.GetAsync($"/api/v1/projects/{s.ProjectId}/hub/health-pulse")).StatusCode);

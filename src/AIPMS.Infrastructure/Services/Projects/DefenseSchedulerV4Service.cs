@@ -38,11 +38,26 @@ internal sealed partial class DefenseSchedulerV4Service(
             throw new ForbiddenException("Only Administrators can toggle optional defense room scheduling.");
     }
 
-    private void RequireStaffOrAdmin()
+    private async Task<(long ActorId, long DepartmentId)> RequireDepartmentStaffAsync(CancellationToken ct)
     {
         if (!current.IsAuthenticated || !current.UserId.HasValue) throw new UnauthorizedException();
-        if (!current.Roles.Contains(AppRoles.Admin) && !current.Roles.Contains(AppRoles.DepartmentStaff))
-            throw new ForbiddenException("Only Administrators or Department Staff can manage optional defense room scheduling.");
+        var staff = await db.Users.AsNoTracking()
+            .Where(u => u.Id == current.UserId.Value && u.Status == "ACTIVE"
+                && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.DepartmentStaff)
+                && u.DepartmentId != null && u.Department != null && u.Department.IsActive)
+            .Select(u => new { u.Id, DepartmentId = u.DepartmentId!.Value })
+            .SingleOrDefaultAsync(ct);
+        if (staff is null)
+            throw new ForbiddenException("Only active Department Staff can operate defense room scheduling and standby pools.", WorkflowErrorCodes.ScopeAccessDenied);
+        return (staff.Id, staff.DepartmentId);
+    }
+
+    private async Task RequireProjectInDepartmentScopeAsync(long projectId, long staffDepartmentId, CancellationToken ct)
+    {
+        var inScope = await db.ProjectMajors.AsNoTracking()
+            .AnyAsync(pm => pm.ProjectId == projectId && pm.Major.DepartmentId == staffDepartmentId, ct);
+        if (!inScope)
+            throw new ForbiddenException("This project is outside your department scope.", WorkflowErrorCodes.ScopeAccessDenied);
     }
 
     public async Task<PeriodDefenseRoomSchedulingDto> UpdatePeriodSchedulingConfigAsync(
@@ -74,13 +89,14 @@ internal sealed partial class DefenseSchedulerV4Service(
 
     public async Task<DefenseTechCheckDto> RecordTechCheckAsync(RecordDefenseTechCheckRequest input, CancellationToken ct)
     {
-        RequireStaffOrAdmin();
+        var (_, staffDeptId) = await RequireDepartmentStaffAsync(ct);
         var status = input.Status?.Trim().ToUpperInvariant() ?? "";
         if (status is not ("PENDING" or "PASSED" or "FAILED"))
             throw new DomainException("Tech check status must be PENDING, PASSED, or FAILED.", WorkflowErrorCodes.ValidationFailed);
 
         if (!await db.Projects.AsNoTracking().AnyAsync(p => p.Id == input.ProjectId, ct))
             throw new NotFoundException("Project", input.ProjectId);
+        await RequireProjectInDepartmentScopeAsync(input.ProjectId, staffDeptId, ct);
         if (!await db.Set<Room>().AsNoTracking().AnyAsync(r => r.Id == input.RoomId, ct))
             throw new NotFoundException("Room", input.RoomId);
 
@@ -108,15 +124,17 @@ internal sealed partial class DefenseSchedulerV4Service(
 
     public async Task<DefenseSessionV4Dto> ScheduleSessionV4Async(ScheduleDefenseV4Request input, CancellationToken ct)
     {
-        RequireStaffOrAdmin();
+        var (_, staffDeptId) = await RequireDepartmentStaffAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         await AcquireScheduleLockAsync(ct);
 
         var project = await db.Projects
-            .Include(p => p.ProjectMajors)
+            .Include(p => p.ProjectMajors).ThenInclude(pm => pm.Major)
             .Include(p => p.Team).ThenInclude(t => t.TeamMembers)
             .SingleOrDefaultAsync(p => p.Id == input.ProjectId, ct)
             ?? throw new NotFoundException("Project", input.ProjectId);
+        if (!project.ProjectMajors.Any(pm => pm.Major.DepartmentId == staffDeptId))
+            throw new ForbiddenException("This project is outside your department scope.", WorkflowErrorCodes.ScopeAccessDenied);
 
         var periodId = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
             .Where(s => s.ProjectId == input.ProjectId)
@@ -266,16 +284,27 @@ internal sealed partial class DefenseSchedulerV4Service(
             .SingleOrDefaultAsync(s => s.Id == input.DefenseSessionId, ct)
             ?? throw new NotFoundException("DefenseSession", input.DefenseSessionId);
 
-        var isStaffOrAdmin = current.Roles.Contains(AppRoles.Admin) || current.Roles.Contains(AppRoles.DepartmentStaff);
-        if (!isStaffOrAdmin && !await db.Set<DefenseCommitteeMember>().AsNoTracking()
+        var project = await db.Projects.AsNoTracking()
+            .Include(p => p.ProjectMajors).ThenInclude(pm => pm.Major)
+            .SingleAsync(p => p.Id == session.ProjectId, ct);
+
+        var isScopedStaff = false;
+        if (current.Roles.Contains(AppRoles.DepartmentStaff))
+        {
+            var staffDeptId = await db.Users.AsNoTracking()
+                .Where(u => u.Id == Actor && u.Status == "ACTIVE")
+                .Select(u => u.DepartmentId)
+                .SingleOrDefaultAsync(ct);
+            isScopedStaff = staffDeptId.HasValue && project.ProjectMajors.Any(pm => pm.Major.DepartmentId == staffDeptId.Value);
+        }
+        if (!isScopedStaff && !await db.Set<DefenseCommitteeMember>().AsNoTracking()
             .AnyAsync(m => m.CommitteeId == session.CommitteeId && m.UserId == Actor && (m.Role == "CHAIR" || m.Role == "SECRETARY"), ct))
-            throw new ForbiddenException("Only Admin, Department Staff, Chair, or Secretary may request a defense slot change.");
+            throw new ForbiddenException("Only scoped Department Staff, Chair, or Secretary may request a defense slot change.", WorkflowErrorCodes.ScopeAccessDenied);
 
         var startUtc = DateTime.SpecifyKind(session.StartAt, DateTimeKind.Utc);
         if (startUtc - Now < TimeSpan.FromHours(24))
             throw new DomainException("Defense schedule changes require at least 24 hours advance notice.", "CHANGE_REQUEST_WINDOW_EXPIRED");
 
-        var project = await db.Projects.AsNoTracking().Include(p => p.ProjectMajors).SingleAsync(p => p.Id == session.ProjectId, ct);
         var isInterdisciplinary = string.Equals(project.TrackCode, "IT_MKT", StringComparison.OrdinalIgnoreCase)
             || project.ProjectMajors.Count > 1;
         var memberIds = await db.Set<DefenseCommitteeMember>().AsNoTracking()

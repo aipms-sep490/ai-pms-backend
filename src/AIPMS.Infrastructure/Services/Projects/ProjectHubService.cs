@@ -79,14 +79,20 @@ internal sealed partial class ProjectHubService(
 
     private static void RequireProjectMemberOrStaff(ProjectAccessContext ctx)
     {
-        if (!ctx.IsAdmin && !ctx.IsScopedStaff && !ctx.IsPrimarySupervisor && !ctx.IsMentor && !ctx.IsTeamMember)
-            throw new ForbiddenException("You do not have access to this project workspace.");
+        if (!ctx.IsScopedStaff && !ctx.IsPrimarySupervisor && !ctx.IsMentor && !ctx.IsTeamMember)
+            throw new ForbiddenException("You do not have access to this project workspace.", WorkflowErrorCodes.ScopeAccessDenied);
     }
 
-    private static void RequireExecutiveOrSupervisorScope(ProjectAccessContext ctx)
+    private static void RequireHealthPulseScope(ProjectAccessContext ctx)
+    {
+        if (!ctx.IsScopedStaff && !ctx.IsPrimarySupervisor && !ctx.IsMentor)
+            throw new ForbiddenException("Only scoped Department Staff, Supervisors, or Mentors can view project health pulse.", WorkflowErrorCodes.ScopeAccessDenied);
+    }
+
+    private static void RequireAuditTimelineScope(ProjectAccessContext ctx)
     {
         if (!ctx.IsAdmin && !ctx.IsScopedStaff && !ctx.IsPrimarySupervisor && !ctx.IsMentor)
-            throw new ForbiddenException("Only authorized Department Staff, Supervisors, or Administrators can view executive pulse and audit timeline.");
+            throw new ForbiddenException("Only authorized Department Staff, Supervisors, Mentors, or Administrators can view audit timeline.", WorkflowErrorCodes.ScopeAccessDenied);
     }
 
     private static string NormalizeChannelScope(string scope)
@@ -101,7 +107,7 @@ internal sealed partial class ProjectHubService(
     {
         RequireProjectMemberOrStaff(ctx);
         if (channelScope == "GENERAL") return;
-        if (ctx.IsAdmin || ctx.IsPrimarySupervisor || ctx.IsTeamLeader || ctx.IsScopedStaff) return;
+        if (ctx.IsPrimarySupervisor || ctx.IsTeamLeader || ctx.IsScopedStaff) return;
         if (MatchesChannelDiscipline(channelScope, ctx.ActorMajorCode, ctx.ActorMajorName)) return;
         throw new ForbiddenException($"You do not have access to the '{channelScope}' discipline channel.", WorkflowErrorCodes.ScopeAccessDenied);
     }

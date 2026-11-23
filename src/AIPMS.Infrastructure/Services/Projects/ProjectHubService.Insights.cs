@@ -119,7 +119,7 @@ internal sealed partial class ProjectHubService
     public async Task<ProjectHealthPulseDto> GetHealthPulseAsync(long projectId, CancellationToken ct)
     {
         var ctx = await LoadAccessAsync(projectId, ct);
-        RequireExecutiveOrSupervisorScope(ctx);
+        RequireHealthPulseScope(ctx);
         var now = Now;
 
         var gateReqs = await db.ProjectGateRequirements.AsNoTracking()
@@ -163,22 +163,22 @@ internal sealed partial class ProjectHubService
         if (totalMandatory == 0 && tasks.Length == 0 && totalReports == 0)
         {
             status = "INSUFFICIENT_DATA";
-            summary = "ChÆ°a Ä‘á»§ tÃ­n hiá»‡u váº­n hÃ nh (chÆ°a cÃ³ Gate, Task hoáº·c BÃ¡o cÃ¡o tuáº§n) Ä‘á»ƒ káº¿t luáº­n sá»©c khá»e Ä‘á»“ Ã¡n.";
+            summary = "Chưa đủ tín hiệu vận hành (chưa có Gate, Task hoặc Báo cáo tuần) để kết luận sức khỏe đồ án.";
         }
         else if (blockedOver48h >= 2 || (evidenceReadyPct.HasValue && evidenceReadyPct.Value < 50m) || (balanceRatio.HasValue && balanceRatio.Value < 0.25m))
         {
             status = "RED";
-            summary = "Äá»“ Ã¡n cÃ³ nguy cÆ¡ cao: tá»“n Ä‘á»ng Task BLOCKED > 48h, tá»· lá»‡ minh chá»©ng READY tháº¥p hoáº·c lá»‡ch nhá»‹p IT/MKT.";
+            summary = "Đồ án có nguy cơ cao: tồn đọng Task BLOCKED > 48h, tỷ lệ minh chứng READY thấp hoặc lệch nhịp IT/MKT.";
         }
         else if (blockedOver48h == 1 || (evidenceReadyPct.HasValue && evidenceReadyPct.Value < 80m) || recentReports == 0 || (balanceRatio.HasValue && balanceRatio.Value < 0.50m))
         {
             status = "YELLOW";
-            summary = "Äá»“ Ã¡n cáº§n theo dÃµi: kiá»ƒm tra bÃ¡o cÃ¡o tuáº§n, minh chá»©ng cÃ²n thiáº¿u hoáº·c tiáº¿n Ä‘á»™ liÃªn ngÃ nh.";
+            summary = "Đồ án cần theo dõi: kiểm tra báo cáo tuần, minh chứng còn thiếu hoặc tiến độ liên ngành.";
         }
         else
         {
             status = "GREEN";
-            summary = "Táº¥t cáº£ 4 tÃ­n hiá»‡u thá»±c thi Ä‘ang á»•n Ä‘á»‹nh.";
+            summary = "Tất cả 4 tín hiệu thực thi đang ổn định.";
         }
 
         return new(projectId, status, summary, signals, now);
@@ -187,7 +187,7 @@ internal sealed partial class ProjectHubService
     public async Task<IReadOnlyList<ProjectAuditTimelineEntryDto>> GetAuditTimelineAsync(long projectId, int limit, CancellationToken ct)
     {
         var ctx = await LoadAccessAsync(projectId, ct);
-        RequireExecutiveOrSupervisorScope(ctx);
+        RequireAuditTimelineScope(ctx);
         var take = Math.Clamp(limit, 1, 200);
         var pid = projectId.ToString();
         var marker = $"\"projectId\":{projectId}";

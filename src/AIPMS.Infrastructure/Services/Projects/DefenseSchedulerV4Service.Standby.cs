@@ -16,7 +16,24 @@ internal sealed partial class DefenseSchedulerV4Service
 {
     public async Task<StandbyPoolMemberDto> AddStandbyPoolMemberAsync(AddStandbyPoolMemberRequest input, CancellationToken ct)
     {
-        RequireStaffOrAdmin();
+        var (_, staffDeptId) = await RequireDepartmentStaffAsync(ct);
+        if (!await db.ProjectPeriods.AsNoTracking().AnyAsync(p => p.Id == input.ProjectPeriodId, ct))
+            throw new NotFoundException("ProjectPeriod", input.ProjectPeriodId);
+
+        var major = await db.Majors.AsNoTracking()
+            .SingleOrDefaultAsync(m => m.Id == input.MajorId && m.IsActive, ct);
+        if (major is null || major.DepartmentId != staffDeptId)
+            throw new ForbiddenException("Standby pool major must belong to your active department.", WorkflowErrorCodes.ScopeAccessDenied);
+
+        if (input.DepartmentId > 0 && input.DepartmentId != staffDeptId)
+            throw new ForbiddenException("Cannot register standby pool members for another department.", WorkflowErrorCodes.ScopeAccessDenied);
+
+        var user = await db.Users.AsNoTracking()
+            .Where(u => u.Id == input.UserId && u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Lecturer))
+            .Select(u => new { u.Id, u.FullName })
+            .SingleOrDefaultAsync(ct)
+            ?? throw new DomainException("Standby pool member must be an active Lecturer account.", WorkflowErrorCodes.EvaluatorIneligible);
+
         var existing = await db.Set<DefenseStandbyPoolEntry>()
             .SingleOrDefaultAsync(x => x.ProjectPeriodId == input.ProjectPeriodId && x.UserId == input.UserId && x.MajorId == input.MajorId, ct);
         if (existing is null)
@@ -26,7 +43,7 @@ internal sealed partial class DefenseSchedulerV4Service
                 ProjectPeriodId = input.ProjectPeriodId,
                 UserId = input.UserId,
                 MajorId = input.MajorId,
-                DepartmentId = input.DepartmentId,
+                DepartmentId = staffDeptId,
                 IsAvailable = input.IsAvailable,
                 CreatedAt = Now
             };
@@ -35,20 +52,23 @@ internal sealed partial class DefenseSchedulerV4Service
         else
         {
             existing.IsAvailable = input.IsAvailable;
-            existing.DepartmentId = input.DepartmentId;
+            existing.DepartmentId = staffDeptId;
         }
         await db.SaveChangesAsync(ct);
 
-        var name = await db.Users.AsNoTracking().Where(u => u.Id == input.UserId).Select(u => u.FullName).SingleAsync(ct);
-        return new(existing.Id, existing.ProjectPeriodId, existing.UserId, name, existing.MajorId, existing.DepartmentId, existing.IsAvailable);
+        return new(existing.Id, existing.ProjectPeriodId, existing.UserId, user.FullName, existing.MajorId, existing.DepartmentId, existing.IsAvailable);
     }
 
     public async Task<IReadOnlyList<StandbyPoolMemberDto>> ListStandbyPoolAsync(long periodId, CancellationToken ct)
     {
-        RequireStaffOrAdmin();
+        var (_, staffDeptId) = await RequireDepartmentStaffAsync(ct);
+        if (periodId <= 0)
+            throw new ValidationException(new Dictionary<string, string[]> { ["periodId"] = ["Period ID must be a positive integer."] });
+
         return await (from s in db.Set<DefenseStandbyPoolEntry>().AsNoTracking()
                       join u in db.Users.AsNoTracking() on s.UserId equals u.Id
-                      where s.ProjectPeriodId == periodId && s.IsAvailable
+                      join m in db.Majors.AsNoTracking() on s.MajorId equals m.Id
+                      where s.ProjectPeriodId == periodId && s.IsAvailable && m.DepartmentId == staffDeptId
                       orderby s.MajorId, u.FullName
                       select new StandbyPoolMemberDto(s.Id, s.ProjectPeriodId, s.UserId, u.FullName, s.MajorId, s.DepartmentId, s.IsAvailable))
             .ToArrayAsync(ct);
@@ -56,7 +76,7 @@ internal sealed partial class DefenseSchedulerV4Service
 
     public async Task<StandbySwapResultDto> StandbySwapAsync(long sessionId, StandbySwapRequest input, CancellationToken ct)
     {
-        RequireStaffOrAdmin();
+        var (_, staffDeptId) = await RequireDepartmentStaffAsync(ct);
         if (string.IsNullOrWhiteSpace(input.Reason) || input.Reason.Trim().Length < 5)
             throw new DomainException("Standby swap reason must be at least 5 characters.", WorkflowErrorCodes.ValidationFailed);
 
@@ -65,6 +85,7 @@ internal sealed partial class DefenseSchedulerV4Service
 
         var session = await db.Set<DefenseSession>().SingleOrDefaultAsync(s => s.Id == sessionId, ct)
             ?? throw new NotFoundException("DefenseSession", sessionId);
+        await RequireProjectInDepartmentScopeAsync(session.ProjectId, staffDeptId, ct);
         var committee = await db.Set<DefenseCommittee>().Include(c => c.Members)
             .SingleAsync(c => c.Id == session.CommitteeId, ct);
 

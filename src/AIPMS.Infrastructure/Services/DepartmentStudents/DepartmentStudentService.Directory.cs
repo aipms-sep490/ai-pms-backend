@@ -13,6 +13,29 @@ namespace AIPMS.Infrastructure.Services.DepartmentStudents;
 
 internal sealed partial class DepartmentStudentService
 {
+    private static readonly HashSet<string> ValidProfileStatuses = new(["PENDING", "VERIFIED", "REJECTED"], StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> ValidQualificationStatuses = new(["NOT_SUBMITTED", "PENDING_VERIFICATION", "VERIFIED", "REJECTED", "EXPIRED"], StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> ValidTeamStatuses = new(["IN_TEAM", "WITHOUT_TEAM", "NO_TEAM"], StringComparer.OrdinalIgnoreCase);
+
+    private static void ValidateDirectoryQuery(DepartmentStudentQuery query)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (query.SemesterId.HasValue && query.SemesterId.Value <= 0)
+            errors["semesterId"] = ["Semester ID must be positive."];
+        if (query.MajorId.HasValue && query.MajorId.Value <= 0)
+            errors["majorId"] = ["Major ID must be positive."];
+        if (query.SpecializationId.HasValue && query.SpecializationId.Value <= 0)
+            errors["specializationId"] = ["Specialization ID must be positive."];
+        if (!string.IsNullOrWhiteSpace(query.ProfileStatus) && !ValidProfileStatuses.Contains(query.ProfileStatus.Trim()))
+            errors["profileStatus"] = ["Profile status must be PENDING, VERIFIED, or REJECTED."];
+        if (!string.IsNullOrWhiteSpace(query.QualificationStatus) && !ValidQualificationStatuses.Contains(query.QualificationStatus.Trim()))
+            errors["qualificationStatus"] = ["Qualification status must be NOT_SUBMITTED, PENDING_VERIFICATION, VERIFIED, REJECTED, or EXPIRED."];
+        if (!string.IsNullOrWhiteSpace(query.TeamStatus) && !ValidTeamStatuses.Contains(query.TeamStatus.Trim()))
+            errors["teamStatus"] = ["Team status must be IN_TEAM or WITHOUT_TEAM."];
+        if (errors.Count > 0)
+            throw new ValidationException(errors);
+    }
+
     private async Task<long?> ResolveEffectiveSemesterIdAsync(long? requestedSemesterId, long departmentId, CancellationToken ct)
     {
         if (requestedSemesterId.HasValue && requestedSemesterId.Value > 0)
@@ -33,6 +56,7 @@ internal sealed partial class DepartmentStudentService
     private async Task<(IReadOnlyList<DepartmentStudentSummaryDto> Filtered, DepartmentStudentDirectoryStatsDto Stats)>
         LoadDepartmentStudentRowsAsync(long deptId, DepartmentStudentQuery query, CancellationToken ct)
     {
+        ValidateDirectoryQuery(query);
         var semesterId = await ResolveEffectiveSemesterIdAsync(query.SemesterId, deptId, ct);
 
         var students = await db.Users.AsNoTracking()
@@ -156,7 +180,7 @@ internal sealed partial class DepartmentStudentService
         {
             var ts = query.TeamStatus.Trim().ToUpperInvariant();
             if (ts == "IN_TEAM") filtered = filtered.Where(r => r.TeamId.HasValue);
-            else if (ts == "NO_TEAM") filtered = filtered.Where(r => !r.TeamId.HasValue);
+            else if (ts is "WITHOUT_TEAM" or "NO_TEAM") filtered = filtered.Where(r => !r.TeamId.HasValue);
         }
 
         return (filtered.ToArray(), stats);

@@ -2,6 +2,7 @@ using System.Data;
 using System.IO;
 using System.Net.Mail;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
@@ -18,6 +19,8 @@ namespace AIPMS.Infrastructure.Services.StudentRosters;
 internal sealed class StudentAccountImportService(AipmsDbContext db, ICurrentUser currentUser,
     IPasswordHashingService passwords, IAuditTrail audit, TimeProvider clock) : IStudentAccountImportService
 {
+    private static readonly Regex ClassCodePattern = new("^[A-Z0-9][A-Z0-9._ /-]{0,49}$", RegexOptions.Compiled);
+
     private async Task<long> RequireAdmin(CancellationToken ct)
     {
         if (currentUser.UserId is not long id || !currentUser.IsAuthenticated) throw new UnauthorizedException();
@@ -66,7 +69,7 @@ internal sealed class StudentAccountImportService(AipmsDbContext db, ICurrentUse
             if (Invalid(row.Email, 255, true) || !MailAddress.TryCreate(row.Email, out var parsed) || parsed.Address != row.Email || !row.Email.Contains('.')) errors.Add("EMAIL_INVALID");
             if (Invalid(row.Phone ?? "", 30)) errors.Add("PHONE_INVALID");
             if (Invalid(row.CurriculumCode ?? "", 100)) errors.Add("CURRICULUM_CODE_INVALID");
-            if (Invalid(row.ClassCode ?? "", 50)) errors.Add("CLASS_CODE_INVALID");
+            if (Invalid(row.ClassCode ?? "", 50) || (!string.IsNullOrEmpty(row.ClassCode) && !ClassCodePattern.IsMatch(row.ClassCode))) errors.Add("CLASS_CODE_INVALID");
             if (!string.IsNullOrEmpty(row.SpecializationCode) && !specs.Any(s => string.Equals(s.Code, row.SpecializationCode, StringComparison.OrdinalIgnoreCase) || string.Equals(s.Name, row.SpecializationCode, StringComparison.OrdinalIgnoreCase)))
                 errors.Add("SPECIALIZATION_NOT_FOUND");
             if (duplicateEmails.Contains(row.Email)) errors.Add("DUPLICATE_EMAIL");

@@ -178,7 +178,12 @@ public sealed class DepartmentStudentAndNotificationV4Tests(EvaluationDraftDatab
         using var leaderClient = factory.CreateAuthenticatedClient(s.Scope.Users.Student, roles: ["STUDENT"]);
         using var supervisorClient = factory.CreateAuthenticatedClient(supervisorUserId, roles: ["LECTURER"]);
 
-        // 1. Department Staff creates Specialization in own dept; another dept gets 403 SCOPE_ACCESS_DENIED when editing it
+        // 1. Department Staff creates Specialization in own dept; invalid code -> 400; another dept gets 403 SCOPE_ACCESS_DENIED when editing it
+        var invalidSpecCode = await staffClient.PostAsJsonAsync(
+            "/api/v1/departments/me/specializations",
+            new CreateDepartmentSpecializationRequest(majorId, "---bad", "Invalid Code", null));
+        Assert.Equal(HttpStatusCode.BadRequest, invalidSpecCode.StatusCode);
+
         var spec = await ReadJson<DepartmentSpecializationDto>(await staffClient.PostAsJsonAsync(
             "/api/v1/departments/me/specializations",
             new CreateDepartmentSpecializationRequest(majorId, "DOTNET", ".NET Enterprise", "Backend .NET")));
@@ -194,7 +199,12 @@ public sealed class DepartmentStudentAndNotificationV4Tests(EvaluationDraftDatab
         Assert.Equal(HttpStatusCode.Forbidden, crossEdit.StatusCode);
         Assert.Equal("SCOPE_ACCESS_DENIED", await ReadProblemCode(crossEdit));
 
-        // 2. Student self-update: wrong dept specialization -> 422 INVALID_SPECIALIZATION_FOR_SCOPE; valid -> 200; after VERIFIED -> 409 ACADEMIC_PROFILE_LOCKED
+        // 2. Student self-update: invalid class format -> 400; wrong dept specialization -> 422 INVALID_SPECIALIZATION_FOR_SCOPE; valid -> 200; after VERIFIED -> 409 ACADEMIC_PROFILE_LOCKED
+        var badClassRes = await pendingStudentClient.PutAsJsonAsync(
+            "/api/v1/users/me/academic-profile",
+            new UpdateMyStudentAcademicRequest("###", spec.Id));
+        Assert.Equal(HttpStatusCode.BadRequest, badClassRes.StatusCode);
+
         var badSpecRes = await pendingStudentClient.PutAsJsonAsync(
             "/api/v1/users/me/academic-profile",
             new UpdateMyStudentAcademicRequest("SE1801", otherSpec.Id));
@@ -217,8 +227,11 @@ public sealed class DepartmentStudentAndNotificationV4Tests(EvaluationDraftDatab
         Assert.Equal(HttpStatusCode.Conflict, lockedRes.StatusCode);
         Assert.Equal("ACADEMIC_PROFILE_LOCKED", await ReadProblemCode(lockedRes));
 
-        // 3. Department Student Directory, 360° Detail, Academic Update, Cross-dept 403, and Scoped Exports
-        var dir = await ReadJson<DepartmentStudentDirectoryPageDto>(await staffClient.GetAsync("/api/v1/departments/me/students?teamStatus=NO_TEAM"));
+        // 3. Department Student Directory (both WITHOUT_TEAM and invalid query rejection), 360° Detail, Academic Update, Cross-dept 403, and Scoped Exports
+        Assert.Equal(HttpStatusCode.BadRequest, (await staffClient.GetAsync("/api/v1/departments/me/students?teamStatus=BOGUS")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await staffClient.GetAsync("/api/v1/departments/me/students?profileStatus=BOGUS")).StatusCode);
+
+        var dir = await ReadJson<DepartmentStudentDirectoryPageDto>(await staffClient.GetAsync("/api/v1/departments/me/students?teamStatus=WITHOUT_TEAM"));
         Assert.Contains(dir.Items, x => x.UserId == pendingStudentId && x.ClassCode == "SE1801" && x.SpecializationCode == "DOTNET");
         Assert.DoesNotContain(dir.Items, x => x.UserId == otherStudentId);
         Assert.True(dir.Stats.WithoutTeamCount >= 1);
@@ -255,6 +268,7 @@ public sealed class DepartmentStudentAndNotificationV4Tests(EvaluationDraftDatab
 
         var adminExport = await adminClient.GetAsync($"/api/v1/users/export?role=STUDENT&departmentId={s.Scope.Users.DepartmentId}");
         Assert.Equal(HttpStatusCode.OK, adminExport.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await adminClient.GetAsync("/api/v1/users/export?role=BOGUS")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await staffClient.GetAsync("/api/v1/users/export")).StatusCode);
 
         // 5. V4 Notifications emitted end-to-end (Checklist Published, Critical Comment, Final Lock Request + Return)

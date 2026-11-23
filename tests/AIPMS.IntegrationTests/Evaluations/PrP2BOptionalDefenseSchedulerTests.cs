@@ -329,6 +329,17 @@ public sealed class PrP2BOptionalDefenseSchedulerTests(EvaluationDraftDatabaseFi
         }
 
         // 9. Standby Pool 1-click swap revokes eval1's assignment -> immediate grading attempt returns 403 ASSIGNMENT_REVOKED
+        // Pure Admin only toggles period config; Admin cannot directly schedule rooms or swap standby pool (403 SCOPE_ACCESS_DENIED)
+        var adminStandbyBlocked = await admin.PostAsJsonAsync("/api/v1/defense-scheduling/v4/standby-pool",
+            new AddStandbyPoolMemberRequest(s.PeriodId, standbyId, itMajorId, s.Scope.Users.DepartmentId));
+        Assert.Equal(HttpStatusCode.Forbidden, adminStandbyBlocked.StatusCode);
+        Assert.Equal(WorkflowErrorCodes.ScopeAccessDenied, await ReadProblemCode(adminStandbyBlocked));
+
+        var adminSwapBlocked = await admin.PostAsJsonAsync(
+            $"/api/v1/defense-scheduling/v4/sessions/{session.Id}/standby-swap",
+            new StandbySwapRequest(eval1Id, standbyId, "Admin should not intervene"));
+        Assert.Equal(HttpStatusCode.Forbidden, adminSwapBlocked.StatusCode);
+
         await Body<StandbyPoolMemberDto>(await staff.PostAsJsonAsync("/api/v1/defense-scheduling/v4/standby-pool",
             new AddStandbyPoolMemberRequest(s.PeriodId, standbyId, itMajorId, s.Scope.Users.DepartmentId)));
 

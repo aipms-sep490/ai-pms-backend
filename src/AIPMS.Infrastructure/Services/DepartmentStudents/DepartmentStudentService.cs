@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
@@ -53,12 +54,17 @@ internal sealed partial class DepartmentStudentService(
         return ActorId;
     }
 
+    private static readonly Regex ClassCodePattern = new("^[A-Z0-9][A-Z0-9._ /-]{0,49}$", RegexOptions.Compiled);
+    private static readonly Regex SpecCodePattern = new("^[A-Z0-9][A-Z0-9._-]{0,49}$", RegexOptions.Compiled);
+    private static readonly HashSet<string> ValidAccountStatuses = new(["ACTIVE", "INACTIVE", "SUSPENDED"], StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> ValidAccountRoles = new([AppRoles.Student, AppRoles.Lecturer, AppRoles.DepartmentStaff, AppRoles.Admin], StringComparer.OrdinalIgnoreCase);
+
     private static string? NormalizeClassCode(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
         var trimmed = raw.Trim().ToUpperInvariant();
-        if (trimmed.Length > 50 || trimmed.Any(char.IsControl))
-            throw new ValidationException(new Dictionary<string, string[]> { ["classCode"] = ["Class code must be 1 to 50 valid characters."] });
+        if (trimmed.Length > 50 || trimmed.Any(char.IsControl) || !ClassCodePattern.IsMatch(trimmed))
+            throw new ValidationException(new Dictionary<string, string[]> { ["classCode"] = ["Class code must start with a letter or digit and contain 1 to 50 valid characters (A-Z, 0-9, space, '.', '_', '-', '/')."] });
         return trimmed;
     }
 
@@ -67,8 +73,8 @@ internal sealed partial class DepartmentStudentService(
         if (string.IsNullOrWhiteSpace(raw))
             throw new ValidationException(new Dictionary<string, string[]> { ["code"] = ["Specialization code is required."] });
         var trimmed = raw.Trim().ToUpperInvariant();
-        if (trimmed.Length > 50 || trimmed.Any(char.IsControl))
-            throw new ValidationException(new Dictionary<string, string[]> { ["code"] = ["Specialization code must be 1 to 50 valid characters."] });
+        if (trimmed.Length > 50 || trimmed.Any(char.IsControl) || !SpecCodePattern.IsMatch(trimmed))
+            throw new ValidationException(new Dictionary<string, string[]> { ["code"] = ["Specialization code must start with a letter or digit and contain 1 to 50 valid characters (A-Z, 0-9, '.', '_', '-')."] });
         return trimmed;
     }
 
@@ -79,6 +85,15 @@ internal sealed partial class DepartmentStudentService(
         var trimmed = raw.Trim();
         if (trimmed.Length > 200 || trimmed.Any(char.IsControl))
             throw new ValidationException(new Dictionary<string, string[]> { ["name"] = ["Specialization name must be 1 to 200 valid characters."] });
+        return trimmed;
+    }
+
+    private static string? NormalizeDescription(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var trimmed = raw.Trim();
+        if (trimmed.Length > 500 || trimmed.Any(char.IsControl))
+            throw new ValidationException(new Dictionary<string, string[]> { ["description"] = ["Description must be at most 500 valid characters."] });
         return trimmed;
     }
 
@@ -149,9 +164,7 @@ internal sealed partial class DepartmentStudentService(
         var (actorId, deptId) = await RequireDepartmentStaffAsync(ct);
         var code = NormalizeSpecCode(request.Code);
         var name = NormalizeSpecName(request.Name);
-        var desc = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
-        if (desc is { Length: > 500 })
-            throw new ValidationException(new Dictionary<string, string[]> { ["description"] = ["Description must be at most 500 characters."] });
+        var desc = NormalizeDescription(request.Description);
 
         if (request.MajorId.HasValue)
         {
@@ -199,9 +212,7 @@ internal sealed partial class DepartmentStudentService(
 
         var code = NormalizeSpecCode(request.Code);
         var name = NormalizeSpecName(request.Name);
-        var desc = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
-        if (desc is { Length: > 500 })
-            throw new ValidationException(new Dictionary<string, string[]> { ["description"] = ["Description must be at most 500 characters."] });
+        var desc = NormalizeDescription(request.Description);
 
         if (request.MajorId.HasValue)
         {
@@ -213,6 +224,14 @@ internal sealed partial class DepartmentStudentService(
 
         if (await db.DepartmentSpecializations.AsNoTracking().AnyAsync(s => s.DepartmentId == deptId && s.Code == code && s.Id != specializationId, ct))
             throw new ConflictException($"Specialization code '{code}' already exists in your department.");
+
+        if (request.MajorId.HasValue && request.MajorId != entity.MajorId)
+        {
+            var hasConflictingStudents = await db.Users.AsNoTracking()
+                .AnyAsync(u => u.SpecializationId == specializationId && u.MajorId != request.MajorId.Value, ct);
+            if (hasConflictingStudents)
+                throw new ConflictException("Cannot restrict specialization to another major while students from a different major are assigned to it.");
+        }
 
         entity.MajorId = request.MajorId;
         entity.Code = code;
@@ -310,6 +329,18 @@ internal sealed partial class DepartmentStudentService(
         CancellationToken ct = default)
     {
         var actorId = await RequireAdminAsync(ct);
+        var errors = new Dictionary<string, string[]>();
+        if (!string.IsNullOrWhiteSpace(query.Status) && !ValidAccountStatuses.Contains(query.Status.Trim()))
+            errors["status"] = ["Status must be ACTIVE, INACTIVE, or SUSPENDED."];
+        if (!string.IsNullOrWhiteSpace(query.Role) && !ValidAccountRoles.Contains(query.Role.Trim()))
+            errors["role"] = ["Role must be STUDENT, LECTURER, DEPARTMENT_STAFF, or ADMIN."];
+        if (query.DepartmentId.HasValue && query.DepartmentId.Value <= 0)
+            errors["departmentId"] = ["Department ID must be positive."];
+        if (query.MajorId.HasValue && query.MajorId.Value <= 0)
+            errors["majorId"] = ["Major ID must be positive."];
+        if (errors.Count > 0)
+            throw new ValidationException(errors);
+
         var usersQuery = db.Users.AsNoTracking()
             .Include(u => u.Department)
             .Include(u => u.Major)
