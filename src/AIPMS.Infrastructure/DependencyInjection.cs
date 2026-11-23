@@ -79,6 +79,7 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IWorkflowAssistanceService, WorkflowAssistanceService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IDeliverableReviewService, DeliverableReviewService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IAiSetupService, ProjectAiSetupService>();
+        services.AddScoped<AIPMS.Application.Features.Academic.Abstractions.IPreSemesterSetupService, Services.Academic.PreSemesterRolloverService>();
         services.AddScoped<AIPMS.Application.Features.Tasks.Abstractions.ITaskCriteriaService, TaskCriteriaService>();
         services.AddScoped<AIPMS.Application.Features.Topics.Abstractions.ITopicSimilarityReviewService,
             Services.Topics.TopicSimilarityReviewService>();
