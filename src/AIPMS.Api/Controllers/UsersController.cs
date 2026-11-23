@@ -7,6 +7,8 @@ using AIPMS.Application.Features.Files;
 using System.ComponentModel.DataAnnotations;
 using AIPMS.Application.Features.AccountSecurity.DTOs;
 using AIPMS.Application.Features.AccountSecurity.Queries;
+using AIPMS.Application.Features.DepartmentStudents;
+using AIPMS.Application.Features.DepartmentStudents.Abstractions;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,7 +18,7 @@ namespace AIPMS.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1/users")]
-public sealed class UsersController(ISender sender, IUserAvatarService avatars) : ControllerBase
+public sealed class UsersController(ISender sender, IUserAvatarService avatars, IDepartmentStudentService departmentStudents) : ControllerBase
 {
     [HttpGet("me/avatar/metadata")]
     public async Task<ActionResult<UserAvatarDto>> GetMyAvatarMetadata(CancellationToken ct) =>
@@ -54,8 +56,30 @@ public sealed class UsersController(ISender sender, IUserAvatarService avatars) 
         [FromQuery] string? status,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] string? role = null,
+        [FromQuery] long? departmentId = null,
+        [FromQuery] long? majorId = null,
         CancellationToken cancellationToken = default) =>
-        Ok(await sender.Send(new GetUsersQuery(search, status, page, pageSize), cancellationToken));
+        Ok(await sender.Send(new GetUsersQuery(search, status, page, pageSize, role, departmentId, majorId), cancellationToken));
+
+    [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
+    [HttpGet("export")]
+    [Produces("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/problem+json")]
+    [ProducesResponseType<FileContentResult>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ExportUsers(
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? role = null,
+        [FromQuery] long? departmentId = null,
+        [FromQuery] long? majorId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var file = await departmentStudents.ExportAdminUserAccountsAsync(
+            new AdminUserAccountExportQuery(search, status, role, departmentId, majorId),
+            cancellationToken);
+        Response.Headers.CacheControl = "no-store";
+        return File(file.Content, file.ContentType, file.FileName);
+    }
 
     [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
     [HttpGet("{userId:long}")]
@@ -82,7 +106,6 @@ public sealed class UsersController(ISender sender, IUserAvatarService avatars) 
             cancellationToken));
 
     [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
-    [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
     [HttpPut("{userId:long}")]
     [ProducesResponseType<UserAccountDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
@@ -102,6 +125,7 @@ public sealed class UsersController(ISender sender, IUserAvatarService avatars) 
                 request.ConcurrencyToken),
             cancellationToken));
 
+    [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
     [HttpPost]
     [ProducesResponseType<UserAccountDto>(StatusCodes.Status201Created)]
     public async Task<ActionResult<UserAccountDto>> CreateUser(

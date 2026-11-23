@@ -53,6 +53,7 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Common.Security.IAcademicDirectoryScopeReader, Services.AcademicDirectoryScopeReader>();
         services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.IStudentAccountImportService, Services.StudentRosters.StudentAccountImportService>();
         services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.ITeamRosterExportService, Services.StudentRosters.TeamRosterExportService>();
+        services.AddScoped<AIPMS.Application.Features.DepartmentStudents.Abstractions.IDepartmentStudentService, Services.DepartmentStudents.DepartmentStudentService>();
         services.AddOptions<AIPMS.Application.Features.Chat.ChatSettings>().BindConfiguration("Chat").ValidateDataAnnotations().ValidateOnStart();
         services.AddScoped<Chat.ChatAccessService>();
         services.AddScoped<AIPMS.Application.Features.Chat.Abstractions.IChatAccessService>(sp => sp.GetRequiredService<Chat.ChatAccessService>());

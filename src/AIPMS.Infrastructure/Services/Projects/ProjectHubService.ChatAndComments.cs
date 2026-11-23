@@ -249,6 +249,17 @@ internal sealed partial class ProjectHubService
         };
         db.Set<EvidenceAnchoredComment>().Add(comment);
         await db.SaveChangesAsync(ct);
+
+        if (severity == "CRITICAL")
+        {
+            var studentIds = await V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(db, projectId, ct);
+            await V4WorkflowNotificationHelper.EmitAsync(
+                db, Actor, "CRITICAL_ANCHORED_COMMENT_ADDED",
+                $"Có bình luận nghiêm trọng (CRITICAL) trên minh chứng cổng {gateCode}",
+                $"Vị trí {comment.AnchorRef}: cần xử lý và đóng bình luận CRITICAL trước khi nộp lại cổng {gateCode}.",
+                "PROJECT", projectId, studentIds, Now, enqueueEmail: false, ct);
+        }
+
         return new(comment.Id, comment.ProjectId, comment.GateInstanceId, comment.EvidenceId,
             comment.AnchorRef, comment.Severity, comment.Status, comment.Content, comment.CreatedBy, comment.ResolvedBy, comment.CreatedAt, comment.ResolvedAt);
     }

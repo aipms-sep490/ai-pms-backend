@@ -209,6 +209,20 @@ internal sealed partial class ProjectChecklistService
         checklist.ConcurrencyToken = Guid.NewGuid();
         await db.SaveChangesAsync(ct);
 
+        var studentIds = await V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(db, projectId, ct);
+        var supervisorAndMentorIds = await V4WorkflowNotificationHelper.GetActiveSupervisorAndMentorIdsAsync(db, projectId, primaryOnly: false, ct);
+        var reviewerIds = await db.GateReviewerAssignments.AsNoTracking()
+            .Where(a => a.GateInstanceId == checklist.GateInstanceId && a.Status != "REVOKED")
+            .Select(a => a.ReviewerId)
+            .Distinct()
+            .ToArrayAsync(ct);
+        var recipients = studentIds.Concat(supervisorAndMentorIds).Concat(reviewerIds).Distinct();
+        await V4WorkflowNotificationHelper.EmitAsync(
+            db, ActorId, "CHECKLIST_PUBLISHED",
+            $"Review Checklist cá nhân hóa đã được phát hành (Đồ án #{projectId})",
+            "Khoa đã phát hành phiên bản Review Checklist chính thức cho nhóm, GVHD, Mentor phụ và Phản biện Gate.",
+            "PROJECT_GATE", checklist.GateInstanceId, recipients, now, enqueueEmail: false, ct);
+
         await auditTrail.RecordAsync(new AuditEntry(ActorId, "PROJECT_CHECKLIST_PUBLISHED", "PROJECT_GATE_CHECKLIST", checklist.Id,
             new Dictionary<string, object?> { ["projectId"] = projectId, ["gateInstanceId"] = checklist.GateInstanceId, ["version"] = checklist.Version }), ct);
 

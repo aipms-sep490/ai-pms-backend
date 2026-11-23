@@ -13,7 +13,12 @@ public sealed record AcademicProfileDto(
     long? ReviewedBy,
     DateTime? ReviewedAt,
     string? RejectionReason,
-    string? ConcurrencyToken = null);
+    string? ConcurrencyToken = null,
+    string? ClassCode = null,
+    long? SpecializationId = null,
+    string? SpecializationCode = null,
+    string? SpecializationName = null,
+    string? CurriculumCode = null);
 
 public sealed record UpdateAcademicProfileRequest(
     long? DepartmentId,

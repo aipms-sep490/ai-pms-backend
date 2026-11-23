@@ -82,6 +82,17 @@ internal sealed partial class AcademicBlueprintService
         await auditTrail.RecordAsync(new AuditEntry(ActorId, "GATE_DEADLINE_CHANGE_REQUESTED", "PROJECT_GATE_INSTANCE", gate.Id,
             new Dictionary<string, object?> { ["requestId"] = entity.Id, ["projectId"] = projectId, ["gateCode"] = gate.Code }), ct);
 
+        var reqScope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
+        if (reqScope.LeadDepartmentId.HasValue)
+        {
+            var staffIds = await V4WorkflowNotificationHelper.GetDepartmentStaffIdsAsync(db, reqScope.LeadDepartmentId.Value, ct);
+            await V4WorkflowNotificationHelper.EmitAsync(
+                db, ActorId, "GATE_DEADLINE_CHANGE_REQUESTED",
+                $"Có đề nghị dời hạn cổng {gate.Code} (Đồ án #{projectId})",
+                $"Lý do đề nghị: {entity.Reason}",
+                "PROJECT_GATE", gate.Id, staffIds, now, enqueueEmail: false, ct);
+        }
+
         return new GateDeadlineChangeRequestDto(entity.Id, entity.ProjectId, entity.GateInstanceId, gate.Code,
             entity.RequestedSubmissionDueAt, entity.RequestedReviewEndAt, entity.RequestedRevisionDueAt,
             entity.Reason, entity.Status, entity.RequestedBy, entity.ReviewedBy, entity.ReviewNotes,
@@ -132,6 +143,14 @@ internal sealed partial class AcademicBlueprintService
         await db.SaveChangesAsync(ct);
         await auditTrail.RecordAsync(new AuditEntry(ActorId, "GATE_DEADLINE_CHANGE_REVIEWED", "PROJECT_GATE_INSTANCE", gate.Id,
             new Dictionary<string, object?> { ["requestId"] = entity.Id, ["decision"] = decision, ["gateCode"] = gate.Code }), ct);
+
+        var studentIds = await V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(db, projectId, ct);
+        var supervisorAndMentorIds = await V4WorkflowNotificationHelper.GetActiveSupervisorAndMentorIdsAsync(db, projectId, primaryOnly: false, ct);
+        await V4WorkflowNotificationHelper.EmitAsync(
+            db, ActorId, "GATE_DEADLINE_CHANGE_DECIDED",
+            $"Khoa đã {(decision == "APPROVED" ? "chấp thuận" : "từ chối")} đề nghị dời hạn cổng {gate.Code}",
+            string.IsNullOrWhiteSpace(entity.ReviewNotes) ? $"Kết quả xử lý đề nghị dời hạn cổng {gate.Code}: {decision}." : entity.ReviewNotes,
+            "PROJECT_GATE", gate.Id, studentIds.Concat(supervisorAndMentorIds), now, enqueueEmail: true, ct);
 
         return new GateDeadlineChangeRequestDto(entity.Id, entity.ProjectId, entity.GateInstanceId, gate.Code,
             entity.RequestedSubmissionDueAt, entity.RequestedReviewEndAt, entity.RequestedRevisionDueAt,

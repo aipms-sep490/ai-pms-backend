@@ -185,6 +185,13 @@ internal sealed partial class ProjectChecklistService
         await auditTrail.RecordAsync(new AuditEntry(ActorId, "FINAL_LOCK_REQUESTED", "PROJECT", projectId,
             new Dictionary<string, object?> { ["draftId"] = draft.Id }), ct);
 
+        var primarySupervisors = await V4WorkflowNotificationHelper.GetActiveSupervisorAndMentorIdsAsync(db, projectId, primaryOnly: true, ct);
+        await V4WorkflowNotificationHelper.EmitAsync(
+            db, ActorId, "FINAL_LOCK_REQUESTED",
+            $"Nhóm đã gửi yêu cầu ký khóa hồ sơ Tiền-Defense (Đồ án #{projectId})",
+            "Trưởng nhóm đã hoàn tất hồ sơ Tiền-Defense và gửi yêu cầu GVHD Chính kiểm tra, ký khóa (Bước 2).",
+            "PROJECT", projectId, primarySupervisors, now, enqueueEmail: true, ct);
+
         return new PreDefenseLockStatusDto(projectId, project.Status, draft.LockWorkflowStatus,
             draft.LockRequestedBy, draft.LockRequestedAt, draft.LockedBySupervisorId, draft.ForceLockedBy, draft.ForceLockReason, null, null, null);
     }
@@ -214,6 +221,16 @@ internal sealed partial class ProjectChecklistService
             draft.UpdatedAt = Now;
             draft.ConcurrencyToken = Guid.NewGuid();
             await db.SaveChangesAsync(ct);
+
+            var studentIds = await V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(db, projectId, ct);
+            await V4WorkflowNotificationHelper.EmitAsync(
+                db, ActorId, "FINAL_LOCK_RETURNED",
+                $"GVHD Chính đã mở lại hồ sơ Tiền-Defense để chỉnh sửa (Đồ án #{projectId})",
+                string.IsNullOrWhiteSpace(request.Notes)
+                    ? "GVHD Chính yêu cầu nhóm rà soát và bổ sung lại hồ sơ Tiền-Defense trước khi gửi duyệt khóa lại."
+                    : $"GVHD Chính trả lại hồ sơ Tiền-Defense: {request.Notes.Trim()}",
+                "PROJECT", projectId, studentIds, Now, enqueueEmail: true, ct);
+
             var proj = await db.Projects.AsNoTracking().SingleAsync(p => p.Id == projectId, ct);
             return new PreDefenseLockStatusDto(projectId, proj.Status, draft.LockWorkflowStatus,
                 draft.LockRequestedBy, draft.LockRequestedAt, null, null, null, null, null, null);

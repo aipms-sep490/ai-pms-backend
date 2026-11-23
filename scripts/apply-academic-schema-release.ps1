@@ -31,7 +31,8 @@ $scripts = @(
     '20261129_execution_blocker_evidence_softdelete.sql',
     '20261130_decision_supersede_and_task_taxonomy.sql',
     '20261202_optional_defense_room_scheduler_v4.sql',
-    '20261203_all_in_one_hub_core.sql'
+    '20261203_all_in_one_hub_core.sql',
+    '20261204_student_class_and_specializations.sql'
 )
 
 $neutral = [System.Data.Common.DbConnectionStringBuilder]::new()

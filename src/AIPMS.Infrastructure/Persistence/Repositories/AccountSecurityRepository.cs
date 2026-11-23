@@ -20,11 +20,22 @@ namespace AIPMS.Infrastructure.Persistence.Repositories;
 internal sealed class AccountSecurityRepository(AipmsDbContext context)
     : IUserAccountRepository, IRolePermissionRepository, IAuditLogRepository
 {
+    public Task<PagedResult<AccountUser>> GetUsersAsync(
+        string? search,
+        string? status,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default) =>
+        GetUsersAsync(search, status, page, pageSize, null, null, null, cancellationToken);
+
     public async Task<PagedResult<AccountUser>> GetUsersAsync(
         string? search,
         string? status,
         int page,
         int pageSize,
+        string? role,
+        long? departmentId,
+        long? majorId,
         CancellationToken cancellationToken = default)
     {
         var query = UserQuery();
@@ -34,12 +45,28 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
                 user.Email.Contains(search)
                 || user.FullName.Contains(search)
                 || (user.StudentCode != null && user.StudentCode.Contains(search))
-                || (user.EmployeeCode != null && user.EmployeeCode.Contains(search)));
+                || (user.EmployeeCode != null && user.EmployeeCode.Contains(search))
+                || (user.ClassCode != null && user.ClassCode.Contains(search)));
         }
 
         if (!string.IsNullOrWhiteSpace(status))
         {
             query = query.Where(user => user.Status == status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(role))
+        {
+            query = query.Where(user => user.UserRoleUsers.Any(ur => ur.Role.Code == role));
+        }
+
+        if (departmentId.HasValue)
+        {
+            query = query.Where(user => user.DepartmentId == departmentId.Value);
+        }
+
+        if (majorId.HasValue)
+        {
+            query = query.Where(user => user.MajorId == majorId.Value);
         }
 
         var totalCount = await query.LongCountAsync(cancellationToken);
@@ -664,6 +691,7 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
 
     private IQueryable<UserEntity> UserQuery() =>
         context.Users.AsNoTracking()
+            .Include(static user => user.Specialization)
             .Include(static user => user.UserRoleUsers)
             .ThenInclude(static assignment => assignment.Role);
 

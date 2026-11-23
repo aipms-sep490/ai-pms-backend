@@ -47,10 +47,14 @@ internal sealed class StudentAccountImportService(AipmsDbContext db, ICurrentUse
             throw new ValidationException(new Dictionary<string, string[]> { ["majorId"] = ["IMPORT_ACTIVE_MAJOR_REQUIRED"] });
         if (input is null || input.Count is < 1 or > 500 || input.Any(x => x is null)) throw CurriculumFileReader.Invalid("IMPORT_REQUIRES_1_TO_500_ROWS");
         var rows = input.Select(x => x with { StudentCode = x.StudentCode?.Trim().ToUpperInvariant() ?? "", Email = x.Email?.Trim().ToLowerInvariant() ?? "",
-            FullName = x.FullName?.Trim() ?? "", Phone = Optional(x.Phone), CurriculumCode = Optional(x.CurriculumCode) }).ToArray();
+            FullName = x.FullName?.Trim() ?? "", Phone = Optional(x.Phone), CurriculumCode = Optional(x.CurriculumCode),
+            ClassCode = Optional(x.ClassCode)?.ToUpperInvariant(), SpecializationCode = Optional(x.SpecializationCode)?.ToUpperInvariant() }).ToArray();
         var emails = rows.Select(x => x.Email).ToArray(); var codes = rows.Select(x => x.StudentCode).ToArray();
         var existing = await db.Users.AsNoTracking().Where(x => emails.Contains(x.Email) || codes.Contains(x.StudentCode!))
             .Select(x => new { x.Email, x.StudentCode }).ToArrayAsync(ct);
+        var specs = await db.DepartmentSpecializations.AsNoTracking()
+            .Where(s => s.DepartmentId == major.DepartmentId && s.IsActive && (s.MajorId == null || s.MajorId == majorId))
+            .Select(s => new { s.Id, s.Code, s.Name }).ToArrayAsync(ct);
         var duplicateEmails = rows.GroupBy(x => x.Email).Where(x => x.Count() > 1).Select(x => x.Key).ToHashSet();
         var duplicateCodes = rows.GroupBy(x => x.StudentCode).Where(x => x.Count() > 1).Select(x => x.Key).ToHashSet();
         var preview = rows.Select(row =>
@@ -62,6 +66,9 @@ internal sealed class StudentAccountImportService(AipmsDbContext db, ICurrentUse
             if (Invalid(row.Email, 255, true) || !MailAddress.TryCreate(row.Email, out var parsed) || parsed.Address != row.Email || !row.Email.Contains('.')) errors.Add("EMAIL_INVALID");
             if (Invalid(row.Phone ?? "", 30)) errors.Add("PHONE_INVALID");
             if (Invalid(row.CurriculumCode ?? "", 100)) errors.Add("CURRICULUM_CODE_INVALID");
+            if (Invalid(row.ClassCode ?? "", 50)) errors.Add("CLASS_CODE_INVALID");
+            if (!string.IsNullOrEmpty(row.SpecializationCode) && !specs.Any(s => string.Equals(s.Code, row.SpecializationCode, StringComparison.OrdinalIgnoreCase) || string.Equals(s.Name, row.SpecializationCode, StringComparison.OrdinalIgnoreCase)))
+                errors.Add("SPECIALIZATION_NOT_FOUND");
             if (duplicateEmails.Contains(row.Email)) errors.Add("DUPLICATE_EMAIL");
             if (duplicateCodes.Contains(row.StudentCode)) errors.Add("DUPLICATE_STUDENT_CODE");
             if (existing.Any(x => string.Equals(x.Email, row.Email, StringComparison.OrdinalIgnoreCase))) errors.Add("EMAIL_ALREADY_EXISTS");
@@ -87,12 +94,20 @@ internal sealed class StudentAccountImportService(AipmsDbContext db, ICurrentUse
             }
             var role = await db.Roles.SingleOrDefaultAsync(x => x.Code == "STUDENT", ct) ?? throw new ConflictException("Student role is not configured.");
             var departmentId = await db.Majors.Where(x => x.Id == request.MajorId).Select(x => x.DepartmentId).SingleAsync(ct);
+            var specs = await db.DepartmentSpecializations.AsNoTracking()
+                .Where(s => s.DepartmentId == departmentId && s.IsActive && (s.MajorId == null || s.MajorId == request.MajorId))
+                .Select(s => new { s.Id, s.Code, s.Name }).ToArrayAsync(ct);
             var now = clock.GetUtcNow().UtcDateTime;
             foreach (var item in preview.Rows.OrderBy(x => x.Account.Email, StringComparer.Ordinal))
             {
                 var row = item.Account;
+                long? specId = string.IsNullOrEmpty(row.SpecializationCode)
+                    ? null
+                    : specs.FirstOrDefault(s => string.Equals(s.Code, row.SpecializationCode, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(s.Name, row.SpecializationCode, StringComparison.OrdinalIgnoreCase))?.Id;
                 var user = new User { Email = row.Email, StudentCode = row.StudentCode, FullName = row.FullName, Phone = row.Phone,
-                    CurriculumCode = row.CurriculumCode, MajorId = request.MajorId, DepartmentId = departmentId,
+                    CurriculumCode = row.CurriculumCode, ClassCode = row.ClassCode, SpecializationId = specId,
+                    MajorId = request.MajorId, DepartmentId = departmentId,
                     Status = "ACTIVE", AcademicProfileStatus = "PENDING", GoogleEnrollmentPending = true,
                     PasswordHash = passwords.Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))), CreatedAt = now, UpdatedAt = now };
                 user.UserRoleUsers.Add(new UserRole { RoleId = role.Id, AssignedBy = actor, AssignedAt = now });

@@ -64,6 +64,8 @@ public static class WorkflowErrorCodes
     public const string CircularDependency = "CIRCULAR_DEPENDENCY";
     public const string InvalidInitialStatus = "INVALID_INITIAL_STATUS";
     public const string ReportLocked = "REPORT_LOCKED";
+    public const string AcademicProfileLocked = "ACADEMIC_PROFILE_LOCKED";
+    public const string InvalidSpecializationForScope = "INVALID_SPECIALIZATION_FOR_SCOPE";
     public const string SelfEvaluationForbidden = "SELF_EVALUATION_FORBIDDEN";
     public const string InvalidCategoryForMajor = "INVALID_CATEGORY_FOR_MAJOR";
     public const string UnresolvedCriticalComments = "UNRESOLVED_CRITICAL_COMMENTS";

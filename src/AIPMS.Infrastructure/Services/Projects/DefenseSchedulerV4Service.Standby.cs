@@ -169,6 +169,12 @@ internal sealed partial class DefenseSchedulerV4Service
             ["createdAssignmentsCount"] = createdCount
         }), ct);
 
+        await V4WorkflowNotificationHelper.EmitAsync(
+            db, Actor, "DEFENSE_STANDBY_SWAPPED",
+            $"Hoán đổi thành viên hội đồng bảo vệ (Phiên #{session.Id})",
+            $"Thành viên hội đồng cho đồ án #{session.ProjectId} đã được hoán đổi từ giám khảo dự bị. Lý do: {input.Reason.Trim()}",
+            "DEFENSE_SESSION", session.Id, [input.ReplacedUserId, input.ReplacementUserId], Now, enqueueEmail: true, ct);
+
         await tx.CommitAsync(ct);
         return new(session.Id, committee.Id, input.ReplacedUserId, input.ReplacementUserId, revokedCount, createdCount);
     }
