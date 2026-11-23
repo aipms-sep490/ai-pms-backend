@@ -167,7 +167,9 @@ public sealed record ApplyRubricSetupRequest(
     string ProjectMode,
     string EvaluationStage,
     string EvaluationScope,
-    IReadOnlyList<AssistantRubricCriterionDraftDto> Criteria);
+    IReadOnlyList<AssistantRubricCriterionDraftDto> Criteria,
+    DateOnly? EffectiveFrom = null,
+    DateOnly? EffectiveTo = null);
 
 public sealed record ApplyRubricSetupResultDto(
     long RubricId,
@@ -175,7 +177,8 @@ public sealed record ApplyRubricSetupResultDto(
     string Name,
     string Status,
     int CriteriaCount,
-    bool Replay);
+    bool Replay,
+    IReadOnlyList<string>? Warnings = null);
 
 public sealed record AssistantDraftDto(string Kind, string Title, string Description, AssistantMeetingDraftDto? Meeting = null,
     AssistantTaskDraftDto? Task = null, AssistantReportDraftDto? Report = null, IReadOnlyList<AssistantDraftDto>? Tasks = null,

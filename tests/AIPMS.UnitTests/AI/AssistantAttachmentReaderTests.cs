@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using AIPMS.Application.Features.AcademicKnowledge;
 using AIPMS.Infrastructure.Services;
+using ClosedXML.Excel;
 using Xunit;
 
 namespace AIPMS.UnitTests.AI;
@@ -70,5 +71,39 @@ public sealed class AssistantAttachmentReaderTests
         Assert.Equal("Project memo", Assert.Single(AssistantAttachmentReader.Read([new("memo.docx", bytes)], default)).Text);
         var hostile = Docx("""<!DOCTYPE x [<!ENTITY secret SYSTEM "file:///private">]><x>&secret;</x>""");
         Assert.Throws<ArgumentException>(() => AssistantAttachmentReader.Read([new("bad.docx", hostile)], default));
+    }
+
+    [Fact]
+    public void ExtractsXlsxSheetsSafelyAndRejectsMacrosOrCorruptPackages()
+    {
+        byte[] BuildValidXlsx()
+        {
+            using var book = new XLWorkbook();
+            var sheet = book.Worksheets.Add("Tiêu chí");
+            sheet.Cell("A1").Value = "Tên tiêu chí";
+            sheet.Cell("B1").Value = "Trọng số";
+            sheet.Cell("A2").Value = "Kiến trúc hệ thống";
+            sheet.Cell("B2").Value = 40;
+            using var ms = new MemoryStream();
+            book.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        var valid = Assert.Single(AssistantAttachmentReader.Read([new("rubric.xlsx", BuildValidXlsx())], default));
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", valid.MediaType);
+        Assert.Contains("[Sheet: Tiêu chí]", valid.Text);
+        Assert.Contains("Kiến trúc hệ thống | 40", valid.Text);
+
+        // Reject spoofed/non-zip xlsx
+        Assert.Throws<ArgumentException>(() => AssistantAttachmentReader.Read([new("fake.xlsx", Encoding.UTF8.GetBytes("not a zip"))], default));
+
+        // Reject xlsx containing vbaProject macro payload
+        using var macroStream = new MemoryStream();
+        using (var zip = new ZipArchive(macroStream, ZipArchiveMode.Create, true))
+        {
+            using (var w = new StreamWriter(zip.CreateEntry("xl/workbook.xml").Open())) w.Write("<workbook/>");
+            using (var w = new StreamWriter(zip.CreateEntry("xl/vbaProject.bin").Open())) w.Write("macro");
+        }
+        Assert.Throws<ArgumentException>(() => AssistantAttachmentReader.Read([new("macro.xlsx", macroStream.ToArray())], default));
     }
 }
