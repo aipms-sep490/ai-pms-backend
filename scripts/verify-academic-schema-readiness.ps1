@@ -10,6 +10,49 @@ if ([string]::IsNullOrWhiteSpace($rawConnection)) {
 
 # This check reads metadata only. The release process applies reviewed migrations separately.
 $requirements = @(
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.department_specializations'; Column = ''; Migration = '20261204_student_class_and_specializations.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.users'; Column = 'class_code'; Migration = '20261204_student_class_and_specializations.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.users'; Column = 'specialization_id'; Migration = '20261204_student_class_and_specializations.sql' }
+    [pscustomobject]@{ Kind = 'ForeignKey'; Object = 'dbo.users'; Name = 'fk_users_specialization'; Migration = '20261204_student_class_and_specializations.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.project_pinned_resources'; Column = ''; Migration = '20261203_all_in_one_hub_core.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.evidence_anchored_comments'; Column = ''; Migration = '20261203_all_in_one_hub_core.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.evidence_rubric_criterion_links'; Column = ''; Migration = '20261203_all_in_one_hub_core.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.chat_conversations'; Column = 'channel_scope'; Migration = '20261203_all_in_one_hub_core.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.defense_tech_checks'; Column = ''; Migration = '20261202_optional_defense_room_scheduler_v4.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.defense_standby_pool'; Column = ''; Migration = '20261202_optional_defense_room_scheduler_v4.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.project_periods'; Column = 'cold_window_end_at'; Migration = '20261202_optional_defense_room_scheduler_v4.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.project_periods'; Column = 'defense_buffer_hours'; Migration = '20261202_optional_defense_room_scheduler_v4.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.project_labels'; Column = ''; Migration = '20261130_decision_supersede_and_task_taxonomy.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.meeting_decisions'; Column = 'superseded_by_decision_id'; Migration = '20261130_decision_supersede_and_task_taxonomy.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.tasks'; Column = 'task_category'; Migration = '20261130_decision_supersede_and_task_taxonomy.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.tasks'; Column = 'deleted_at'; Migration = '20261129_execution_blocker_evidence_softdelete.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.tasks'; Column = 'blocked_since_at'; Migration = '20261129_execution_blocker_evidence_softdelete.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.review_gate_checklist_templates'; Column = ''; Migration = '20261128_document_requirements_final_lock_and_checklists.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.project_gate_checklists'; Column = ''; Migration = '20261128_document_requirements_final_lock_and_checklists.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.project_gate_checklist_items'; Column = ''; Migration = '20261128_document_requirements_final_lock_and_checklists.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.final_submission_drafts'; Column = 'lock_workflow_status'; Migration = '20261128_document_requirements_final_lock_and_checklists.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.academic_blueprints'; Column = ''; Migration = '20261128_academic_blueprints_and_planner.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.academic_blueprint_approvals'; Column = ''; Migration = '20261128_academic_blueprints_and_planner.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.project_blueprint_snapshots'; Column = ''; Migration = '20261128_academic_blueprints_and_planner.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.gate_deadline_change_requests'; Column = ''; Migration = '20261128_academic_blueprints_and_planner.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.project_gate_round_scope_decisions'; Column = ''; Migration = '20261127_tracks_dual_gate_and_sla.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.workflow_sla_notifications'; Column = ''; Migration = '20261127_tracks_dual_gate_and_sla.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.projects'; Column = 'track_code'; Migration = '20261127_tracks_dual_gate_and_sla.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.file_preview_derivatives'; Column = ''; Migration = '20261126_file_preview_derivatives.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.review_gate_packages'; Column = ''; Migration = '20261125_file_scan_and_gate_package_snapshots.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.review_gate_package_items'; Column = ''; Migration = '20261125_file_scan_and_gate_package_snapshots.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.files'; Column = 'scan_status'; Migration = '20261125_file_scan_and_gate_package_snapshots.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.gate_individual_process_scores'; Column = ''; Migration = '20261124_pol01_pol03_scoring_and_optional_defense.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.student_defense_absences'; Column = ''; Migration = '20261124_pol01_pol03_scoring_and_optional_defense.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.project_periods'; Column = 'enable_defense_room_scheduling'; Migration = '20261124_pol01_pol03_scoring_and_optional_defense.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.student_results'; Column = 'outcome_detail'; Migration = '20261124_pol01_pol03_scoring_and_optional_defense.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.evaluation_assignments'; Column = 'valid_from'; Migration = '20261123_assignment_validity_and_scope_indexes.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.review_gate_assignments'; Column = 'valid_from'; Migration = '20261123_assignment_validity_and_scope_indexes.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.assistant_conversations'; Column = 'is_pinned'; Migration = '20261123_upgrade_assistant_conversations_and_feedback.sql' }
+    [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.academic_knowledge_query_runs'; Column = 'feedback_rating'; Migration = '20261123_upgrade_assistant_conversations_and_feedback.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.ai_copilot_snapshots'; Column = ''; Migration = '20261122_add_ai_copilot_snapshots.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.meeting_transcript_segments'; Column = ''; Migration = '20261122_add_meeting_video_ai.sql' }
+    [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.meeting_ai_insights'; Column = ''; Migration = '20261122_add_meeting_video_ai.sql' }
     [pscustomobject]@{ Kind = 'Table'; Object = 'dbo.task_criteria'; Column = ''; Migration = '20261122_add_task_criteria.sql' }
     [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_criteria'; Column = 'id'; Migration = '20261122_add_task_criteria.sql' }
     [pscustomobject]@{ Kind = 'Column'; Object = 'dbo.task_criteria'; Column = 'task_id'; Migration = '20261122_add_task_criteria.sql' }

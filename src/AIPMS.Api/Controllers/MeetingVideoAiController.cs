@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Threading;
 using System.Threading.Tasks;
+using AIPMS.Application.Features.Files;
 using AIPMS.Application.Features.Meetings.Abstractions;
 using AIPMS.Application.Features.Meetings.Video;
 using Microsoft.AspNetCore.Authorization;
@@ -22,7 +23,7 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
 public sealed class MeetingVideoAiController(IMeetingVideoAiService service) : ControllerBase
 {
-    private const long MaxAudioClipBytes = 15 * 1024 * 1024;
+    private const long MaxAudioClipBytes = UploadPolicies.MeetingAudioClipLimit;
 
     [HttpGet("workspace")]
     [ProducesResponseType<MeetingTranscriptFeedDto>(StatusCodes.Status200OK)]

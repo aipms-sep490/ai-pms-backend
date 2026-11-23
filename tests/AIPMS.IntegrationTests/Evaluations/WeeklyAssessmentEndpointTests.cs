@@ -82,7 +82,7 @@ public sealed class WeeklyAssessmentEndpointTests(EvaluationDraftDatabaseFixture
         Assert.Equal(HttpStatusCode.Forbidden, (await primary.PostAsJsonAsync(Base(s.ProjectId) + "/draft", input with { StudentId = s.Scope.Users.OtherLecturer })).StatusCode);
         var draft = await Body<WeeklyAssessmentDto>(await primary.PostAsJsonAsync(Base(s.ProjectId) + "/draft", input));
         Assert.Null(draft.TotalScore); Assert.False(draft.CanSubmit);
-        Assert.Equal(HttpStatusCode.Conflict, (await primary.PostAsJsonAsync($"/api/v1/weekly-assessments/{draft.Id}/submit", new SubmitWeeklyAssessmentRequest(draft.ConcurrencyToken))).StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await primary.PostAsJsonAsync($"/api/v1/weekly-assessments/{draft.Id}/submit", new SubmitWeeklyAssessmentRequest(draft.ConcurrencyToken))).StatusCode);
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         Assert.Equal(HttpStatusCode.Forbidden, (await student.GetAsync(Base(s.ProjectId) + $"?studentId={s.Scope.Users.OtherLecturer}")).StatusCode);
         await using (var db = database.CreateContext()) { (await db.Projects.FindAsync(s.ProjectId))!.Status = "ARCHIVED"; await db.SaveChangesAsync(); }

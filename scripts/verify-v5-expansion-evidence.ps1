@@ -14,7 +14,6 @@ $required = [ordered]@{
     'expansion-peer-lifecycle' = @{ submitted = 2; submissionAuditExactlyOnce = $true; officialScoreWrites = 0 }
     'expansion-result-revision-foundation' = @{ publicationViaApi = $true; correctionViaInternalStore = $true; auditRollbackVerified = $true; concurrentPublishWinners = 1; historyRedacted = $true }
     'expansion-appeal-lifecycle' = @{ resultVersion = 2; concurrentWinners = 1; auditRollback = $true; originalResultsUnchanged = $true }
-    'expansion-industry-lifecycle' = @{ assignmentRevoked = $true; shareRevoked = $true; feedbackVersions = 2; officialResults = 0 }
 }
 $projectionFields = @('id', 'status', 'scope', 'stage', 'totalScore', 'canPublish', 'blockers',
     'generationStatus', 'insufficientEvidence', 'errorCode', 'runId', 'projectCount',

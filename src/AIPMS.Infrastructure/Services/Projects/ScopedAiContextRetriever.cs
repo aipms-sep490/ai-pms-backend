@@ -110,7 +110,7 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
         var rawTasks = await tasksQuery
             .Select(t => new
             {
-                t.Id, t.MilestoneId, MilestoneTitle = t.Milestone.Title, t.Title, t.Status, t.Priority, t.DueAt, t.Description,
+                t.Id, t.MilestoneId, MilestoneTitle = scope.Whole ? t.Milestone.Title : null, t.Title, t.Status, t.Priority, t.DueAt, t.Description,
                 FileCount = t.Files.Count,
                 Assignees = t.TaskAssignees.Select(a => a.User.FullName).ToArray()
             })
@@ -125,7 +125,7 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
                 var queryMatch = terms.Length > 0 && terms.Any(term =>
                     t.Title.Contains(term, StringComparison.OrdinalIgnoreCase)
                     || (t.Description != null && t.Description.Contains(term, StringComparison.OrdinalIgnoreCase))
-                    || t.MilestoneTitle.Contains(term, StringComparison.OrdinalIgnoreCase));
+                    || (t.MilestoneTitle != null && t.MilestoneTitle.Contains(term, StringComparison.OrdinalIgnoreCase)));
                 var priorityRank = (queryMatch ? 0 : 10)
                     + (blocked ? 0 : overdue ? 1 : hasImpact ? 2 : t.Status is "IN_PROGRESS" or "TODO" ? 4 : 8);
                 return new { Task = t, Overdue = overdue, Blocked = blocked, PriorityRank = priorityRank };
@@ -179,7 +179,7 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
             return new TaskEvidenceItem(
                 $"TASK-{t.Id}", t.Id, Text(t.Title, 200), t.Status, t.Priority,
                 t.DueAt?.ToString("O"), x.Overdue, x.Blocked, Text(t.Description, 280),
-                t.MilestoneId, Text(t.MilestoneTitle, 150),
+                scope.Whole ? t.MilestoneId : null, scope.Whole ? Text(t.MilestoneTitle, 150) : null,
                 t.Assignees, disciplinesByTask[t.Id].Distinct().ToArray(),
                 t.FileCount, crit?.Total ?? 0, crit?.Completed ?? 0,
                 blockers, impacts.Length, impactSummary, latestComment);
@@ -187,7 +187,9 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
 
         foreach (var t in taskItems)
         {
-            var parts = new List<string> { $"Mốc: {t.MilestoneTitle}", $"Trạng thái: {t.Status}" };
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(t.MilestoneTitle)) parts.Add($"Mốc: {t.MilestoneTitle}");
+            parts.Add($"Trạng thái: {t.Status}");
             if (t.IsOverdue) parts.Add("QUÁ HẠN");
             if (t.IsBlocked) parts.Add("BỊ CHẶN");
             if (t.AssigneeNames is { Count: > 0 }) parts.Add($"Phụ trách: {string.Join(", ", t.AssigneeNames)}");
@@ -212,7 +214,7 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
             .Select(d => new
             {
                 d.Id, d.Title, d.DeliverableType, d.EvidenceScope, d.TargetMajorId, d.Status, d.DueAt,
-                MilestoneTitle = d.Milestone == null ? null : d.Milestone.Title,
+                MilestoneTitle = !scope.Whole || d.Milestone == null ? null : d.Milestone.Title,
                 LatestVersion = d.DeliverableVersions.OrderByDescending(v => v.VersionNumber)
                     .Select(v => new
                     {

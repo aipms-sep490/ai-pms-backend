@@ -311,7 +311,9 @@ public sealed class ChatCollaborationTests(FinalSubmissionDraftDatabaseFixture d
         public string ModelVersion => "TEST_CHAT_GROUNDING";
         public Task<string> GenerateTextAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
         {
-            var id = Regex.Match(userPrompt, @"messageId=(?<id>[^;]+);").Groups["id"].Value;
+            var match = Regex.Match(userPrompt, "\"messageId\"\\s*:\\s*\"(?<id>[^\"]+)\"");
+            if (!match.Success) match = Regex.Match(userPrompt, @"messageId=(?<id>[^;]+);");
+            var id = match.Groups["id"].Value;
             var dueAt = groundedDate ? "2030-12-31T10:00:00Z" : null;
             return Task.FromResult(JsonSerializer.Serialize(new
             {

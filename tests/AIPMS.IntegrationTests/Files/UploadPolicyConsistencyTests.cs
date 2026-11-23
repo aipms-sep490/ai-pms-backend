@@ -156,7 +156,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             }
         }
 
-        Assert.Equal(18, endpointsWithLimit.Count);
+        Assert.Equal(19, endpointsWithLimit.Count);
 
         foreach (var (method, limit) in endpointsWithLimit)
         {
@@ -168,6 +168,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             Assert.True(limit >= UploadPolicies.UserAvatarTransportLimit);
             Assert.True(limit == UploadPolicies.MultipartTransportCeiling
                 || limit == UploadPolicies.MultipartArchiveCeiling
+                || limit == UploadPolicies.MeetingAudioClipLimit
                 || limit <= UploadPolicies.Tier11MiB);
         }
     }
@@ -194,8 +195,8 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             }
         }
 
-        // All file, workbook, and preview endpoints must have [RequestSizeLimit].
-        Assert.Equal(18, endpointsWithLimit.Count);
+        // All file, workbook, audio clip, and preview endpoints must have [RequestSizeLimit].
+        Assert.Equal(19, endpointsWithLimit.Count);
 
         // Every endpoint's limit must match a recognized constant in UploadPolicies
         var validConstants = new[]
@@ -208,6 +209,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             UploadPolicies.ChatAttachmentLimit,
             UploadPolicies.ColdSubmissionLimit,
             UploadPolicies.ResultAppealLimit,
+            UploadPolicies.MeetingAudioClipLimit,
             UploadPolicies.MultipartTransportCeiling,
             UploadPolicies.MultipartArchiveCeiling,
             UploadPolicies.ProjectFileChunkSize,
