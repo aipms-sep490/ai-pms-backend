@@ -35,6 +35,9 @@ public sealed class ReviewGateDeleteDraftTests
             audit,
             new FixedClock(),
             new NoopStorage(),
+            null!,
+            null!,
+            null!,
             null!);
 
         // 1. Deleting DRAFT removes template, gate definitions, and requirements + writes audit
