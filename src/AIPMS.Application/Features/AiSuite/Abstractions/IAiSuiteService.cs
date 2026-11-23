@@ -37,4 +37,7 @@ public interface IAiSuiteService
     // #8 Department Weekly Executive Brief
     Task<DepartmentExecutiveBriefDto> GenerateDepartmentBriefAsync(DepartmentBriefRequest request, CancellationToken ct);
     Task<DepartmentExecutiveBriefDto?> GetLatestDepartmentBriefAsync(long? departmentId, CancellationToken ct);
+
+    // #9 Evaluation Scheme AI Suggest
+    Task<EvaluationSchemeSuggestDto> SuggestEvaluationSchemeAsync(long projectId, CancellationToken ct);
 }

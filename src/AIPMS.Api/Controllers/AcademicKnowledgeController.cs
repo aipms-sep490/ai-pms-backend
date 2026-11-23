@@ -59,6 +59,14 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
         [FromServices] IAiSetupService setup, CancellationToken ct) =>
         setup.ApplyColdTemplateSetupAsync(request, ct);
 
+    [HttpPost("ai/milestone-template-setup/apply")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<ApplyMilestoneTemplateSetupResultDto>(200)]
+    public Task<ApplyMilestoneTemplateSetupResultDto> ApplyMilestoneTemplateSetup([FromBody] ApplyMilestoneTemplateSetupRequest request,
+        [FromServices] IAiSetupService setup, CancellationToken ct) =>
+        setup.ApplyMilestoneTemplateSetupAsync(request, ct);
+
     [HttpGet("assistant/review-rubrics")]
     public Task<IReadOnlyList<AssistantRubricOption>> ReviewRubrics([FromQuery] long projectId, CancellationToken ct) => service.ReviewRubricsAsync(projectId, ct);
     [HttpPost("/api/v1/projects/{projectId:long}/ai/deliverables/{deliverableVersionId:long}/review")]

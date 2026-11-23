@@ -21,6 +21,7 @@ internal static class AssistantActionDraftParser
         AssistantReviewGateSetupPlanDto? reviewGateSetup = null;
         AssistantTopicBatchPlanDto? topicBatchSetup = null;
         AssistantColdTemplateSetupPlanDto? coldTemplateSetup = null;
+        AssistantMilestoneTemplateSetupPlanDto? milestoneTemplateSetup = null;
         if (expected == "TASK" && Object(value, "task", out var t))
         {
             var names = new List<string>();
@@ -70,7 +71,12 @@ internal static class AssistantActionDraftParser
             coldTemplateSetup = AssistantSetupPlanParser.ParseColdTemplateSetup(cts);
             if (coldTemplateSetup is null) return null;
         }
-        return new(expected, title, description, expected == "MEETING" ? AssistantMeetingDraftParser.Parse(value) : null, task, report, tasks, setupPlan, rubricSetup, reviewGateSetup, topicBatchSetup, coldTemplateSetup);
+        if (expected == "MILESTONE_TEMPLATE_SETUP" && Object(value, "milestoneTemplateSetup", out var mts))
+        {
+            milestoneTemplateSetup = AssistantSetupPlanParser.ParseMilestoneTemplateSetup(mts);
+            if (milestoneTemplateSetup is null) return null;
+        }
+        return new(expected, title, description, expected == "MEETING" ? AssistantMeetingDraftParser.Parse(value) : null, task, report, tasks, setupPlan, rubricSetup, reviewGateSetup, topicBatchSetup, coldTemplateSetup, milestoneTemplateSetup);
     }
 
     private static bool Object(JsonElement value, string key, out JsonElement child) => value.TryGetProperty(key, out child) && child.ValueKind == JsonValueKind.Object;

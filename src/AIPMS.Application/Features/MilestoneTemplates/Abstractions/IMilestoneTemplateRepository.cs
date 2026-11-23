@@ -6,7 +6,7 @@ public interface IMilestoneTemplateRepository
 {
     Task<IReadOnlyList<MilestoneTemplateDto>> ListAsync(CancellationToken ct);
     Task<MilestoneTemplateDto> CreateAsync(string name, string? description, long actorId, DateTime now, CancellationToken ct);
-    Task<MilestoneTemplateVersionDto> CreateVersionAsync(long templateId, long actorId, DateTime now, CancellationToken ct);
+    Task<MilestoneTemplateVersionDto> CreateVersionAsync(long templateId, long actorId, DateTime now, CancellationToken ct, long? copyFromVersionId = null);
     Task UpdateAsync(long templateId, string name, string? description, long actorId, DateTime now, CancellationToken ct);
     Task DeleteAsync(long templateId, long actorId, CancellationToken ct);
     Task PublishVersionAsync(long versionId, long actorId, DateTime now, CancellationToken ct);

@@ -138,17 +138,19 @@ internal sealed partial class AcademicKnowledgeService(
         if (scope is not ("ACADEMIC" or "PROJECT" or "COMBINED")) throw new ArgumentException("Invalid scope.");
         if (scope != "ACADEMIC" && request.ProjectId is null) throw new ArgumentException("ProjectId is required.");
         if (request.DraftKind is not (null or "TASK" or "MEETING")) throw new ArgumentException("Invalid draft kind.");
-        if (request.ToolMode is not (null or "PROGRESS" or "REPORT_REVIEW" or "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP")) throw new ArgumentException("Invalid assistant tool.");
+        if (request.ToolMode is not (null or "PROGRESS" or "REPORT_REVIEW" or "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP" or "MILESTONE_TEMPLATE_SETUP")) throw new ArgumentException("Invalid assistant tool.");
         if (request.ToolMode is "PROGRESS" or "REPORT_REVIEW" or "PROJECT_SETUP" && (request.ProjectId is null || scope == "ACADEMIC"))
             throw new ArgumentException("Mở trợ lý trong đồ án để dùng chức năng này.");
         if (request.ToolMode is "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP" && !await db.UserRoles.AnyAsync(r => r.UserId == actor.Id && (r.Role.Code == AppRoles.Admin || r.Role.Code == AppRoles.DepartmentStaff), ct))
             throw new ForbiddenException("Chỉ cán bộ khoa hoặc quản trị viên được yêu cầu trợ lý soạn nháp cấu hình đầu kỳ.");
+        if (request.ToolMode == "MILESTONE_TEMPLATE_SETUP" && !await db.UserRoles.AnyAsync(r => r.UserId == actor.Id && r.Role.Code == AppRoles.Admin, ct))
+            throw new ForbiddenException("Chỉ Quản trị viên (ADMIN) mới được dùng trợ lý soạn nháp Mẫu mốc đồ án.");
         if (request.ToolMode == "REPORT_REVIEW" && (files.Count == 0 || request.RubricId is null))
             throw new ArgumentException("Chọn rubric đã công bố và đính kèm báo cáo cần nhận xét.");
         if (request.RubricId != null && request.ToolMode != "REPORT_REVIEW") throw new ArgumentException("Rubric chỉ dùng trong chế độ nhận xét báo cáo.");
         if (request.ToolMode == "PROGRESS" && files.Count > 0) throw new ArgumentException("Chế độ tiến độ dùng dữ liệu hệ thống; hãy bỏ tệp đính kèm.");
         if (request.PageContext?.Length > 160) throw new ArgumentException("Page context too long.");
-        var documentTool = request.ToolMode is "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP";
+        var documentTool = request.ToolMode is "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP" or "MILESTONE_TEMPLATE_SETUP";
         var expectedDraftKind = request.DraftKind ?? (documentTool ? request.ToolMode : null);
         var conversation = request.ConversationId.HasValue ? await OwnedConversationAsync(request.ConversationId.Value, ct) : null;
         if (conversation != null && (conversation.ProjectId != request.ProjectId || conversation.Scope != scope || conversation.Revision != request.ExpectedRevision))
@@ -285,6 +287,9 @@ internal sealed partial class AcademicKnowledgeService(
                 "toolMode COLD_TEMPLATE_SETUP: design an editable Cold Report Template tailored to the requested discipline/major or attached syllabus. " +
                 "Return draft:{kind:\"COLD_TEMPLATE_SETUP\",title:\"...\",description:\"...\",coldTemplateSetup:{name:\"...\",scope:\"COMMON|MAJOR_SPECIFIC\",majorName:null,summary:\"...\",reports:[{code:\"UPPER_SNAKE_CODE\",name:\"...\",required:true}],warnings:[]}}. " +
                 "Every report code MUST use ASCII UPPER_SNAKE_CASE (A-Z, 0-9, _ only, <= 60 chars), distinct, with >= 1 required=true report. " +
+                "toolMode MILESTONE_TEMPLATE_SETUP: design a reusable Milestone Template for a university capstone semester (typical 12-15 weeks = 84-105 days) from attached syllabus or prompt. " +
+                "Return draft:{kind:\"MILESTONE_TEMPLATE_SETUP\",title:\"...\",description:\"...\",milestoneTemplateSetup:{name:\"...\",description:\"...\",summary:\"...\",items:[{title:\"...\",description:\"...\",startOffsetDays:0,dueOffsetDays:21,sortOrder:0}],warnings:[]}}. " +
+                "Ensure startOffsetDays >= 0, dueOffsetDays >= startOffsetDays, ascending milestones matching semester length. " +
                 "For these document tools mark all unprovided dates, people and decisions [Cần bổ sung]; separate proposals from supplied facts. " +
                 "Write an editable document in answer with clear headings and bullets. The application provides download buttons; never invent download URLs. " +
                 "When expectedDraftKind is present, add draft:{kind,title,description}, kind must equal expectedDraftKind. Never execute actions or invent IDs. Otherwise omit draft. " +
@@ -736,6 +741,7 @@ internal sealed partial class AcademicKnowledgeService(
             "REVIEW_GATE_SETUP" => "Khung cổng thẩm định (Nháp AI)",
             "TOPIC_BATCH_SETUP" => "Danh sách đề tài hàng loạt (Nháp AI)",
             "COLD_TEMPLATE_SETUP" => "Mẫu hồ sơ chấm nguội (Nháp AI)",
+            "MILESTONE_TEMPLATE_SETUP" => "Mẫu mốc đồ án dùng chung (Nháp AI)",
             _ => "Nháp từ trợ lý AI"
         };
         var notes = ExtractDraftNotes(kind, query);
@@ -745,6 +751,7 @@ internal sealed partial class AcademicKnowledgeService(
         AssistantReviewGateSetupPlanDto? reviewGateSetup = null;
         AssistantTopicBatchPlanDto? topicBatchSetup = null;
         AssistantColdTemplateSetupPlanDto? coldTemplateSetup = null;
+        AssistantMilestoneTemplateSetupPlanDto? milestoneTemplateSetup = null;
         if (kind == "PROJECT_SETUP")
         {
             setupPlan = BuildLocalProjectSetup(query, context);
@@ -765,6 +772,10 @@ internal sealed partial class AcademicKnowledgeService(
         {
             coldTemplateSetup = BuildLocalColdTemplateSetup(query);
         }
+        else if (kind == "MILESTONE_TEMPLATE_SETUP")
+        {
+            milestoneTemplateSetup = BuildLocalMilestoneTemplateSetup(query);
+        }
         var description = kind switch
         {
             "WEEKLY_REPORT" => WeeklyReportDescription(report!, context),
@@ -775,6 +786,7 @@ internal sealed partial class AcademicKnowledgeService(
             "REVIEW_GATE_SETUP" => reviewGateSetup!.Summary,
             "TOPIC_BATCH_SETUP" => topicBatchSetup!.Summary,
             "COLD_TEMPLATE_SETUP" => coldTemplateSetup!.Summary,
+            "MILESTONE_TEMPLATE_SETUP" => milestoneTemplateSetup!.Summary,
             _ => $"Nội dung: {missing}"
         };
         if (!string.IsNullOrWhiteSpace(notes)) description += $"\n\nGhi chú bạn cung cấp:\n{notes}";
@@ -783,7 +795,8 @@ internal sealed partial class AcademicKnowledgeService(
             Meeting: kind == "MEETING" ? new AssistantMeetingDraftDto(null, null, null, null, null, null, false) : null,
             Task: kind == "TASK" ? new AssistantTaskDraftDto(null, null, null, Array.Empty<string>(), null) : null,
             Report: report, Tasks: tasks, SetupPlan: setupPlan, RubricSetup: rubricSetup,
-            ReviewGateSetup: reviewGateSetup, TopicBatchSetup: topicBatchSetup, ColdTemplateSetup: coldTemplateSetup);
+            ReviewGateSetup: reviewGateSetup, TopicBatchSetup: topicBatchSetup, ColdTemplateSetup: coldTemplateSetup,
+            MilestoneTemplateSetup: milestoneTemplateSetup);
     }
 
     private static AssistantProjectSetupPlanDto BuildLocalProjectSetup(string query, ProjectBoundedContext? context)

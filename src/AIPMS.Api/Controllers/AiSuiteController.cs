@@ -5,6 +5,7 @@ using AIPMS.Application.Features.AiSuite.Abstractions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AIPMS.Api.Controllers;
 
@@ -80,6 +81,12 @@ public sealed class AiSuiteController(IAiSuiteService suite) : ControllerBase
     [ProducesResponseType<AppealAssistDto>(StatusCodes.Status200OK)]
     public Task<AppealAssistDto> AssistAppealReview(long appealId, CancellationToken ct) =>
         suite.AssistAppealReviewAsync(appealId, ct);
+
+    [HttpPost("projects/{projectId:long}/evaluation-schemes/suggest")]
+    [EnableRateLimiting("ai-assistant")]
+    [ProducesResponseType<EvaluationSchemeSuggestDto>(StatusCodes.Status200OK)]
+    public Task<EvaluationSchemeSuggestDto> SuggestEvaluationScheme(long projectId, CancellationToken ct) =>
+        suite.SuggestEvaluationSchemeAsync(projectId, ct);
 
     // #5 Task Breakdown & Sprint Retrospective
     [HttpPost("projects/{projectId:long}/tasks/breakdown")]

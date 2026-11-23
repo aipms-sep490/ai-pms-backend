@@ -6,6 +6,8 @@ using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.AcademicKnowledge;
 using AIPMS.Application.Features.Cold;
+using AIPMS.Application.Features.MilestoneTemplates.Commands;
+using AIPMS.Application.Features.MilestoneTemplates.DTOs;
 using AIPMS.Application.Features.ReviewGates;
 using AIPMS.Application.Features.Topics.Commands;
 using AIPMS.Application.Features.Topics.DTOs;
@@ -397,6 +399,83 @@ internal sealed partial class ProjectAiSetupService
 
         await audit.RecordAsync(new AuditEntry(actorId, "AI_COLD_TEMPLATE_SETUP_APPLIED", "COLD_TEMPLATE", created.Id,
             new Dictionary<string, object?> { ["runId"] = request.RunId, ["version"] = created.Version, ["reportsCount"] = created.Reports.Count }), ct);
+        return result;
+    }
+
+    public async Task<ApplyMilestoneTemplateSetupResultDto> ApplyMilestoneTemplateSetupAsync(
+        ApplyMilestoneTemplateSetupRequest request, CancellationToken ct = default)
+    {
+        if (!currentUser.IsAuthenticated || currentUser.UserId is not long actorId) throw new UnauthorizedException();
+        if (request is null || request.IdempotencyKey == Guid.Empty)
+            throw new ArgumentException("Thiếu mã xác thực chống trùng (idempotencyKey).");
+        if (request.Items is null || request.Items.Count == 0)
+            throw new ArgumentException("Mẫu mốc đồ án cần tối thiểu một mốc.");
+        if (request.Items.Count > 20)
+            throw new ArgumentException("Tối đa 20 mốc trong một phiên bản mẫu.");
+
+        var isAdmin = currentUser.Roles.Any(r => string.Equals(r, "ADMIN", StringComparison.OrdinalIgnoreCase))
+            || await db.UserRoles.AsNoTracking().AnyAsync(r => r.UserId == actorId && r.Role.Code == "ADMIN", ct);
+        if (!isAdmin)
+            throw new ForbiddenException("Chỉ Quản trị viên (ADMIN) mới được tạo bản nháp Mẫu mốc đồ án.");
+
+        var replay = await db.AiSetupApplications.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.ActorId == actorId && x.IdempotencyKey == request.IdempotencyKey && x.ScopeType == "MILESTONE_TEMPLATE", ct);
+        if (replay is not null)
+        {
+            var prev = JsonSerializer.Deserialize<ApplyMilestoneTemplateSetupResultDto>(replay.ResultJson);
+            if (prev is not null) return prev with { Replay = true };
+        }
+
+        var name = string.IsNullOrWhiteSpace(request.Name) ? "Mẫu mốc đồ án (Nháp AI)" : request.Name.Trim();
+        if (name.Length > 200) name = name[..200];
+
+        long templateId;
+        string templateName;
+        if (request.ExistingTemplateId.HasValue && request.ExistingTemplateId.Value > 0)
+        {
+            templateId = request.ExistingTemplateId.Value;
+            templateName = name;
+        }
+        else
+        {
+            var tpl = await sender.Send(new CreateMilestoneTemplateCommand(name, request.Description?.Trim()), ct);
+            templateId = tpl.Id;
+            templateName = tpl.Name;
+        }
+
+        var version = await sender.Send(new CreateMilestoneTemplateVersionCommand(templateId), ct);
+        var addedCount = 0;
+        for (var i = 0; i < request.Items.Count; i++)
+        {
+            var item = request.Items[i];
+            if (string.IsNullOrWhiteSpace(item.Title)) continue;
+            var startOff = item.StartOffsetDays is >= 0 ? item.StartOffsetDays : null;
+            var dueOff = item.DueOffsetDays is >= 0 ? item.DueOffsetDays : null;
+            if (startOff.HasValue && dueOff.HasValue && dueOff < startOff) dueOff = startOff;
+            await sender.Send(new AddMilestoneTemplateItemCommand(version.Id, new SaveMilestoneTemplateItemRequest(
+                item.Title.Trim().Length > 200 ? item.Title.Trim()[..200] : item.Title.Trim(),
+                item.Description?.Trim(),
+                startOff,
+                dueOff,
+                i)), ct);
+            addedCount++;
+        }
+
+        var result = new ApplyMilestoneTemplateSetupResultDto(templateId, version.Id, version.VersionNumber, templateName, "DRAFT", addedCount, false);
+        db.AiSetupApplications.Add(new AiSetupApplication
+        {
+            ActorId = actorId,
+            IdempotencyKey = request.IdempotencyKey,
+            ScopeType = "MILESTONE_TEMPLATE",
+            ProjectId = null,
+            RunId = request.RunId,
+            ResultJson = JsonSerializer.Serialize(result),
+            CreatedAt = clock.GetUtcNow().UtcDateTime
+        });
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(new AuditEntry(actorId, "AI_MILESTONE_TEMPLATE_SETUP_APPLIED", "MILESTONE_TEMPLATE_VERSION", version.Id,
+            new Dictionary<string, object?> { ["runId"] = request.RunId, ["templateId"] = templateId, ["itemsCount"] = addedCount }), ct);
         return result;
     }
 
