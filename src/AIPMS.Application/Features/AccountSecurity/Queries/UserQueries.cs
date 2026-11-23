@@ -12,7 +12,10 @@ public sealed record GetUsersQuery(
     string? Search,
     string? Status,
     int Page = 1,
-    int PageSize = 20) : IRequest<PagedResult<UserAccountDto>>;
+    int PageSize = 20,
+    string? Role = null,
+    long? DepartmentId = null,
+    long? MajorId = null) : IRequest<PagedResult<UserAccountDto>>;
 
 public sealed class GetUsersQueryHandler(
     IUserAccountRepository repository,
@@ -29,6 +32,9 @@ public sealed class GetUsersQueryHandler(
             request.Status?.Trim().ToUpperInvariant(),
             request.Page,
             request.PageSize,
+            request.Role?.Trim().ToUpperInvariant(),
+            request.DepartmentId,
+            request.MajorId,
             cancellationToken);
 
         return new PagedResult<UserAccountDto>(

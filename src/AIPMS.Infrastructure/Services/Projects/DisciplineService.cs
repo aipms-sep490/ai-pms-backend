@@ -138,7 +138,7 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
             var scope = await Scope(projectId, token); var items = disciplines ?? [];
             DisciplineValidation.Disciplines(items, scope.Interdisciplinary);
             if (items.Any(x => !scope.Majors.Contains(x.MajorId))) throw new ConflictException("Task discipline is outside project requirements.");
-            await RequireWriter(projectId, items.Select(x => x.MajorId).ToArray(), null, token);
+            await RequireWriter(projectId, items.Select(x => x.MajorId).ToArray(), null, token, allowSelfScopedMemberCreate: true);
             var result = await create(token);
             await SaveDisciplines(result.Id, items, token);
             if (items.Count > 0) await Audit("TASK_DISCIPLINES_REPLACED", "TASK", result.Id, items, token);
@@ -258,7 +258,7 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
         return (explicitMajors.Length > 0 ? explicitMajors : scope.MajorIds, scope.MajorIds.Count > 1);
     }
 
-    private async Task RequireWriter(long projectId, IReadOnlyList<long> majorIds, long? taskId, CancellationToken ct)
+    private async Task RequireWriter(long projectId, IReadOnlyList<long> majorIds, long? taskId, CancellationToken ct, bool allowSelfScopedMemberCreate = false)
     {
         await RequireAccess(projectId, ct);
         var teamId = await db.Projects.Where(x => x.Id == projectId).Select(x => x.TeamId).SingleAsync(ct);
@@ -270,6 +270,16 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
         if (taskId is long task && await db.TaskAssignees.AnyAsync(x => x.TaskId == task && x.UserId == Actor
             && x.User.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")
             && db.TeamMembers.Any(m => m.TeamId == teamId && m.UserId == Actor && m.LeftAt == null), ct)) return;
+        if (allowSelfScopedMemberCreate && taskId is null)
+        {
+            var activeMember = await db.TeamMembers.AsNoTracking()
+                .Where(m => m.TeamId == teamId && m.UserId == Actor && m.LeftAt == null
+                    && m.User.Status == "ACTIVE" && m.User.UserRoleUsers.Any(r => r.Role.Code == "STUDENT"))
+                .Select(m => new { m.User.MajorId })
+                .FirstOrDefaultAsync(ct);
+            if (activeMember is not null && (majorIds.Count == 0 || (activeMember.MajorId.HasValue && majorIds.All(id => id == activeMember.MajorId.Value))))
+                return;
+        }
         throw new ForbiddenException("Only the active leader, scoped assigned supervisor, or member assigned to this task may write.");
     }
 

@@ -4,6 +4,7 @@ public sealed class EvaluationAssignment
 {
     public string? Stage { get; set; }
     public long? ColdPackageId { get; set; }
+    public long? DefenseSessionId { get; set; }
     public long Id { get; set; }
     public long ProjectId { get; set; }
     public long EvaluatorId { get; set; }
@@ -14,6 +15,8 @@ public sealed class EvaluationAssignment
     public string Status { get; set; } = "ACTIVE";
     public long AssignedBy { get; set; }
     public DateTime AssignedAt { get; set; }
+    public DateTime? ValidFrom { get; set; }
+    public DateTime? ValidUntil { get; set; }
     public DateTime? RevokedAt { get; set; }
     public string? RevocationReason { get; set; }
     public Guid ConcurrencyToken { get; set; }

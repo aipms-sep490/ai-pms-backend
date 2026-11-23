@@ -13,6 +13,7 @@ public sealed record DeleteRubricCommand(long Id, string ConcurrencyToken) : IRe
 public sealed record SubmitRubricForApprovalCommand(long Id, SubmitRubricForApprovalRequest Input) : IRequest<RubricDto>;
 public sealed record ApproveRubricCommand(long Id, ApproveRubricRequest Input) : IRequest<RubricDto>;
 public sealed record RejectRubricCommand(long Id, RejectRubricRequest Input) : IRequest<RubricDto>;
+public sealed record CloneRubricCriterionCommand(long Id, long CriterionId, string ConcurrencyToken) : IRequest<RubricDto>;
 
 public sealed class CreateRubricCommandHandler(RubricWorkflow workflow) : IRequestHandler<CreateRubricCommand, RubricDto>
 {
@@ -49,4 +50,8 @@ public sealed class ApproveRubricCommandHandler(RubricWorkflow workflow) : IRequ
 public sealed class RejectRubricCommandHandler(RubricWorkflow workflow) : IRequestHandler<RejectRubricCommand, RubricDto>
 {
     public Task<RubricDto> Handle(RejectRubricCommand r, CancellationToken ct) => workflow.Reject(r.Id, r.Input, ct);
+}
+public sealed class CloneRubricCriterionCommandHandler(RubricWorkflow workflow) : IRequestHandler<CloneRubricCriterionCommand, RubricDto>
+{
+    public Task<RubricDto> Handle(CloneRubricCriterionCommand r, CancellationToken ct) => workflow.CloneCriterion(r.Id, r.CriterionId, r.ConcurrencyToken, ct);
 }

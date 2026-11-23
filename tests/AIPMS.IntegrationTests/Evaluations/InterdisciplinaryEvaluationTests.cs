@@ -81,7 +81,7 @@ public sealed partial class PolicyEvaluationEndpointTests
         var studentUrlA = $"/api/v1/projects/{s.ProjectId}/students/{s.Scope.Users.Student}/result";
         var studentUrlB = $"/api/v1/projects/{s.ProjectId}/students/{secondStudent}/result";
         Assert.Equal(HttpStatusCode.Forbidden, (await admin.GetAsync(projectUrl + "/preview")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await studentA.GetAsync(studentUrlA)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await studentA.GetAsync(studentUrlA)).StatusCode);
         async Task Score(SchemeComponentDto component, long evaluator, long? target, decimal score)
         {
             using var lecturer = app.CreateAuthenticatedClient(evaluator);

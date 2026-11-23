@@ -716,8 +716,7 @@ public sealed class ReviewGateServiceBehaviorTests(ReviewGateBehaviorFixture fix
 
 
     // ==========================================
-    // 16. Decide với reviewer đã REVOKED => 403 hoặc 409 (:627-630)
-    // TODO(GATE-02): RequireActiveAssignment throws ConflictException (409 REVIEW_ASSIGNMENT_INACTIVE) rather than 403
+    // 16. Decide với reviewer đã REVOKED => 403 ASSIGNMENT_REVOKED (P0.3 / TEST-P0-04)
     // ==========================================
     [Fact]
     public async Task Test16_Decide_With_Revoked_Assignment_Fails()
@@ -748,14 +747,15 @@ public sealed class ReviewGateServiceBehaviorTests(ReviewGateBehaviorFixture fix
         var response = await reviewer.PostAsJsonAsync($"/api/v1/review-gates/assignments/{revokedAssign.Id}/decision",
             new SubmitReviewGateDecisionRequest("PASSED", "Trying to decide revoked", revokedAssign.ConcurrencyToken.ToString("N")));
 
-        Assert.True(response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Contains("ASSIGNMENT_REVOKED", await response.Content.ReadAsStringAsync());
     }
 
     // ==========================================
-    // 17. Decide bởi Primary supervisor của chính project đó => 403 (:636-637 COI)
+    // 17. Decide bởi Primary supervisor của chính project đó => 409 EVALUATOR_ROLE_CONFLICT (D17 / P0.2)
     // ==========================================
     [Fact]
-    public async Task Test17_Decide_By_Primary_Supervisor_Of_Project_Fails_403_Conflict_Of_Interest()
+    public async Task Test17_Decide_By_Primary_Supervisor_Of_Project_Fails_409_Conflict_Of_Interest()
     {
         var s = fixture.Scenario;
         await using var db = fixture.CreateContext();
@@ -805,14 +805,15 @@ public sealed class ReviewGateServiceBehaviorTests(ReviewGateBehaviorFixture fix
         var response = await reviewer.PostAsJsonAsync($"/api/v1/review-gates/assignments/{assign.Id}/decision",
             new SubmitReviewGateDecisionRequest("PASSED", "COI Decision", assign.ConcurrencyToken.ToString("N")));
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("EVALUATOR_ROLE_CONFLICT", await response.Content.ReadAsStringAsync());
     }
 
     // ==========================================
-    // 18. Decide bởi Mentor ngành của chính project đó => 403 (:636-637)
+    // 18. Decide bởi Mentor ngành của chính project đó => 409 EVALUATOR_ROLE_CONFLICT (D17 / P0.2)
     // ==========================================
     [Fact]
-    public async Task Test18_Decide_By_Mentor_Of_Project_Fails_403_Conflict_Of_Interest()
+    public async Task Test18_Decide_By_Mentor_Of_Project_Fails_409_Conflict_Of_Interest()
     {
         var s = fixture.Scenario;
         await using var db = fixture.CreateContext();
@@ -864,7 +865,8 @@ public sealed class ReviewGateServiceBehaviorTests(ReviewGateBehaviorFixture fix
         var response = await reviewer.PostAsJsonAsync($"/api/v1/review-gates/assignments/{assign.Id}/decision",
             new SubmitReviewGateDecisionRequest("PASSED", "COI Mentor Decision", assign.ConcurrencyToken.ToString("N")));
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("EVALUATOR_ROLE_CONFLICT", await response.Content.ReadAsStringAsync());
     }
 
     // ==========================================

@@ -39,6 +39,8 @@ public partial class AipmsDbContext
             e.ToTable("evaluation_scheme_components"); e.HasKey(x => x.Id);
             e.Property(x => x.Stage).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.Name).HasMaxLength(200); e.Property(x => x.Scope).HasMaxLength(20);
+            e.Property(x => x.TargetScope).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.IsIntegration).HasDefaultValue(false);
             e.Property(x => x.ProjectWeightPercent).HasPrecision(9, 4); e.Property(x => x.StudentWeightPercent).HasPrecision(9, 4);
         });
         b.Entity<StudentResult>(e =>
@@ -46,16 +48,47 @@ public partial class AipmsDbContext
             e.ToTable("student_results"); e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.ProjectId, x.StudentId }).IsUnique();
             e.Property(x => x.TotalScore).HasPrecision(5, 2); e.Property(x => x.PassThreshold).HasPrecision(5, 2);
-            e.Property(x => x.Outcome).HasMaxLength(20); e.Property(x => x.CalculationRule).HasMaxLength(100);
+            e.Property(x => x.Outcome).HasMaxLength(20); e.Property(x => x.OutcomeDetail).HasMaxLength(40).IsUnicode(false);
+            e.Property(x => x.CalculationRule).HasMaxLength(100);
         });
         b.Entity<StudentResultEvaluation>(e =>
         {
             e.ToTable("student_result_evaluations"); e.HasKey(x => new { x.ResultId, x.EvaluationId });
             e.HasOne<StudentResult>().WithMany().HasForeignKey(x => x.ResultId).OnDelete(DeleteBehavior.NoAction);
         });
+        b.Entity<GateIndividualProcessScore>(e =>
+        {
+            e.ToTable("gate_individual_process_scores"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.GateInstanceId, x.StudentId }).IsUnique();
+            e.Property(x => x.Score).HasPrecision(5, 2);
+            e.Property(x => x.GateWeightPercent).HasPrecision(5, 2);
+            e.Property(x => x.MentorReferenceNotes).HasMaxLength(2000);
+            e.Property(x => x.Comments).HasMaxLength(2000);
+            e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
+            e.Property(x => x.CreatedAt).HasPrecision(0);
+            e.Property(x => x.UpdatedAt).HasPrecision(0);
+            e.Property(x => x.FinalizedAt).HasPrecision(0);
+            e.HasOne<Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<ProjectGateInstance>().WithMany().HasForeignKey(x => x.GateInstanceId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Models.User>().WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Models.SupervisorAssignment>().WithMany().HasForeignKey(x => x.SupervisorAssignmentId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<StudentDefenseAbsence>(e =>
+        {
+            e.ToTable("student_defense_absences"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ProjectId, x.StudentId }).IsUnique();
+            e.Property(x => x.Reason).HasMaxLength(2000);
+            e.Property(x => x.MinutesReference).HasMaxLength(500);
+            e.Property(x => x.RecordedAt).HasPrecision(0);
+            e.HasOne<Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Models.User>().WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Models.User>().WithMany().HasForeignKey(x => x.RecordedBy).OnDelete(DeleteBehavior.NoAction);
+        });
         // These database-first extension entities use the same snake_case convention as their SQL script.
         var types = new[] { typeof(PeriodPolicyVersion), typeof(PeriodPolicyUsage), typeof(EvaluationScheme),
-            typeof(EvaluationSchemeComponent), typeof(StudentResult), typeof(StudentResultEvaluation) };
+            typeof(EvaluationSchemeComponent), typeof(StudentResult), typeof(StudentResultEvaluation),
+            typeof(GateIndividualProcessScore), typeof(StudentDefenseAbsence) };
         foreach (var type in types)
             foreach (var property in b.Entity(type).Metadata.GetProperties())
                 property.SetColumnName(System.Text.RegularExpressions.Regex.Replace(property.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());
@@ -67,7 +100,9 @@ public partial class AipmsDbContext
             e.Property(x => x.ScopeSnapshotJson).HasColumnName("scope_snapshot_json");
             e.Property(x => x.Stage).HasColumnName("stage").HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.ColdPackageId).HasColumnName("cold_package_id");
+            e.Property(x => x.DefenseSessionId).HasColumnName("defense_session_id");
             e.HasOne<ColdPackage>().WithMany().HasForeignKey(x => x.ColdPackageId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<DefenseSession>().WithMany().HasForeignKey(x => x.DefenseSessionId).OnDelete(DeleteBehavior.NoAction);
         });
     }
 }

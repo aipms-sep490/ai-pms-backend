@@ -10,7 +10,8 @@ public sealed class EvaluationScoringTests
     [Fact]
     public void Finalization_requires_all_scores_and_uses_preview_rounding()
     {
-        Assert.Throws<ConflictException>(() => EvaluationScoring.FinalTotal([Score(1, 60, 10, 9), Score(2, 40, 20, null, false)]));
+        var incomplete = Assert.Throws<AIPMS.Domain.Exceptions.DomainException>(() => EvaluationScoring.FinalTotal([Score(1, 60, 10, 9), Score(2, 40, 20, null, false)]));
+        Assert.Equal(WorkflowErrorCodes.IncompleteScores, incomplete.Code);
         Assert.Equal(8.6m, EvaluationScoring.FinalTotal([Score(1, 60, 10, 9), Score(2, 40, 20, 16, false)]));
         Assert.Equal(8.01m, EvaluationScoring.FinalTotal([Score(1, 50, 100, 80.01m), Score(2, 50, 100, 80.09m)]));
     }

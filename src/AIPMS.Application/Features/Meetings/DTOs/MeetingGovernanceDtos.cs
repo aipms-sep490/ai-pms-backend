@@ -1,7 +1,7 @@
 namespace AIPMS.Application.Features.Meetings.DTOs;
 
 public sealed record MeetingDecisionDto(long Id, long MeetingId, string Content, long DecidedBy, DateTime DecidedAt,
-    string? DecidedByName = null);
+    long? SupersededByDecisionId = null, string? DecidedByName = null);
 public sealed record MeetingActionItemDto(long Id, long MeetingId, string Title, string? Description,
     long? AssigneeUserId, DateTime? DueAt, string Status, string ConcurrencyToken, long CreatedBy,
     DateTime CreatedAt, DateTime UpdatedAt,

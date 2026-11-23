@@ -44,4 +44,38 @@ public static class WorkflowErrorCodes
     public const string ReportCycleRequired = "REPORT_CYCLE_REQUIRED";
     public const string ReportDeadlinePassed = "REPORT_DEADLINE_PASSED";
     public const string ReportFeedbackOnDraftNotAllowed = "REPORT_FEEDBACK_ON_DRAFT_NOT_ALLOWED";
+
+    // Core V4.0 Security, Governance & Evaluation Invariants
+    public const string EvaluatorRoleConflict = "EVALUATOR_ROLE_CONFLICT";
+    public const string AssignmentRevoked = "ASSIGNMENT_REVOKED";
+    public const string ScopeAccessDenied = "SCOPE_ACCESS_DENIED";
+    public const string RegistrationWindowClosed = "REGISTRATION_WINDOW_CLOSED";
+    public const string IncompleteScores = "INCOMPLETE_SCORES";
+    public const string RestrictedDelete = "RESTRICTED_DELETE";
+    public const string Gate3NotPassed = "GATE_3_NOT_PASSED";
+    public const string BlueprintNotPublished = "BLUEPRINT_NOT_PUBLISHED";
+    public const string ImmutableVersion = "IMMUTABLE_VERSION";
+    public const string IdempotencyConflict = "IDEMPOTENCY_CONFLICT";
+    public const string StaleEvidenceVersion = "STALE_EVIDENCE_VERSION";
+    public const string IntegrationDeliverableRequired = "INTEGRATION_DELIVERABLE_REQUIRED";
+    public const string AttributionLimitsRequired = "ATTRIBUTION_LIMITS_REQUIRED";
+    public const string StaleReviewRound = "STALE_REVIEW_ROUND";
+    public const string EvidenceRequired = "EVIDENCE_REQUIRED";
+    public const string CircularDependency = "CIRCULAR_DEPENDENCY";
+    public const string InvalidInitialStatus = "INVALID_INITIAL_STATUS";
+    public const string ReportLocked = "REPORT_LOCKED";
+    public const string AcademicProfileLocked = "ACADEMIC_PROFILE_LOCKED";
+    public const string InvalidSpecializationForScope = "INVALID_SPECIALIZATION_FOR_SCOPE";
+    public const string SelfEvaluationForbidden = "SELF_EVALUATION_FORBIDDEN";
+    public const string InvalidCategoryForMajor = "INVALID_CATEGORY_FOR_MAJOR";
+    public const string UnresolvedCriticalComments = "UNRESOLVED_CRITICAL_COMMENTS";
+    public const string ColdWindowNotCompleted = "COLD_WINDOW_NOT_COMPLETED";
+    public const string CouncilQuorumUnmet = "COUNCIL_QUORUM_UNMET";
+    public const string ScheduleConflict = "SCHEDULE_CONFLICT";
+    public const string RateLimited = "RATE_LIMITED";
+    public const string Unauthorized = "UNAUTHORIZED";
+    public const string Forbidden = "FORBIDDEN";
+    public const string NotFound = "NOT_FOUND";
+    public const string ValidationFailed = "VALIDATION_FAILED";
+    public const string InternalServerError = "INTERNAL_SERVER_ERROR";
 }

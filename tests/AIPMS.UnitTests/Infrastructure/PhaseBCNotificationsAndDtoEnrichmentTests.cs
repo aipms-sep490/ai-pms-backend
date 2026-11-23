@@ -365,7 +365,7 @@ public sealed class PhaseBCNotificationsAndDtoEnrichmentTests
         });
         await db.SaveChangesAsync();
 
-        var adminService = new ReviewGateService(db, new StubUser(1), PassthroughProjectRepo.Create(), new NullAudit(), new FixedClock(Now), null!, null!);
+        var adminService = new ReviewGateService(db, new StubUser(1), PassthroughProjectRepo.Create(), new NullAudit(), new FixedClock(Now), null!, null!, null!, null!, null!);
         var matrix = await adminService.Matrix(null, null, Ct);
         var row = Assert.Single(matrix);
         Assert.Equal("SE-G1-01", row.ProjectCode);
@@ -375,7 +375,7 @@ public sealed class PhaseBCNotificationsAndDtoEnrichmentTests
         Assert.NotNull(artifact);
         Assert.Equal("Nguyễn Trưởng Nhóm", artifact.SubmittedByName);
 
-        var staffService = new ReviewGateService(db, new StubUser(3), PassthroughProjectRepo.Create(), new NullAudit(), new FixedClock(Now), null!, null!);
+        var staffService = new ReviewGateService(db, new StubUser(3), PassthroughProjectRepo.Create(), new NullAudit(), new FixedClock(Now), null!, null!, null!, null!, null!);
         await staffService.UpdateDecision(1, "G4", new("PASSED", gateToken.ToString("N")), Ct);
 
         var notice = Assert.Single(await db.Notifications.ToArrayAsync());

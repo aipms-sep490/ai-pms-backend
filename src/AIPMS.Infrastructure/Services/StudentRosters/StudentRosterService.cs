@@ -15,17 +15,28 @@ namespace AIPMS.Infrastructure.Services.StudentRosters;
 internal sealed class StudentRosterService(AipmsDbContext db, ICurrentUser currentUser, IAuditTrail audit, TimeProvider clock)
     : IStudentRosterService
 {
-    private async Task<long> RequireAdmin(CancellationToken ct)
+    private async Task<(long ActorId, long? DepartmentScopeId)> RequireCurriculumActorAsync(CancellationToken ct)
     {
         if (!currentUser.IsAuthenticated || currentUser.UserId is not long actor) throw new UnauthorizedException();
-        if (!await db.Users.AnyAsync(u => u.Id == actor && u.Status == "ACTIVE"
-            && u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"), ct)) throw new ForbiddenException();
-        return actor;
+        var caller = await db.Users.AsNoTracking()
+            .Where(u => u.Id == actor && u.Status == "ACTIVE")
+            .Select(u => new
+            {
+                u.DepartmentId,
+                IsAdmin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"),
+                IsStaff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF")
+                    && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
+            })
+            .SingleOrDefaultAsync(ct);
+        if (caller is null || (!caller.IsAdmin && !caller.IsStaff)) throw new ForbiddenException();
+        if (!caller.IsAdmin && !caller.DepartmentId.HasValue)
+            throw new ForbiddenException("Department staff must be assigned to an active department.", WorkflowErrorCodes.ScopeAccessDenied);
+        return (actor, caller.IsAdmin ? null : caller.DepartmentId);
     }
 
     public async Task<CurriculumPreviewDto> PreviewAsync(Stream file, string fileName, CancellationToken ct)
     {
-        await RequireAdmin(ct);
+        var (_, deptScopeId) = await RequireCurriculumActorAsync(ct);
         using var memory = new MemoryStream();
         var buffer = new byte[81920];
         int count;
@@ -37,7 +48,7 @@ internal sealed class StudentRosterService(AipmsDbContext db, ICurrentUser curre
         var inputs = CurriculumFileReader.Read(memory.ToArray(), fileName);
         var codes = inputs.Select(r => r.StudentCode).ToArray();
         var users = await db.Users.AsNoTracking().Where(u => u.StudentCode != null && codes.Contains(u.StudentCode))
-            .Select(u => new { u.Id, u.StudentCode, u.FullName, u.CurriculumCode, u.RowVersion,
+            .Select(u => new { u.Id, u.StudentCode, u.FullName, u.CurriculumCode, u.DepartmentId, u.RowVersion,
                 IsStudent = u.UserRoleUsers.Any(r => r.Role.Code == "STUDENT") }).ToListAsync(ct);
         var duplicates = inputs.GroupBy(r => r.StudentCode).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
         var rows = inputs.Select(input =>
@@ -51,6 +62,7 @@ internal sealed class StudentRosterService(AipmsDbContext db, ICurrentUser curre
             var user = matches.Length == 1 ? matches[0] : null;
             if (user is null) errors.Add("STUDENT_NOT_FOUND");
             else if (!user.IsStudent) errors.Add("STUDENT_ROLE_REQUIRED");
+            else if (deptScopeId.HasValue && user.DepartmentId != deptScopeId.Value) errors.Add("STUDENT_OUTSIDE_DEPARTMENT_SCOPE");
             var status = errors.Count > 0 ? "ERROR" : input.CurriculumCode.Length == 0 ? "SKIPPED"
                 : string.Equals(user!.CurriculumCode, input.CurriculumCode, StringComparison.Ordinal) ? "UNCHANGED" : "UPDATE";
             return new CurriculumPreviewRow(input.RowNumber, input.StudentCode, user?.Id, user?.FullName, user?.CurriculumCode,
@@ -61,7 +73,7 @@ internal sealed class StudentRosterService(AipmsDbContext db, ICurrentUser curre
 
     public async Task<CurriculumCommitDto> CommitAsync(CurriculumCommitRequest request, CancellationToken ct)
     {
-        await RequireAdmin(ct);
+        await RequireCurriculumActorAsync(ct);
         if (request.Rows is null || request.Rows.Count is < 1 or > 500
             || request.Rows.Any(r => r is null || r.UserId <= 0 || string.IsNullOrWhiteSpace(r.StudentCode)
                 || r.StudentCode.Length > 50 || string.IsNullOrWhiteSpace(r.CurriculumCode) || r.CurriculumCode.Trim().Length > 100
@@ -72,7 +84,7 @@ internal sealed class StudentRosterService(AipmsDbContext db, ICurrentUser curre
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         try
         {
-            var actor = await RequireAdmin(ct);
+            var (actor, deptScopeId) = await RequireCurriculumActorAsync(ct);
             var changes = new List<object>();
             foreach (var row in request.Rows.OrderBy(r => r.UserId))
             {
@@ -81,6 +93,8 @@ internal sealed class StudentRosterService(AipmsDbContext db, ICurrentUser curre
                     ?? throw new ConflictException("IMPORT_STUDENT_CHANGED", "IMPORT_STUDENT_CHANGED");
                 if (!string.Equals(user.StudentCode, row.StudentCode.Trim(), StringComparison.OrdinalIgnoreCase)
                     || !user.UserRoleUsers.Any(r => r.Role.Code == "STUDENT")) throw new ConflictException("IMPORT_STUDENT_CHANGED", "IMPORT_STUDENT_CHANGED");
+                if (deptScopeId.HasValue && user.DepartmentId != deptScopeId.Value)
+                    throw new ForbiddenException("Cannot update curriculum for a student outside your department.", WorkflowErrorCodes.ScopeAccessDenied);
                 if (Convert.ToBase64String(user.RowVersion) != row.ExpectedConcurrencyToken) throw new ConflictException("IMPORT_STALE_VERSION", "IMPORT_STALE_VERSION");
                 var code = row.CurriculumCode.Trim();
                 if (user.CurriculumCode == code) continue;

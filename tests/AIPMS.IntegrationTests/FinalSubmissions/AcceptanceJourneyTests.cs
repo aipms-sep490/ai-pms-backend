@@ -82,7 +82,7 @@ public sealed partial class FinalSubmissionEndpointTests
         var assignment = await Body<EvaluationAssignmentDto>(await staff.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/evaluation-assignments",
             new AssignEvaluatorRequest(s.Users.Lecturer, periodId, "LECTURER", "COMMON", null, null, scheme.Components.Single().Id)));
         var resultPath = $"/api/v1/projects/{s.ProjectId}/result";
-        Assert.Equal(HttpStatusCode.NotFound, (await member.GetAsync(resultPath)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.GetAsync(resultPath)).StatusCode);
         var draft = await Body<EvaluationDraftDto>(await evaluator.PostAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evaluation", null));
         draft = await Body<EvaluationDraftDto>(await evaluator.PutAsJsonAsync($"/api/v1/evaluations/{draft.Id}/draft",
             new SaveEvaluationDraftRequest(draft.ConcurrencyToken, "Accepted", [new(rubric.Criteria[0].Id, 8.5m, null)])));

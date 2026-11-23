@@ -35,14 +35,20 @@ internal sealed partial class ColdSubmissionService
             .SingleOrDefaultAsync(s => s.ProjectId == projectId && s.Status == "PUBLISHED", ct);
         var rows = new List<ColdGradingProgressDto>();
         var blockers = new List<string>();
+        var isStudentViewer = !system && access.StudentMajor.HasValue && !access.Internal && !access.Lead
+            && !access.Primary && access.MentorMajors.Count == 0 && !access.Actor.IsStaff;
+        var studentResultPublished = !isStudentViewer || await db.Set<StudentResult>().AsNoTracking()
+            .AnyAsync(r => r.ProjectId == projectId && r.StudentId == Actor, ct);
         if (package.Status != "LOCKED") blockers.Add("COLD_PACKAGE_REQUIRED");
         if (scheme is null) blockers.Add("COLD_SCHEME_REQUIRED");
         else
         {
-            var components = scheme.Components.Where(c => c.Stage == "COLD" && (access.Internal || access.Lead || access.Primary || access.Leader
-                || c.Scope == "COMMON" && access.StudentMajor.HasValue
-                || c.MajorId.HasValue && (access.MentorMajors.Contains(c.MajorId.Value) || access.StudentMajor == c.MajorId
-                    || access.Actor.IsStaff && access.Registration.MajorDepartmentIds!.GetValueOrDefault(c.MajorId.Value) == access.Actor.DepartmentId)))
+            var components = scheme.Components.Where(c => c.Stage == "COLD" && (isStudentViewer
+                ? (c.Scope == "COMMON" || (c.MajorId.HasValue && access.StudentMajor == c.MajorId))
+                : (access.Internal || access.Lead || access.Primary
+                    || c.Scope == "COMMON" && access.StudentMajor.HasValue
+                    || c.MajorId.HasValue && (access.MentorMajors.Contains(c.MajorId.Value) || access.StudentMajor == c.MajorId
+                        || access.Actor.IsStaff && access.Registration.MajorDepartmentIds!.GetValueOrDefault(c.MajorId.Value) == access.Actor.DepartmentId))))
                 .OrderBy(c => c.Id).ToArray();
             var ids = components.Select(c => c.Id).ToArray();
             var assignments = await db.Set<EvaluationAssignment>().AsNoTracking().Where(a => a.ProjectId == projectId
@@ -79,7 +85,7 @@ internal sealed partial class ColdSubmissionService
                                 && final.Finalization.Evidence.ColdPackageId == binding.PackageId && final.Finalization.Evidence.ColdEvidenceHash == binding.Hash
                                 && (final.Finalization.Evidence.ColdSubmissionIds ?? []).SequenceEqual(binding.SubmissionIds)) complete.Add(final);
                         }
-                        catch (ConflictException ex) when (ex.Code is "DEFENSE_COMMITTEE_REQUIRED" or "DEFENSE_COMMITTEE_BINDING_REQUIRED" or "DEFENSE_COMMITTEE_CHANGED" or "DEFENSE_SUPERVISOR_CONFLICT")
+                        catch (ConflictException ex) when (ex.Code is "DEFENSE_COMMITTEE_REQUIRED" or "DEFENSE_COMMITTEE_BINDING_REQUIRED" or "DEFENSE_COMMITTEE_CHANGED" or "DEFENSE_SUPERVISOR_CONFLICT" or WorkflowErrorCodes.EvaluatorRoleConflict)
                         { blockers.Add($"COLD_COMMITTEE_INVALID:{assignment.Id}"); }
                         catch (ConflictException) { blockers.Add($"COLD_EVIDENCE_CHANGED:{assignment.Id}"); }
                         catch (ForbiddenException) { blockers.Add($"COLD_COMMITTEE_INVALID:{assignment.Id}"); }
@@ -94,7 +100,8 @@ internal sealed partial class ColdSubmissionService
                             : values.Sum(v => v.Score * v.Weight / 100m), 2, policy?.RoundingMode == "TO_EVEN" ? MidpointRounding.ToEven : MidpointRounding.AwayFromZero);
                     }
                     if (!score.HasValue) blockers.Add($"COLD_GRADING_PENDING:{c.Id}:{student}");
-                    rows.Add(new(c.Id, c.Name, c.Scope, c.MajorId, student, c.RequiredEvaluators, assigned.Length, complete.Count, score,
+                    var visibleScore = isStudentViewer && !studentResultPublished ? null : score;
+                    rows.Add(new(c.Id, c.Name, c.Scope, c.MajorId, student, c.RequiredEvaluators, assigned.Length, complete.Count, visibleScore,
                         c.ProjectWeightPercent > 0 || c.StudentWeightPercent > 0));
                 }
             }

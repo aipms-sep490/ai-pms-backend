@@ -13,6 +13,8 @@ public interface ITeamRepository
     Task<long?> GetCurrentTeamIdAsync(long semesterId, long userId, CancellationToken cancellationToken);
     Task<TeamParticipant?> GetStudentAsync(long userId, CancellationToken cancellationToken);
     Task<TeamRegistrationWindow?> GetOpenWindowAsync(long semesterId, DateTime now, CancellationToken cancellationToken);
+    Task<bool> HasExpiredRegistrationWindowAsync(long semesterId, DateTime now, CancellationToken cancellationToken) =>
+        Task.FromResult(false);
     Task<StudentQualificationEligibility> GetQualificationEligibilityAsync(
         long userId, long semesterId, DateTime now, CancellationToken cancellationToken) =>
         Task.FromResult(new StudentQualificationEligibility(false, true, "NOT_REQUIRED", null));

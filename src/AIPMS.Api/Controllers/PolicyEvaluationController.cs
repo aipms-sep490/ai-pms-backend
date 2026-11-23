@@ -14,6 +14,7 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(403)]
 [ProducesResponseType<ProblemDetails>(404)]
 [ProducesResponseType<ProblemDetails>(409)]
+[ProducesResponseType<ProblemDetails>(422)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class PolicyEvaluationController(IPeriodPolicyService policies, IEvaluationSchemeService schemes) : ControllerBase
 {
@@ -53,4 +54,12 @@ public sealed class PolicyEvaluationController(IPeriodPolicyService policies, IE
     /// <summary>Returns an authorized published result with historical typed breakdown. Students only read their own result; private audit snapshots are redacted.</summary>
     [HttpGet("api/v1/projects/{projectId:long}/students/{studentId:long}/result")]
     public Task<StudentResultDto> Student(long projectId, long studentId, CancellationToken ct) => schemes.GetStudentAsync(projectId, studentId, ct);
+    /// <summary>Atomically publishes ProjectResult and all StudentResults for the project in one transaction.</summary>
+    [HttpPost("api/v1/projects/{projectId:long}/results/publish-batch")]
+    public Task<BatchPublishResultDto> PublishBatch(long projectId, BatchPublishResultRequest input, CancellationToken ct) =>
+        schemes.PublishBatchAsync(projectId, input.ConfirmationToken, ct);
+    /// <summary>Explicitly records a student defense absence (DEFENSE_ABSENT -> 0.00 defense score) without blocking teammates.</summary>
+    [HttpPost("api/v1/projects/{projectId:long}/students/{studentId:long}/defense-absence")]
+    public Task<StudentDefenseAbsenceDto> RecordDefenseAbsence(long projectId, long studentId, RecordDefenseAbsenceRequest input, CancellationToken ct) =>
+        schemes.RecordDefenseAbsenceAsync(projectId, studentId, input, ct);
 }

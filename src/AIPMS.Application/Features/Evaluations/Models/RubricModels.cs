@@ -24,6 +24,8 @@ public sealed record RubricCriterionInput(string Name, string? Description, deci
 {
     public string? LearningOutcome { get; init; }
     public string? EvidenceGuidance { get; init; }
+    public string? TargetScope { get; init; }
+    public bool IsIntegration { get; init; }
     public IReadOnlyList<RubricCriterionLevelInput> Levels { get; init; } = [];
     public IReadOnlyList<RubricCriterionInput> Children { get; init; } = [];
 }
@@ -36,6 +38,8 @@ public sealed record RubricCriterionRecord(long Id, long CriterionId, string Nam
     public string? CriterionCode { get; init; }
     public string? LearningOutcome { get; init; }
     public string? EvidenceGuidance { get; init; }
+    public string? TargetScope { get; init; }
+    public bool IsIntegration { get; init; }
     public IReadOnlyList<RubricCriterionLevelDto> Levels { get; init; } = [];
 }
 

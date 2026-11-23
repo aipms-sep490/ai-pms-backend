@@ -59,7 +59,8 @@ public sealed partial class ColdSubmissionEndpointTests
         using var app = new ColdFactory(database); var (s, checklist, _) = await Prepare(app);
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         var draft = await Body<ColdSubmissionDto>(await student.PostAsJsonAsync(DraftUrl(checklist.Items.Single().Id), new SaveColdDraftRequest(0)));
-        Assert.Equal(HttpStatusCode.BadRequest, (await UploadResponse(student, draft, text: "%PDF-" + new string('x', 10 * 1024 * 1024))).StatusCode);
+        // POL-06 lifted Cold document ceiling from 10 MiB to 20 MiB (and 100 MiB for ZIP/MP4), returning 413 PayloadTooLarge when exceeded.
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, (await UploadResponse(student, draft, text: "%PDF-" + new string('x', 20 * 1024 * 1024))).StatusCode);
         for (var i = 0; i < 10; i++) draft = await Body<ColdSubmissionDto>(await UploadResponse(student, draft));
         Assert.Equal(10, draft.Files.Count);
         Assert.Equal(HttpStatusCode.BadRequest, (await UploadResponse(student, draft)).StatusCode);

@@ -20,6 +20,9 @@ public sealed class MeetingGovernanceController(IMeetingGovernanceService servic
     [HttpPost("decisions")]
     [ProducesResponseType<MeetingDecisionDto>(StatusCodes.Status200OK)]
     public Task<MeetingDecisionDto> Decide(long meetingId, CreateMeetingDecisionRequest input, CancellationToken ct) => service.Decide(meetingId, input, ct);
+    [HttpPost("decisions/{decisionId:long}/supersede")]
+    [ProducesResponseType<MeetingDecisionDto>(StatusCodes.Status200OK)]
+    public Task<MeetingDecisionDto> Supersede(long meetingId, long decisionId, CreateMeetingDecisionRequest input, CancellationToken ct) => service.SupersedeDecision(meetingId, decisionId, input, ct);
     [HttpPost("action-items")]
     [ProducesResponseType<MeetingActionItemDto>(StatusCodes.Status200OK)]
     public Task<MeetingActionItemDto> CreateAction(long meetingId, SaveMeetingActionItemRequest input, CancellationToken ct) => service.SaveAction(meetingId, null, input, ct);

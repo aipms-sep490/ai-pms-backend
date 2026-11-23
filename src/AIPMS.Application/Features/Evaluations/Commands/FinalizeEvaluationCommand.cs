@@ -9,3 +9,9 @@ public sealed class FinalizeEvaluationHandler(EvaluationDraftWorkflow workflow) 
 {
     public Task<EvaluationDraftDto> Handle(FinalizeEvaluationCommand request, CancellationToken ct) => workflow.Finalize(request.Id, request.Input, ct);
 }
+
+public sealed record BatchFinalizeEvaluationsCommand(long ProjectId, BatchFinalizeEvaluationsRequest Input) : IRequest<BatchFinalizeEvaluationsResponse>;
+public sealed class BatchFinalizeEvaluationsHandler(EvaluationDraftWorkflow workflow) : IRequestHandler<BatchFinalizeEvaluationsCommand, BatchFinalizeEvaluationsResponse>
+{
+    public Task<BatchFinalizeEvaluationsResponse> Handle(BatchFinalizeEvaluationsCommand request, CancellationToken ct) => workflow.BatchFinalize(request.ProjectId, request.Input, ct);
+}

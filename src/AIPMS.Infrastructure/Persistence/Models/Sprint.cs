@@ -14,6 +14,8 @@ public sealed class Sprint
     public long CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public string? TemplateOriginId { get; set; }
+    public bool IsUserCustomized { get; set; }
 }
 public sealed class TaskBoardLabel
 {

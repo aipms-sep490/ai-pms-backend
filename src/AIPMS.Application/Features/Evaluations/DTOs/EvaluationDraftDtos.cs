@@ -40,6 +40,42 @@ public sealed record EvaluationEvidenceDto(long FinalSubmissionId, long ProjectP
     string? Stage = null, long? ColdPackageId = null, IReadOnlyList<long>? ColdSubmissionIds = null);
 public sealed record EvaluationFinalizationDto(long FinalizedBy, DateTime FinalizedAt, EvaluationEvidenceDto Evidence);
 
+public sealed record BatchFinalizeItemRequest(long EvaluationId, string ConcurrencyToken);
+public sealed record BatchFinalizeEvaluationsRequest(IReadOnlyList<BatchFinalizeItemRequest> Items);
+public sealed record BatchFinalizeEvaluationsResponse(long ProjectId, int FinalizedCount, IReadOnlyList<EvaluationDraftDto> Evaluations);
+
+public sealed record WorkbenchAssignmentSummaryDto(
+    long AssignmentId,
+    long? EvaluationId,
+    string Scope,
+    string? Stage,
+    string? ComponentName,
+    string Status,
+    decimal? TotalScore,
+    int MissingCriteriaCount,
+    string? EvaluationConcurrencyToken);
+
+public sealed record ScoringWorkbenchRosterMemberDto(
+    long StudentId,
+    string? StudentCode,
+    string FullName,
+    long? MajorId,
+    string? MajorCode,
+    string? MajorName,
+    bool IsLeader,
+    decimal ContributionPercent,
+    decimal? IndividualProcessScore,
+    bool IndividualProcessComplete,
+    IReadOnlyList<WorkbenchAssignmentSummaryDto> Assignments);
+
+public sealed record ProjectScoringWorkbenchDto(
+    long ProjectId,
+    string ProjectTitle,
+    string ProjectStatus,
+    decimal FailingComponentThreshold,
+    IReadOnlyList<ScoringWorkbenchRosterMemberDto> Roster,
+    IReadOnlyList<WorkbenchAssignmentSummaryDto> ProjectLevelAssignments);
+
 public static class EvaluationDraftDtoMapper
 {
     public static EvaluationAssignmentDto ToDto(this EvaluationAssignmentRecord a) => new(a.Id,

@@ -53,4 +53,43 @@ public sealed class DefenseSchedulingRulesTests
         Assert.True(DefenseSchedulingRules.HasGateContinuity(committeeWithContinuity, previousReviewers));
         Assert.False(DefenseSchedulingRules.HasGateContinuity(committeeWithoutContinuity, previousReviewers));
     }
+
+    [Fact]
+    public void V4_single_major_has_eight_45m_slots_with_single_15m_mid_session_breaks()
+    {
+        var date = new DateOnly(2026, 12, 10);
+        var slots = DefenseSchedulingRules.AllSlotsV4(date, isInterdisciplinary: false);
+        Assert.Equal(8, slots.Count);
+        Assert.All(slots, s => Assert.Equal(45, s.DurationMinutes));
+        // Morning: 08:00-08:45, 08:45-09:30, (15m break), 09:45-10:30, 10:30-11:15
+        Assert.Equal(TimeSpan.FromMinutes(15), slots[2].Start - slots[1].End);
+        Assert.Equal(TimeSpan.Zero, slots[1].Start - slots[0].End);
+        Assert.True(slots[3].End.TimeOfDay <= new TimeSpan(11, 30, 0));
+        // Afternoon: 13:30-14:15, 14:15-15:00, (15m break), 15:15-16:00, 16:00-16:45
+        Assert.Equal(new TimeSpan(13, 30, 0), slots[4].Start.TimeOfDay);
+        Assert.Equal(TimeSpan.FromMinutes(15), slots[6].Start - slots[5].End);
+        Assert.True(slots[7].End.TimeOfDay <= new TimeSpan(17, 0, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => DefenseSchedulingRules.SlotV4(date, 9, false));
+    }
+
+    [Fact]
+    public void V4_interdisciplinary_has_six_60m_slots_with_single_15m_mid_session_breaks_and_cold_buffer()
+    {
+        var date = new DateOnly(2026, 12, 10);
+        var slots = DefenseSchedulingRules.AllSlotsV4(date, isInterdisciplinary: true);
+        Assert.Equal(6, slots.Count);
+        Assert.All(slots, s => Assert.Equal(60, s.DurationMinutes));
+        // Morning: 08:00-09:00, (15m break), 09:15-10:15, 10:15-11:15
+        Assert.Equal(TimeSpan.FromMinutes(15), slots[1].Start - slots[0].End);
+        Assert.Equal(TimeSpan.Zero, slots[2].Start - slots[1].End);
+        Assert.True(slots[2].End.TimeOfDay <= new TimeSpan(11, 30, 0));
+        // Afternoon: 13:30-14:30, (15m break), 14:45-15:45, 15:45-16:45
+        Assert.Equal(TimeSpan.FromMinutes(15), slots[4].Start - slots[3].End);
+        Assert.True(slots[5].End.TimeOfDay <= new TimeSpan(17, 0, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => DefenseSchedulingRules.SlotV4(date, 7, true));
+
+        var coldEnd = new DateTime(2026, 12, 9, 10, 0, 0, DateTimeKind.Utc);
+        Assert.False(DefenseSchedulingRules.MeetsColdBuffer(new DateTimeOffset(coldEnd.AddHours(11)), coldEnd, 12));
+        Assert.True(DefenseSchedulingRules.MeetsColdBuffer(new DateTimeOffset(coldEnd.AddHours(12)), coldEnd, 12));
+    }
 }

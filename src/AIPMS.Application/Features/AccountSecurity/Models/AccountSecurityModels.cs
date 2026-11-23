@@ -20,7 +20,12 @@ public sealed record AccountUser(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     IReadOnlyCollection<string> Roles,
-    string? ConcurrencyToken = null, string? CurriculumCode = null);
+    string? ConcurrencyToken = null,
+    string? CurriculumCode = null,
+    string? ClassCode = null,
+    long? SpecializationId = null,
+    string? SpecializationCode = null,
+    string? SpecializationName = null);
 
 public sealed record CreateAccountData(
     long? DepartmentId,

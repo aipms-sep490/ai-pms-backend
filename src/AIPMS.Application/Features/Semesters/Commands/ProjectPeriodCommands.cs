@@ -456,7 +456,8 @@ public sealed class SetProjectPeriodStatusCommandHandler(
     ISemesterRepository repository,
     SemesterAccessService accessService,
     IAuditTrail auditTrail,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    AIPMS.Application.Features.AcademicBlueprints.Abstractions.IAcademicBlueprintService? blueprintService = null)
     : IRequestHandler<SetProjectPeriodStatusCommand, ProjectPeriodDto>
 {
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> AllowedTransitions =
@@ -537,6 +538,13 @@ public sealed class SetProjectPeriodStatusCommandHandler(
             {
                 throw new ConflictException(
                     $"Cannot activate project period: it overlaps with another active '{existing.PeriodType}' period in this semester.");
+            }
+
+            if (existing.PeriodType == PeriodTypes.Registration && blueprintService is not null)
+            {
+                await blueprintService.EnsureSemesterBlueprintReadyForRegistrationAsync(
+                    existing.AcademicSemesterId,
+                    cancellationToken);
             }
         }
 

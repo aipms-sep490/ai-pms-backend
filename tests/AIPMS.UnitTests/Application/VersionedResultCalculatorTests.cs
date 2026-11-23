@@ -108,4 +108,83 @@ public sealed class VersionedResultCalculatorTests
         Assert.Null(result.UnroundedTotal);
         Assert.Empty(result.Components);
     }
+
+    [Fact]
+    public void Pol01_single_major_30_50_20_and_failing_floor_below_4_is_deterministic()
+    {
+        var policy = new SchemePolicyInput(false, "APPROVED", "QD-POL01-2026", "POL_SINGLE_30_50_20", VersionedResultCalculator.PolV4Version);
+        SchemeComponentInput[] inputs =
+        [
+            new("Cold Report", "COMMON", null, 1, 37.5m, 30m, 2, Stage: "COLD", TargetScope: "PROJECT"),
+            new("Defense", "COMMON", null, 2, 62.5m, 50m, 2, Stage: "DEFENSE", TargetScope: "PROJECT"),
+            new("GVHD Process", "INDIVIDUAL", 1, 3, 0m, 20m, 1, Stage: "ON_GOING", TargetScope: "STUDENT")
+        ];
+        VersionedResultCalculator.Validate(policy, inputs, [1]);
+
+        ResultComponentScoreDto[] passing =
+        [
+            new(1, "Cold", "COMMON", null, 30m, 7.5m, 2, 2, "COLD", "PROJECT"),
+            new(2, "Defense", "COMMON", null, 50m, 8.0m, 2, 2, "DEFENSE", "PROJECT"),
+            new(3, "GVHD", "INDIVIDUAL", 1, 20m, 6.5m, 1, 1, "ON_GOING", "STUDENT")
+        ];
+        var rawPass = VersionedResultCalculator.Total(passing, policy, true)!.Value;
+        var roundedPass = VersionedResultCalculator.Round(rawPass, policy);
+        Assert.Equal(7.55m, roundedPass);
+        Assert.Equal(("PASSED", "PASSED"), VersionedResultCalculator.EvaluateOutcome(roundedPass, 5.00m, passing, policy));
+
+        // Total = 3.75*0.3 + 8.0*0.5 + 7.5*0.2 = 1.125 + 4.0 + 1.5 = 6.63 >= 5.00, but Cold < 4.00 => FAILED_COMPONENT_FLOOR
+        ResultComponentScoreDto[] floorFailed =
+        [
+            new(1, "Cold", "COMMON", null, 30m, 3.75m, 2, 2, "COLD", "PROJECT"),
+            new(2, "Defense", "COMMON", null, 50m, 8.0m, 2, 2, "DEFENSE", "PROJECT"),
+            new(3, "GVHD", "INDIVIDUAL", 1, 20m, 7.5m, 1, 1, "ON_GOING", "STUDENT")
+        ];
+        var roundedFloor = VersionedResultCalculator.Round(VersionedResultCalculator.Total(floorFailed, policy, true)!.Value, policy);
+        Assert.Equal(6.63m, roundedFloor);
+        Assert.Equal(("FAILED", "FAILED_COMPONENT_FLOOR"), VersionedResultCalculator.EvaluateOutcome(roundedFloor, 5.00m, floorFailed, policy));
+
+        // Explicit Defense absence => FAILED / DEFENSE_ABSENT
+        Assert.Equal(("FAILED", "DEFENSE_ABSENT"), VersionedResultCalculator.EvaluateOutcome(roundedPass, 5.00m, passing, policy, defenseAbsent: true));
+    }
+
+    [Fact]
+    public void Pol01_interdisciplinary_40_40_20_splits_common_30_cold_70_defense_and_enforces_floor()
+    {
+        var policy = new SchemePolicyInput(false, "APPROVED", "QD-POL01-INTER", "POL_INTER_40_40_20", VersionedResultCalculator.PolV4Version,
+            IndividualGateWeights: [new(1, 20m), new(2, 35m), new(3, 45m)]);
+        SchemeComponentInput[] inputs =
+        [
+            new("Common Cold", "COMMON", null, 1, 15m, 12m, 2, Stage: "COLD", TargetScope: "PROJECT", IsIntegration: true),
+            new("Common Defense", "COMMON", null, 2, 35m, 28m, 2, Stage: "DEFENSE", TargetScope: "PROJECT", IsIntegration: true),
+            new("Major IT", "MAJOR_SPECIFIC", 1, 3, 25m, 40m, 1, Stage: "DEFENSE", TargetScope: "MAJOR"),
+            new("Major MKT", "MAJOR_SPECIFIC", 2, 4, 25m, 40m, 1, Stage: "DEFENSE", TargetScope: "MAJOR"),
+            new("Indiv IT", "INDIVIDUAL", 1, 5, 0m, 20m, 1, Stage: "ON_GOING", TargetScope: "STUDENT"),
+            new("Indiv MKT", "INDIVIDUAL", 2, 6, 0m, 20m, 1, Stage: "ON_GOING", TargetScope: "STUDENT")
+        ];
+        VersionedResultCalculator.Validate(policy, inputs, [1, 2]);
+
+        ResultComponentScoreDto[] itStudent =
+        [
+            new(1, "Common Cold", "COMMON", null, 12m, 7.0m, 2, 2, "COLD", "PROJECT", true),
+            new(2, "Common Defense", "COMMON", null, 28m, 8.0m, 2, 2, "DEFENSE", "PROJECT", true),
+            new(3, "Major IT", "MAJOR_SPECIFIC", 1, 40m, 9.0m, 1, 1, "DEFENSE", "MAJOR"),
+            new(5, "Indiv IT", "INDIVIDUAL", 1, 20m, 8.5m, 1, 1, "ON_GOING", "STUDENT")
+        ];
+        // 12%*7 + 28%*8 + 40%*9 + 20%*8.5 = 0.84 + 2.24 + 3.60 + 1.70 = 8.38
+        var itTotal = VersionedResultCalculator.Round(VersionedResultCalculator.Total(itStudent, policy, true)!.Value, policy);
+        Assert.Equal(8.38m, itTotal);
+        Assert.Equal(("PASSED", "PASSED"), VersionedResultCalculator.EvaluateOutcome(itTotal, 5.00m, itStudent, policy));
+
+        // Major MKT student with Major MKT = 3.50 < 4.00 => total = 3.08 + 1.40 + 1.70 = 6.18 >= 5.00, fails component floor!
+        ResultComponentScoreDto[] mktStudent =
+        [
+            new(1, "Common Cold", "COMMON", null, 12m, 7.0m, 2, 2, "COLD", "PROJECT", true),
+            new(2, "Common Defense", "COMMON", null, 28m, 8.0m, 2, 2, "DEFENSE", "PROJECT", true),
+            new(4, "Major MKT", "MAJOR_SPECIFIC", 2, 40m, 3.5m, 1, 1, "DEFENSE", "MAJOR"),
+            new(6, "Indiv MKT", "INDIVIDUAL", 2, 20m, 8.5m, 1, 1, "ON_GOING", "STUDENT")
+        ];
+        var mktTotal = VersionedResultCalculator.Round(VersionedResultCalculator.Total(mktStudent, policy, true)!.Value, policy);
+        Assert.Equal(6.18m, mktTotal);
+        Assert.Equal(("FAILED", "FAILED_COMPONENT_FLOOR"), VersionedResultCalculator.EvaluateOutcome(mktTotal, 5.00m, mktStudent, policy));
+    }
 }

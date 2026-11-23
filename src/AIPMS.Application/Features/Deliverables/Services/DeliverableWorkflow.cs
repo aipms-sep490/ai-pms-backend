@@ -41,6 +41,66 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
         actor.HasActiveAcademicScope && actor.Roles.Contains(AppRoles.Student) && project.IsMember;
     private static bool IsSupervisor(SupervisorAccount actor, DeliverableProject project) =>
         actor.HasActiveAcademicScope && actor.Roles.Contains(AppRoles.Lecturer) && project.AssignmentId.HasValue;
+
+    private static IReadOnlyList<long>? ResolveAllowedMajorIds(SupervisorAccount actor, DeliverableProject project)
+    {
+        if (actor.Roles.Contains(AppRoles.Admin)) return null;
+        if (IsSupervisor(actor, project) && project.IsPrimarySupervisor) return null;
+        if (actor.Roles.Contains(AppRoles.DepartmentStaff) && project.IsLeadDepartmentStaff) return null;
+        if (IsStudent(actor, project)) return null;
+        if (IsSupervisor(actor, project)) return project.MentorMajorIds ?? [];
+        if (actor.Roles.Contains(AppRoles.DepartmentStaff)) return project.StaffMajorIds ?? [];
+        return [];
+    }
+
+    private static void RequireDeliverableScope(SupervisorAccount actor, DeliverableProject project, DeliverableDto item)
+    {
+        var allowedMajors = ResolveAllowedMajorIds(actor, project);
+        if (allowedMajors is not null)
+        {
+            var isScoped = item.EvidenceScope is not (null or "COMMON" or "INTEGRATION");
+            if (isScoped && (!item.TargetMajorId.HasValue || !allowedMajors.Contains(item.TargetMajorId.Value)))
+                throw new ForbiddenException("The deliverable is outside your assigned academic scope.", WorkflowErrorCodes.ScopeAccessDenied);
+            return;
+        }
+        if (IsStudent(actor, project) && !actor.Roles.Contains(AppRoles.Admin))
+        {
+            if (item.EvidenceScope == "INDIVIDUAL" && item.TargetStudentId.HasValue && item.TargetStudentId.Value != actor.UserId)
+                throw new ForbiddenException("Individual deliverable evidence is restricted to the target student.", WorkflowErrorCodes.ScopeAccessDenied);
+            if (item.EvidenceScope is "MAJOR_SPECIFIC" or "INDIVIDUAL" && project.StudentMajorId.HasValue
+                && item.TargetMajorId.HasValue && item.TargetMajorId.Value != project.StudentMajorId.Value)
+                throw new ForbiddenException("The deliverable is outside your academic major scope.", WorkflowErrorCodes.ScopeAccessDenied);
+        }
+    }
+
+    private static void RequireParentScope(SupervisorAccount actor, DeliverableProject project, FileParent parent)
+    {
+        var allowedMajors = ResolveAllowedMajorIds(actor, project);
+        if (allowedMajors is not null)
+        {
+            if (parent.Type == "TASK")
+            {
+                if (parent.MajorIds is { Count: > 0 } && !parent.MajorIds.Any(id => allowedMajors.Contains(id)))
+                    throw new ForbiddenException("The task attachment is outside your assigned major scope.", WorkflowErrorCodes.ScopeAccessDenied);
+                return;
+            }
+            if (parent.Type is "VERSION" or "FEEDBACK")
+            {
+                var isScoped = parent.EvidenceScope is not (null or "COMMON" or "INTEGRATION");
+                if (isScoped && (!parent.TargetMajorId.HasValue || !allowedMajors.Contains(parent.TargetMajorId.Value)))
+                    throw new ForbiddenException("The requested file is outside your assigned major scope.", WorkflowErrorCodes.ScopeAccessDenied);
+            }
+            return;
+        }
+        if (IsStudent(actor, project) && !actor.Roles.Contains(AppRoles.Admin) && parent.Type == "VERSION")
+        {
+            if (parent.EvidenceScope == "INDIVIDUAL" && parent.TargetStudentId.HasValue && parent.TargetStudentId.Value != actor.UserId)
+                throw new ForbiddenException("Individual evidence is restricted to the target student.", WorkflowErrorCodes.ScopeAccessDenied);
+            if (parent.EvidenceScope is "MAJOR_SPECIFIC" or "INDIVIDUAL" && project.StudentMajorId.HasValue
+                && parent.TargetMajorId.HasValue && parent.TargetMajorId.Value != project.StudentMajorId.Value)
+                throw new ForbiddenException("The requested file is outside your academic major scope.", WorkflowErrorCodes.ScopeAccessDenied);
+        }
+    }
     private static void RequirePlanner(SupervisorAccount actor, DeliverableProject project)
     {
         if (!(IsStudent(actor, project) && project.IsLeader) && !IsSupervisor(actor, project))
@@ -67,14 +127,23 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
     {
         var actor = await ActorAsync(ct);
         var item = await ItemAsync(id, ct);
-        await ProjectAsync(actor, item.ProjectId, ct);
+        var project = await ProjectAsync(actor, item.ProjectId, ct);
+        RequireDeliverableScope(actor, project, item);
         return item;
     }
 
     public async Task<PagedResult<DeliverableDto>> ListAsync(DeliverableSearch search, CancellationToken ct)
     {
-        await ProjectAsync(await ActorAsync(ct), search.ProjectId, ct);
-        return await repository.SearchAsync(search, ct);
+        var actor = await ActorAsync(ct);
+        var project = await ProjectAsync(actor, search.ProjectId, ct);
+        var allowedMajors = ResolveAllowedMajorIds(actor, project);
+        var isRestrictedStudent = IsStudent(actor, project) && !actor.Roles.Contains(AppRoles.Admin);
+        return await repository.SearchAsync(search with
+        {
+            AllowedMajorIds = allowedMajors,
+            RestrictedStudentId = isRestrictedStudent ? actor.UserId : null,
+            StudentMajorId = isRestrictedStudent ? project.StudentMajorId : null
+        }, ct);
     }
 
     public Task<DeliverableDto> SaveAsync(long? id, long projectId, SaveDeliverableRequest data, CancellationToken ct) =>
@@ -163,6 +232,7 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
             var project = await ProjectAsync(actor, item.ProjectId, token);
             RequireMutable(project);
             if (!IsSupervisor(actor, project)) throw new ForbiddenException("Only the assigned supervisor can review this version.");
+            RequireDeliverableScope(actor, project, item);
             item = await ItemAsync(item.Id, token);
             if (version.Status != "SUBMITTED" || item.Status is "ACCEPTED" or "CLOSED" || version.VersionNumber != item.LatestVersion)
                 throw new ConflictException("Only the latest pending version can be reviewed.", WorkflowErrorCodes.NotLatestPendingVersion);
@@ -193,7 +263,15 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
     {
         var actor = await ActorAsync(ct);
         var project = await ProjectAsync(actor, search.ProjectId, ct);
-        var result = await repository.FilesAsync(search, ct);
+        var allowedMajors = ResolveAllowedMajorIds(actor, project);
+        var isRestrictedStudent = IsStudent(actor, project) && !actor.Roles.Contains(AppRoles.Admin);
+        var scopedSearch = search with
+        {
+            AllowedMajorIds = allowedMajors,
+            RestrictedStudentId = isRestrictedStudent ? actor.UserId : null,
+            StudentMajorId = isRestrictedStudent ? project.StudentMajorId : null
+        };
+        var result = await repository.FilesAsync(scopedSearch, ct);
         var parents = new Dictionary<(string Type, long Id), FileParent>();
         var items = new List<ProjectFileDto>(result.Items.Count);
         foreach (var file in result.Items)
@@ -211,6 +289,7 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
         var parent = await ParentAsync("TASK", taskId, ct);
         var actor = await ActorAsync(ct);
         var project = await ProjectAsync(actor, parent.ProjectId, ct);
+        RequireParentScope(actor, project, parent);
         var result = await repository.FilesAsync(new(parent.ProjectId, null, page, pageSize, null, null, null, null, "TASK", taskId), ct);
         return result with { Items = result.Items.Select(file => file with { CanDelete = CanDeleteAttachment(actor, project, parent, file) }).ToArray() };
     }
@@ -233,7 +312,9 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
     {
         var actor = await ActorAsync(ct);
         var parent = await ParentAsync(type, parentId, ct);
-        RequireAttachmentWriter(actor, await ProjectAsync(actor, parent.ProjectId, ct), parent);
+        var initialProject = await ProjectAsync(actor, parent.ProjectId, ct);
+        RequireParentScope(actor, initialProject, parent);
+        RequireAttachmentWriter(actor, initialProject, parent);
         var file = await UploadValidator.ReadAsync(upload, ct);
         string? key = null;
         return await repository.InTransactionAsync(async token =>
@@ -241,7 +322,9 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
             actor = await ActorAsync(token);
             await repository.LockProjectAsync(parent.ProjectId, token);
             parent = await ParentAsync(type, parentId, token);
-            RequireAttachmentWriter(actor, await ProjectAsync(actor, parent.ProjectId, token), parent);
+            var project = await ProjectAsync(actor, parent.ProjectId, token);
+            RequireParentScope(actor, project, parent);
+            RequireAttachmentWriter(actor, project, parent);
             var newKey = Guid.NewGuid().ToString("N");
             using var content = new MemoryStream(file.Bytes, writable: false);
             await storage.WriteAsync(newKey, content, token);
@@ -256,13 +339,17 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
     {
         var actor = await ActorAsync(ct);
         var parent = await ParentAsync(type, parentId, ct);
-        RequireAttachmentWriter(actor, await ProjectAsync(actor, parent.ProjectId, ct), parent);
+        var project = await ProjectAsync(actor, parent.ProjectId, ct);
+        RequireParentScope(actor, project, parent);
+        RequireAttachmentWriter(actor, project, parent);
     }
 
     public async Task AuthorizeAttachmentReadAsync(string type, long parentId, CancellationToken ct)
     {
+        var actor = await ActorAsync(ct);
         var parent = await ParentAsync(type, parentId, ct);
-        await ProjectAsync(await ActorAsync(ct), parent.ProjectId, ct);
+        var project = await ProjectAsync(actor, parent.ProjectId, ct);
+        RequireParentScope(actor, project, parent);
     }
 
     // Only the durable upload worker supplies actorId, never a client request parameter.
@@ -280,6 +367,7 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
         var project = await ProjectAsync(actor, parent.ProjectId, ct);
         var existing = await repository.FindFileByStorageKeyAsync(storageKey, ct);
         if (existing is not null) return ConfirmPreparedFile(existing, parent, actor, project, file);
+        RequireParentScope(actor, project, parent);
         RequireAttachmentWriter(actor, project, parent);
 
         // A worker restart may occur after storage completed but before SQL committed. Reuse only
@@ -309,6 +397,7 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
             project = await ProjectAsync(actor, parent.ProjectId, token);
             existing = await repository.FindFileByStorageKeyAsync(storageKey, token);
             if (existing is not null) return ConfirmPreparedFile(existing, parent, actor, project, file);
+            RequireParentScope(actor, project, parent);
             RequireAttachmentWriter(actor, project, parent);
             var result = await repository.AttachAsync(parent, storageKey, file, actor.UserId, Now, token);
             await AuditAsync(actor.UserId, "PROJECT_FILE_UPLOADED", "FILE", result.Id, null, result, token);
@@ -377,7 +466,9 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
         var file = await repository.GetFileAsync(id, ct) ?? throw new NotFoundException("File", id);
         if (file.ParentCount == 0) throw new NotFoundException("Project file", id);
         if (file.ParentCount != 1) throw new ConflictException("The file must have exactly one parent.");
-        await ProjectAsync(actor, file.ProjectId, ct);
+        var project = await ProjectAsync(actor, file.ProjectId, ct);
+        var parent = await ParentAsync(file.Dto.ParentType, file.Dto.ParentId, ct);
+        RequireParentScope(actor, project, parent);
         return file;
     }
 

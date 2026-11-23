@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AIPMS.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = AppRoles.Admin)]
+[Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
 [Route("api/v1/users/curriculum-import")]
 [ProducesResponseType<ProblemDetails>(400)]
 [ProducesResponseType<ProblemDetails>(401)]

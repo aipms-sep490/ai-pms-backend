@@ -1,7 +1,7 @@
 namespace AIPMS.Application.Features.StudentRosters;
 
 public sealed record StudentAccountImportRow(int RowNumber, string StudentCode, string FullName, string Email,
-    string? Phone, string? CurriculumCode);
+    string? Phone, string? CurriculumCode, string? ClassCode = null, string? SpecializationCode = null);
 public sealed record StudentAccountImportPreviewRow(StudentAccountImportRow Account, IReadOnlyList<string> Errors);
 public sealed record StudentAccountImportPreview(long MajorId, string MajorName, string DepartmentName,
     IReadOnlyList<StudentAccountImportPreviewRow> Rows, bool CanCommit);

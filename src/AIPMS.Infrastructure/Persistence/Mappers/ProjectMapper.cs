@@ -40,7 +40,10 @@ internal static class ProjectMapper
             AcademicScope: null,
             TopicId: project.TopicId,
             ProposalSource: project.ProposalSource ?? "STUDENT_PROPOSAL",
-            SelectedTopic: project.Topic is null ? null : new SelectedTopicDto(project.Topic.Id, project.Topic.Code, project.Topic.Title)
+            SelectedTopic: project.Topic is null ? null : new SelectedTopicDto(project.Topic.Id, project.Topic.Code, project.Topic.Title),
+            TrackCode: project.TrackCode,
+            IntegrationDeliverableSummary: project.IntegrationDeliverableSummary,
+            MktAttributionLimits: project.MktAttributionLimits
         );
 
     public static ProjectSummaryDto ToSummaryDto(this ProjectEntity project) =>

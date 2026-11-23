@@ -83,7 +83,7 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
         var entity = await context.Set<TeamAcademicConfiguration>().Include(c => c.Requirements)
             .SingleOrDefaultAsync(c => c.TeamId == teamId, ct);
         if (entity?.ConcurrencyToken != expectedToken)
-            throw new ConflictException("Academic scope changed. Refresh and retry with its current concurrency token.");
+            throw new ConflictException("Academic scope changed. Refresh and retry with its current concurrency token.", WorkflowErrorCodes.StaleConcurrencyToken);
         if (entity is null)
         {
             entity = new TeamAcademicConfiguration { TeamId = teamId };
@@ -91,6 +91,9 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
         }
         entity.ProjectMode = scope.ProjectMode; entity.PrimaryMajorId = scope.PrimaryMajorId;
         entity.LeadDepartmentId = scope.LeadDepartmentId; entity.ConcurrencyToken = Guid.NewGuid();
+        entity.TrackCode = scope.TrackCode;
+        entity.HasIntegrationDeliverable = scope.HasIntegrationDeliverable;
+        entity.MktAttributionLimitsNote = string.IsNullOrWhiteSpace(scope.MktAttributionLimitsNote) ? null : scope.MktAttributionLimitsNote.Trim();
         // Removing a requirement cascades its structured responsibilities. Restoring
         // the old scope must not revive an eligibility check for the deleted content.
         if (entity.ResponsibilityVersion.HasValue) entity.ResponsibilityVersion = Guid.NewGuid();
@@ -148,6 +151,17 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
                 p.AllowedProjectModes, p.AllowedProposalSources, p.PolicyVersion))
             .Take(2).ToListAsync(ct);
         return periods.Count == 1 ? periods[0] : null;
+    }
+
+    public async Task<bool> HasExpiredRegistrationWindowAsync(long semesterId, DateTime now, CancellationToken ct)
+    {
+        var hasOpen = await context.ProjectPeriods.AsNoTracking()
+            .AnyAsync(p => p.AcademicSemesterId == semesterId && p.PeriodType == "REGISTRATION"
+                && p.Status == "ACTIVE" && p.StartAt <= now && now < p.EndAt, ct);
+        if (hasOpen) return false;
+        return await context.ProjectPeriods.AsNoTracking()
+            .AnyAsync(p => p.AcademicSemesterId == semesterId && p.PeriodType == "REGISTRATION"
+                && (p.Status == "ACTIVE" || p.Status == "CLOSED") && p.EndAt <= now, ct);
     }
 
     public async Task<StudentQualificationEligibility> GetQualificationEligibilityAsync(

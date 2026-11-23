@@ -47,7 +47,8 @@ internal sealed partial class ResultAppealService(AipmsDbContext db, IEvaluation
             throw new ConflictException("Frozen academic scope required.", "ACADEMIC_SCOPE_UNKNOWN");
         var student = await db.Set<StudentResult>().AnyAsync(r => r.ProjectId == projectId && r.StudentId == Actor, ct)
             && await db.UserRoles.AnyAsync(r => r.UserId == Actor && r.Role.Code == "STUDENT", ct);
-        var primary = await db.SupervisorAssignments.AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null && a.IsPrimary
+        // Extended D17 (Spec V4.0 §7.4): Block both active and former Primary Supervisors from appeal review.
+        var primary = await db.SupervisorAssignments.AnyAsync(a => a.ProjectId == projectId && a.IsPrimary
             && a.AssignmentType == "PRIMARY" && a.SupervisorProfile.UserId == Actor, ct);
         return new(actor, project, AcademicAuthority.IsLead(actor, project), AcademicAuthority.HasScope(actor, project), student, primary);
     }
@@ -71,7 +72,7 @@ internal sealed partial class ResultAppealService(AipmsDbContext db, IEvaluation
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive)
             .Select(u => new EvaluationActor(u.Id, u.DepartmentId, false,
                 u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"), u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER"))).ToArrayAsync(ct);
-        var primaryIds = await db.SupervisorAssignments.Where(a => a.ProjectId == projectId && a.EndedAt == null && a.IsPrimary
+        var primaryIds = await db.SupervisorAssignments.Where(a => a.ProjectId == projectId && a.IsPrimary
             && a.AssignmentType == "PRIMARY" && missing.Contains(a.SupervisorProfile.UserId)).Select(a => a.SupervisorProfile.UserId).ToArrayAsync(ct);
         foreach (var id in missing) reviewerStates[id] = (actors.SingleOrDefault(a => a.Id == id), primaryIds.Contains(id));
     }

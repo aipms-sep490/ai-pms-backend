@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AIPMS.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = AppRoles.Admin)]
+[Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
 [Route("api/v1/teams/export")]
 public sealed class TeamRosterExportController(ITeamRosterExportService service) : ControllerBase
 {

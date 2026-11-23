@@ -138,11 +138,18 @@ public sealed partial class ColdSubmissionEndpointTests
         Assert.Null((await Body<ColdProgressDto>(await staff.GetAsync(progressUrl))).Grading.Single().Score);
         var last = await ScoreCold(second, s, b.Id, 0);
         await Body<EvaluationDraftDto>(await second.PostAsJsonAsync($"/api/v1/evaluations/{last.Id}/finalize", new { last.ConcurrencyToken }));
-        var progress = await Body<ColdProgressDto>(await student.GetAsync(progressUrl));
-        Assert.True(progress.Ready); Assert.Equal(0m, progress.Grading.Single().Score);
-        Assert.Equal(mapped, progress.Grading.Single().ContributesToResult);
+        var studentProgress = await Body<ColdProgressDto>(await student.GetAsync(progressUrl));
+        Assert.True(studentProgress.Ready); Assert.Null(studentProgress.Grading.Single().Score);
+        Assert.Equal(mapped, studentProgress.Grading.Single().ContributesToResult);
+        var staffProgress = await Body<ColdProgressDto>(await staff.GetAsync(progressUrl));
+        Assert.True(staffProgress.Ready); Assert.Equal(0m, staffProgress.Grading.Single().Score);
         var defense = scheme.Components.Single(c => c.Stage == "DEFENSE");
         var d = await Body<EvaluationAssignmentDto>(await AssignCold(staff, s, defense, s.Scope.Users.Lecturer));
+        await using (var enableRoom = database.CreateContext())
+        {
+            (await enableRoom.ProjectPeriods.FindAsync(s.PeriodId))!.EnableDefenseRoomScheduling = true;
+            await enableRoom.SaveChangesAsync();
+        }
         Assert.Equal(HttpStatusCode.Conflict, (await evaluator.PostAsync($"/api/v1/evaluation-assignments/{d.Id}/evaluation", null)).StatusCode);
         await using (var scheduling = database.CreateContext())
         {

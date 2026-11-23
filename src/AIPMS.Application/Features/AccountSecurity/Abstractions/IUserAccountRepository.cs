@@ -12,6 +12,17 @@ public interface IUserAccountRepository
         int pageSize,
         CancellationToken cancellationToken = default);
 
+    Task<PagedResult<AccountUser>> GetUsersAsync(
+        string? search,
+        string? status,
+        int page,
+        int pageSize,
+        string? role,
+        long? departmentId,
+        long? majorId,
+        CancellationToken cancellationToken = default) =>
+        GetUsersAsync(search, status, page, pageSize, cancellationToken);
+
     Task<AccountUser?> GetUserAsync(
         long userId,
         CancellationToken cancellationToken = default);

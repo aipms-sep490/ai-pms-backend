@@ -27,6 +27,8 @@ public partial class Milestone
 
     public DateTime UpdatedAt { get; set; }
     public Guid ConcurrencyToken { get; set; }
+    public string? TemplateOriginId { get; set; }
+    public bool IsUserCustomized { get; set; }
 
     public virtual User CreatedByNavigation { get; set; } = null!;
 

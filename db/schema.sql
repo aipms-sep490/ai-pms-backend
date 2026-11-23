@@ -2998,7 +2998,7 @@ BEGIN
   CONSTRAINT uq_cold_submission_file UNIQUE(file_id),
   CONSTRAINT fk_cold_file_submission FOREIGN KEY(submission_id) REFERENCES dbo.cold_submissions(id),
   CONSTRAINT fk_cold_file_file FOREIGN KEY(file_id) REFERENCES dbo.files(id),
-  CONSTRAINT ck_cold_file_size CHECK(size_bytes>0 AND size_bytes<=10485760));
+  CONSTRAINT ck_cold_file_size CHECK(size_bytes>0 AND size_bytes<=104857600));
 END;
 COMMIT;
 GO
@@ -4025,14 +4025,14 @@ BEGIN
         id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_ai_setup_applications PRIMARY KEY,
         actor_id bigint NOT NULL,
         idempotency_key uniqueidentifier NOT NULL,
-        scope_type varchar(24) NOT NULL,
+        scope_type varchar(32) NOT NULL,
         project_id bigint NULL,
         run_id bigint NULL,
         result_json nvarchar(max) NOT NULL,
         created_at datetime2(7) NOT NULL CONSTRAINT df_ai_setup_applications_created_at DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT fk_ai_setup_applications_actor FOREIGN KEY (actor_id) REFERENCES dbo.users(id),
         CONSTRAINT fk_ai_setup_applications_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
-        CONSTRAINT ck_ai_setup_applications_scope CHECK (scope_type IN ('PROJECT', 'RUBRIC')),
+        CONSTRAINT ck_ai_setup_applications_scope CHECK (scope_type IN ('PROJECT', 'RUBRIC', 'REVIEW_GATE', 'COLD_TEMPLATE', 'TOPIC_BATCH', 'KNOWLEDGE_DOC', 'MILESTONE_TEMPLATE', 'SEMESTER_ROLLOVER')),
         CONSTRAINT uq_ai_setup_applications_actor_key UNIQUE (actor_id, idempotency_key)
     );
     CREATE INDEX ix_ai_setup_applications_project ON dbo.ai_setup_applications(project_id, created_at);
@@ -4040,6 +4040,845 @@ END;
 
 COMMIT TRANSACTION;
 
+GO
+
+-- PR-P0-A (P0.3): Assignment validity windows and scope lookup indexes.
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+BEGIN TRANSACTION;
+
+IF OBJECT_ID(N'dbo.evaluation_assignments', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.evaluation_assignments', N'valid_from') IS NULL
+        ALTER TABLE dbo.evaluation_assignments ADD valid_from datetime2(0) NULL;
+    IF COL_LENGTH(N'dbo.evaluation_assignments', N'valid_until') IS NULL
+        ALTER TABLE dbo.evaluation_assignments ADD valid_until datetime2(0) NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_evaluation_assignments_validity' AND parent_object_id = OBJECT_ID(N'dbo.evaluation_assignments'))
+        EXEC(N'ALTER TABLE dbo.evaluation_assignments ADD CONSTRAINT ck_evaluation_assignments_validity CHECK (valid_from IS NULL OR valid_until IS NULL OR valid_until >= valid_from);');
+
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'ix_evaluation_assignments_validity' AND object_id = OBJECT_ID(N'dbo.evaluation_assignments'))
+        EXEC(N'CREATE INDEX ix_evaluation_assignments_validity ON dbo.evaluation_assignments(evaluator_id, project_id, status, valid_from, valid_until);');
+END;
+
+IF OBJECT_ID(N'dbo.review_gate_assignments', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.review_gate_assignments', N'valid_from') IS NULL
+        ALTER TABLE dbo.review_gate_assignments ADD valid_from datetime2(0) NULL;
+    IF COL_LENGTH(N'dbo.review_gate_assignments', N'valid_until') IS NULL
+        ALTER TABLE dbo.review_gate_assignments ADD valid_until datetime2(0) NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_review_gate_assignments_validity' AND parent_object_id = OBJECT_ID(N'dbo.review_gate_assignments'))
+        EXEC(N'ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT ck_review_gate_assignments_validity CHECK (valid_from IS NULL OR valid_until IS NULL OR valid_until >= valid_from);');
+
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'ix_review_gate_assignments_validity' AND object_id = OBJECT_ID(N'dbo.review_gate_assignments'))
+        EXEC(N'CREATE INDEX ix_review_gate_assignments_validity ON dbo.review_gate_assignments(reviewer_id, gate_instance_id, status, valid_from, valid_until);');
+END;
+
+COMMIT TRANSACTION;
+GO
+
+-- PR-P0-B (P0.9, P0.10, POL-01, POL-03, POL-06):
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+BEGIN TRANSACTION;
+
+IF OBJECT_ID(N'dbo.rubric_criteria', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.rubric_criteria', N'target_scope') IS NULL
+        ALTER TABLE dbo.rubric_criteria ADD target_scope varchar(20) NULL;
+    IF COL_LENGTH(N'dbo.rubric_criteria', N'is_integration') IS NULL
+        ALTER TABLE dbo.rubric_criteria ADD is_integration bit NOT NULL CONSTRAINT df_rubric_criteria_is_integration DEFAULT 0;
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_rubric_criteria_target_scope' AND parent_object_id = OBJECT_ID(N'dbo.rubric_criteria'))
+        EXEC(N'ALTER TABLE dbo.rubric_criteria ADD CONSTRAINT ck_rubric_criteria_target_scope CHECK (target_scope IS NULL OR target_scope IN (''PROJECT'',''MAJOR'',''STUDENT''));');
+END;
+
+IF OBJECT_ID(N'dbo.evaluation_scheme_components', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.evaluation_scheme_components', N'target_scope') IS NULL
+        ALTER TABLE dbo.evaluation_scheme_components ADD target_scope varchar(20) NULL;
+    IF COL_LENGTH(N'dbo.evaluation_scheme_components', N'is_integration') IS NULL
+        ALTER TABLE dbo.evaluation_scheme_components ADD is_integration bit NOT NULL CONSTRAINT df_eval_scheme_comp_is_integration DEFAULT 0;
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_eval_scheme_comp_target_scope' AND parent_object_id = OBJECT_ID(N'dbo.evaluation_scheme_components'))
+        EXEC(N'ALTER TABLE dbo.evaluation_scheme_components ADD CONSTRAINT ck_eval_scheme_comp_target_scope CHECK (target_scope IS NULL OR target_scope IN (''PROJECT'',''MAJOR'',''STUDENT''));');
+END;
+
+IF OBJECT_ID(N'dbo.evaluation_assignments', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.evaluation_assignments', N'defense_session_id') IS NULL
+        ALTER TABLE dbo.evaluation_assignments ADD defense_session_id bigint NULL;
+    IF OBJECT_ID(N'dbo.defense_sessions', N'U') IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_evaluation_assignments_defense_session')
+        EXEC(N'ALTER TABLE dbo.evaluation_assignments ADD CONSTRAINT fk_evaluation_assignments_defense_session FOREIGN KEY (defense_session_id) REFERENCES dbo.defense_sessions(id);');
+END;
+
+IF OBJECT_ID(N'dbo.project_periods', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.project_periods', N'enable_defense_room_scheduling') IS NULL
+        ALTER TABLE dbo.project_periods ADD enable_defense_room_scheduling bit NOT NULL CONSTRAINT df_project_periods_defense_sched DEFAULT 0;
+END;
+
+IF OBJECT_ID(N'dbo.student_results', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.student_results', N'outcome_detail') IS NULL
+        ALTER TABLE dbo.student_results ADD outcome_detail varchar(40) NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_student_results_outcome_detail' AND parent_object_id = OBJECT_ID(N'dbo.student_results'))
+        EXEC(N'ALTER TABLE dbo.student_results ADD CONSTRAINT ck_student_results_outcome_detail CHECK (outcome_detail IS NULL OR outcome_detail IN (''PASSED'',''FAILED_TOTAL'',''FAILED_COMPONENT_FLOOR'',''DEFENSE_ABSENT''));');
+END;
+
+IF OBJECT_ID(N'dbo.gate_individual_process_scores', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.gate_individual_process_scores (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_gate_individual_process_scores PRIMARY KEY,
+        project_id bigint NOT NULL,
+        gate_instance_id bigint NOT NULL,
+        student_id bigint NOT NULL,
+        supervisor_assignment_id bigint NOT NULL,
+        score decimal(5,2) NOT NULL,
+        gate_weight_percent decimal(5,2) NOT NULL,
+        mentor_reference_notes nvarchar(2000) NULL,
+        comments nvarchar(2000) NULL,
+        status varchar(20) NOT NULL,
+        concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_gate_ind_proc_token DEFAULT NEWID(),
+        created_at datetime2(0) NOT NULL,
+        updated_at datetime2(0) NOT NULL,
+        finalized_at datetime2(0) NULL,
+        CONSTRAINT uq_gate_individual_process_score UNIQUE (gate_instance_id, student_id),
+        CONSTRAINT fk_gate_ind_proc_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_gate_ind_proc_gate FOREIGN KEY (gate_instance_id) REFERENCES dbo.project_gate_instances(id),
+        CONSTRAINT fk_gate_ind_proc_student FOREIGN KEY (student_id) REFERENCES dbo.users(id),
+        CONSTRAINT fk_gate_ind_proc_supervisor FOREIGN KEY (supervisor_assignment_id) REFERENCES dbo.supervisor_assignments(id),
+        CONSTRAINT ck_gate_ind_proc_score CHECK (score BETWEEN 0 AND 10),
+        CONSTRAINT ck_gate_ind_proc_weight CHECK (gate_weight_percent > 0 AND gate_weight_percent <= 100),
+        CONSTRAINT ck_gate_ind_proc_status CHECK (status IN ('DRAFT','FINALIZED'))
+    );
+    CREATE INDEX ix_gate_individual_process_project ON dbo.gate_individual_process_scores(project_id, student_id, status);
+END;
+
+IF OBJECT_ID(N'dbo.student_defense_absences', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.student_defense_absences (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_student_defense_absences PRIMARY KEY,
+        project_id bigint NOT NULL,
+        student_id bigint NOT NULL,
+        recorded_by bigint NOT NULL,
+        reason nvarchar(2000) NOT NULL,
+        minutes_reference nvarchar(500) NULL,
+        recorded_at datetime2(0) NOT NULL,
+        CONSTRAINT uq_student_defense_absence UNIQUE (project_id, student_id),
+        CONSTRAINT fk_student_defense_absence_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_student_defense_absence_student FOREIGN KEY (student_id) REFERENCES dbo.users(id),
+        CONSTRAINT fk_student_defense_absence_actor FOREIGN KEY (recorded_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_student_defense_absence_reason CHECK (LEN(LTRIM(RTRIM(reason))) > 0)
+    );
+END;
+
+COMMIT TRANSACTION;
+GO
+
+-- PR-P0-C (P0.4, P0.6, P0.7, P0.8):
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+BEGIN TRANSACTION;
+
+IF OBJECT_ID(N'dbo.files', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.files', N'scan_status') IS NULL
+        ALTER TABLE dbo.files ADD scan_status varchar(20) NOT NULL CONSTRAINT df_files_scan_status DEFAULT 'READY';
+    IF COL_LENGTH(N'dbo.files', N'scan_provider') IS NULL
+        ALTER TABLE dbo.files ADD scan_provider varchar(50) NULL;
+    IF COL_LENGTH(N'dbo.files', N'scanned_at') IS NULL
+        ALTER TABLE dbo.files ADD scanned_at datetime2(0) NULL;
+    IF COL_LENGTH(N'dbo.files', N'scan_details') IS NULL
+        ALTER TABLE dbo.files ADD scan_details nvarchar(1000) NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_files_scan_status' AND parent_object_id = OBJECT_ID(N'dbo.files'))
+        EXEC(N'ALTER TABLE dbo.files ADD CONSTRAINT ck_files_scan_status CHECK (scan_status IN (''UPLOADING'',''SCANNING'',''READY'',''QUARANTINED'',''PREVIEW_FAILED''));');
+END;
+
+IF OBJECT_ID(N'dbo.review_gate_evidence', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.review_gate_evidence', N'scan_status') IS NULL
+        ALTER TABLE dbo.review_gate_evidence ADD scan_status varchar(20) NOT NULL CONSTRAINT df_review_gate_evidence_scan_status DEFAULT 'READY';
+    IF COL_LENGTH(N'dbo.review_gate_evidence', N'scan_provider') IS NULL
+        ALTER TABLE dbo.review_gate_evidence ADD scan_provider varchar(50) NULL;
+    IF COL_LENGTH(N'dbo.review_gate_evidence', N'scanned_at') IS NULL
+        ALTER TABLE dbo.review_gate_evidence ADD scanned_at datetime2(0) NULL;
+    IF COL_LENGTH(N'dbo.review_gate_evidence', N'scan_details') IS NULL
+        ALTER TABLE dbo.review_gate_evidence ADD scan_details nvarchar(1000) NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_review_gate_evidence_scan_status' AND parent_object_id = OBJECT_ID(N'dbo.review_gate_evidence'))
+        EXEC(N'ALTER TABLE dbo.review_gate_evidence ADD CONSTRAINT ck_review_gate_evidence_scan_status CHECK (scan_status IN (''UPLOADING'',''SCANNING'',''READY'',''QUARANTINED'',''PREVIEW_FAILED''));');
+END;
+
+IF OBJECT_ID(N'dbo.review_gate_packages', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.review_gate_packages (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_review_gate_packages PRIMARY KEY,
+        project_id bigint NOT NULL,
+        gate_instance_id bigint NOT NULL,
+        round_number int NOT NULL,
+        idempotency_key varchar(128) NOT NULL,
+        request_hash varchar(64) NOT NULL,
+        notes nvarchar(2000) NULL,
+        submitted_by bigint NOT NULL,
+        submitted_at datetime2(0) NOT NULL,
+        CONSTRAINT uq_review_gate_packages_idempotency UNIQUE (gate_instance_id, idempotency_key),
+        CONSTRAINT uq_review_gate_packages_round UNIQUE (gate_instance_id, round_number),
+        CONSTRAINT fk_review_gate_packages_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_review_gate_packages_gate FOREIGN KEY (gate_instance_id) REFERENCES dbo.project_gate_instances(id),
+        CONSTRAINT fk_review_gate_packages_submitter FOREIGN KEY (submitted_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_review_gate_packages_round CHECK (round_number > 0)
+    );
+    CREATE INDEX ix_review_gate_packages_gate ON dbo.review_gate_packages(gate_instance_id, round_number DESC);
+END;
+
+IF OBJECT_ID(N'dbo.review_gate_package_items', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.review_gate_package_items (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_review_gate_package_items PRIMARY KEY,
+        package_id bigint NOT NULL,
+        requirement_id bigint NOT NULL,
+        evidence_id bigint NOT NULL,
+        evidence_version int NOT NULL,
+        sha256 varchar(64) NOT NULL,
+        CONSTRAINT uq_review_gate_package_items_req UNIQUE (package_id, requirement_id),
+        CONSTRAINT fk_review_gate_pkg_items_pkg FOREIGN KEY (package_id) REFERENCES dbo.review_gate_packages(id),
+        CONSTRAINT fk_review_gate_pkg_items_req FOREIGN KEY (requirement_id) REFERENCES dbo.project_gate_requirements(id),
+        CONSTRAINT fk_review_gate_pkg_items_ev FOREIGN KEY (evidence_id) REFERENCES dbo.review_gate_evidence(id),
+        CONSTRAINT ck_review_gate_pkg_items_ver CHECK (evidence_version > 0)
+    );
+    CREATE INDEX ix_review_gate_package_items_evidence ON dbo.review_gate_package_items(evidence_id);
+END;
+
+IF OBJECT_ID(N'dbo.review_gate_evidence_verifications', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.review_gate_evidence_verifications', N'package_id') IS NULL
+        ALTER TABLE dbo.review_gate_evidence_verifications ADD package_id bigint NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_gate_ev_verifications_package')
+        EXEC(N'ALTER TABLE dbo.review_gate_evidence_verifications ADD CONSTRAINT fk_gate_ev_verifications_package FOREIGN KEY (package_id) REFERENCES dbo.review_gate_packages(id);');
+END;
+
+IF OBJECT_ID(N'dbo.review_gate_decisions', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.review_gate_decisions', N'package_id') IS NULL
+        ALTER TABLE dbo.review_gate_decisions ADD package_id bigint NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_gate_decisions_package')
+        EXEC(N'ALTER TABLE dbo.review_gate_decisions ADD CONSTRAINT fk_gate_decisions_package FOREIGN KEY (package_id) REFERENCES dbo.review_gate_packages(id);');
+END;
+
+IF OBJECT_ID(N'dbo.file_preview_derivatives', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.file_preview_derivatives (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_file_preview_derivatives PRIMARY KEY,
+        file_id bigint NULL,
+        gate_evidence_id bigint NULL,
+        derivative_type varchar(30) NOT NULL,
+        status varchar(20) NOT NULL,
+        payload_json nvarchar(max) NULL,
+        error_reason nvarchar(500) NULL,
+        created_at datetime2(0) NOT NULL,
+        updated_at datetime2(0) NOT NULL,
+        CONSTRAINT fk_file_preview_deriv_file FOREIGN KEY (file_id) REFERENCES dbo.files(id),
+        CONSTRAINT fk_file_preview_deriv_gate_ev FOREIGN KEY (gate_evidence_id) REFERENCES dbo.review_gate_evidence(id),
+        CONSTRAINT ck_file_preview_deriv_target CHECK (file_id IS NOT NULL OR gate_evidence_id IS NOT NULL),
+        CONSTRAINT ck_file_preview_deriv_type CHECK (derivative_type IN ('OFFICE_TEXT','PPTX_SLIDES','XLSX_GRID','ZIP_TREE','IMAGE_SAFE')),
+        CONSTRAINT ck_file_preview_deriv_status CHECK (status IN ('READY','PREVIEW_FAILED'))
+    );
+    CREATE INDEX ix_file_preview_deriv_file ON dbo.file_preview_derivatives(file_id) WHERE file_id IS NOT NULL;
+    CREATE INDEX ix_file_preview_deriv_gate_ev ON dbo.file_preview_derivatives(gate_evidence_id) WHERE gate_evidence_id IS NOT NULL;
+END;
+
+IF OBJECT_ID(N'dbo.team_academic_configurations', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.team_academic_configurations', N'track_code') IS NULL
+        ALTER TABLE dbo.team_academic_configurations ADD track_code varchar(20) NULL;
+    IF COL_LENGTH(N'dbo.team_academic_configurations', N'has_integration_deliverable') IS NULL
+        ALTER TABLE dbo.team_academic_configurations ADD has_integration_deliverable bit NOT NULL CONSTRAINT df_team_cfg_has_int DEFAULT 0;
+    IF COL_LENGTH(N'dbo.team_academic_configurations', N'mkt_attribution_limits_note') IS NULL
+        ALTER TABLE dbo.team_academic_configurations ADD mkt_attribution_limits_note nvarchar(2000) NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_team_academic_track' AND parent_object_id = OBJECT_ID(N'dbo.team_academic_configurations'))
+        EXEC(N'ALTER TABLE dbo.team_academic_configurations ADD CONSTRAINT ck_team_academic_track CHECK (track_code IS NULL OR track_code IN (''IT_ONLY'',''MKT_ONLY'',''IT_MKT''));');
+END;
+
+IF OBJECT_ID(N'dbo.projects', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.projects', N'track_code') IS NULL
+        ALTER TABLE dbo.projects ADD track_code varchar(20) NULL;
+    IF COL_LENGTH(N'dbo.projects', N'integration_deliverable_summary') IS NULL
+        ALTER TABLE dbo.projects ADD integration_deliverable_summary nvarchar(2000) NULL;
+    IF COL_LENGTH(N'dbo.projects', N'mkt_attribution_limits') IS NULL
+        ALTER TABLE dbo.projects ADD mkt_attribution_limits nvarchar(2000) NULL;
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_projects_track_code' AND parent_object_id = OBJECT_ID(N'dbo.projects'))
+        EXEC(N'ALTER TABLE dbo.projects ADD CONSTRAINT ck_projects_track_code CHECK (track_code IS NULL OR track_code IN (''IT_ONLY'',''MKT_ONLY'',''IT_MKT''));');
+END;
+
+IF OBJECT_ID(N'dbo.project_gate_round_scope_decisions', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.project_gate_round_scope_decisions (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_project_gate_round_scope_decisions PRIMARY KEY,
+        project_id bigint NOT NULL,
+        gate_instance_id bigint NOT NULL,
+        round_number int NOT NULL,
+        scope varchar(30) NOT NULL,
+        department_id bigint NULL,
+        major_id bigint NULL,
+        decision varchar(30) NOT NULL CONSTRAINT df_gate_round_scope_decision DEFAULT 'PENDING',
+        notes nvarchar(2000) NULL,
+        decided_by bigint NULL,
+        decided_at datetime2(0) NULL,
+        concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_gate_round_scope_token DEFAULT NEWID(),
+        CONSTRAINT uq_gate_round_scope UNIQUE (gate_instance_id, round_number, scope),
+        CONSTRAINT fk_gate_round_scope_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_gate_round_scope_gate FOREIGN KEY (gate_instance_id) REFERENCES dbo.project_gate_instances(id),
+        CONSTRAINT fk_gate_round_scope_dept FOREIGN KEY (department_id) REFERENCES dbo.departments(id),
+        CONSTRAINT fk_gate_round_scope_major FOREIGN KEY (major_id) REFERENCES dbo.majors(id),
+        CONSTRAINT fk_gate_round_scope_actor FOREIGN KEY (decided_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_gate_round_scope_round CHECK (round_number > 0),
+        CONSTRAINT ck_gate_round_scope_decision CHECK (decision IN ('PENDING','PASSED','REVISION_REQUIRED','OVERRIDDEN_PASS'))
+    );
+    CREATE INDEX ix_gate_round_scope_project ON dbo.project_gate_round_scope_decisions(project_id, gate_instance_id, round_number);
+END;
+
+IF OBJECT_ID(N'dbo.workflow_sla_notifications', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.workflow_sla_notifications (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_workflow_sla_notifications PRIMARY KEY,
+        entity_type varchar(40) NOT NULL,
+        entity_id bigint NOT NULL,
+        round_number int NOT NULL CONSTRAINT df_workflow_sla_round DEFAULT 1,
+        department_id bigint NOT NULL,
+        sla_tier varchar(20) NOT NULL,
+        sent_at datetime2(0) NOT NULL,
+        CONSTRAINT uq_workflow_sla_dedup UNIQUE (entity_type, entity_id, round_number, department_id, sla_tier),
+        CONSTRAINT fk_workflow_sla_dept FOREIGN KEY (department_id) REFERENCES dbo.departments(id),
+        CONSTRAINT ck_workflow_sla_entity CHECK (entity_type IN ('PROJECT_REVIEW','REVIEW_GATE')),
+        CONSTRAINT ck_workflow_sla_tier CHECK (sla_tier IN ('REMINDER_48H','ESCALATION_72H'))
+    );
+    CREATE INDEX ix_workflow_sla_lookup ON dbo.workflow_sla_notifications(entity_type, entity_id, sla_tier);
+END;
+
+COMMIT TRANSACTION;
+GO
+
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+IF OBJECT_ID(N'dbo.academic_blueprints', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.academic_blueprints (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_academic_blueprints PRIMARY KEY,
+        academic_semester_id bigint NOT NULL,
+        track_code varchar(20) NOT NULL,
+        code varchar(60) NOT NULL,
+        name nvarchar(255) NOT NULL,
+        version int NOT NULL CONSTRAINT df_academic_blueprints_version DEFAULT 1,
+        status varchar(20) NOT NULL CONSTRAINT df_academic_blueprints_status DEFAULT 'DRAFT',
+        lead_department_id bigint NOT NULL,
+        participating_department_id bigint NULL,
+        period_policy_version_id bigint NULL,
+        gate_template_id bigint NULL,
+        milestone_template_id bigint NULL,
+        rubric_id bigint NULL,
+        config_json nvarchar(max) NOT NULL CONSTRAINT df_academic_blueprints_config DEFAULT N'{}',
+        concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_academic_blueprints_token DEFAULT NEWID(),
+        created_by bigint NOT NULL,
+        created_at datetime2(0) NOT NULL CONSTRAINT df_academic_blueprints_created_at DEFAULT SYSUTCDATETIME(),
+        updated_at datetime2(0) NOT NULL CONSTRAINT df_academic_blueprints_updated_at DEFAULT SYSUTCDATETIME(),
+        published_at datetime2(0) NULL,
+        CONSTRAINT uq_academic_blueprints_code_ver UNIQUE (academic_semester_id, code, version),
+        CONSTRAINT fk_academic_blueprints_semester FOREIGN KEY (academic_semester_id) REFERENCES dbo.academic_semesters(id),
+        CONSTRAINT fk_academic_blueprints_lead_dept FOREIGN KEY (lead_department_id) REFERENCES dbo.departments(id),
+        CONSTRAINT fk_academic_blueprints_part_dept FOREIGN KEY (participating_department_id) REFERENCES dbo.departments(id),
+        CONSTRAINT fk_academic_blueprints_gate_tpl FOREIGN KEY (gate_template_id) REFERENCES dbo.review_gate_templates(id),
+        CONSTRAINT fk_academic_blueprints_ms_tpl FOREIGN KEY (milestone_template_id) REFERENCES dbo.milestone_templates(id),
+        CONSTRAINT fk_academic_blueprints_rubric FOREIGN KEY (rubric_id) REFERENCES dbo.rubrics(id),
+        CONSTRAINT fk_academic_blueprints_creator FOREIGN KEY (created_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_academic_blueprints_track CHECK (track_code IN ('IT_ONLY','MKT_ONLY','IT_MKT')),
+        CONSTRAINT ck_academic_blueprints_status CHECK (status IN ('DRAFT','IN_REVIEW','PUBLISHED','RETIRED')),
+        CONSTRAINT ck_academic_blueprints_version CHECK (version > 0)
+    );
+    CREATE INDEX ix_academic_blueprints_semester_track ON dbo.academic_blueprints(academic_semester_id, track_code, status);
+END;
+
+IF OBJECT_ID(N'dbo.academic_blueprint_approvals', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.academic_blueprint_approvals (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_academic_blueprint_approvals PRIMARY KEY,
+        blueprint_id bigint NOT NULL,
+        department_id bigint NOT NULL,
+        scope_role varchar(30) NOT NULL,
+        decision varchar(20) NOT NULL CONSTRAINT df_blueprint_approvals_decision DEFAULT 'PENDING',
+        decided_by bigint NULL,
+        decided_at datetime2(0) NULL,
+        notes nvarchar(1000) NULL,
+        CONSTRAINT uq_academic_blueprint_approvals UNIQUE (blueprint_id, department_id),
+        CONSTRAINT fk_blueprint_approvals_bp FOREIGN KEY (blueprint_id) REFERENCES dbo.academic_blueprints(id),
+        CONSTRAINT fk_blueprint_approvals_dept FOREIGN KEY (department_id) REFERENCES dbo.departments(id),
+        CONSTRAINT fk_blueprint_approvals_actor FOREIGN KEY (decided_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_blueprint_approvals_role CHECK (scope_role IN ('LEAD','PARTICIPATING')),
+        CONSTRAINT ck_blueprint_approvals_decision CHECK (decision IN ('PENDING','APPROVED','REJECTED'))
+    );
+END;
+
+IF OBJECT_ID(N'dbo.project_blueprint_snapshots', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.project_blueprint_snapshots (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_project_blueprint_snapshots PRIMARY KEY,
+        project_id bigint NOT NULL,
+        blueprint_id bigint NOT NULL,
+        blueprint_version int NOT NULL,
+        snapshot_json nvarchar(max) NOT NULL,
+        applied_by bigint NOT NULL,
+        applied_at datetime2(0) NOT NULL CONSTRAINT df_project_blueprint_snapshots_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT uq_project_blueprint_snapshots_project UNIQUE (project_id),
+        CONSTRAINT fk_project_bp_snap_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_project_bp_snap_bp FOREIGN KEY (blueprint_id) REFERENCES dbo.academic_blueprints(id),
+        CONSTRAINT fk_project_bp_snap_actor FOREIGN KEY (applied_by) REFERENCES dbo.users(id)
+    );
+END;
+
+IF OBJECT_ID(N'dbo.gate_deadline_change_requests', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.gate_deadline_change_requests (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_gate_deadline_change_requests PRIMARY KEY,
+        project_id bigint NOT NULL,
+        gate_instance_id bigint NOT NULL,
+        requested_submission_due_at datetime2(0) NOT NULL,
+        requested_review_end_at datetime2(0) NOT NULL,
+        requested_revision_due_at datetime2(0) NOT NULL,
+        reason nvarchar(2000) NOT NULL,
+        status varchar(20) NOT NULL CONSTRAINT df_gate_dcr_status DEFAULT 'PENDING',
+        requested_by bigint NOT NULL,
+        reviewed_by bigint NULL,
+        review_notes nvarchar(2000) NULL,
+        created_at datetime2(0) NOT NULL CONSTRAINT df_gate_dcr_created_at DEFAULT SYSUTCDATETIME(),
+        reviewed_at datetime2(0) NULL,
+        concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_gate_dcr_token DEFAULT NEWID(),
+        CONSTRAINT fk_gate_dcr_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_gate_dcr_gate FOREIGN KEY (gate_instance_id) REFERENCES dbo.project_gate_instances(id),
+        CONSTRAINT fk_gate_dcr_requester FOREIGN KEY (requested_by) REFERENCES dbo.users(id),
+        CONSTRAINT fk_gate_dcr_reviewer FOREIGN KEY (reviewed_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_gate_dcr_status CHECK (status IN ('PENDING','APPROVED','REJECTED')),
+        CONSTRAINT ck_gate_dcr_order CHECK (requested_submission_due_at <= requested_review_end_at AND requested_review_end_at <= requested_revision_due_at)
+    );
+    CREATE INDEX ix_gate_dcr_project_gate ON dbo.gate_deadline_change_requests(project_id, gate_instance_id, status);
+END;
+
+IF COL_LENGTH(N'dbo.project_gate_instances', N'submission_due_at') IS NULL
+    ALTER TABLE dbo.project_gate_instances ADD submission_due_at datetime2(0) NULL;
+IF COL_LENGTH(N'dbo.project_gate_instances', N'review_window_end_at') IS NULL
+    ALTER TABLE dbo.project_gate_instances ADD review_window_end_at datetime2(0) NULL;
+IF COL_LENGTH(N'dbo.project_gate_instances', N'revision_due_at') IS NULL
+    ALTER TABLE dbo.project_gate_instances ADD revision_due_at datetime2(0) NULL;
+IF COL_LENGTH(N'dbo.project_gate_instances', N'offset_rule_json') IS NULL
+    ALTER TABLE dbo.project_gate_instances ADD offset_rule_json nvarchar(1000) NULL;
+
+IF COL_LENGTH(N'dbo.milestones', N'template_origin_id') IS NULL
+    ALTER TABLE dbo.milestones ADD template_origin_id nvarchar(100) NULL;
+IF COL_LENGTH(N'dbo.milestones', N'is_user_customized') IS NULL
+    ALTER TABLE dbo.milestones ADD is_user_customized bit NOT NULL CONSTRAINT df_milestones_is_user_customized DEFAULT 0;
+
+IF COL_LENGTH(N'dbo.sprints', N'template_origin_id') IS NULL
+    ALTER TABLE dbo.sprints ADD template_origin_id nvarchar(100) NULL;
+IF COL_LENGTH(N'dbo.sprints', N'is_user_customized') IS NULL
+    ALTER TABLE dbo.sprints ADD is_user_customized bit NOT NULL CONSTRAINT df_sprints_is_user_customized DEFAULT 0;
+
+IF COL_LENGTH(N'dbo.tasks', N'template_origin_id') IS NULL
+    ALTER TABLE dbo.tasks ADD template_origin_id nvarchar(100) NULL;
+IF COL_LENGTH(N'dbo.tasks', N'is_user_customized') IS NULL
+    ALTER TABLE dbo.tasks ADD is_user_customized bit NOT NULL CONSTRAINT df_tasks_is_user_customized DEFAULT 0;
+IF COL_LENGTH(N'dbo.tasks', N'is_core_gate_task') IS NULL
+    ALTER TABLE dbo.tasks ADD is_core_gate_task bit NOT NULL CONSTRAINT df_tasks_is_core_gate_task DEFAULT 0;
+
+COMMIT TRANSACTION;
+GO
+
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+IF COL_LENGTH(N'dbo.review_gate_requirements', N'target_cardinality') IS NULL
+    ALTER TABLE dbo.review_gate_requirements ADD target_cardinality varchar(20) NOT NULL CONSTRAINT df_rgr_target_cardinality DEFAULT 'PROJECT';
+IF COL_LENGTH(N'dbo.review_gate_requirements', N'delivery_stage') IS NULL
+    ALTER TABLE dbo.review_gate_requirements ADD delivery_stage varchar(20) NULL;
+IF COL_LENGTH(N'dbo.review_gate_requirements', N'feeds_cold') IS NULL
+    ALTER TABLE dbo.review_gate_requirements ADD feeds_cold bit NOT NULL CONSTRAINT df_rgr_feeds_cold DEFAULT 0;
+IF COL_LENGTH(N'dbo.review_gate_requirements', N'feeds_defense') IS NULL
+    ALTER TABLE dbo.review_gate_requirements ADD feeds_defense bit NOT NULL CONSTRAINT df_rgr_feeds_defense DEFAULT 0;
+IF COL_LENGTH(N'dbo.review_gate_requirements', N'input_kind') IS NULL
+    ALTER TABLE dbo.review_gate_requirements ADD input_kind varchar(30) NULL;
+IF COL_LENGTH(N'dbo.review_gate_requirements', N'template_document_id') IS NULL
+    ALTER TABLE dbo.review_gate_requirements ADD template_document_id bigint NULL;
+IF COL_LENGTH(N'dbo.review_gate_requirements', N'carry_forward_from_code') IS NULL
+    ALTER TABLE dbo.review_gate_requirements ADD carry_forward_from_code varchar(50) NULL;
+IF COL_LENGTH(N'dbo.review_gate_requirements', N'policy_tag') IS NULL
+    ALTER TABLE dbo.review_gate_requirements ADD policy_tag varchar(60) NULL;
+IF COL_LENGTH(N'dbo.review_gate_requirements', N'rubric_criterion_ref') IS NULL
+    ALTER TABLE dbo.review_gate_requirements ADD rubric_criterion_ref varchar(50) NULL;
+
+IF COL_LENGTH(N'dbo.project_gate_requirements', N'target_cardinality') IS NULL
+    ALTER TABLE dbo.project_gate_requirements ADD target_cardinality varchar(20) NOT NULL CONSTRAINT df_pgr_target_cardinality DEFAULT 'PROJECT';
+IF COL_LENGTH(N'dbo.project_gate_requirements', N'delivery_stage') IS NULL
+    ALTER TABLE dbo.project_gate_requirements ADD delivery_stage varchar(20) NULL;
+IF COL_LENGTH(N'dbo.project_gate_requirements', N'feeds_cold') IS NULL
+    ALTER TABLE dbo.project_gate_requirements ADD feeds_cold bit NOT NULL CONSTRAINT df_pgr_feeds_cold DEFAULT 0;
+IF COL_LENGTH(N'dbo.project_gate_requirements', N'feeds_defense') IS NULL
+    ALTER TABLE dbo.project_gate_requirements ADD feeds_defense bit NOT NULL CONSTRAINT df_pgr_feeds_defense DEFAULT 0;
+IF COL_LENGTH(N'dbo.project_gate_requirements', N'input_kind') IS NULL
+    ALTER TABLE dbo.project_gate_requirements ADD input_kind varchar(30) NULL;
+IF COL_LENGTH(N'dbo.project_gate_requirements', N'template_document_id') IS NULL
+    ALTER TABLE dbo.project_gate_requirements ADD template_document_id bigint NULL;
+IF COL_LENGTH(N'dbo.project_gate_requirements', N'carry_forward_from_code') IS NULL
+    ALTER TABLE dbo.project_gate_requirements ADD carry_forward_from_code varchar(50) NULL;
+IF COL_LENGTH(N'dbo.project_gate_requirements', N'policy_tag') IS NULL
+    ALTER TABLE dbo.project_gate_requirements ADD policy_tag varchar(60) NULL;
+IF COL_LENGTH(N'dbo.project_gate_requirements', N'rubric_criterion_ref') IS NULL
+    ALTER TABLE dbo.project_gate_requirements ADD rubric_criterion_ref varchar(50) NULL;
+
+IF COL_LENGTH(N'dbo.department_document_templates', N'scope') IS NULL
+    ALTER TABLE dbo.department_document_templates ADD scope varchar(30) NOT NULL CONSTRAINT df_dept_doc_tpl_scope DEFAULT 'MAJOR_SPECIFIC';
+
+IF COL_LENGTH(N'dbo.final_submission_drafts', N'lock_workflow_status') IS NULL
+    ALTER TABLE dbo.final_submission_drafts ADD lock_workflow_status varchar(30) NOT NULL CONSTRAINT df_fsd_lock_workflow_status DEFAULT 'OPEN';
+IF COL_LENGTH(N'dbo.final_submission_drafts', N'lock_requested_by') IS NULL
+    ALTER TABLE dbo.final_submission_drafts ADD lock_requested_by bigint NULL;
+IF COL_LENGTH(N'dbo.final_submission_drafts', N'lock_requested_at') IS NULL
+    ALTER TABLE dbo.final_submission_drafts ADD lock_requested_at datetime2(0) NULL;
+IF COL_LENGTH(N'dbo.final_submission_drafts', N'locked_by_supervisor_id') IS NULL
+    ALTER TABLE dbo.final_submission_drafts ADD locked_by_supervisor_id bigint NULL;
+IF COL_LENGTH(N'dbo.final_submission_drafts', N'force_locked_by') IS NULL
+    ALTER TABLE dbo.final_submission_drafts ADD force_locked_by bigint NULL;
+IF COL_LENGTH(N'dbo.final_submission_drafts', N'force_lock_reason') IS NULL
+    ALTER TABLE dbo.final_submission_drafts ADD force_lock_reason nvarchar(1000) NULL;
+
+IF COL_LENGTH(N'dbo.final_submissions', N'locked_by_supervisor_id') IS NULL
+    ALTER TABLE dbo.final_submissions ADD locked_by_supervisor_id bigint NULL;
+IF COL_LENGTH(N'dbo.final_submissions', N'force_locked_by') IS NULL
+    ALTER TABLE dbo.final_submissions ADD force_locked_by bigint NULL;
+IF COL_LENGTH(N'dbo.final_submissions', N'force_lock_reason') IS NULL
+    ALTER TABLE dbo.final_submissions ADD force_lock_reason nvarchar(1000) NULL;
+IF COL_LENGTH(N'dbo.final_submissions', N'cold_manifest_sha256') IS NULL
+    ALTER TABLE dbo.final_submissions ADD cold_manifest_sha256 char(64) NULL;
+
+IF COL_LENGTH(N'dbo.cold_checklist_items', N'waived_status') IS NULL
+    ALTER TABLE dbo.cold_checklist_items ADD waived_status varchar(30) NULL;
+
+IF OBJECT_ID(N'dbo.review_gate_checklist_templates', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.review_gate_checklist_templates (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_review_gate_checklist_templates PRIMARY KEY,
+        academic_semester_id bigint NOT NULL,
+        track_code varchar(20) NOT NULL,
+        code varchar(60) NOT NULL,
+        name nvarchar(255) NOT NULL,
+        version int NOT NULL CONSTRAINT df_rgct_version DEFAULT 1,
+        status varchar(20) NOT NULL CONSTRAINT df_rgct_status DEFAULT 'DRAFT',
+        lead_department_id bigint NOT NULL,
+        items_json nvarchar(max) NOT NULL CONSTRAINT df_rgct_items DEFAULT N'[]',
+        concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_rgct_token DEFAULT NEWID(),
+        created_by bigint NOT NULL,
+        created_at datetime2(0) NOT NULL CONSTRAINT df_rgct_created_at DEFAULT SYSUTCDATETIME(),
+        updated_at datetime2(0) NOT NULL CONSTRAINT df_rgct_updated_at DEFAULT SYSUTCDATETIME(),
+        published_at datetime2(0) NULL,
+        CONSTRAINT uq_rgct_code_ver UNIQUE (academic_semester_id, code, version),
+        CONSTRAINT fk_rgct_semester FOREIGN KEY (academic_semester_id) REFERENCES dbo.academic_semesters(id),
+        CONSTRAINT fk_rgct_dept FOREIGN KEY (lead_department_id) REFERENCES dbo.departments(id),
+        CONSTRAINT fk_rgct_creator FOREIGN KEY (created_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_rgct_track CHECK (track_code IN ('IT_ONLY','MKT_ONLY','IT_MKT')),
+        CONSTRAINT ck_rgct_status CHECK (status IN ('DRAFT','PUBLISHED','RETIRED'))
+    );
+END;
+
+IF OBJECT_ID(N'dbo.project_gate_checklists', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.project_gate_checklists (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_project_gate_checklists PRIMARY KEY,
+        project_id bigint NOT NULL,
+        gate_instance_id bigint NOT NULL,
+        template_id bigint NULL,
+        version int NOT NULL CONSTRAINT df_pgc_version DEFAULT 1,
+        status varchar(20) NOT NULL CONSTRAINT df_pgc_status DEFAULT 'DRAFT',
+        advisor_recommendation varchar(30) NOT NULL CONSTRAINT df_pgc_adv_rec DEFAULT 'PENDING',
+        reviewer_recommendation varchar(30) NOT NULL CONSTRAINT df_pgc_rev_rec DEFAULT 'PENDING',
+        review3_consensus_status varchar(30) NOT NULL CONSTRAINT df_pgc_r3_consensus DEFAULT 'PENDING_RECOMMENDATIONS',
+        published_by bigint NULL,
+        published_at datetime2(0) NULL,
+        concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_pgc_token DEFAULT NEWID(),
+        created_at datetime2(0) NOT NULL CONSTRAINT df_pgc_created_at DEFAULT SYSUTCDATETIME(),
+        updated_at datetime2(0) NOT NULL CONSTRAINT df_pgc_updated_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT uq_pgc_gate_ver UNIQUE (gate_instance_id, version),
+        CONSTRAINT fk_pgc_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_pgc_gate FOREIGN KEY (gate_instance_id) REFERENCES dbo.project_gate_instances(id),
+        CONSTRAINT fk_pgc_template FOREIGN KEY (template_id) REFERENCES dbo.review_gate_checklist_templates(id),
+        CONSTRAINT fk_pgc_publisher FOREIGN KEY (published_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_pgc_status CHECK (status IN ('DRAFT','PUBLISHED')),
+        CONSTRAINT ck_pgc_adv_rec CHECK (advisor_recommendation IN ('PENDING','RECOMMEND_DEFENSE','NOT_RECOMMENDED')),
+        CONSTRAINT ck_pgc_rev_rec CHECK (reviewer_recommendation IN ('PENDING','RECOMMEND_DEFENSE','NOT_RECOMMENDED')),
+        CONSTRAINT ck_pgc_consensus CHECK (review3_consensus_status IN ('PENDING_RECOMMENDATIONS','AGREE','DISAGREE'))
+    );
+    CREATE INDEX ix_pgc_project_gate ON dbo.project_gate_checklists(project_id, gate_instance_id, version DESC);
+END;
+
+IF OBJECT_ID(N'dbo.project_gate_checklist_items', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.project_gate_checklist_items (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_project_gate_checklist_items PRIMARY KEY,
+        checklist_id bigint NOT NULL,
+        item_code varchar(50) NOT NULL,
+        section nvarchar(150) NOT NULL,
+        track_scope varchar(20) NOT NULL,
+        major_id bigint NULL,
+        condition_tag varchar(40) NOT NULL CONSTRAINT df_pgci_cond DEFAULT 'NONE',
+        core_question nvarchar(1000) NOT NULL,
+        priority varchar(20) NOT NULL,
+        weight decimal(5,2) NOT NULL CONSTRAINT df_pgci_weight DEFAULT 1.00,
+        is_applicable bit NOT NULL CONSTRAINT df_pgci_app DEFAULT 1,
+        na_reason nvarchar(500) NULL,
+        tailored_checkpoints nvarchar(2000) NULL,
+        tailored_evidence nvarchar(2000) NULL,
+        reviewer_focus_prompt nvarchar(2000) NULL,
+        source_ref nvarchar(500) NULL,
+        advisory_status varchar(30) NULL,
+        advisory_notes nvarchar(2000) NULL,
+        advisory_by bigint NULL,
+        reviewer_score decimal(3,1) NULL,
+        reviewer_notes nvarchar(2000) NULL,
+        reviewer_by bigint NULL,
+        CONSTRAINT uq_pgci_checklist_code UNIQUE (checklist_id, item_code),
+        CONSTRAINT fk_pgci_checklist FOREIGN KEY (checklist_id) REFERENCES dbo.project_gate_checklists(id),
+        CONSTRAINT fk_pgci_major FOREIGN KEY (major_id) REFERENCES dbo.majors(id),
+        CONSTRAINT fk_pgci_advisory_by FOREIGN KEY (advisory_by) REFERENCES dbo.users(id),
+        CONSTRAINT fk_pgci_reviewer_by FOREIGN KEY (reviewer_by) REFERENCES dbo.users(id),
+        CONSTRAINT ck_pgci_track_scope CHECK (track_scope IN ('COMMON','IT','MKT','INTEGRATION')),
+        CONSTRAINT ck_pgci_priority CHECK (priority IN ('Mandatory','Recommended','Conditional')),
+        CONSTRAINT ck_pgci_weight CHECK (weight > 0),
+        CONSTRAINT ck_pgci_rev_score CHECK (reviewer_score IS NULL OR reviewer_score IN (0.0, 0.5, 1.0))
+    );
+END;
+
+COMMIT TRANSACTION;
+GO
+
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+IF COL_LENGTH(N'dbo.tasks', N'blocked_since_at') IS NULL
+    ALTER TABLE dbo.tasks ADD blocked_since_at datetime2(0) NULL;
+IF COL_LENGTH(N'dbo.tasks', N'blocker_reason') IS NULL
+    ALTER TABLE dbo.tasks ADD blocker_reason nvarchar(1000) NULL;
+IF COL_LENGTH(N'dbo.tasks', N'gate_requirement_id') IS NULL
+    ALTER TABLE dbo.tasks ADD gate_requirement_id bigint NULL;
+IF COL_LENGTH(N'dbo.tasks', N'deleted_at') IS NULL
+    ALTER TABLE dbo.tasks ADD deleted_at datetime2(0) NULL;
+IF COL_LENGTH(N'dbo.tasks', N'deleted_by') IS NULL
+    ALTER TABLE dbo.tasks ADD deleted_by bigint NULL;
+IF COL_LENGTH(N'dbo.tasks', N'restore_until_at') IS NULL
+    ALTER TABLE dbo.tasks ADD restore_until_at datetime2(0) NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_tasks_gate_requirement')
+    EXEC(N'ALTER TABLE dbo.tasks ADD CONSTRAINT fk_tasks_gate_requirement FOREIGN KEY (gate_requirement_id) REFERENCES dbo.project_gate_requirements(id)');
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_tasks_deleted_by')
+    EXEC(N'ALTER TABLE dbo.tasks ADD CONSTRAINT fk_tasks_deleted_by FOREIGN KEY (deleted_by) REFERENCES dbo.users(id)');
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'ix_tasks_active_milestone' AND object_id = OBJECT_ID(N'dbo.tasks'))
+    EXEC(N'CREATE INDEX ix_tasks_active_milestone ON dbo.tasks(milestone_id) WHERE deleted_at IS NULL');
+
+COMMIT TRANSACTION;
+GO
+
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+IF COL_LENGTH(N'dbo.meeting_decisions', N'superseded_by_decision_id') IS NULL
+    ALTER TABLE dbo.meeting_decisions ADD superseded_by_decision_id bigint NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_meeting_decisions_superseded_by')
+    EXEC(N'ALTER TABLE dbo.meeting_decisions ADD CONSTRAINT fk_meeting_decisions_superseded_by FOREIGN KEY (superseded_by_decision_id) REFERENCES dbo.meeting_decisions(id)');
+
+IF COL_LENGTH(N'dbo.tasks', N'task_category') IS NULL
+    ALTER TABLE dbo.tasks ADD task_category varchar(60) NULL;
+IF COL_LENGTH(N'dbo.tasks', N'discipline_sub_status') IS NULL
+    ALTER TABLE dbo.tasks ADD discipline_sub_status varchar(40) NULL;
+IF COL_LENGTH(N'dbo.tasks', N'handoff_flag') IS NULL
+    ALTER TABLE dbo.tasks ADD handoff_flag varchar(30) NULL;
+IF COL_LENGTH(N'dbo.tasks', N'handoff_flagged_at') IS NULL
+    ALTER TABLE dbo.tasks ADD handoff_flagged_at datetime2(0) NULL;
+
+IF OBJECT_ID(N'dbo.project_labels', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.project_labels (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_project_labels PRIMARY KEY,
+        project_id bigint NOT NULL,
+        slug varchar(32) NOT NULL,
+        name nvarchar(60) NOT NULL,
+        color_hex char(7) NOT NULL,
+        description nvarchar(200) NULL,
+        is_system bit NOT NULL CONSTRAINT df_project_labels_is_system DEFAULT 0,
+        created_by bigint NOT NULL,
+        created_at datetime2(0) NOT NULL CONSTRAINT df_project_labels_created_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT uq_project_labels_slug UNIQUE (project_id, slug),
+        CONSTRAINT fk_project_labels_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_project_labels_creator FOREIGN KEY (created_by) REFERENCES dbo.users(id)
+    );
+END;
+
+COMMIT TRANSACTION;
+GO
+
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+-- PR-P2-B: Optional Admin Defense Room Scheduler (V4 45m/60m, 15m Break, Cold Buffer, Tech Check, Standby Pool)
+IF COL_LENGTH(N'dbo.project_periods', N'cold_window_end_at') IS NULL
+    ALTER TABLE dbo.project_periods ADD cold_window_end_at datetime2(0) NULL;
+
+IF COL_LENGTH(N'dbo.project_periods', N'defense_buffer_hours') IS NULL
+    ALTER TABLE dbo.project_periods ADD defense_buffer_hours int NOT NULL CONSTRAINT df_project_periods_defense_buffer DEFAULT 12;
+
+IF OBJECT_ID(N'dbo.rooms', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.rooms', N'room_cluster_type') IS NULL
+        EXEC(N'ALTER TABLE dbo.rooms ADD room_cluster_type varchar(30) NULL');
+
+    IF COL_LENGTH(N'dbo.rooms', N'equipment_tags_json') IS NULL
+        EXEC(N'ALTER TABLE dbo.rooms ADD equipment_tags_json nvarchar(1000) NULL');
+
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_rooms_cluster_type')
+        EXEC(N'ALTER TABLE dbo.rooms ADD CONSTRAINT ck_rooms_cluster_type CHECK (room_cluster_type IS NULL OR room_cluster_type IN (''IT'',''MKT'',''INTERDISCIPLINARY''))');
+END;
+
+IF COL_LENGTH(N'dbo.defense_sessions', N'schedule_policy_version') IS NULL
+    ALTER TABLE dbo.defense_sessions ADD schedule_policy_version varchar(30) NOT NULL CONSTRAINT df_defense_sessions_policy DEFAULT 'LEGACY_75M';
+
+IF COL_LENGTH(N'dbo.defense_sessions', N'slot_duration_minutes') IS NULL
+    ALTER TABLE dbo.defense_sessions ADD slot_duration_minutes int NOT NULL CONSTRAINT df_defense_sessions_duration DEFAULT 75;
+
+IF OBJECT_ID(N'dbo.rooms', N'U') IS NOT NULL AND OBJECT_ID(N'dbo.defense_tech_checks', N'U') IS NULL
+BEGIN
+    EXEC(N'CREATE TABLE dbo.defense_tech_checks (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_defense_tech_checks PRIMARY KEY,
+        project_id bigint NOT NULL,
+        room_id bigint NOT NULL,
+        checked_by bigint NOT NULL,
+        status varchar(20) NOT NULL CONSTRAINT df_defense_tech_checks_status DEFAULT ''PENDING'',
+        notes nvarchar(1000) NULL,
+        checked_at datetime2(0) NOT NULL CONSTRAINT df_defense_tech_checks_checked_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT ck_defense_tech_checks_status CHECK (status IN (''PENDING'',''PASSED'',''FAILED'')),
+        CONSTRAINT fk_defense_tech_checks_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_defense_tech_checks_room FOREIGN KEY (room_id) REFERENCES dbo.rooms(id),
+        CONSTRAINT fk_defense_tech_checks_checker FOREIGN KEY (checked_by) REFERENCES dbo.users(id)
+    )');
+END;
+
+IF OBJECT_ID(N'dbo.defense_standby_pool', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.defense_standby_pool (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_defense_standby_pool PRIMARY KEY,
+        project_period_id bigint NOT NULL,
+        user_id bigint NOT NULL,
+        major_id bigint NOT NULL,
+        department_id bigint NOT NULL,
+        is_available bit NOT NULL CONSTRAINT df_defense_standby_available DEFAULT 1,
+        created_at datetime2(0) NOT NULL CONSTRAINT df_defense_standby_created_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT uq_defense_standby_pool_entry UNIQUE (project_period_id, user_id, major_id),
+        CONSTRAINT fk_defense_standby_period FOREIGN KEY (project_period_id) REFERENCES dbo.project_periods(id),
+        CONSTRAINT fk_defense_standby_user FOREIGN KEY (user_id) REFERENCES dbo.users(id),
+        CONSTRAINT fk_defense_standby_major FOREIGN KEY (major_id) REFERENCES dbo.majors(id),
+        CONSTRAINT fk_defense_standby_dept FOREIGN KEY (department_id) REFERENCES dbo.departments(id)
+    );
+END;
+
+COMMIT TRANSACTION;
+GO
+
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+-- PR-P2-C: All-in-One Hub Pure Core (Spec Vault, Context Chat & Anchored Comments, Internal Heatmap, Health Pulse)
+IF COL_LENGTH(N'dbo.deliverable_versions', N'changelog') IS NULL
+    ALTER TABLE dbo.deliverable_versions ADD changelog nvarchar(2000) NULL;
+
+IF COL_LENGTH(N'dbo.tasks', N'source_message_id') IS NULL
+    ALTER TABLE dbo.tasks ADD source_message_id bigint NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.tasks') AND name = N'ux_tasks_source_message')
+    EXEC(N'CREATE UNIQUE INDEX ux_tasks_source_message ON dbo.tasks(source_message_id) WHERE source_message_id IS NOT NULL AND deleted_at IS NULL');
+
+IF COL_LENGTH(N'dbo.meeting_decisions', N'source_message_id') IS NULL
+    ALTER TABLE dbo.meeting_decisions ADD source_message_id bigint NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.meeting_decisions') AND name = N'ux_meeting_decisions_source_message')
+    EXEC(N'CREATE UNIQUE INDEX ux_meeting_decisions_source_message ON dbo.meeting_decisions(source_message_id) WHERE source_message_id IS NOT NULL');
+
+IF OBJECT_ID(N'dbo.chat_conversations', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.chat_conversations', N'channel_scope') IS NULL
+        EXEC(N'ALTER TABLE dbo.chat_conversations ADD channel_scope varchar(30) NULL');
+
+    IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_chat_conversations_channel_scope')
+        EXEC(N'ALTER TABLE dbo.chat_conversations ADD CONSTRAINT ck_chat_conversations_channel_scope CHECK (channel_scope IS NULL OR channel_scope IN (''GENERAL'',''IT'',''MKT''))');
+END;
+
+IF OBJECT_ID(N'dbo.project_pinned_resources', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.project_pinned_resources (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_project_pinned_resources PRIMARY KEY,
+        project_id bigint NOT NULL,
+        resource_type varchar(30) NOT NULL CONSTRAINT df_project_pinned_resources_type DEFAULT 'OTHER',
+        title nvarchar(200) NOT NULL,
+        url nvarchar(1000) NOT NULL,
+        created_by bigint NOT NULL,
+        created_at datetime2(0) NOT NULL CONSTRAINT df_project_pinned_resources_created_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT ck_project_pinned_resources_type CHECK (resource_type IN ('FIGMA','DRIVE','DOC','REPO_LINK','OTHER')),
+        CONSTRAINT fk_project_pinned_resources_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_project_pinned_resources_creator FOREIGN KEY (created_by) REFERENCES dbo.users(id)
+    );
+END;
+
+IF OBJECT_ID(N'dbo.evidence_anchored_comments', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.evidence_anchored_comments (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_evidence_anchored_comments PRIMARY KEY,
+        project_id bigint NOT NULL,
+        gate_instance_id bigint NULL,
+        evidence_id bigint NULL,
+        anchor_ref nvarchar(200) NOT NULL,
+        severity varchar(20) NOT NULL CONSTRAINT df_evidence_anchored_comments_severity DEFAULT 'INFO',
+        status varchar(20) NOT NULL CONSTRAINT df_evidence_anchored_comments_status DEFAULT 'OPEN',
+        content nvarchar(2000) NOT NULL,
+        created_by bigint NOT NULL,
+        resolved_by bigint NULL,
+        created_at datetime2(0) NOT NULL CONSTRAINT df_evidence_anchored_comments_created_at DEFAULT SYSUTCDATETIME(),
+        resolved_at datetime2(0) NULL,
+        CONSTRAINT ck_evidence_anchored_comments_severity CHECK (severity IN ('INFO','WARNING','CRITICAL')),
+        CONSTRAINT ck_evidence_anchored_comments_status CHECK (status IN ('OPEN','RESOLVED')),
+        CONSTRAINT fk_evidence_anchored_comments_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_evidence_anchored_comments_creator FOREIGN KEY (created_by) REFERENCES dbo.users(id),
+        CONSTRAINT fk_evidence_anchored_comments_resolver FOREIGN KEY (resolved_by) REFERENCES dbo.users(id)
+    );
+    CREATE INDEX ix_evidence_anchored_comments_gate_status ON dbo.evidence_anchored_comments(project_id, gate_instance_id, status);
+END;
+
+IF OBJECT_ID(N'dbo.evidence_rubric_criterion_links', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.evidence_rubric_criterion_links (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_evidence_rubric_criterion_links PRIMARY KEY,
+        project_id bigint NOT NULL,
+        evidence_id bigint NOT NULL,
+        rubric_criterion_id bigint NOT NULL,
+        created_by bigint NOT NULL,
+        created_at datetime2(0) NOT NULL CONSTRAINT df_evidence_rubric_criterion_links_created_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT uq_evidence_rubric_criterion_link UNIQUE (evidence_id, rubric_criterion_id),
+        CONSTRAINT fk_evidence_rubric_links_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
+        CONSTRAINT fk_evidence_rubric_links_criterion FOREIGN KEY (rubric_criterion_id) REFERENCES dbo.rubric_criteria(id),
+        CONSTRAINT fk_evidence_rubric_links_creator FOREIGN KEY (created_by) REFERENCES dbo.users(id)
+    );
+END;
+
+COMMIT TRANSACTION;
 GO
 
 SET XACT_ABORT ON;
@@ -4141,4 +4980,65 @@ END;
 
 COMMIT TRANSACTION;
 
+GO
+
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+IF OBJECT_ID(N'dbo.assistant_conversations', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.assistant_conversations', N'is_pinned') IS NULL
+    BEGIN
+        ALTER TABLE dbo.assistant_conversations
+            ADD is_pinned bit NOT NULL
+                CONSTRAINT df_assistant_conversations_is_pinned DEFAULT (0);
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.assistant_conversations')
+          AND name = N'ix_assistant_conversations_actor_pin'
+    )
+    BEGIN
+        EXEC(N'CREATE INDEX ix_assistant_conversations_actor_pin
+            ON dbo.assistant_conversations(actor_id, project_id, is_pinned DESC, updated_at DESC, id DESC)
+            WHERE deleted_at IS NULL;');
+    END;
+END;
+
+IF OBJECT_ID(N'dbo.academic_knowledge_query_runs', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'dbo.academic_knowledge_query_runs', N'feedback_rating') IS NULL
+    BEGIN
+        ALTER TABLE dbo.academic_knowledge_query_runs
+            ADD feedback_rating smallint NULL;
+    END;
+
+    IF COL_LENGTH(N'dbo.academic_knowledge_query_runs', N'feedback_note') IS NULL
+    BEGIN
+        ALTER TABLE dbo.academic_knowledge_query_runs
+            ADD feedback_note nvarchar(400) NULL;
+    END;
+
+    IF COL_LENGTH(N'dbo.academic_knowledge_query_runs', N'feedback_at') IS NULL
+    BEGIN
+        ALTER TABLE dbo.academic_knowledge_query_runs
+            ADD feedback_at datetime2(7) NULL;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'dbo.academic_knowledge_query_runs')
+          AND name = N'ck_academic_knowledge_query_runs_feedback'
+    )
+    BEGIN
+        EXEC(N'ALTER TABLE dbo.academic_knowledge_query_runs
+            ADD CONSTRAINT ck_academic_knowledge_query_runs_feedback
+                CHECK (feedback_rating IS NULL OR feedback_rating IN (-1, 1));');
+    END;
+END;
+
+COMMIT TRANSACTION;
 GO

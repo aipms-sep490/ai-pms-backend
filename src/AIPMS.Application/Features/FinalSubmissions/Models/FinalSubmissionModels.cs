@@ -3,7 +3,7 @@ using AIPMS.Application.Features.Deliverables.DTOs;
 namespace AIPMS.Application.Features.FinalSubmissions.Models;
 
 public sealed record FinalDraftProject(long Id, long SemesterId, string Status,
-    bool AcademicScopeActive, bool IsMember, bool IsLeader);
+    bool AcademicScopeActive, bool IsMember, bool IsLeader, bool HasUnpassedBlockingGates = false);
 
 public sealed record FinalDraftPeriod(long Id, long SemesterId, string Name, string Type,
     string Status, DateTime StartAt, DateTime EndAt, bool SemesterOpen);

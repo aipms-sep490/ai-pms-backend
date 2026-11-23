@@ -71,15 +71,17 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         var project = await db.Projects.FromSqlInterpolated($"SELECT * FROM dbo.projects WITH (UPDLOCK,HOLDLOCK) WHERE id={initial.ProjectId}").SingleAsync(ct);
         var meeting = await db.Meetings.FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK,HOLDLOCK) WHERE id={id}").SingleAsync(ct);
         if (!await MeetingGovernanceAuthority.CanManage(db, meeting, Actor, ct)) throw new ForbiddenException();
-        if (project.Status != "ACTIVE" || !MeetingGovernanceRules.CanManageActions(meeting.Status))
-            throw new ConflictException("The project or meeting is read-only.");
+        if (project.Status != "ACTIVE")
+            throw new ConflictException("The project is not ACTIVE.", WorkflowErrorCodes.ProjectNotActive);
+        if (!MeetingGovernanceRules.CanManageActions(meeting.Status))
+            throw new ConflictException("The meeting is read-only.");
         return meeting;
     }
 
     private static void Current(Guid current, string supplied)
     {
         if (!Guid.TryParse(supplied, out var token) || token != current)
-            throw new ConflictException("The resource changed. Reload before saving.");
+            throw new ConflictException("The resource changed. Reload before saving.", WorkflowErrorCodes.StaleConcurrencyToken);
     }
 
     public async Task<MeetingDecisionDto> Decide(long meetingId, CreateMeetingDecisionRequest input, CancellationToken ct)
@@ -102,6 +104,34 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         await tx.CommitAsync(ct);
         var deciderName = await db.Users.AsNoTracking().Where(u => u.Id == row.DecidedBy).Select(u => u.FullName).FirstOrDefaultAsync(ct);
         return DecisionDto(row, deciderName);
+    }
+
+    public async Task<MeetingDecisionDto> SupersedeDecision(long meetingId, long decisionId, CreateMeetingDecisionRequest input, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(input.Content) || input.Content.Length > 4000)
+            throw Invalid("Superseding decision content must contain 1..4000 characters.");
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var meeting = await Lock(meetingId, ct);
+        if (!MeetingGovernanceRules.CanRecordDecision(meeting.Status)) throw new ConflictException("Complete the meeting before recording decisions.");
+        Current(meeting.ConcurrencyToken, input.ConcurrencyToken);
+
+        var original = await db.MeetingDecisions.SingleOrDefaultAsync(d => d.Id == decisionId && d.MeetingId == meetingId, ct)
+            ?? throw new NotFoundException("MeetingDecision", decisionId);
+        if (original.SupersededByDecisionId.HasValue)
+            throw new ConflictException("This meeting decision has already been superseded.");
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var replacement = new MeetingDecision { MeetingId = meetingId, Content = input.Content.Trim(), DecidedBy = Actor, DecidedAt = now, CreatedAt = now };
+        db.MeetingDecisions.Add(replacement);
+        await db.SaveChangesAsync(ct);
+
+        original.SupersededByDecisionId = replacement.Id;
+        meeting.ConcurrencyToken = Guid.NewGuid();
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync(new(Actor, "MEETING_DECISION_SUPERSEDED", "MEETING_DECISION", original.Id,
+            new Dictionary<string, object?> { ["meetingId"] = meetingId, ["projectId"] = meeting.ProjectId, ["supersededByDecisionId"] = replacement.Id }), ct);
+        await tx.CommitAsync(ct);
+        return DecisionDto(replacement);
     }
 
     public async Task<MeetingActionItemDto> SaveAction(long meetingId, long? actionId, SaveMeetingActionItemRequest input, CancellationToken ct)
@@ -179,7 +209,7 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
     }
 
     private static MeetingDecisionDto DecisionDto(MeetingDecision x, string? decidedByName = null) =>
-        new(x.Id, x.MeetingId, x.Content, x.DecidedBy, x.DecidedAt, decidedByName);
+        new(x.Id, x.MeetingId, x.Content, x.DecidedBy, x.DecidedAt, x.SupersededByDecisionId, decidedByName);
     private static ValidationException Invalid(string message) => new(new Dictionary<string, string[]> { ["input"] = [message] });
     private static MeetingActionItemDto ActionDto(MeetingActionItem x, string? assigneeName = null, string? createdByName = null) =>
         new(x.Id, x.MeetingId, x.Title, x.Description,

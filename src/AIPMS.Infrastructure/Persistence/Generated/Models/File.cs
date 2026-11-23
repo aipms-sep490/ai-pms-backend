@@ -32,6 +32,14 @@ public partial class File
 
     public string? ChecksumSha256 { get; set; }
 
+    public string ScanStatus { get; set; } = "READY";
+
+    public string? ScanProvider { get; set; }
+
+    public DateTime? ScannedAt { get; set; }
+
+    public string? ScanDetails { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }

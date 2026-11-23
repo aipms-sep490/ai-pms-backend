@@ -9,6 +9,7 @@ public sealed class ChatConversation
     public long? FirstUserId { get; set; }
     public long? SecondUserId { get; set; }
     public string Status { get; set; } = "OPEN";
+    public string? ChannelScope { get; set; }
     public long Sequence { get; set; }
     public long Version { get; set; }
     public DateTime CreatedAt { get; set; }

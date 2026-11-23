@@ -21,12 +21,18 @@ public static class UploadPolicies
     public const long Tier6MiB = 6 * 1024 * 1024;
     public const long Tier10MiB = 10 * 1024 * 1024;
     public const long Tier11MiB = 11 * 1024 * 1024;
+    public const long Tier100MiB = 100L * 1024 * 1024;
 
     /// <summary>
     /// Trần vận chuyển HTTP multipart (22 * 1024 * 1024 bytes) trên controller [RequestSizeLimit].
     /// Khoảng chênh so với trần file 20 MiB là khoảng dư cho multipart boundary và headers.
     /// </summary>
     public const long MultipartTransportCeiling = 22 * 1024 * 1024;
+
+    /// <summary>
+    /// Trần vận chuyển HTTP multipart cho gói ZIP/Video POL-06 (100 MiB + 2 MiB overhead).
+    /// </summary>
+    public const long MultipartArchiveCeiling = 102L * 1024 * 1024;
 
     /// <summary>
     /// Trần file hiệu lực do UploadValidator áp đặt. RequestSizeLimit lớn hơn trần này
@@ -44,16 +50,17 @@ public static class UploadPolicies
     public const long AcademicAssistantFileLimit = Tier10MiB;
     public const long AcademicAssistantTotalLimit = 20 * 1024 * 1024;
     public const long ChatAttachmentLimit = Tier11MiB;
-    public const long ColdSubmissionLimit = Tier11MiB;
+    public const long ColdSubmissionLimit = Tier100MiB;
     public const long ResultAppealLimit = Tier11MiB;
     public const long DeliverableVersionLimit = EffectiveFileLimit;
     public const long ProjectFileLimit = 500L * 1024 * 1024;
     public const long ProjectFileChunkSize = 4L * 1024 * 1024;
-    public const long ReviewGateEvidenceLimit = EffectiveFileLimit;
+    public const long ReviewGateEvidenceLimit = Tier100MiB;
     public const long StudentQualificationLimit = EffectiveFileLimit;
     public const long UserAvatarLimit = 2 * 1024 * 1024;
     // Leave room for multipart headers while enforcing the 2 MiB image limit in the validator.
     public const long UserAvatarTransportLimit = 3 * 1024 * 1024;
+    public const long MeetingAudioClipLimit = 15L * 1024 * 1024;
 
     public static readonly IReadOnlyList<UploadPolicyDto> All = new[]
     {
@@ -69,9 +76,14 @@ public static class UploadPolicies
         new UploadPolicyDto(
             ParentType: "REVIEW_GATE_EVIDENCE",
             MaxBytes: ReviewGateEvidenceLimit,
-            MaxBytesLabel: "20 MiB",
-            AllowedMimeTypes: ["application/pdf", "image/png", "image/jpeg", "application/zip"],
-            AllowedExtensions: [".pdf", ".png", ".jpg", ".jpeg", ".zip"],
+            MaxBytesLabel: "100 MiB (ZIP/Video); 20 MiB (Tài liệu/Ảnh)",
+            AllowedMimeTypes: [
+                "application/pdf", "image/png", "image/jpeg", "application/zip", "video/mp4",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ],
+            AllowedExtensions: [".pdf", ".png", ".jpg", ".jpeg", ".docx", ".xlsx", ".pptx", ".zip", ".mp4"],
             MaxFilesPerRequest: 1,
             RequiresVersionAnchor: true
         ),
@@ -107,9 +119,14 @@ public static class UploadPolicies
         new UploadPolicyDto(
             ParentType: "COLD_SUBMISSION",
             MaxBytes: ColdSubmissionLimit,
-            MaxBytesLabel: "11 MiB",
-            AllowedMimeTypes: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/zip", "image/png", "image/jpeg"],
-            AllowedExtensions: [".pdf", ".docx", ".zip", ".png", ".jpg", ".jpeg"],
+            MaxBytesLabel: "100 MiB (ZIP/Video); 20 MiB (Tài liệu/Ảnh)",
+            AllowedMimeTypes: [
+                "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "application/zip", "video/mp4", "image/png", "image/jpeg"
+            ],
+            AllowedExtensions: [".pdf", ".docx", ".xlsx", ".pptx", ".zip", ".mp4", ".png", ".jpg", ".jpeg"],
             MaxFilesPerRequest: 1,
             RequiresVersionAnchor: true
         ),

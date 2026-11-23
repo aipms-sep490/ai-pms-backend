@@ -29,12 +29,14 @@ internal static class StudentAccountFileReader
             var email = Column(true, "Email");
             var phone = Column(false, "SDT", "SĐT", "phone");
             var curriculum = Column(false, "Khung", "curriculumCode");
+            var classCode = Column(false, "Lop", "Lớp", "classCode", "class");
+            var specialization = Column(false, "Chuyen nganh hep", "Chuyên ngành hẹp", "specializationCode", "specialization");
             var output = new List<StudentAccountImportRow>();
             for (var i = 1; i < rows.Count; i++)
             {
                 if (rows[i].All(string.IsNullOrWhiteSpace)) continue;
                 string Value(int column) => column >= 0 && column < rows[i].Length ? rows[i][column].Trim() : "";
-                output.Add(new(i + 1, Value(student), Value(name), Value(email), Value(phone), Value(curriculum)));
+                output.Add(new(i + 1, Value(student), Value(name), Value(email), Value(phone), Value(curriculum), Value(classCode), Value(specialization)));
             }
             if (output.Count is < 1 or > 500) throw CurriculumFileReader.Invalid("IMPORT_REQUIRES_1_TO_500_ROWS");
             return output;

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.IO;
 using System.Threading.Tasks;
+using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Cold;
@@ -62,10 +63,16 @@ internal sealed partial class ColdSubmissionService
         if (!access.Writes(initial.Item)) throw new ForbiddenException();
         await WriteWindow(initial.Package, access, ct);
         Token(initial.Row.ConcurrencyToken, token);
-        if (content.Length is <= 0 or > 10 * 1024 * 1024 || Path.GetExtension(content.FileName).ToLowerInvariant() is not (".pdf" or ".docx" or ".zip"))
-            throw Invalid("COLD accepts PDF/DOCX/ZIP only, maximum 10 MiB per file.");
-        var upload = await UploadValidator.ReadAsync(content, ct);
-        if (upload.Bytes.Length > 10 * 1024 * 1024) throw Invalid("COLD file exceeds 10 MiB.");
+        var ext = Path.GetExtension(content.FileName).ToLowerInvariant();
+        if (ext is not (".pdf" or ".docx" or ".xlsx" or ".pptx" or ".png" or ".jpg" or ".jpeg" or ".zip" or ".mp4"))
+            throw Invalid("COLD accepts PDF/DOCX/XLSX/PPTX/PNG/JPG/ZIP/MP4 only.");
+        var upload = await UploadValidator.ReadAsync(content, ct, allowArchiveVideoTier: true);
+        using (var scanStream = new MemoryStream(upload.Bytes, writable: false))
+        {
+            var scan = await scanner.ScanAsync(scanStream, upload.FileName, upload.ContentType, ct);
+            if (!scan.IsSafe)
+                throw new AIPMS.Domain.Exceptions.DomainException(scan.Details ?? "File failed security scan and was quarantined.", "FILE_QUARANTINED");
+        }
         db.ChangeTracker.Clear();
         string? storedKey = null;
         return await files.InTransactionAsync(async transactionCt =>
@@ -76,7 +83,9 @@ internal sealed partial class ColdSubmissionService
             using var stream = new MemoryStream(upload.Bytes, writable: false);
             await storage.WriteAsync(key, stream, transactionCt); storedKey = key;
             var file = new M.File { UploadedBy = Actor, OriginalFileName = upload.FileName, MimeType = upload.ContentType,
-                FileSizeBytes = upload.Bytes.Length, ChecksumSha256 = upload.Sha256, StoragePath = key, CreatedAt = Now, UpdatedAt = Now };
+                FileSizeBytes = upload.Bytes.Length, ChecksumSha256 = upload.Sha256, StoragePath = key,
+                ScanStatus = FileScanStatuses.Ready, ScanProvider = scanner.ProviderName, ScannedAt = Now,
+                CreatedAt = Now, UpdatedAt = Now };
             db.Files.Add(file); await db.SaveChangesAsync(transactionCt);
             row.Files.Add(new() { FileId = file.Id, FileName = upload.FileName, ContentType = upload.ContentType,
                 SizeBytes = upload.Bytes.Length, Sha256 = upload.Sha256, StorageKey = key });
@@ -117,7 +126,7 @@ internal sealed partial class ColdSubmissionService
             while ((count = await stream.ReadAsync(bytes, ct)) > 0)
             {
                 total += count;
-                if (total > file.SizeBytes || total > 10 * 1024 * 1024) throw new ConflictException("COLD file content changed.");
+                if (total > file.SizeBytes || total > UploadValidator.MaxArchiveVideoBytes) throw new ConflictException("COLD file content changed.");
                 hash.AppendData(bytes, 0, count);
             }
             if (total != file.SizeBytes || !string.Equals(Convert.ToHexString(hash.GetHashAndReset()), file.Sha256, StringComparison.OrdinalIgnoreCase))

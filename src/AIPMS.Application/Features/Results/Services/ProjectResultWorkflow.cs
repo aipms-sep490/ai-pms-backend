@@ -48,7 +48,13 @@ public sealed class ProjectResultWorkflow(IProjectResultRepository repository, I
     {
         var actor = await Actor(ct);
         if (!await submissions.CanReadAsync(projectId, actor.Id, ct)) throw new ForbiddenException();
-        var result = await repository.GetAsync(projectId, ct) ?? throw new NotFoundException("ProjectResult", projectId);
+        var result = await repository.GetAsync(projectId, ct);
+        if (result is null)
+        {
+            if (!actor.IsAdmin && !actor.IsStaff)
+                throw new ForbiddenException("Results have not been published yet.", "RESULT_NOT_PUBLISHED");
+            throw new NotFoundException("ProjectResult", projectId);
+        }
         var breakdown = ResultSnapshotReader.Read(result.FrozenInputs, result.CalculationRule);
         if (result.Breakdown is { MajorBreakdown.Count: > 0 })
         {
