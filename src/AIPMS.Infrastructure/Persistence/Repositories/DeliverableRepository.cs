@@ -62,13 +62,83 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         if (rows.Count == 0) throw new NotFoundException("Project", projectId);
     }
 
-    public Task<DeliverableProject?> GetProjectAsync(long id, long actorId, CancellationToken ct) =>
-        db.Projects.AsNoTracking().Where(p => p.Id == id).Select(p => new DeliverableProject(p.Id,
-            p.Team.AcademicSemesterId, p.Status,
-            p.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null),
-            p.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null && m.IsLeader),
-            db.SupervisorAssignments.Where(a => a.ProjectId == id && a.EndedAt == null && a.SupervisorProfile.UserId == actorId)
-                .Select(a => (long?)a.Id).FirstOrDefault())).SingleOrDefaultAsync(ct);
+    public async Task<DeliverableProject?> GetProjectAsync(long id, long actorId, CancellationToken ct)
+    {
+        var baseRow = await db.Projects.AsNoTracking().Where(p => p.Id == id).Select(p => new
+        {
+            p.Id,
+            SemesterId = p.Team.AcademicSemesterId,
+            p.Status,
+            IsMember = p.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null),
+            IsLeader = p.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null && m.IsLeader)
+        }).SingleOrDefaultAsync(ct);
+        if (baseRow is null) return null;
+
+        var assignments = await db.SupervisorAssignments.AsNoTracking()
+            .Where(a => a.ProjectId == id && a.EndedAt == null && a.SupervisorProfile.UserId == actorId)
+            .Select(a => new { a.Id, a.IsPrimary, a.AssignmentType, a.MajorId })
+            .ToArrayAsync(ct);
+        var primaryAssignment = assignments.FirstOrDefault(a => a.IsPrimary && a.AssignmentType == "PRIMARY");
+        var assignmentId = primaryAssignment?.Id ?? assignments.FirstOrDefault()?.Id;
+        var isPrimarySupervisor = primaryAssignment is not null;
+        var mentorMajorIds = assignments
+            .Where(a => a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId.HasValue)
+            .Select(a => a.MajorId!.Value)
+            .Distinct()
+            .ToArray();
+
+        long? studentMajorId = null;
+        if (baseRow.IsMember)
+        {
+            var snapshotJson = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
+                .Where(s => s.ProjectId == id).OrderByDescending(s => s.Id)
+                .Select(s => s.SnapshotJson).FirstOrDefaultAsync(ct);
+            studentMajorId = snapshotJson is null
+                ? null
+                : ProjectAcademicScopeReader.ParseEvidence(snapshotJson)?.Members?.SingleOrDefault(m => m.UserId == actorId)?.MajorId;
+            studentMajorId ??= await db.Users.AsNoTracking().Where(u => u.Id == actorId).Select(u => u.MajorId).SingleOrDefaultAsync(ct);
+        }
+
+        var isLeadStaff = false;
+        long[]? staffMajorIds = null;
+        var actorDepartment = await db.Users.AsNoTracking()
+            .Where(u => u.Id == actorId && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.DepartmentStaff))
+            .Select(u => u.DepartmentId)
+            .SingleOrDefaultAsync(ct);
+        if (actorDepartment.HasValue)
+        {
+            var scope = await ProjectAcademicScopeReader.ReadAsync(db, id, ct);
+            isLeadStaff = scope.LeadDepartmentId == actorDepartment.Value;
+            if (scope.MajorDepartmentIds is not null)
+            {
+                staffMajorIds = scope.MajorDepartmentIds
+                    .Where(kv => kv.Value == actorDepartment.Value)
+                    .Select(kv => kv.Key)
+                    .Distinct()
+                    .ToArray();
+            }
+            else if (scope.MajorIds.Count > 0)
+            {
+                staffMajorIds = await db.Majors.AsNoTracking()
+                    .Where(m => scope.MajorIds.Contains(m.Id) && m.DepartmentId == actorDepartment.Value)
+                    .Select(m => m.Id)
+                    .ToArrayAsync(ct);
+            }
+        }
+
+        return new DeliverableProject(
+            baseRow.Id,
+            baseRow.SemesterId,
+            baseRow.Status,
+            baseRow.IsMember,
+            baseRow.IsLeader,
+            assignmentId,
+            isPrimarySupervisor,
+            mentorMajorIds,
+            studentMajorId,
+            isLeadStaff,
+            staffMajorIds);
+    }
 
     public async Task<bool> HasExecutionWindowAsync(long semesterId, DateTime now, CancellationToken ct)
     {
@@ -91,6 +161,20 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         if (search.MilestoneId.HasValue) query = query.Where(d => d.MilestoneId == search.MilestoneId);
         if (!string.IsNullOrWhiteSpace(search.DeliverableType)) query = query.Where(d => d.DeliverableType == search.DeliverableType.Trim());
         if (!string.IsNullOrWhiteSpace(search.Search)) query = query.Where(d => d.Title.Contains(search.Search.Trim()));
+        if (search.AllowedMajorIds is not null)
+        {
+            var allowed = search.AllowedMajorIds.ToArray();
+            query = query.Where(d => d.EvidenceScope == null || d.EvidenceScope == "COMMON" || d.EvidenceScope == "INTEGRATION"
+                || (d.TargetMajorId.HasValue && allowed.Contains(d.TargetMajorId.Value)));
+        }
+        if (search.RestrictedStudentId.HasValue)
+        {
+            var studentId = search.RestrictedStudentId.Value;
+            var studentMajor = search.StudentMajorId;
+            query = query.Where(d => d.EvidenceScope == null || d.EvidenceScope == "COMMON" || d.EvidenceScope == "INTEGRATION"
+                || (d.EvidenceScope == "INDIVIDUAL" && d.TargetStudentId == studentId)
+                || (d.EvidenceScope == "MAJOR_SPECIFIC" && (!studentMajor.HasValue || d.TargetMajorId == studentMajor.Value)));
+        }
         var count = await query.LongCountAsync(ct);
         var items = await query.OrderByDescending(d => d.Id).Skip((search.Page - 1) * search.PageSize)
             .Take(search.PageSize).Select(DeliverableMapper.Projection).ToListAsync(ct);
@@ -220,15 +304,42 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         return new(items, page, pageSize, count);
     }
 
-    public Task<FileParent?> GetParentAsync(string type, long id, CancellationToken ct) => type switch
+    public async Task<FileParent?> GetParentAsync(string type, long id, CancellationToken ct) => type switch
     {
-        "VERSION" => db.DeliverableVersions.AsNoTracking().Where(v => v.Id == id).Select(v => new FileParent(type, id, v.Deliverable.ProjectId, v.Status, v.SubmittedBy)).SingleOrDefaultAsync(ct),
-        "REPORT" => db.ProgressReports.AsNoTracking().Where(r => r.Id == id).Select(r => new FileParent(type, id, r.ProjectId, r.Status, r.SubmittedBy)).SingleOrDefaultAsync(ct),
-        "MEETING" => db.Meetings.AsNoTracking().Where(m => m.Id == id).Select(m => new FileParent(type, id, m.ProjectId, m.Status, m.CreatedBy)).SingleOrDefaultAsync(ct),
-        "FEEDBACK" => db.SupervisorFeedbacks.AsNoTracking().Where(f => f.Id == id).Select(f => new FileParent(type, id, f.ProjectId, "LOCKED", f.SupervisorAssignment.SupervisorProfile.UserId)).SingleOrDefaultAsync(ct),
-        "TASK" => db.Tasks.AsNoTracking().Where(t => t.Id == id).Select(t => new FileParent(type, id, t.Milestone.ProjectId, t.Status, t.CreatedBy)).SingleOrDefaultAsync(ct),
-        _ => Task.FromResult<FileParent?>(null)
+        "VERSION" => await db.DeliverableVersions.AsNoTracking().Where(v => v.Id == id)
+            .Select(v => new FileParent(type, id, v.Deliverable.ProjectId, v.Status, v.SubmittedBy,
+                v.Deliverable.EvidenceScope, v.Deliverable.TargetMajorId, v.Deliverable.TargetStudentId, null))
+            .SingleOrDefaultAsync(ct),
+        "REPORT" => await db.ProgressReports.AsNoTracking().Where(r => r.Id == id)
+            .Select(r => new FileParent(type, id, r.ProjectId, r.Status, r.SubmittedBy, "COMMON", null, null, null))
+            .SingleOrDefaultAsync(ct),
+        "MEETING" => await db.Meetings.AsNoTracking().Where(m => m.Id == id)
+            .Select(m => new FileParent(type, id, m.ProjectId, m.Status, m.CreatedBy, "COMMON", null, null, null))
+            .SingleOrDefaultAsync(ct),
+        "FEEDBACK" => await db.SupervisorFeedbacks.AsNoTracking().Where(f => f.Id == id)
+            .Select(f => new FileParent(type, id, f.ProjectId, "LOCKED", f.SupervisorAssignment.SupervisorProfile.UserId,
+                f.SupervisorAssignment.AssignmentType == "DISCIPLINE_MENTOR" && f.SupervisorAssignment.MajorId.HasValue ? "MAJOR_SPECIFIC" : "COMMON",
+                f.SupervisorAssignment.AssignmentType == "DISCIPLINE_MENTOR" ? f.SupervisorAssignment.MajorId : null,
+                null, null))
+            .SingleOrDefaultAsync(ct),
+        "TASK" => await GetTaskParentAsync(id, ct),
+        _ => null
     };
+
+    private async Task<FileParent?> GetTaskParentAsync(long taskId, CancellationToken ct)
+    {
+        var task = await db.Tasks.AsNoTracking().Where(t => t.Id == taskId)
+            .Select(t => new { t.Id, t.Milestone.ProjectId, t.Status, t.CreatedBy })
+            .SingleOrDefaultAsync(ct);
+        if (task is null) return null;
+        var majorIds = await db.Set<M.TaskDiscipline>().AsNoTracking()
+            .Where(td => td.TaskId == taskId)
+            .Select(td => td.MajorId)
+            .Distinct()
+            .ToArrayAsync(ct);
+        return new FileParent("TASK", task.Id, task.ProjectId, task.Status, task.CreatedBy,
+            majorIds.Length > 0 ? "MAJOR_SPECIFIC" : "COMMON", null, null, majorIds);
+    }
 
     public async Task<StoredProjectFile?> GetFileAsync(long id, CancellationToken ct)
     {
@@ -270,6 +381,33 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
             "TASK" => query.Where(f => f.TaskId != null && (!search.ParentId.HasValue || f.TaskId == search.ParentId)),
             _ => query
         };
+        if (search.AllowedMajorIds is not null)
+        {
+            var allowed = search.AllowedMajorIds.ToArray();
+            query = query.Where(f =>
+                (f.DeliverableVersion != null && (f.DeliverableVersion.Deliverable.EvidenceScope == null
+                    || f.DeliverableVersion.Deliverable.EvidenceScope == "COMMON"
+                    || f.DeliverableVersion.Deliverable.EvidenceScope == "INTEGRATION"
+                    || (f.DeliverableVersion.Deliverable.TargetMajorId.HasValue && allowed.Contains(f.DeliverableVersion.Deliverable.TargetMajorId.Value))))
+                || (f.TaskId != null && (!db.Set<M.TaskDiscipline>().Any(td => td.TaskId == f.TaskId.Value)
+                    || db.Set<M.TaskDiscipline>().Any(td => td.TaskId == f.TaskId.Value && allowed.Contains(td.MajorId))))
+                || (f.SupervisorFeedback != null && (f.SupervisorFeedback.SupervisorAssignment.AssignmentType != "DISCIPLINE_MENTOR"
+                    || f.SupervisorFeedback.SupervisorAssignment.MajorId == null
+                    || allowed.Contains(f.SupervisorFeedback.SupervisorAssignment.MajorId.Value)))
+                || f.ProgressReportId != null
+                || f.MeetingId != null);
+        }
+        if (search.RestrictedStudentId.HasValue)
+        {
+            var studentId = search.RestrictedStudentId.Value;
+            var studentMajor = search.StudentMajorId;
+            query = query.Where(f => f.DeliverableVersion == null
+                || f.DeliverableVersion.Deliverable.EvidenceScope == null
+                || f.DeliverableVersion.Deliverable.EvidenceScope == "COMMON"
+                || f.DeliverableVersion.Deliverable.EvidenceScope == "INTEGRATION"
+                || (f.DeliverableVersion.Deliverable.EvidenceScope == "INDIVIDUAL" && f.DeliverableVersion.Deliverable.TargetStudentId == studentId)
+                || (f.DeliverableVersion.Deliverable.EvidenceScope == "MAJOR_SPECIFIC" && (!studentMajor.HasValue || f.DeliverableVersion.Deliverable.TargetMajorId == studentMajor.Value)));
+        }
         var count = await query.LongCountAsync(ct);
         var items = await query.OrderByDescending(f => f.Id).Skip((search.Page - 1) * search.PageSize).Take(search.PageSize).Select(DeliverableMapper.FileProjection).ToListAsync(ct);
         return new(items, search.Page, search.PageSize, count);
@@ -292,8 +430,26 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
     public async Task DeleteFileAsync(long id, CancellationToken ct)
     {
         RequireTransaction();
-        db.Files.Remove(await db.Files.SingleAsync(f => f.Id == id, ct));
-        await db.SaveChangesAsync(ct);
+        var file = await db.Files.SingleAsync(f => f.Id == id, ct);
+        var referencedInLedger = await db.Set<M.ProjectEvidence>().AnyAsync(e => e.FileId == id, ct);
+        var referencedInCold = await db.Set<ColdSubmissionFile>().AnyAsync(c => c.FileId == id, ct);
+        var referencedInFinal = file.DeliverableVersionId.HasValue
+            && await db.Set<FinalSubmissionItem>().AnyAsync(i => i.DeliverableVersionId == file.DeliverableVersionId.Value, ct);
+        if (referencedInLedger || referencedInCold || referencedInFinal)
+            throw new ConflictException(
+                "This file is referenced by locked evidence, a gate snapshot, or a final submission and cannot be deleted.",
+                WorkflowErrorCodes.RestrictedDelete);
+        try
+        {
+            db.Files.Remove(file);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is SqlException { Number: 547 })
+        {
+            throw new ConflictException(
+                "This file is referenced by another locked record and cannot be deleted.",
+                WorkflowErrorCodes.RestrictedDelete);
+        }
     }
 
     private async Task ValidateTargetAsync(long projectId, long actorId, string scope, long? majorId, long? studentId,

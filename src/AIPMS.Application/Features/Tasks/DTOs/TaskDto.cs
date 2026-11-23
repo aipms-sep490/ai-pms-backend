@@ -24,7 +24,11 @@ public sealed record TaskDto(
     long? SprintId = null,
     int? StoryPoints = null,
     string? TaskCode = null,
-    IReadOnlyList<string>? Labels = null);
+    IReadOnlyList<string>? Labels = null,
+    DateTime? BlockedSinceAt = null,
+    string? BlockerReason = null,
+    long? GateRequirementId = null,
+    bool IsCoreGateTask = false);
 
 public sealed record TaskAssigneeDto(
     long Id,

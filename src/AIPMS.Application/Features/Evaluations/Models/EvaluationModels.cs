@@ -28,7 +28,9 @@ public sealed record EvaluationAssignmentRecord(long Id, long ProjectId, long Ev
     DateTime? DueAt = null,
     decimal? ComponentStudentWeightPercent = null,
     string? SchemeApprovalStatus = null,
-    bool? SchemeIsDemo = null);
+    bool? SchemeIsDemo = null,
+    DateTime? ValidFrom = null,
+    DateTime? ValidUntil = null);
 
 public sealed record EvaluationDraftRecord(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
     long RubricId, string RubricName, long RootRubricId, int RubricVersion, string EvaluationType, string Status, string? Comments, decimal? TotalScore,

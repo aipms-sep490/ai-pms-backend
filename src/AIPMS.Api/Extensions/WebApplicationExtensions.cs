@@ -24,6 +24,7 @@ public static class WebApplicationExtensions
         });
         app.UseSerilogRequestLogging();
         app.UseMiddleware<ExceptionHandlingMiddleware>();
+        app.UseStatusCodePages();
         app.UseSwagger();
         app.UseSwaggerUI();
         app.UseCors(CorsSettings.FrontendPolicyName);

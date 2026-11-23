@@ -29,7 +29,10 @@ public sealed record ProjectDto(
     long? TopicId = null,
     string ProposalSource = "STUDENT_PROPOSAL",
     SelectedTopicDto? SelectedTopic = null,
-    string AcademicScopeProvenance = "UNKNOWN");
+    string AcademicScopeProvenance = "UNKNOWN",
+    string? TrackCode = null,
+    string? IntegrationDeliverableSummary = null,
+    string? MktAttributionLimits = null);
 
 public sealed record SelectedTopicDto(
     long Id,

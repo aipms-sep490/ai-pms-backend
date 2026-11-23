@@ -57,8 +57,8 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public async Task<ActionResult<StudentReviewTimelineDto>> SubmitEvidence(long projectId, string gateCode, SubmitReviewGateEvidenceRequest request, CancellationToken ct) => Ok(await service.SubmitEvidence(projectId, gateCode, request, ct));
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/evidence/file")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
-    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
+    [RequestSizeLimit(UploadPolicies.MultipartArchiveCeiling)]
+    [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartArchiveCeiling)]
     public async Task<ActionResult<StudentReviewTimelineDto>> SubmitEvidenceFile(long projectId, string gateCode, [FromForm] ReviewGateFileForm request, CancellationToken ct)
     {
         await using var stream = request.File.OpenReadStream();
@@ -67,7 +67,12 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
             new(request.File.FileName, request.File.ContentType, request.File.Length, stream), ct));
     }
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/submit-for-review")]
-    public async Task<ActionResult<StudentReviewTimelineDto>> SubmitForReview(long projectId, string gateCode, SubmitReviewGateForReviewRequest request, CancellationToken ct) => Ok(await service.SubmitForReview(projectId, gateCode, request, ct));
+    public async Task<ActionResult<StudentReviewTimelineDto>> SubmitForReview(long projectId, string gateCode, SubmitReviewGateForReviewRequest request, CancellationToken ct)
+    {
+        var headerKey = Request.Headers["Idempotency-Key"].FirstOrDefault();
+        var merged = string.IsNullOrWhiteSpace(headerKey) ? request : request with { IdempotencyKey = headerKey.Trim() };
+        return Ok(await service.SubmitForReview(projectId, gateCode, merged, ct));
+    }
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/feedback")]
     public async Task<ActionResult<SupervisorFeedbackDto>> AddFeedback(long projectId, string gateCode, AddReviewGateFeedbackRequest request, CancellationToken ct) => Ok(await service.AddFeedback(projectId, gateCode, request, ct));
     [HttpGet("api/v1/reviewers/me/gate-assignments")]
@@ -90,6 +95,15 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public Task<ReviewGateUserCapabilitiesDto> OverrideCapability([FromQuery] long projectId, CancellationToken ct) => service.OverrideCapability(projectId, ct);
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/scopes/{scope}")]
     public async Task<ActionResult<ProjectReviewMatrixRowDto>> UpdateScope(long projectId, string scope, UpdateReviewGateScopeRequest request, CancellationToken ct) => Ok(await service.UpdateScope(projectId, scope, request, ct));
+    [HttpGet("api/v1/projects/{projectId:long}/review-gates/{gateCode}/round-scope-decisions")]
+    public async Task<ActionResult<GateRoundConsensusDto>> GetRoundScopeConsensus(long projectId, string gateCode, [FromQuery] int? roundNumber, CancellationToken ct) =>
+        Ok(await service.GetRoundScopeConsensus(projectId, gateCode, roundNumber, ct));
+    [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/round-scope-decisions")]
+    public async Task<ActionResult<GateRoundConsensusDto>> RecordRoundScopeDecision(long projectId, string gateCode, RecordRoundScopeDecisionRequest request, CancellationToken ct) =>
+        Ok(await service.RecordRoundScopeDecision(projectId, gateCode, request, ct));
+    [HttpPost("api/v1/departments/sla/sweep")]
+    public async Task<ActionResult<SlaSweepResultDto>> SweepSlaNotifications(CancellationToken ct) =>
+        Ok(await service.SweepSlaNotifications(ct));
     [HttpGet("api/v1/departments/review-gates/matrix")]
     public async Task<ActionResult<IReadOnlyList<ProjectReviewMatrixRowDto>>> Matrix([FromQuery] string? mode, CancellationToken ct) => Ok(await service.Matrix(mode, null, ct));
     [HttpGet("api/v1/departments/{departmentId:long}/review-gates/matrix")]
@@ -106,6 +120,27 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
         Response.Headers.CacheControl = "no-store";
         return File(file.Content, file.ContentType, file.FileName);
     }
+
+    [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/requirements/{requirementId:long}/evidence/{version:int}/preview-token")]
+    public async Task<ActionResult<AIPMS.Application.Abstractions.Security.SignedPreviewTokenDto>> IssueEvidencePreviewToken(
+        long projectId, string gateCode, long requirementId, int version, CancellationToken ct) =>
+        Ok(await service.IssueEvidencePreviewToken(projectId, gateCode, requirementId, version, ct));
+
+    [HttpGet("api/v1/projects/{projectId:long}/review-gates/{gateCode}/requirements/{requirementId:long}/evidence/{version:int}/stream")]
+    public async Task<IActionResult> StreamEvidence(
+        long projectId, string gateCode, long requirementId, int version, [FromQuery] string token, CancellationToken ct)
+    {
+        var file = await service.StreamEvidence(projectId, gateCode, requirementId, version, token, ct);
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers.ContentDisposition = $"inline; filename=\"{SafeZipName(file.FileName)}\"";
+        return File(file.Content, file.ContentType, enableRangeProcessing: true);
+    }
+
+    [HttpGet("api/v1/projects/{projectId:long}/review-gates/{gateCode}/requirements/{requirementId:long}/evidence/{version:int}/safe-preview")]
+    public async Task<ActionResult<OfficePreviewDto>> SafePreviewEvidence(
+        long projectId, string gateCode, long requirementId, int version, CancellationToken ct) =>
+        Ok(await service.SafePreviewEvidence(projectId, gateCode, requirementId, version, ct));
 
     [HttpGet("api/v1/projects/{projectId:long}/review-gates/{gateCode}/evidence/archive")]
     public async Task EvidenceArchive(long projectId, string gateCode, CancellationToken ct)

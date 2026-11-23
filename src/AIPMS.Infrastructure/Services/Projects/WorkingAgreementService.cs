@@ -161,9 +161,45 @@ internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraf
         var mine = row.Members.SingleOrDefault(m => m.UserId == Actor) ?? throw new ForbiddenException();
         if (!mine.AcceptedAt.HasValue)
         {
-            mine.AcceptedAt = clock.GetUtcNow().UtcDateTime;
+            var now = clock.GetUtcNow().UtcDateTime;
+            mine.AcceptedAt = now;
             // Acceptances do not alter the immutable content token; concurrent members can accept the same version.
             await db.SaveChangesAsync(ct); await Audit("WORKING_AGREEMENT_ACCEPTED", row, ct);
+
+            // Auto-activate SUPERVISOR_PENDING -> ACTIVE once all 3 conditions hold (Supervision + WorkingAgreement READY).
+            var project = await db.Projects.SingleOrDefaultAsync(p => p.Id == projectId, ct);
+            if (project is { Status: "SUPERVISOR_PENDING" })
+            {
+                var readiness = await WorkingAgreementGuard.Read(db, projectId, ct);
+                if (!readiness.Required || readiness.Status == "READY")
+                {
+                    var confirmation = await new AIPMS.Infrastructure.Persistence.Repositories.ProjectRepository(db, clock)
+                        .GetSupervisorConfirmationAsync(projectId, ct);
+                    if (confirmation.HasConfirmedPrimarySupervisor && confirmation.MissingMentorMajorIds.Count == 0)
+                    {
+                        project.Status = "ACTIVE";
+                        project.UpdatedAt = now;
+                        db.ProjectStatusHistories.Add(new AIPMS.Infrastructure.Persistence.Generated.Models.ProjectStatusHistory
+                        {
+                            ProjectId = projectId,
+                            OldStatus = "SUPERVISOR_PENDING",
+                            NewStatus = "ACTIVE",
+                            ChangedBy = Actor,
+                            Reason = "All members accepted working agreement with supervision confirmed.",
+                            ChangedAt = now
+                        });
+                        await db.SaveChangesAsync(ct);
+                        await new ProjectActivationService(db).ApplyMilestoneTemplateAsync(projectId, Actor, now, ct);
+                        await audit.RecordAsync(new(Actor, "PROJECT_ACTIVATED", "PROJECT", projectId,
+                            new Dictionary<string, object?>
+                            {
+                                ["oldStatus"] = "SUPERVISOR_PENDING",
+                                ["newStatus"] = "ACTIVE",
+                                ["source"] = "WORKING_AGREEMENT_ACCEPTED"
+                            }), ct);
+                    }
+                }
+            }
         }
         return await Dto(row, access, ct);
     }, ct);

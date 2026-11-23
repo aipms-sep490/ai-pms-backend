@@ -8,4 +8,5 @@ public interface IEvaluationAssignmentAccessService
     Task<EvaluationAssignmentDetailDto> GetAsync(long assignmentId, CancellationToken ct = default);
     Task<EvaluationAssignmentEvidenceDto> EvidenceAsync(long assignmentId, CancellationToken ct = default);
     Task<FileDownload> DownloadEvidenceFileAsync(long assignmentId, long fileId, CancellationToken ct = default);
+    Task<ProjectScoringWorkbenchDto> GetWorkbenchAsync(long projectId, CancellationToken ct = default);
 }

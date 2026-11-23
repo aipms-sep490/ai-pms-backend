@@ -155,6 +155,12 @@ public interface IProjectRepository
         CancellationToken cancellationToken) =>
         Task.FromResult(new AIPMS.Application.Features.Topics.DTOs.TopicSimilarityResultDto(
             null, Array.Empty<AIPMS.Application.Features.Topics.DTOs.SimilarTopicMatchDto>()));
+
+    Task<bool> HasOpenAppealsAsync(long projectId, CancellationToken cancellationToken) =>
+        Task.FromResult(false);
+
+    Task<bool> IsWorkingAgreementReadyForActivationAsync(long projectId, CancellationToken cancellationToken) =>
+        Task.FromResult(true);
 }
 
 public sealed record ProjectSupervisorConfirmation(

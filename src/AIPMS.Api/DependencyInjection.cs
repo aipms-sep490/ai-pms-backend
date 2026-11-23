@@ -137,7 +137,66 @@ public static class DependencyInjection
                     shared: true);
         });
 
-        services.AddProblemDetails();
+        services.AddProblemDetails(options =>
+        {
+            options.CustomizeProblemDetails = context =>
+            {
+                var problem = context.ProblemDetails;
+                var http = context.HttpContext;
+                var status = problem.Status ?? http.Response.StatusCode;
+                problem.Status ??= status;
+                problem.Instance ??= http.Request.Path;
+
+                if (!problem.Extensions.ContainsKey("traceId"))
+                {
+                    problem.Extensions["traceId"] = http.TraceIdentifier;
+                }
+                if (!problem.Extensions.ContainsKey("correlationId"))
+                {
+                    problem.Extensions["correlationId"] = ExceptionHandlingMiddleware.ResolveCorrelationId(http);
+                }
+                if (!problem.Extensions.ContainsKey("message"))
+                {
+                    problem.Extensions["message"] = problem.Detail ?? problem.Title ?? "An error occurred.";
+                }
+
+                if (!problem.Extensions.ContainsKey("code"))
+                {
+                    var fallbackCode = status switch
+                    {
+                        StatusCodes.Status400BadRequest => AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.ValidationFailed,
+                        StatusCodes.Status401Unauthorized => AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.Unauthorized,
+                        StatusCodes.Status403Forbidden => AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.Forbidden,
+                        StatusCodes.Status404NotFound => AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.NotFound,
+                        StatusCodes.Status413PayloadTooLarge => "UPLOAD_TOO_LARGE",
+                        StatusCodes.Status429TooManyRequests => AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.RateLimited,
+                        StatusCodes.Status500InternalServerError => AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.InternalServerError,
+                        _ => null
+                    };
+                    if (fallbackCode is not null)
+                    {
+                        problem.Extensions["code"] = fallbackCode;
+                    }
+                }
+
+                if (problem.Extensions.TryGetValue("code", out var codeValue) && !problem.Extensions.ContainsKey("errorCode"))
+                {
+                    problem.Extensions["errorCode"] = codeValue;
+                }
+
+                if (!problem.Extensions.ContainsKey("retryable"))
+                {
+                    problem.Extensions["retryable"] = status is StatusCodes.Status429TooManyRequests or StatusCodes.Status503ServiceUnavailable;
+                }
+
+                if (problem is ValidationProblemDetails validationProblem
+                    && status is not (StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden or StatusCodes.Status404NotFound)
+                    && !problem.Extensions.ContainsKey("fieldErrors"))
+                {
+                    problem.Extensions["fieldErrors"] = validationProblem.Errors;
+                }
+            };
+        });
         services.AddControllers(options =>
         {
             // The iterative FluentValidation tree validator handles rubric descendants.
@@ -173,8 +232,11 @@ public static class DependencyInjection
                         Instance = context.HttpContext.Request.Path
                     };
                     problem.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+                    problem.Extensions["correlationId"] = ExceptionHandlingMiddleware.ResolveCorrelationId(context.HttpContext);
+                    problem.Extensions["message"] = "Request entity too large.";
                     problem.Extensions["code"] = "UPLOAD_TOO_LARGE";
                     problem.Extensions["errorCode"] = "UPLOAD_TOO_LARGE";
+                    problem.Extensions["retryable"] = false;
                     if (maxBytes.HasValue)
                     {
                         problem.Extensions["maxBytes"] = maxBytes.Value;
@@ -262,7 +324,12 @@ public static class DependencyInjection
                     instance: context.HttpContext.Request.Path,
                     extensions: new Dictionary<string, object?>
                     {
-                        ["code"] = "RATE_LIMITED"
+                        ["code"] = AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.RateLimited,
+                        ["errorCode"] = AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.RateLimited,
+                        ["message"] = "Wait before retrying this operation.",
+                        ["traceId"] = context.HttpContext.TraceIdentifier,
+                        ["correlationId"] = ExceptionHandlingMiddleware.ResolveCorrelationId(context.HttpContext),
+                        ["retryable"] = true
                     })
                     .ExecuteAsync(context.HttpContext);
             };

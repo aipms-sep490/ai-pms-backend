@@ -116,6 +116,13 @@ public sealed class TasksController(ISender sender) : ControllerBase
         return NoContent();
     }
 
+    [HttpPost("{id:long}/restore")]
+    [ProducesResponseType<TaskDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<TaskDto>> Restore(long id, CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new RestoreTaskCommand(id), cancellationToken));
+
     [HttpPost("{id}/assignees")]
     [ProducesResponseType<TaskDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

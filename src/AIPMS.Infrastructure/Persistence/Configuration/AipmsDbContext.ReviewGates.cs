@@ -62,7 +62,11 @@ public partial class AipmsDbContext
             e.Property(x => x.Sha256).HasMaxLength(64).IsUnicode(false); e.Property(x => x.StorageKey).HasMaxLength(32).IsUnicode(false);
             e.Property(x => x.Notes).HasMaxLength(2000);
             e.Property(x => x.LinkUrl).HasMaxLength(2048).IsUnicode(false);
-            e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false); e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
+            e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.ScanStatus).HasMaxLength(20).IsUnicode(false).HasDefaultValue("READY");
+            e.Property(x => x.ScanProvider).HasMaxLength(50).IsUnicode(false);
+            e.Property(x => x.ScanDetails).HasMaxLength(1000);
+            e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasOne<Generated.Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<GateReviewerAssignment>(e => {
@@ -100,7 +104,34 @@ public partial class AipmsDbContext
             e.HasOne<Generated.Models.User>().WithMany().HasForeignKey(x => x.DecidedBy).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Generated.Models.Major>().WithMany().HasForeignKey(x => x.MajorId).OnDelete(DeleteBehavior.NoAction);
         });
-        foreach (var type in new[] { typeof(ReviewGateTemplate), typeof(ReviewGateDefinition), typeof(ReviewGateRequirement), typeof(ProjectGateInstance), typeof(ProjectGateRequirement), typeof(GateEvidence), typeof(GateReviewerAssignment), typeof(GateEvidenceVerification), typeof(GateDecision), typeof(ProjectGateScopeDecision) })
+        b.Entity<ReviewGatePackage>(e => {
+            e.ToTable("review_gate_packages"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.GateInstanceId, x.IdempotencyKey }).IsUnique();
+            e.HasIndex(x => new { x.GateInstanceId, x.RoundNumber }).IsUnique();
+            e.Property(x => x.IdempotencyKey).HasMaxLength(128).IsUnicode(false);
+            e.Property(x => x.RequestHash).HasMaxLength(64).IsUnicode(false);
+            e.Property(x => x.Notes).HasMaxLength(2000);
+            e.HasMany(x => x.Items).WithOne().HasForeignKey(x => x.PackageId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Generated.Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<ProjectGateInstance>().WithMany().HasForeignKey(x => x.GateInstanceId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Generated.Models.User>().WithMany().HasForeignKey(x => x.SubmittedBy).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<ReviewGatePackageItem>(e => {
+            e.ToTable("review_gate_package_items"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.PackageId, x.RequirementId }).IsUnique();
+            e.Property(x => x.Sha256).HasMaxLength(64).IsUnicode(false);
+            e.HasOne<ProjectGateRequirement>().WithMany().HasForeignKey(x => x.RequirementId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<GateEvidence>().WithMany().HasForeignKey(x => x.EvidenceId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<FilePreviewDerivative>(e => {
+            e.ToTable("file_preview_derivatives"); e.HasKey(x => x.Id);
+            e.Property(x => x.DerivativeType).HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.ErrorReason).HasMaxLength(500);
+            e.HasOne<Generated.Models.File>().WithMany().HasForeignKey(x => x.FileId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<GateEvidence>().WithMany().HasForeignKey(x => x.GateEvidenceId).OnDelete(DeleteBehavior.NoAction);
+        });
+        foreach (var type in new[] { typeof(ReviewGateTemplate), typeof(ReviewGateDefinition), typeof(ReviewGateRequirement), typeof(ProjectGateInstance), typeof(ProjectGateRequirement), typeof(GateEvidence), typeof(GateReviewerAssignment), typeof(GateEvidenceVerification), typeof(GateDecision), typeof(ProjectGateScopeDecision), typeof(ReviewGatePackage), typeof(ReviewGatePackageItem), typeof(FilePreviewDerivative) })
             foreach (var p in b.Entity(type).Metadata.GetProperties())
             {
                 p.SetColumnName(System.Text.RegularExpressions.Regex.Replace(p.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());

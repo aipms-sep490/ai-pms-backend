@@ -21,6 +21,8 @@ public partial class User
 
     public string? StudentCode { get; set; }
     public string? CurriculumCode { get; set; }
+    public string? ClassCode { get; set; }
+    public long? SpecializationId { get; set; }
     public bool GoogleEnrollmentPending { get; set; }
 
     public string? EmployeeCode { get; set; }
@@ -60,6 +62,7 @@ public partial class User
     public virtual ICollection<File> Files { get; set; } = new List<File>();
 
     public virtual Major? Major { get; set; }
+    public virtual AIPMS.Infrastructure.Persistence.Models.DepartmentSpecialization? Specialization { get; set; }
 
     public virtual ICollection<MeetingParticipant> MeetingParticipants { get; set; } = new List<MeetingParticipant>();
 

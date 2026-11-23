@@ -61,9 +61,10 @@ internal sealed partial class AcademicTrackingService
         if (majors.Except(members.Select(m => m.MajorId)).Any()) throw new ConflictException("DEFENSE_MAJOR_COVERAGE_REQUIRED", "DEFENSE_MAJOR_COVERAGE_REQUIRED");
         var users = members.Select(m => m.UserId).Distinct().ToArray();
         if (await db.SupervisorAssignments.AsNoTracking().AnyAsync(a => a.ProjectId == access.Project.Id
-            && a.EndedAt == null && users.Contains(a.SupervisorProfile.UserId), ct))
-            throw new ConflictException("An active supervisor or mentor cannot evaluate their own project defense.",
-                "DEFENSE_SUPERVISOR_CONFLICT");
+            && ((a.IsPrimary && a.AssignmentType == "PRIMARY") || a.EndedAt == null)
+            && users.Contains(a.SupervisorProfile.UserId), ct))
+            throw new ConflictException("A current or former primary supervisor, or an active mentor, cannot evaluate their own project defense.",
+                WorkflowErrorCodes.EvaluatorRoleConflict);
         var profiles = await db.SupervisorProfiles.AsNoTracking().Where(p => users.Contains(p.UserId) && p.IsAvailable && p.User.Status == "ACTIVE"
             && p.User.Department != null && p.User.Department.IsActive && p.User.Department.Organization.IsActive
             && p.User.UserRoleUsers.Any(r => r.Role.Code == "LECTURER"))
@@ -103,7 +104,7 @@ internal sealed partial class AcademicTrackingService
             .Select(p => new { p.UserId, p.User.FullName, p.User.DepartmentId, p.IsAvailable,
                 Expertise = p.SupervisorExpertises.Select(e => e.ExpertiseName).ToArray() }).ToArrayAsync(ct);
         var supervisors = (await db.SupervisorAssignments.AsNoTracking()
-            .Where(a => a.ProjectId == projectId && a.EndedAt == null)
+            .Where(a => a.ProjectId == projectId && ((a.IsPrimary && a.AssignmentType == "PRIMARY") || a.EndedAt == null))
             .Select(a => a.SupervisorProfile.UserId).Distinct().ToArrayAsync(ct)).ToHashSet();
         var rows = (from major in majors
                     from profile in profiles

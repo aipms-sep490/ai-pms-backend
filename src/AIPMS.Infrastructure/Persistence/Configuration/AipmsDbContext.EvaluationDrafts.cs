@@ -22,6 +22,8 @@ public partial class AipmsDbContext
             e.Property(x => x.Status).HasColumnName("status").HasMaxLength(20);
             e.Property(x => x.AssignedBy).HasColumnName("assigned_by");
             e.Property(x => x.AssignedAt).HasColumnName("assigned_at").HasPrecision(0);
+            e.Property(x => x.ValidFrom).HasColumnName("valid_from").HasPrecision(0);
+            e.Property(x => x.ValidUntil).HasColumnName("valid_until").HasPrecision(0);
             e.Property(x => x.RevokedAt).HasColumnName("revoked_at").HasPrecision(0);
             e.Property(x => x.RevocationReason).HasColumnName("revocation_reason").HasMaxLength(1000);
             e.Property(x => x.ConcurrencyToken).HasColumnName("concurrency_token").IsConcurrencyToken();

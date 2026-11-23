@@ -24,9 +24,8 @@ internal static class DefenseCommitteeAuthority
             && u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER")
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive, ct))
             throw new ForbiddenException("The committee member is no longer an active lecturer.");
-        if (await db.SupervisorAssignments.AsNoTracking().AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null
-            && a.SupervisorProfile.UserId == evaluatorId, ct))
-            throw new ConflictException("A current supervisor or mentor cannot evaluate the same project.", "DEFENSE_SUPERVISOR_CONFLICT");
+        if (await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, projectId, evaluatorId, ct))
+            throw new ConflictException("A current or former primary supervisor, or an active mentor, cannot evaluate the same project.", WorkflowErrorCodes.EvaluatorRoleConflict);
         return new(committee.Id, committee.Version);
     }
 

@@ -19,7 +19,7 @@ internal sealed class ProjectExecutionGuard(AipmsDbContext context) : IProjectEx
 
         if (project.Status != "ACTIVE")
         {
-            throw new ConflictException($"Project is not in ACTIVE state. Current state: {project.Status}. Mutations are restricted to ACTIVE projects.");
+            throw new ConflictException($"Project is not in ACTIVE state. Current state: {project.Status}. Mutations are restricted to ACTIVE projects.", WorkflowErrorCodes.ProjectNotActive);
         }
     }
 
@@ -33,7 +33,7 @@ internal sealed class ProjectExecutionGuard(AipmsDbContext context) : IProjectEx
 
         if (milestone.ProjectStatus != "ACTIVE")
         {
-            throw new ConflictException($"Project is not in ACTIVE state. Current state: {milestone.ProjectStatus}. Mutations are restricted to ACTIVE projects.");
+            throw new ConflictException($"Project is not in ACTIVE state. Current state: {milestone.ProjectStatus}. Mutations are restricted to ACTIVE projects.", WorkflowErrorCodes.ProjectNotActive);
         }
     }
 
@@ -47,7 +47,7 @@ internal sealed class ProjectExecutionGuard(AipmsDbContext context) : IProjectEx
 
         if (task.ProjectStatus != "ACTIVE")
         {
-            throw new ConflictException($"Project is not in ACTIVE state. Current state: {task.ProjectStatus}. Mutations are restricted to ACTIVE projects.");
+            throw new ConflictException($"Project is not in ACTIVE state. Current state: {task.ProjectStatus}. Mutations are restricted to ACTIVE projects.", WorkflowErrorCodes.ProjectNotActive);
         }
     }
 }

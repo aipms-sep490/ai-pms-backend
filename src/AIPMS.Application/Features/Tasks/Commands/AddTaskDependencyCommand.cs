@@ -85,7 +85,9 @@ public sealed class AddTaskDependencyCommandHandler(
 
         if (hasCycle)
         {
-            throw new ConflictException("Adding this dependency introduces a circular reference between tasks.");
+            throw new AIPMS.Domain.Exceptions.DomainException(
+                "Adding this dependency introduces a circular reference between tasks.",
+                WorkflowErrorCodes.CircularDependency);
         }
 
         await repository.AddDependencyAsync(

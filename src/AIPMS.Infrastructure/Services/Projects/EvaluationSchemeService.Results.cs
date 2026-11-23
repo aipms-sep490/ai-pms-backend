@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
+using AIPMS.Domain.Exceptions;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.Evaluations.Services;
@@ -29,7 +30,7 @@ internal sealed partial class EvaluationSchemeService
             ?? throw new ConflictException("A published scoped evaluation scheme is required. Legacy results remain read-only.");
         var students = JsonSerializer.Deserialize<SchemeStudent[]>(scheme.StudentsJson)!;
         var calculation = Policy(scheme);
-        if (scheme.CalculationRule is not (EvaluationSchemeRules.CalculationRule or VersionedResultCalculator.Version))
+        if (scheme.CalculationRule is not (EvaluationSchemeRules.CalculationRule or VersionedResultCalculator.Version or VersionedResultCalculator.PolV4Version))
             throw new ConflictException("This calculation rule is not supported by the current scorer.");
         var target = studentId.HasValue ? students.SingleOrDefault(x => x.StudentId == studentId)
             ?? throw new NotFoundException("StudentResult", studentId) : null;
@@ -40,10 +41,10 @@ internal sealed partial class EvaluationSchemeService
         if (calculation is not null)
         {
             VersionedResultCalculator.Validate(calculation, scheme.Components.Select(c => new SchemeComponentInput(c.Name,
-                c.Scope, c.MajorId, c.RubricId, c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, Weights(c))).ToArray(),
+                c.Scope, c.MajorId, c.RubricId, c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators,
+                Weights(c), c.Stage ?? "DEFENSE", c.TargetScope, c.IsIntegration)).ToArray(),
                 registration.Scope.Requirements.Select(r => r.MajorId).Distinct().ToArray());
-            if (scheme.CalculationRule != (calculation.CalculationVersion == "LEGACY_V1"
-                ? EvaluationSchemeRules.CalculationRule : VersionedResultCalculator.Version))
+            if (scheme.CalculationRule != VersionedResultCalculator.CalculationRuleFor(calculation))
                 throw new ConflictException("Scheme calculation metadata is inconsistent.");
         }
         var publicationForbidden = !AcademicAuthority.IsLead(actor, project);
@@ -103,16 +104,75 @@ internal sealed partial class EvaluationSchemeService
             try { if (coldEvidence is not null) coldBindings[assignment.Id] = ColdEvaluationBinding.Validate(coldEvidence, assignment); }
             catch (ConflictException) { blockers.Add($"COLD_EVIDENCE_CHANGED:{assignment.Id}"); }
         }
+        var gateScores = await db.Set<GateIndividualProcessScore>().AsNoTracking()
+            .Where(g => g.ProjectId == projectId).ToListAsync(ct);
+        var gateNumbers = await db.ProjectGateInstances.AsNoTracking()
+            .Where(g => g.ProjectId == projectId)
+            .Select(g => new { g.Id, g.Sequence })
+            .ToDictionaryAsync(g => g.Id, g => g.Sequence, ct);
+        var absences = await db.Set<StudentDefenseAbsence>().AsNoTracking()
+            .Where(a => a.ProjectId == projectId)
+            .ToDictionaryAsync(a => a.StudentId, ct);
         var contributions = new List<ResultContributionDto>();
         var componentResults = new List<ResultComponentScoreDto>();
+        var publishedFeedback = new List<ResultFeedbackItemDto>();
         var frozen = new List<object>();
         ResultComponentScoreDto Calculate(EvaluationSchemeComponent component, long? forStudent, bool includeContributions)
         {
+            var weight = forStudent.HasValue ? component.StudentWeightPercent : component.ProjectWeightPercent;
             var assignments = allAssignments.Where(a => a.ComponentId == component.Id
                 && a.StudentId == (component.Scope == "INDIVIDUAL" ? forStudent : null)).ToArray();
+
+            // Explicit defense absence (Spec V4.0 §7.5): 0.00 for that individual student only without blocking teammates.
+            if (forStudent.HasValue && component.Stage == "DEFENSE" && absences.TryGetValue(forStudent.Value, out var absence))
+            {
+                frozen.Add(new { Type = "DEFENSE_ABSENT", absence.Id, absence.StudentId, absence.Reason, absence.MinutesReference, absence.RecordedAt });
+                if (includeContributions)
+                    publishedFeedback.Add(new(component.Id, component.Name, component.Stage, $"DEFENSE_ABSENT: {absence.Reason}"));
+                return new(component.Id, component.Name, component.Scope, component.MajorId, weight, 0.00m,
+                    component.RequiredEvaluators, component.RequiredEvaluators, component.Stage, component.TargetScope, component.IsIntegration);
+            }
+
+            // POL-03: Cumulative 20% Individual Process score from Primary Supervisor across Gates G1-G3.
+            if (forStudent.HasValue && component.Scope == "INDIVIDUAL" && component.Stage == "ON_GOING"
+                && assignments.Length == 0 && calculation?.CalculationVersion == VersionedResultCalculator.PolV4Version)
+            {
+                var configuredGates = VersionedResultCalculator.EffectiveGateWeights(calculation);
+                var studentGates = gateScores.Where(g => g.StudentId == forStudent.Value).ToList();
+                var matched = new List<(GateIndividualProcessScore Row, int GateNumber, decimal GateWeight)>();
+                foreach (var gw in configuredGates)
+                {
+                    var row = studentGates.FirstOrDefault(g => gateNumbers.TryGetValue(g.GateInstanceId, out var num) && num == gw.GateNumber);
+                    if (row is null || row.Status != "FINALIZED")
+                    {
+                        blockers.Add($"INDIVIDUAL_PROCESS_SCORE_MISSING:{forStudent.Value}:G{gw.GateNumber}");
+                        continue;
+                    }
+                    matched.Add((row, gw.GateNumber, gw.WeightPercent));
+                }
+                if (matched.Count == configuredGates.Count)
+                {
+                    var cumulative = matched.Sum(m => m.Row.Score * m.GateWeight / 100m);
+                    frozen.Add(new
+                    {
+                        Type = "GATE_INDIVIDUAL_PROCESS",
+                        StudentId = forStudent.Value,
+                        Gates = matched.Select(m => new { m.Row.Id, m.GateNumber, m.Row.Score, m.GateWeight, m.Row.SupervisorAssignmentId, m.Row.FinalizedAt }).ToArray()
+                    });
+                    if (includeContributions)
+                    {
+                        foreach (var m in matched.Where(x => !string.IsNullOrWhiteSpace(x.Row.Comments)))
+                            publishedFeedback.Add(new(component.Id, $"{component.Name} (G{m.GateNumber})", component.Stage, m.Row.Comments!.Trim()));
+                    }
+                    return new(component.Id, component.Name, component.Scope, component.MajorId, weight, cumulative,
+                        component.RequiredEvaluators, component.RequiredEvaluators, component.Stage, component.TargetScope, component.IsIntegration);
+                }
+                return new(component.Id, component.Name, component.Scope, component.MajorId, weight, null,
+                    component.RequiredEvaluators, 0, component.Stage, component.TargetScope, component.IsIntegration);
+            }
+
             if (assignments.Length != component.RequiredEvaluators) blockers.Add($"MISSING_EVALUATOR:{component.Id}");
             var componentScores = new List<(decimal Score, decimal Weight)>();
-            var weight = forStudent.HasValue ? component.StudentWeightPercent : component.ProjectWeightPercent;
             var explicitWeights = Weights(component);
             foreach (var assignment in assignments)
             {
@@ -138,15 +198,21 @@ internal sealed partial class EvaluationSchemeService
                 if (evaluatorWeight <= 0) { blockers.Add($"EVALUATOR_WEIGHT_MISMATCH:{assignment.Id}"); continue; }
                 var total = VersionedResultCalculator.EvaluationTotal(evaluation.Scores, calculation?.CalculationVersion ?? "LEGACY_V1");
                 componentScores.Add((total, evaluatorWeight));
-                if (includeContributions) contributions.Add(new(assignment.Id, evaluation.Id, evaluation.EvaluatorId, evaluation.RubricId,
-                    weight * evaluatorWeight / 100m, total, evaluation.ConcurrencyToken));
+                if (includeContributions)
+                {
+                    contributions.Add(new(assignment.Id, evaluation.Id, evaluation.EvaluatorId, evaluation.RubricId,
+                        weight * evaluatorWeight / 100m, total, evaluation.ConcurrencyToken));
+                    if (forStudent.HasValue && calculation?.CalculationVersion == VersionedResultCalculator.PolV4Version
+                        && !string.IsNullOrWhiteSpace(evaluation.Comments))
+                        publishedFeedback.Add(new(component.Id, component.Name, component.Stage, evaluation.Comments.Trim()));
+                }
                 frozen.Add(new { assignment.Id, assignment.ScopeSnapshotJson, evaluation });
             }
             decimal? mean = componentScores.Count == component.RequiredEvaluators && assignments.Length == component.RequiredEvaluators
                 ? explicitWeights is null ? componentScores.Average(s => s.Score)
                     : componentScores.Sum(s => s.Score * s.Weight / 100m) : null;
             return new(component.Id, component.Name, component.Scope, component.MajorId, weight, mean,
-                component.RequiredEvaluators, componentScores.Count, component.Stage);
+                component.RequiredEvaluators, componentScores.Count, component.Stage, component.TargetScope, component.IsIntegration);
         }
         foreach (var component in components) componentResults.Add(Calculate(component, studentId, true));
         // Completing the project closes scoring, so all mandatory student slots must already be finalized too.
@@ -205,6 +271,11 @@ internal sealed partial class EvaluationSchemeService
         }
         var formula = formulaComponents.Count > 0 ? new EvaluationFormulaDto(formulaComponents, null) : null;
 
+        var isDefenseAbsent = studentId.HasValue && absences.ContainsKey(studentId.Value);
+        (string? Outcome, string? OutcomeDetail) evaluated = final.HasValue
+            ? VersionedResultCalculator.EvaluateOutcome(final.Value, scheme.PassThreshold, componentResults, calculation, isDefenseAbsent)
+            : (null, null);
+
         var breakdown = calculation is null ? ResultSnapshotReader.Legacy(scheme.CalculationRule)
             : new ResultBreakdownDto(scheme.Name, scheme.Version, calculation.CalculationVersion, false, calculation.IsDemo,
                 calculation.ApprovalStatus, final.HasValue ? "READY" : "PENDING", rawTotal,
@@ -213,21 +284,37 @@ internal sealed partial class EvaluationSchemeService
                     ? calculation.Formula == "DEMO_50_30_20" ? majorScores.Average(m => m.Score!.Value)
                         : componentResults.Where(c => c.Scope == "MAJOR_SPECIFIC").Sum(c => c.Score!.Value * c.WeightPercent)
                             / componentResults.Where(c => c.Scope == "MAJOR_SPECIFIC").Sum(c => c.WeightPercent) : null,
-                majorScores, componentResults, formula);
+                majorScores, componentResults, formula,
+                evaluated.OutcomeDetail,
+                publishedFeedback.Count > 0 ? publishedFeedback : null);
         var inputs = JsonSerializer.Serialize(new { SnapshotVersion = 2, Breakdown = breakdown, Scheme = Map(scheme), scheme.RegistrationSnapshotJson, Target = target,
             Policy = frozenPolicy is null ? null : new { frozenPolicy.Id, frozenPolicy.Version, frozenPolicy.Status, frozenPolicy.SnapshotJson },
             PackageId = package.Id, project.Status, Contributions = contributions, Evaluations = frozen, Blockers = blockers });
         var token = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(inputs)));
         var preview = new ProjectResultPreviewDto(projectId, final.HasValue && blockers.Count == 0, blockers.Distinct().ToArray(), final, scheme.PassThreshold,
-            final.HasValue ? final.Value >= scheme.PassThreshold ? "PASSED" : "FAILED" : null, token, contributions, breakdown);
+            evaluated.Outcome, token, contributions, breakdown, evaluated.OutcomeDetail);
         return new(preview, scheme, package.Id, target?.MajorId, inputs);
     }
     public Task<ProjectResultPreviewDto> PreviewAsync(long projectId, long? studentId, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
     { await evaluations.LockProjectAsync(projectId, ct); return (await Check(projectId, studentId, ct)).Preview; }, ct);
-    private static void Confirm(ResultCheck check, string token)
+    private static bool IsIncompleteScoreBlocker(string b) =>
+        b.StartsWith("MISSING_EVALUATOR:", StringComparison.Ordinal)
+        || b.StartsWith("EVALUATION_NOT_FINALIZED:", StringComparison.Ordinal)
+        || b.StartsWith("INDIVIDUAL_PROCESS_SCORE_MISSING:", StringComparison.Ordinal)
+        || b.StartsWith("COLD_GRADING_PENDING:", StringComparison.Ordinal);
+    private static void Confirm(ResultCheck check, string token, bool requireToken = true)
     {
-        if (!check.Preview.CanPublish) throw new ConflictException(string.Join(", ", check.Preview.Blockers));
-        if (!string.Equals(check.Preview.ConfirmationToken, token, StringComparison.Ordinal)) throw new ConflictException("Preview inputs changed. Reload before publication.");
+        if (!check.Preview.CanPublish)
+        {
+            if (!check.Preview.Blockers.Contains("ALREADY_PUBLISHED") && check.Preview.Blockers.Any(IsIncompleteScoreBlocker))
+                throw new AIPMS.Domain.Exceptions.DomainException(
+                    "Cannot publish result while required scores or finalized evaluations are missing: " + string.Join(", ", check.Preview.Blockers),
+                    WorkflowErrorCodes.IncompleteScores,
+                    new ProblemMetadata(BlockingRequirements: check.Preview.Blockers.Select(b => new BlockingRequirement(b, b)).ToArray()));
+            throw new ConflictException(string.Join(", ", check.Preview.Blockers));
+        }
+        if (requireToken && !string.Equals(check.Preview.ConfirmationToken, token, StringComparison.Ordinal))
+            throw new ConflictException("Preview inputs changed. Reload before publication.");
     }
     public Task<ProjectResultDto> PublishProjectAsync(long projectId, string token, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
     {
@@ -236,7 +323,7 @@ internal sealed partial class EvaluationSchemeService
         var saved = await results.PublishAsync(new(0, projectId, check.PackageId, check.Preview.TotalScore!.Value,
             check.Scheme.PassThreshold, check.Preview.Outcome!, check.Scheme.CalculationRule, Actor, now,
             check.Scheme.ConcurrencyToken.ToString("N"), check.Preview.Contributions, check.Scheme.Id, check.Scheme.PolicyVersionId, check.FrozenInputs,
-            check.Preview.Breakdown), ct);
+            check.Preview.Breakdown, OutcomeDetail: check.Preview.OutcomeDetail), ct);
         await Audit("PROJECT_RESULT_PUBLISHED", "PROJECT_RESULT", saved.Id, new { Result = saved, check.FrozenInputs }, ct);
         await publisher.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.ProjectResultPublished, saved.Id, Actor, now), ct);
         return saved;
@@ -247,7 +334,7 @@ internal sealed partial class EvaluationSchemeService
         var check = await Check(projectId, studentId, ct, publishing: true); Confirm(check, token);
         var row = new StudentResult { ProjectId = projectId, StudentId = studentId, MajorId = check.MajorId!.Value,
             SchemeId = check.Scheme.Id, TotalScore = check.Preview.TotalScore!.Value, PassThreshold = check.Scheme.PassThreshold,
-            Outcome = check.Preview.Outcome!, CalculationRule = check.Scheme.CalculationRule,
+            Outcome = check.Preview.Outcome!, OutcomeDetail = check.Preview.OutcomeDetail, CalculationRule = check.Scheme.CalculationRule,
             PublishedBy = Actor, PublishedAt = Now, SnapshotJson = check.FrozenInputs };
         db.Add(row); await db.SaveChangesAsync(ct);
         db.AddRange(check.Preview.Contributions.Select(c => new StudentResultEvaluation { ResultId = row.Id, EvaluationId = c.EvaluationId }));
@@ -255,15 +342,101 @@ internal sealed partial class EvaluationSchemeService
         await publisher.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.StudentResultPublished, row.Id, Actor, row.PublishedAt), ct);
         return StudentDto(row);
     }, ct);
+    public Task<BatchPublishResultDto> PublishBatchAsync(long projectId, string token, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
+    {
+        await evaluations.LockProjectAsync(projectId, ct);
+        var projectCheck = await Check(projectId, null, ct, publishing: true);
+        Confirm(projectCheck, token);
+        var students = JsonSerializer.Deserialize<SchemeStudent[]>(projectCheck.Scheme.StudentsJson)!;
+        var studentChecks = new List<(SchemeStudent Student, ResultCheck Check)>();
+        foreach (var student in students)
+        {
+            var studentCheck = await Check(projectId, student.StudentId, ct, publishing: true);
+            Confirm(studentCheck, studentCheck.Preview.ConfirmationToken, requireToken: false);
+            studentChecks.Add((student, studentCheck));
+        }
+        var now = Now;
+        var savedProject = await results.PublishAsync(new(0, projectId, projectCheck.PackageId, projectCheck.Preview.TotalScore!.Value,
+            projectCheck.Scheme.PassThreshold, projectCheck.Preview.Outcome!, projectCheck.Scheme.CalculationRule, Actor, now,
+            projectCheck.Scheme.ConcurrencyToken.ToString("N"), projectCheck.Preview.Contributions, projectCheck.Scheme.Id,
+            projectCheck.Scheme.PolicyVersionId, projectCheck.FrozenInputs, projectCheck.Preview.Breakdown,
+            OutcomeDetail: projectCheck.Preview.OutcomeDetail), ct);
+        await Audit("PROJECT_RESULT_PUBLISHED", "PROJECT_RESULT", savedProject.Id, new { Result = savedProject, projectCheck.FrozenInputs, Batch = true }, ct);
+        await publisher.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.ProjectResultPublished, savedProject.Id, Actor, now), ct);
+        var savedStudents = new List<StudentResultDto>();
+        foreach (var (student, sc) in studentChecks)
+        {
+            var row = new StudentResult
+            {
+                ProjectId = projectId,
+                StudentId = student.StudentId,
+                MajorId = sc.MajorId!.Value,
+                SchemeId = sc.Scheme.Id,
+                TotalScore = sc.Preview.TotalScore!.Value,
+                PassThreshold = sc.Scheme.PassThreshold,
+                Outcome = sc.Preview.Outcome!,
+                OutcomeDetail = sc.Preview.OutcomeDetail,
+                CalculationRule = sc.Scheme.CalculationRule,
+                PublishedBy = Actor,
+                PublishedAt = now,
+                SnapshotJson = sc.FrozenInputs
+            };
+            db.Add(row);
+            await db.SaveChangesAsync(ct);
+            db.AddRange(sc.Preview.Contributions.Select(c => new StudentResultEvaluation { ResultId = row.Id, EvaluationId = c.EvaluationId }));
+            await db.SaveChangesAsync(ct);
+            var dto = StudentDto(row);
+            await Audit("STUDENT_RESULT_PUBLISHED", "STUDENT_RESULT", row.Id, new { Result = dto, Batch = true }, ct);
+            await publisher.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.StudentResultPublished, row.Id, Actor, now), ct);
+            savedStudents.Add(dto);
+        }
+        return new BatchPublishResultDto(savedProject, savedStudents);
+    }, ct);
+    public Task<StudentDefenseAbsenceDto> RecordDefenseAbsenceAsync(long projectId, long studentId, RecordDefenseAbsenceRequest input, CancellationToken ct) =>
+        evaluations.InTransactionAsync(async () =>
+        {
+            await evaluations.LockProjectAsync(projectId, ct);
+            await LeadAuthority(projectId, ct);
+            if (string.IsNullOrWhiteSpace(input.Reason) || input.Reason.Trim().Length > 2000
+                || input.MinutesReference?.Trim().Length > 500)
+                throw new ValidationException(new Dictionary<string, string[]> { ["reason"] = ["A reason (1..2000 chars) is required and minutesReference must be <= 500 chars."] });
+            if (await db.Set<StudentResult>().AnyAsync(r => r.ProjectId == projectId && r.StudentId == studentId, ct))
+                throw new ConflictException("Student result is already published.", "ALREADY_PUBLISHED");
+            var isMember = await db.TeamMembers.AnyAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId
+                && m.UserId == studentId && m.LeftAt == null, ct);
+            if (!isMember) throw new NotFoundException("Student", studentId);
+            if (await db.Set<StudentDefenseAbsence>().AnyAsync(a => a.ProjectId == projectId && a.StudentId == studentId, ct))
+                throw new ConflictException("Defense absence has already been recorded for this student.", "DEFENSE_ABSENCE_ALREADY_RECORDED");
+            var row = new StudentDefenseAbsence
+            {
+                ProjectId = projectId,
+                StudentId = studentId,
+                RecordedBy = Actor,
+                Reason = input.Reason.Trim(),
+                MinutesReference = string.IsNullOrWhiteSpace(input.MinutesReference) ? null : input.MinutesReference.Trim(),
+                RecordedAt = Now
+            };
+            db.Add(row);
+            await db.SaveChangesAsync(ct);
+            var dto = new StudentDefenseAbsenceDto(row.Id, row.ProjectId, row.StudentId, row.RecordedBy,
+                row.Reason, row.MinutesReference, DateTime.SpecifyKind(row.RecordedAt, DateTimeKind.Utc));
+            await Audit("STUDENT_DEFENSE_ABSENCE_RECORDED", "STUDENT_DEFENSE_ABSENCE", row.Id, dto, ct);
+            return dto;
+        }, ct);
     private static StudentResultDto StudentDto(StudentResult r) => new(r.Id, r.ProjectId, r.StudentId, r.MajorId, r.SchemeId,
         r.TotalScore, r.PassThreshold, r.Outcome, r.CalculationRule, r.PublishedBy, DateTime.SpecifyKind(r.PublishedAt, DateTimeKind.Utc), r.SnapshotJson,
-        ResultSnapshotReader.Read(r.SnapshotJson, r.CalculationRule, r.StudentId, r.MajorId));
+        ResultSnapshotReader.Read(r.SnapshotJson, r.CalculationRule, r.StudentId, r.MajorId), OutcomeDetail: r.OutcomeDetail);
     public Task<StudentResultDto> GetStudentAsync(long projectId, long studentId, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
     {
         var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
         if (Actor != studentId) await Manage(projectId, ct);
-        var row = await PublishedResultResolver.Student(db, projectId, studentId, ct)
-            ?? throw new NotFoundException("StudentResult", studentId);
+        var row = await PublishedResultResolver.Student(db, projectId, studentId, ct);
+        if (row is null)
+        {
+            if (Actor == studentId && !actor.IsAdmin && !actor.IsStaff)
+                throw new ForbiddenException("Results have not been published yet.", "RESULT_NOT_PUBLISHED");
+            throw new NotFoundException("StudentResult", studentId);
+        }
         var canReadAuditSnapshot = Actor != studentId && actor.IsAdmin;
         if (Actor != studentId && !actor.IsAdmin)
         {

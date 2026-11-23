@@ -56,7 +56,10 @@ internal sealed class FinalSubmissionDraftRepository(AipmsDbContext db) : IFinal
                     && m.Major.Department.Organization.IsActive
                     && m.Major.Department.OrganizationId == p.Team.AcademicSemester.OrganizationId),
             p.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null),
-            p.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null && m.IsLeader)))
+            p.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null && m.IsLeader),
+            db.ProjectGateInstances.Any(g => g.ProjectId == p.Id
+                && (g.BlocksDefense || g.Sequence == 3 || g.Code == "G3" || g.Code == "R3")
+                && g.Status != "PASSED" && g.Status != "WAIVED")))
             .SingleOrDefaultAsync(ct);
 
     private static IQueryable<FinalDraftPeriod> ProjectPeriods(IQueryable<Generated.Models.ProjectPeriod> query, DateTime now)

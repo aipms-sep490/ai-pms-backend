@@ -16,7 +16,6 @@ namespace AIPMS.Infrastructure.Persistence.Repositories;
 internal sealed class NotificationEmailQueue(
     AipmsDbContext db,
     IProjectAccessService? access = null,
-    IndustryInvitationEmail? industry = null,
     IOptions<EmailSettings>? emailOptions = null) : INotificationEmailQueue
 {
     public async Task<AppDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct, string? notificationType = null)
@@ -68,15 +67,6 @@ internal sealed class NotificationEmailQueue(
                     null)
             })
             .SingleAsync(ct);
-
-        if (source.NotificationType == IndustryService.NotificationType)
-        {
-            var body = industry is null ? null : await industry.Body(source.NotificationId, source.UserId, nowUtc, ct);
-            if (body is not null) return source.Delivery with { Body = body };
-            await MarkFailedAsync(row.NotificationRecipientId, nowUtc, "INVITATION_UNAVAILABLE", true, ct, claimedAttempt);
-            return source.Delivery with { ShouldSend = false };
-        }
-
         var frontendBaseUrl = emailOptions?.Value.ResolveFrontendBaseUrl();
 
         if (source.NotificationType == IMeetingReminderService.NotificationType)

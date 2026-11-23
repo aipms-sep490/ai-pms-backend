@@ -303,6 +303,9 @@ public partial class AipmsDbContext : DbContext
                 .HasDefaultValue("SUBMITTED")
                 .HasColumnName("status");
             entity.Property(e => e.SubmissionNote).HasColumnName("submission_note");
+            entity.Property(e => e.Changelog)
+                .HasMaxLength(2000)
+                .HasColumnName("changelog");
             entity.Property(e => e.SubmittedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
@@ -508,6 +511,21 @@ public partial class AipmsDbContext : DbContext
                 .IsUnicode(false)
                 .IsFixedLength()
                 .HasColumnName("checksum_sha256");
+            entity.Property(e => e.ScanStatus)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("READY")
+                .HasColumnName("scan_status");
+            entity.Property(e => e.ScanProvider)
+                .HasMaxLength(50)
+                .IsUnicode(false)
+                .HasColumnName("scan_provider");
+            entity.Property(e => e.ScannedAt)
+                .HasPrecision(0)
+                .HasColumnName("scanned_at");
+            entity.Property(e => e.ScanDetails)
+                .HasMaxLength(1000)
+                .HasColumnName("scan_details");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(0)
                 .HasDefaultValueSql("(sysutcdatetime())")
@@ -1159,6 +1177,15 @@ public partial class AipmsDbContext : DbContext
             entity.Property(e => e.MinTeamSize)
                 .HasDefaultValue(3)
                 .HasColumnName("min_team_size");
+            entity.Property(e => e.EnableDefenseRoomScheduling)
+                .HasDefaultValue(false)
+                .HasColumnName("enable_defense_room_scheduling");
+            entity.Property(e => e.ColdWindowEndAt)
+                .HasPrecision(0)
+                .HasColumnName("cold_window_end_at");
+            entity.Property(e => e.DefenseBufferHours)
+                .HasDefaultValue(12)
+                .HasColumnName("defense_buffer_hours");
             entity.Property(e => e.Name)
                 .HasMaxLength(255)
                 .HasColumnName("name");

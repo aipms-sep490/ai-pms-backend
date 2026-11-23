@@ -25,6 +25,8 @@ public static class EvaluationSchemeRules
                 throw Invalid("COMMON has no major; MAJOR_SPECIFIC and INDIVIDUAL require a project major.");
             if (c.Scope == "INDIVIDUAL" && c.ProjectWeightPercent != 0)
                 throw Invalid("INDIVIDUAL cannot contribute to the project result.");
+            if (c.TargetScope is not null && c.TargetScope is not ("PROJECT" or "MAJOR" or "STUDENT"))
+                throw Invalid("TargetScope must be PROJECT, MAJOR, or STUDENT when specified.");
         }
         if (components.Sum(c => c.ProjectWeightPercent) != 100m)
             throw Invalid("Project weights must sum to 100 percent.");

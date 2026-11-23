@@ -24,6 +24,10 @@ public sealed class FinalSubmission
     public string? Notes { get; set; }
     public Guid DraftConcurrencyToken { get; set; }
     public Guid RequirementsConcurrencyToken { get; set; }
+    public long? LockedBySupervisorId { get; set; }
+    public long? ForceLockedBy { get; set; }
+    public string? ForceLockReason { get; set; }
+    public string? ColdManifestSha256 { get; set; }
     public ICollection<FinalSubmissionItem> Items { get; set; } = new List<FinalSubmissionItem>();
 }
 public sealed class FinalSubmissionItem

@@ -103,6 +103,11 @@ public sealed class RubricsController(ISender sender, IRubricWorkbookService wor
         return CreatedAtAction(nameof(Get), new { id = rubric.Id }, rubric);
     }
 
+    [HttpPost("{id:long}/criteria/{criterionId:long}/clone")]
+    [ProducesResponseType<RubricDto>(200)]
+    public async Task<ActionResult<RubricDto>> CloneCriterion(long id, long criterionId, CloneRubricCriterionRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new CloneRubricCriterionCommand(id, criterionId, request.ConcurrencyToken), ct));
+
     [HttpDelete("{id:long}")]
     [ProducesResponseType(204)]
     public async Task<IActionResult> Delete(long id, [FromQuery] string concurrencyToken, CancellationToken ct)

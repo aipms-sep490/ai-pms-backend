@@ -1049,5 +1049,15 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             excludeProjectId,
             cancellationToken);
     }
+
+    public Task<bool> HasOpenAppealsAsync(long projectId, CancellationToken cancellationToken) =>
+        context.Set<ResultAppealRequest>().AsNoTracking()
+            .AnyAsync(a => a.ProjectId == projectId && (a.Status == "PENDING" || a.Status == "UNDER_REVIEW"), cancellationToken);
+
+    public async Task<bool> IsWorkingAgreementReadyForActivationAsync(long projectId, CancellationToken cancellationToken)
+    {
+        var readiness = await Services.Projects.WorkingAgreementGuard.Read(context, projectId, cancellationToken);
+        return !readiness.Required || readiness.Status == "READY";
+    }
 }
 

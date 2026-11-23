@@ -72,4 +72,28 @@ public sealed class DefenseSession
     public string? CancellationReason { get; set; }
     public long? CancelledBy { get; set; }
     public DateTime? CancelledAt { get; set; }
+    public string SchedulePolicyVersion { get; set; } = "LEGACY_75M";
+    public int SlotDurationMinutes { get; set; } = 75;
+}
+
+public sealed class DefenseTechCheck
+{
+    public long Id { get; set; }
+    public long ProjectId { get; set; }
+    public long RoomId { get; set; }
+    public long CheckedBy { get; set; }
+    public string Status { get; set; } = "PENDING";
+    public string? Notes { get; set; }
+    public DateTime CheckedAt { get; set; }
+}
+
+public sealed class DefenseStandbyPoolEntry
+{
+    public long Id { get; set; }
+    public long ProjectPeriodId { get; set; }
+    public long UserId { get; set; }
+    public long MajorId { get; set; }
+    public long DepartmentId { get; set; }
+    public bool IsAvailable { get; set; } = true;
+    public DateTime CreatedAt { get; set; }
 }

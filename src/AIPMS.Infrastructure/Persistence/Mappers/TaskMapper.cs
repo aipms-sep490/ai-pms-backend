@@ -29,7 +29,8 @@ internal static class TaskMapper
             task.TaskAssignees.Select(static ta => ta.ToDto()).ToArray(),
             task.TaskDependencyTasks.Select(static td => td.ToDto()).ToArray(),
             task.ConcurrencyToken.ToString("N"), task.SprintId, task.StoryPoints, task.TaskCode,
-            task.BoardLabels.Select(l => l.Label).Order(StringComparer.Ordinal).ToArray());
+            task.BoardLabels.Select(l => l.Label).Order(StringComparer.Ordinal).ToArray(),
+            task.BlockedSinceAt, task.BlockerReason, task.GateRequirementId, task.IsCoreGateTask);
 
     public static TaskAssigneeDto ToDto(this TaskAssigneeEntity assignee) =>
         new(

@@ -44,13 +44,19 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
 
     private async Task Eligible(EvaluationActor actor, EvaluationAssignmentRecord assignment, EvaluationProject project, CancellationToken ct)
     {
+        var now = clock.GetUtcNow().UtcDateTime;
+        var isRevokedOrExpired = assignment.Status != "ACTIVE"
+            || (assignment.ValidFrom.HasValue && now < assignment.ValidFrom.Value)
+            || (assignment.ValidUntil.HasValue && now > assignment.ValidUntil.Value);
+        if (actor.Id == assignment.EvaluatorId && isRevokedOrExpired)
+            throw new ForbiddenException("This evaluation assignment has been revoked or expired.", WorkflowErrorCodes.AssignmentRevoked);
         if (!actor.IsLecturer || actor.Id != assignment.EvaluatorId || actor.DepartmentId != assignment.DepartmentId
             || !project.ActiveScope || !project.DepartmentIds.Contains(assignment.DepartmentId)
-            || assignment.Status != "ACTIVE")
-            throw new ForbiddenException("Only the currently assigned evaluator can access this draft.");
+            || isRevokedOrExpired)
+            throw new ForbiddenException("Only the currently assigned evaluator can access this draft.", WorkflowErrorCodes.ScopeAccessDenied);
         if (assignment.EvaluationType == "SUPERVISOR"
             && !await repository.IsCurrentSupervisorAsync(project.Id, actor.Id, ct))
-            throw new ForbiddenException("The supervisor assignment is no longer active.");
+            throw new ForbiddenException("The supervisor assignment is no longer active.", WorkflowErrorCodes.AssignmentRevoked);
     }
 
     private async Task<EvaluationPeriod> Window(EvaluationProject project, long periodId, CancellationToken ct)
@@ -107,8 +113,8 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         project = await Project(projectId, ct);
         if (input.EvaluationType == "SUPERVISOR")
             throw new ConflictException("New SUPERVISOR evaluation assignments are retired; existing assignments may complete under legacy rules.", "SUPERVISOR_EVALUATION_TYPE_RETIRED");
-        if (await repository.IsCurrentSupervisorAsync(projectId, input.EvaluatorId, ct))
-            throw new ConflictException("The current primary supervisor cannot evaluate the same project.", "PRIMARY_EVALUATOR_CONFLICT");
+        if (await repository.HasBeenPrimarySupervisorAsync(projectId, input.EvaluatorId, ct))
+            throw new ConflictException("A current or former primary supervisor cannot evaluate the same project.", WorkflowErrorCodes.EvaluatorRoleConflict);
         var period = await Window(project, input.ProjectPeriodId, ct);
         var evaluator = await repository.GetActorAsync(input.EvaluatorId, ct);
         if (evaluator is null || !evaluator.IsLecturer || evaluator.DepartmentId is null

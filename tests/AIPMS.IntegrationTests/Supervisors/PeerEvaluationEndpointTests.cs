@@ -86,8 +86,8 @@ public sealed partial class SupervisorRequestEndpointTests
         using var primary = app.CreateAuthenticatedClient(s.Lecturer); using var leader = app.CreateAuthenticatedClient(p.LeaderId);
         var url = Peer(p.Id); var round = await Body<PeerRoundDto>(await primary.PostAsJsonAsync(url + "/rounds", PeerInput()));
         var mine = url + $"/rounds/{round.Id}/mine";
-        foreach (var target in new[] { p.LeaderId, s.Student })
-            Assert.Equal(HttpStatusCode.Forbidden, (await leader.PutAsJsonAsync(mine, new SavePeerEvaluationRequest(null, [new(target, 4, null)]))).StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await leader.PutAsJsonAsync(mine, new SavePeerEvaluationRequest(null, [new(p.LeaderId, 4, null)]))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await leader.PutAsJsonAsync(mine, new SavePeerEvaluationRequest(null, [new(s.Student, 4, null)]))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await leader.PutAsJsonAsync(mine, new SavePeerEvaluationRequest(null,
             [new(p.MemberId, 4, null), new(p.MemberId, 4, null)]))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await leader.PutAsJsonAsync(mine, new SavePeerEvaluationRequest(null, [new(p.MemberId, 6, null)]))).StatusCode);

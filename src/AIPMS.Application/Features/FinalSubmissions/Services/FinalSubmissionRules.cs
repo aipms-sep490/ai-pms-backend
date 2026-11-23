@@ -11,6 +11,7 @@ public static class FinalSubmissionRules
         if (!project.IsLeader) result.Add("LEADER_REQUIRED");
         if (project.Status != "ACTIVE") result.Add("PROJECT_NOT_ACTIVE");
         if (!project.AcademicScopeActive) result.Add("ACADEMIC_SCOPE_INACTIVE");
+        if (project.HasUnpassedBlockingGates) result.Add(AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.Gate3NotPassed);
         if (period is null || period.SemesterId != project.SemesterId || period.Type != "FINAL_SUBMISSION")
             result.Add("FINAL_SUBMISSION_PERIOD_REQUIRED");
         else

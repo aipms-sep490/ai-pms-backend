@@ -37,6 +37,8 @@ public partial class AipmsDbContext
             e.ToTable("defense_sessions"); e.HasKey(x => x.Id);
             e.Property(x => x.Room).HasMaxLength(100); e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.ConcurrencyToken).IsConcurrencyToken(); e.Property(x => x.CancellationReason).HasMaxLength(2000);
+            e.Property(x => x.SchedulePolicyVersion).HasMaxLength(30).IsUnicode(false).HasDefaultValue("LEGACY_75M");
+            e.Property(x => x.SlotDurationMinutes).HasDefaultValue(75);
             e.HasOne<DefenseCommittee>().WithMany().HasForeignKey(x => x.CommitteeId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.RoomRecord).WithMany().HasForeignKey(x => x.RoomId).OnDelete(DeleteBehavior.NoAction);
             e.HasIndex(x => new { x.RoomId, x.StartAt });
@@ -45,8 +47,25 @@ public partial class AipmsDbContext
             e.ToTable("rooms"); e.HasKey(x => x.Id);
             e.Property(x => x.Code).HasMaxLength(50); e.Property(x => x.Building).HasMaxLength(50);
             e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.RoomClusterType).HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.EquipmentTagsJson).HasMaxLength(1000);
             e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasIndex(x => x.Code).IsUnique(); e.HasIndex(x => new { x.Building, x.Floor });
+        });
+        b.Entity<DefenseTechCheck>(e => {
+            e.ToTable("defense_tech_checks"); e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+            e.HasOne<Generated.Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Room>().WithMany().HasForeignKey(x => x.RoomId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<DefenseStandbyPoolEntry>(e => {
+            e.ToTable("defense_standby_pool"); e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ProjectPeriodId, x.UserId, x.MajorId }).IsUnique();
+            e.HasOne<Generated.Models.ProjectPeriod>().WithMany().HasForeignKey(x => x.ProjectPeriodId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Generated.Models.User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Generated.Models.Major>().WithMany().HasForeignKey(x => x.MajorId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Generated.Models.Department>().WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<ProjectPeriodCalendar>(e => {
             e.ToTable("project_period_calendars"); e.HasKey(x => x.Id);
@@ -66,7 +85,7 @@ public partial class AipmsDbContext
         });
         foreach (var type in new[] { typeof(ProjectEvidenceReview), typeof(ProjectCheckpoint), typeof(ProjectCheckpointDecision),
                      typeof(DefenseCommittee), typeof(DefenseCommitteeMember), typeof(DefenseSession), typeof(ProjectPeriodCalendar),
-                     typeof(Room), typeof(DefenseScheduleChangeRequest) })
+                     typeof(Room), typeof(DefenseScheduleChangeRequest), typeof(DefenseTechCheck), typeof(DefenseStandbyPoolEntry) })
             foreach (var p in b.Entity(type).Metadata.GetProperties())
             {
                 p.SetColumnName(System.Text.RegularExpressions.Regex.Replace(p.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());

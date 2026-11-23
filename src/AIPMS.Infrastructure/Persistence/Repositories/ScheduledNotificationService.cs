@@ -55,6 +55,7 @@ internal sealed class ScheduledNotificationService(
         var horizon = nowUtc.Add(reminderWindow);
 
         var tasks = await db.Tasks.AsNoTracking().Where(t => t.Milestone.ProjectId == projectId
+            && t.DeletedAt == null
             && t.Milestone.Status != "CANCELLED" && t.Milestone.Status != "COMPLETED"
             && (t.Status == "TODO" || t.Status == "IN_PROGRESS" || t.Status == "BLOCKED" || t.Status == "IN_REVIEW")
             && t.DueAt != null && t.DueAt <= horizon)

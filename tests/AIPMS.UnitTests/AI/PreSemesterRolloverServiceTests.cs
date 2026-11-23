@@ -256,7 +256,13 @@ public sealed class PreSemesterRolloverServiceTests
         public Task<DefenseReadinessDto> DefenseReadiness(long projectId, CancellationToken ct) => throw new NotImplementedException();
         public Task<DefenseReadinessDto> DefenseReadinessByKey(string projectKey, CancellationToken ct) => throw new NotImplementedException();
         public Task<FileDownload> DownloadEvidence(long projectId, string gateCode, long requirementId, int version, CancellationToken ct) => throw new NotImplementedException();
+        public Task<AIPMS.Application.Abstractions.Security.SignedPreviewTokenDto> IssueEvidencePreviewToken(long projectId, string gateCode, long requirementId, int version, CancellationToken ct) => throw new NotImplementedException();
+        public Task<FileDownload> StreamEvidence(long projectId, string gateCode, long requirementId, int version, string token, CancellationToken ct) => throw new NotImplementedException();
+        public Task<AIPMS.Application.Features.Files.OfficePreviewDto> SafePreviewEvidence(long projectId, string gateCode, long requirementId, int version, CancellationToken ct) => throw new NotImplementedException();
         public Task<ReviewGateArchiveManifest> ArchiveManifest(long projectId, string gateCode, CancellationToken ct) => throw new NotImplementedException();
+        public Task<GateRoundConsensusDto> GetRoundScopeConsensus(long projectId, string gateCode, int? roundNumber, CancellationToken ct) => throw new NotImplementedException();
+        public Task<GateRoundConsensusDto> RecordRoundScopeDecision(long projectId, string gateCode, RecordRoundScopeDecisionRequest request, CancellationToken ct) => throw new NotImplementedException();
+        public Task<SlaSweepResultDto> SweepSlaNotifications(CancellationToken ct) => throw new NotImplementedException();
     }
 
     private sealed class StubColdService : IColdSubmissionService

@@ -53,6 +53,7 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Common.Security.IAcademicDirectoryScopeReader, Services.AcademicDirectoryScopeReader>();
         services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.IStudentAccountImportService, Services.StudentRosters.StudentAccountImportService>();
         services.AddScoped<AIPMS.Application.Features.StudentRosters.Abstractions.ITeamRosterExportService, Services.StudentRosters.TeamRosterExportService>();
+        services.AddScoped<AIPMS.Application.Features.DepartmentStudents.Abstractions.IDepartmentStudentService, Services.DepartmentStudents.DepartmentStudentService>();
         services.AddOptions<AIPMS.Application.Features.Chat.ChatSettings>().BindConfiguration("Chat").ValidateDataAnnotations().ValidateOnStart();
         services.AddScoped<Chat.ChatAccessService>();
         services.AddScoped<AIPMS.Application.Features.Chat.Abstractions.IChatAccessService>(sp => sp.GetRequiredService<Chat.ChatAccessService>());
@@ -74,8 +75,15 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore, AiRunStore>();
         services.AddScoped<AIPMS.Application.Features.AiAssistant.Abstractions.IAiAssistantService, RecordedAiAssistantService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IAcademicKnowledgeService, AcademicKnowledgeService>();
+        services.AddScoped<AIPMS.Application.Features.AcademicBlueprints.Abstractions.IAcademicBlueprintService, AcademicBlueprintService>();
+        services.AddScoped<AIPMS.Application.Features.ProjectChecklists.Abstractions.IProjectChecklistService, ProjectChecklistService>();
+        services.AddScoped<AIPMS.Application.Features.ProjectLabels.Abstractions.IProjectLabelService, ProjectLabelService>();
+        services.AddScoped<AIPMS.Application.Features.ProjectHub.Abstractions.IProjectHubService, ProjectHubService>();
+        services.AddScoped<AIPMS.Application.Features.AcademicTracking.Abstractions.IDefenseSchedulerV4Service, DefenseSchedulerV4Service>();
         services.AddScoped<AIPMS.Application.Features.DepartmentDocuments.Abstractions.IDepartmentDocumentService, DepartmentDocumentService>();
         services.AddScoped<AIPMS.Application.Features.Files.Abstractions.IOfficePreviewService, OfficePreviewService>();
+        services.AddSingleton<IFileSecurityScanner, Services.Files.BasicSignatureAndArchiveScanner>();
+        services.AddSingleton<ISignedPreviewTokenService, Services.Files.SignedPreviewTokenService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IWorkflowAssistanceService, WorkflowAssistanceService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IDeliverableReviewService, DeliverableReviewService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IAiSetupService, ProjectAiSetupService>();
@@ -282,12 +290,10 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.Evaluations.Abstractions.IEvaluationAssignmentAccessService,
             Services.Projects.EvaluationAssignmentAccessService>();
         services.AddScoped<IEvaluationSchemeService, EvaluationSchemeService>();
+        services.AddScoped<IIndividualProcessScoringService, IndividualProcessScoringService>();
         services.AddScoped<IResultHistoryService, ResultHistoryService>();
         services.AddScoped<ResultRevisionStore>();
         services.AddScoped<Application.Features.Appeals.Abstractions.IAppealService, ResultAppealService>();
-        services.AddScoped<Application.Features.Industry.Abstractions.IIndustryService, IndustryService>();
-        services.AddScoped<IndustryInvitationEmail>();
-        services.AddOptions<Application.Features.Industry.IndustrySettings>().BindConfiguration("Industry");
         services.AddOptions<Application.Features.Appeals.AppealSettings>().BindConfiguration("Appeals");
         services.AddOptions<AIPMS.Application.Features.Evaluations.Models.RubricOptions>().BindConfiguration(AIPMS.Application.Features.Evaluations.Models.RubricOptions.SectionName);
         services.AddScoped<Application.Features.AcademicTracking.Abstractions.IAcademicTrackingService, AcademicTrackingService>();

@@ -175,4 +175,87 @@ public sealed class ProjectAccessServicePersistenceTests
 
         Assert.False(canAccess);
     }
+
+    [Fact]
+    public async Task CanAccessAsync_LecturerWithOnlyPendingSupervisorRequest_ReturnsFalse()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+
+        var org = new Organization { Id = 1, Code = "UNI", Name = "University", IsActive = true };
+        var dept = new Department { Id = 10, OrganizationId = 1, Organization = org, Code = "SE", Name = "SE", IsActive = true };
+        var lecturer = CreateUser(60, "pending.lecturer@test.com", departmentId: 10);
+        lecturer.Department = dept;
+        var lecturerRole = new Role { Id = 4, Code = AppRoles.Lecturer, Name = "Lecturer" };
+        var userRole = new UserRole { Id = 6, UserId = 60, RoleId = 4 };
+        var profile = new SupervisorProfile { Id = 60, UserId = 60, User = lecturer, IsAvailable = true };
+        var project = new Project { Id = 7, Code = "PRJ-07", Title = "Pending Req Project", Status = "APPROVED", RowVersion = new byte[] { 1 } };
+        var pendingRequest = new SupervisorRequest
+        {
+            Id = 70,
+            ProjectId = 7,
+            SupervisorProfileId = 60,
+            SupervisorProfile = profile,
+            Status = "PENDING",
+            AssignmentType = "PRIMARY",
+            RequestedBy = 50,
+            RequestedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddDays(5)
+        };
+
+        db.Organizations.Add(org);
+        db.Departments.Add(dept);
+        db.Users.Add(lecturer);
+        db.Roles.Add(lecturerRole);
+        db.UserRoles.Add(userRole);
+        db.SupervisorProfiles.Add(profile);
+        db.Projects.Add(project);
+        db.SupervisorRequests.Add(pendingRequest);
+        await db.SaveChangesAsync();
+
+        var accessService = new ProjectAccessService(db);
+
+        Assert.False(await accessService.CanAccessAsync(60, 7, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CanAccessAsync_LecturerWithActiveAssignmentOnlyAccessesAssignedProjects()
+    {
+        using var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+
+        var org = new Organization { Id = 1, Code = "UNI", Name = "University", IsActive = true };
+        var dept = new Department { Id = 10, OrganizationId = 1, Organization = org, Code = "SE", Name = "SE", IsActive = true };
+        var lecturer = CreateUser(61, "multi.lecturer@test.com", departmentId: 10);
+        lecturer.Department = dept;
+        var lecturerRole = new Role { Id = 4, Code = AppRoles.Lecturer, Name = "Lecturer" };
+        var userRole = new UserRole { Id = 7, UserId = 61, RoleId = 4 };
+        var profile = new SupervisorProfile { Id = 61, UserId = 61, User = lecturer, IsAvailable = true };
+        var projectA = new Project { Id = 8, Code = "PRJ-08", Title = "Assigned Project", Status = "ACTIVE", RowVersion = new byte[] { 1 } };
+        var projectB = new Project { Id = 9, Code = "PRJ-09", Title = "Unassigned Project", Status = "ACTIVE", RowVersion = new byte[] { 1 } };
+        var assignmentA = new SupervisorAssignment
+        {
+            Id = 80,
+            ProjectId = 8,
+            SupervisorProfileId = 61,
+            SupervisorProfile = profile,
+            IsPrimary = true,
+            AssignmentType = "PRIMARY",
+            AssignedAt = DateTime.UtcNow,
+            EndedAt = null
+        };
+
+        db.Organizations.Add(org);
+        db.Departments.Add(dept);
+        db.Users.Add(lecturer);
+        db.Roles.Add(lecturerRole);
+        db.UserRoles.Add(userRole);
+        db.SupervisorProfiles.Add(profile);
+        db.Projects.AddRange(projectA, projectB);
+        db.SupervisorAssignments.Add(assignmentA);
+        await db.SaveChangesAsync();
+
+        var accessService = new ProjectAccessService(db);
+
+        Assert.True(await accessService.CanAccessAsync(61, 8, CancellationToken.None));
+        Assert.False(await accessService.CanAccessAsync(61, 9, CancellationToken.None));
+    }
 }

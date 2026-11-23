@@ -162,7 +162,9 @@ internal sealed class PeerEvaluationService(AipmsDbContext db, IEvaluationDraftR
         var round = await Find(projectId, roundId, ct); await SendGuard(round, access, ct);
         if (input.Items is null || input.Items.Count > 99 || input.Items.Any(i => i is null || i.Rating is < 1 or > 5 || i.Comment?.Length > 2000)
             || input.Items.Select(i => i.TargetUserId).Distinct().Count() != input.Items.Count) throw Invalid("Distinct targets, ratings 1..5, comments <=2000 required.");
-        if (input.Items.Any(i => i.TargetUserId == Actor || !round.Members.Any(m => m.UserId == i.TargetUserId)))
+        if (input.Items.Any(i => i.TargetUserId == Actor))
+            throw new AIPMS.Domain.Exceptions.DomainException("Self-evaluation is forbidden.", WorkflowErrorCodes.SelfEvaluationForbidden);
+        if (input.Items.Any(i => !round.Members.Any(m => m.UserId == i.TargetUserId)))
             throw new ForbiddenException("Rate only other members of this round's roster.");
         var row = await db.Set<PeerSubmission>().Include(s => s.Items).SingleOrDefaultAsync(s => s.RoundId == roundId && s.AuthorId == Actor, ct);
         if (row is null) {
@@ -171,6 +173,14 @@ internal sealed class PeerEvaluationService(AipmsDbContext db, IEvaluationDraftR
         } else {
             Token(row.ConcurrencyToken, input.ConcurrencyToken);
             if (row.Status != "DRAFT") throw new ConflictException("Submitted peer evidence is immutable.", "PEER_SUBMITTED");
+        }
+        // Spec V4.0 §5.1: Ratings below 50% (<= 2 on 1..5 scale) require an objective explanation of >= 30 characters.
+        if (input.Items.Any(i => i.Rating <= 2 && (string.IsNullOrWhiteSpace(i.Comment) || i.Comment.Trim().Length < 30)))
+            throw new AIPMS.Domain.Exceptions.DomainException(
+                "Peer ratings below 50% (<= 2/5) require an objective explanation of at least 30 characters.",
+                "LOW_RATING_COMMENT_REQUIRED");
+        if (row.Id != 0)
+        {
             db.RemoveRange(row.Items); row.Items.Clear(); await db.SaveChangesAsync(ct);
         }
         row.Items = input.Items.Select(i => new PeerSubmissionItem { TargetUserId = i.TargetUserId, Rating = i.Rating, Comment = i.Comment?.Trim() }).ToArray();

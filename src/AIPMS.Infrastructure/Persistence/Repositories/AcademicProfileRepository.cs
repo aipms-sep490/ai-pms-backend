@@ -47,14 +47,13 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
     private static readonly System.Linq.Expressions.Expression<Func<Generated.Models.User, AcademicProfileDto>> Projection = u => new AcademicProfileDto(
         u.Id, u.FullName, u.Email, u.StudentCode, u.DepartmentId, u.Department == null ? null : u.Department.Name,
         u.MajorId, u.Major == null ? null : u.Major.Name, u.AcademicProfileStatus ?? "PENDING",
-        u.AcademicProfileReviewedBy, u.AcademicProfileReviewedAt, u.AcademicProfileRejectionReason, null);
+        u.AcademicProfileReviewedBy, u.AcademicProfileReviewedAt, u.AcademicProfileRejectionReason, null,
+        u.ClassCode, u.SpecializationId, u.Specialization == null ? null : u.Specialization.Code,
+        u.Specialization == null ? null : u.Specialization.Name, u.CurriculumCode);
 
     public Task<AcademicProfileDto?> GetAsync(long userId, CancellationToken ct = default) =>
         db.Users.AsNoTracking().Where(u => u.Id == userId && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Student))
-            .Select(u => new AcademicProfileDto(u.Id, u.FullName, u.Email, u.StudentCode, u.DepartmentId,
-                u.Department == null ? null : u.Department.Name, u.MajorId, u.Major == null ? null : u.Major.Name,
-                u.AcademicProfileStatus ?? "PENDING", u.AcademicProfileReviewedBy, u.AcademicProfileReviewedAt,
-                u.AcademicProfileRejectionReason, null)).SingleOrDefaultAsync(ct);
+            .Select(Projection).SingleOrDefaultAsync(ct);
 
     public async Task<PagedResult<AcademicProfileDto>> SearchAsync(string? status, long? departmentId, int page, int pageSize, CancellationToken ct = default)
     {
@@ -121,11 +120,22 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
         if (changed)
         {
             user.DepartmentId = departmentId; user.MajorId = majorId;
+            if (user.SpecializationId.HasValue)
+            {
+                var specStillValid = await db.DepartmentSpecializations.AsNoTracking().AnyAsync(
+                    s => s.Id == user.SpecializationId.Value
+                        && departmentId.HasValue && s.DepartmentId == departmentId.Value
+                        && (s.MajorId == null || s.MajorId == majorId), ct);
+                if (!specStillValid) user.SpecializationId = null;
+            }
             user.AcademicProfileStatus = "PENDING"; user.AcademicProfileReviewedBy = null;
             user.AcademicProfileReviewedAt = null; user.AcademicProfileRejectionReason = null; user.UpdatedAt = now;
             await db.SaveChangesAsync(ct);
         }
-        var result = await GetAsync(userId, ct) ?? throw new NotFoundException("User", userId);
+        var result = await db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(Projection)
+            .SingleOrDefaultAsync(ct) ?? throw new NotFoundException("User", userId);
         return result with { ConcurrencyToken = Convert.ToBase64String(user.RowVersion) };
     }
 

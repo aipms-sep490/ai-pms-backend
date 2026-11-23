@@ -88,6 +88,14 @@ public sealed class UpdateTaskStatusCommandHandler(
             throw new ConflictException($"Cannot transition task from status {task.Status} to {request.NewStatus}.");
         }
 
+        if (string.Equals(request.NewStatus, "BLOCKED", StringComparison.OrdinalIgnoreCase)
+            && (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 15))
+        {
+            throw new AIPMS.Domain.Exceptions.DomainException(
+                "Moving a task to BLOCKED requires a blocker reason of at least 15 characters.",
+                "BLOCKER_REASON_TOO_SHORT");
+        }
+
         // FINISH_TO_START is an execution guard, not only an AI advisory edge.
         // Keep the check server-side so direct API calls cannot bypass it.
         if (request.NewStatus is "IN_PROGRESS" or "DONE" or "COMPLETED")

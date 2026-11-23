@@ -49,6 +49,8 @@ public sealed class ArchiveProjectCommandHandler(
             throw new ForbiddenException("You can only archive projects within your academic department scope.");
         if (!ProjectArchivePolicy.HasState(project.Status))
             throw new ConflictException("Only a COMPLETED project can be archived.", WorkflowErrorCodes.ArchiveNotAllowed);
+        if (await repository.HasOpenAppealsAsync(request.ProjectId, cancellationToken))
+            throw new ConflictException("Cannot archive a project while open result appeals or correction requests exist.", WorkflowErrorCodes.ArchiveNotAllowed);
         var updated = await repository.UpdateStatusAsync(request.ProjectId, request.ConcurrencyToken,
             project.Status, "ARCHIVED", actorId, request.Reason?.Trim(), cancellationToken);
         await auditTrail.RecordAsync(new AuditEntry(actorId, "PROJECT_ARCHIVED", "PROJECT", updated.Id,

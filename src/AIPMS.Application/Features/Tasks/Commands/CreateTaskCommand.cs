@@ -25,7 +25,13 @@ public sealed record CreateTaskCommand(
     DateTime? StartAt,
     DateTime? DueAt,
     IReadOnlyList<long> AssigneeUserIds,
-    IReadOnlyList<TaskDisciplineInput>? Disciplines = null) : IRequest<TaskDto>;
+    IReadOnlyList<TaskDisciplineInput>? Disciplines = null,
+    string? InitialStatus = null,
+    long? SprintId = null,
+    int? StoryPoints = null,
+    IReadOnlyList<string>? Labels = null,
+    long? GateRequirementId = null,
+    IReadOnlyList<string>? InitialCriteria = null) : IRequest<TaskDto>;
 
 public sealed class CreateTaskCommandHandler(
     ITaskRepository repository,
@@ -61,10 +67,34 @@ public sealed class CreateTaskCommandHandler(
         // Verify project is ACTIVE (strict guard)
         await executionGuard.MustBeActiveAsync(projectId, cancellationToken);
 
-        // Verify authorization: Student Leader or Assigned Supervisor
-        if (!await repository.IsProjectLeaderOrSupervisorAsync(projectId, actorUserId, cancellationToken))
+        // Validate initial status (only TODO or IN_PROGRESS allowed on creation; IN_REVIEW/DONE/CANCELLED/BLOCKED => 422 INVALID_INITIAL_STATUS)
+        if (!string.IsNullOrWhiteSpace(request.InitialStatus))
         {
-            throw new ForbiddenException("You are not authorized to create tasks for this project.");
+            var initStatus = request.InitialStatus.Trim().ToUpperInvariant();
+            if (initStatus is not ("TODO" or "IN_PROGRESS"))
+                throw new AIPMS.Domain.Exceptions.DomainException(
+                    $"Invalid initial task status '{request.InitialStatus}'. Only TODO or IN_PROGRESS is allowed on creation.",
+                    WorkflowErrorCodes.InvalidInitialStatus);
+        }
+
+        // Verify authorization: Student Leader or Assigned Supervisor can create any task (including GateRequirement core tasks);
+        // active STUDENT_MEMBER can create normal tasks within their own majorScope only.
+        var isLeaderOrSupervisor = await repository.IsProjectLeaderOrSupervisorAsync(projectId, actorUserId, cancellationToken);
+        if (!isLeaderOrSupervisor)
+        {
+            if (request.GateRequirementId.HasValue)
+                throw new ForbiddenException("Only the team leader or assigned supervisor can create core gate-linked tasks.");
+
+            var isActiveMember = await repository.IsUserActiveTeamMemberAsync(projectId, actorUserId, cancellationToken);
+            if (!isActiveMember)
+                throw new ForbiddenException("You are not authorized to create tasks for this project.");
+
+            if (request.Disciplines is { Count: > 0 })
+            {
+                var actorMajor = await repository.GetUserMajorIdAsync(projectId, actorUserId, cancellationToken);
+                if (actorMajor.HasValue && request.Disciplines.Any(d => d.MajorId != actorMajor.Value))
+                    throw new ForbiddenException("Team members can only create tasks within their own major scope.");
+            }
         }
 
         // Validate task dates against milestone and project execution window
@@ -110,6 +140,25 @@ public sealed class CreateTaskCommandHandler(
             request.AssigneeUserIds,
             actorUserId,
             cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(request.InitialStatus)
+            || request.SprintId.HasValue
+            || request.StoryPoints.HasValue
+            || request.Labels is { Count: > 0 }
+            || request.GateRequirementId.HasValue
+            || request.InitialCriteria is { Count: > 0 })
+        {
+            task = await repository.ApplyOneStepCreateExtrasAsync(
+                task.Id,
+                request.InitialStatus,
+                request.SprintId,
+                request.StoryPoints,
+                request.Labels,
+                request.GateRequirementId,
+                request.InitialCriteria,
+                actorUserId,
+                cancellationToken);
+        }
 
         await auditTrail.RecordAsync(
             new AuditEntry(

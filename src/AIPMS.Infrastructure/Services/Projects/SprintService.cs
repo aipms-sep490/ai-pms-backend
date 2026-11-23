@@ -24,7 +24,7 @@ internal sealed class SprintService(AipmsDbContext db, ICurrentUser user, IAudit
     private sealed record Scope(M.Project Project, bool Manager, bool Whole, long[] Majors);
     private static ValidationException Invalid(string text) => new(new Dictionary<string, string[]> { ["sprint"] = [text] });
     private static void Current(Guid current, string? input)
-    { if (!Guid.TryParse(input, out var token) || token != current) throw new ConflictException("The resource changed. Reload before saving."); }
+    { if (!Guid.TryParse(input, out var token) || token != current) throw new ConflictException("The resource changed. Reload before saving.", WorkflowErrorCodes.StaleConcurrencyToken); }
     private static void Page(int page, int size)
     { if (page < 1 || size is < 1 or > 100 || (long)(page - 1) * size > int.MaxValue) throw Invalid("Invalid pagination."); }
     private async Task<Scope> Access(long projectId, bool write, CancellationToken ct)
@@ -40,9 +40,11 @@ internal sealed class SprintService(AipmsDbContext db, ICurrentUser user, IAudit
                 Staff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"),
                 Student = u.UserRoleUsers.Any(r => r.Role.Code == "STUDENT"), Lecturer = u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER") }).SingleOrDefaultAsync(ct)
             ?? throw new ForbiddenException();
+        var manager = await ProjectExecutionAuthority.IsManagerAsync(db, projectId, Actor, ct);
+        if (write && p.Status != "ACTIVE" && manager)
+            throw new ConflictException("Project is read-only.", WorkflowErrorCodes.ProjectNotActive);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: true);
         if (scope.Provenance != "FROZEN_REGISTRATION_SNAPSHOT") throw new ForbiddenException("A valid frozen project scope is required.");
-        var manager = await ProjectExecutionAuthority.IsManagerAsync(db, projectId, Actor, ct);
         var student = account.Student && await db.TeamMembers.AnyAsync(m => m.TeamId == p.TeamId && m.UserId == Actor && m.LeftAt == null, ct);
         var whole = manager || student || account.Staff && account.DepartmentId == scope.LeadDepartmentId;
         var majors = new HashSet<long>();
@@ -51,7 +53,7 @@ internal sealed class SprintService(AipmsDbContext db, ICurrentUser user, IAudit
             && a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId.HasValue && a.SupervisorProfile.UserId == Actor).Select(a => a.MajorId!.Value).ToArrayAsync(ct));
         majors.IntersectWith(scope.MajorIds);
         if (!whole && majors.Count == 0 || write && !manager) throw new ForbiddenException();
-        if (write && p.Status != "ACTIVE") throw new ConflictException("Project is read-only.");
+        if (write && p.Status != "ACTIVE") throw new ConflictException("Project is read-only.", WorkflowErrorCodes.ProjectNotActive);
         return new(p, manager, whole, majors.ToArray());
     }
     private SprintDto Dto(Sprint s, Scope scope, bool anotherActive = false) => new(s.Id, s.ProjectId, s.Name, s.Status,
@@ -153,7 +155,7 @@ internal sealed class SprintService(AipmsDbContext db, ICurrentUser user, IAudit
         var dto = await TaskDto(taskId, ct); await tx.CommitAsync(ct); return dto;
     }
     private async Task<TaskDto> TaskDto(long id, CancellationToken ct) => (await TaskQuery().SingleAsync(t => t.Id == id, ct)).ToDto();
-    private IQueryable<M.Task> TaskQuery() => db.Tasks.AsNoTracking().Include(t => t.BoardLabels).Include(t => t.CreatedByNavigation)
+    private IQueryable<M.Task> TaskQuery() => db.Tasks.AsNoTracking().Where(t => t.DeletedAt == null).Include(t => t.BoardLabels).Include(t => t.CreatedByNavigation)
         .Include(t => t.TaskAssignees).ThenInclude(a => a.User).Include(t => t.TaskDependencyTasks);
     public async Task<PagedResult<TaskDto>> Board(long projectId, long? sprintId, bool backlog, string? label, long? majorId, string? status, int page, int pageSize, CancellationToken ct)
     {

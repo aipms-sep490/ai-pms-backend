@@ -8,6 +8,8 @@ public sealed class MeetingDecision
     public long DecidedBy { get; set; }
     public DateTime DecidedAt { get; set; }
     public DateTime CreatedAt { get; set; }
+    public long? SupersededByDecisionId { get; set; }
+    public long? SourceMessageId { get; set; }
 }
 
 public sealed class MeetingActionItem

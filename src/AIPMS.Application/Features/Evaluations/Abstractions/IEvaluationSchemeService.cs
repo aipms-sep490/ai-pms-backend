@@ -21,5 +21,7 @@ public interface IEvaluationSchemeService
     Task<ProjectResultPreviewDto> PreviewAsync(long projectId, long? studentId, CancellationToken ct);
     Task<ProjectResultDto> PublishProjectAsync(long projectId, string token, CancellationToken ct);
     Task<StudentResultDto> PublishStudentAsync(long projectId, long studentId, string token, CancellationToken ct);
+    Task<BatchPublishResultDto> PublishBatchAsync(long projectId, string token, CancellationToken ct);
+    Task<StudentDefenseAbsenceDto> RecordDefenseAbsenceAsync(long projectId, long studentId, RecordDefenseAbsenceRequest input, CancellationToken ct);
     Task<StudentResultDto> GetStudentAsync(long projectId, long studentId, CancellationToken ct);
 }

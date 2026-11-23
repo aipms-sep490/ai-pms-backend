@@ -41,11 +41,11 @@ public sealed partial class EvaluationDraftEndpointTests
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
         using var lecturer = app.CreateAuthenticatedClient(s.Scope.Users.Lecturer);
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
-        Assert.Equal(HttpStatusCode.NotFound, (await student.GetAsync(ResultUrl(s.ProjectId))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await student.GetAsync(ResultUrl(s.ProjectId))).StatusCode);
         var waiting = await ResultPreview(staff, s.ProjectId);
         Assert.False(waiting.CanPublish);
         Assert.Contains($"EVALUATION_NOT_FINALIZED:{a.Id}", waiting.Blockers);
-        Assert.Equal(HttpStatusCode.Conflict, (await PublishResult(staff, waiting)).StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await PublishResult(staff, waiting)).StatusCode);
         await Body<EvaluationDraftDto>(await Finalize(lecturer, draft));
         Assert.Equal(HttpStatusCode.Conflict, (await PublishResult(staff, waiting)).StatusCode);
         // Publication remains possible after scoring closes; finalized evidence is authoritative.

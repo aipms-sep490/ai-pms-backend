@@ -20,7 +20,6 @@ public partial class AipmsDbContext
         ConfigurePeerEvaluations(modelBuilder);
         ConfigureResultRevisions(modelBuilder);
         ConfigureResultAppeals(modelBuilder);
-        ConfigureIndustry(modelBuilder);
         ConfigureAcademicTracking(modelBuilder);
         ConfigureDepartmentDocumentTemplates(modelBuilder);
         ConfigureUserAvatars(modelBuilder);
@@ -58,6 +57,10 @@ public partial class AipmsDbContext
         ConfigureTeamEligibilitySnapshots(modelBuilder);
         ConfigureAcademicKnowledge(modelBuilder);
         ConfigureRiskHistory(modelBuilder);
+        ConfigureAcademicBlueprints(modelBuilder);
+        ConfigureProjectChecklists(modelBuilder);
+        ConfigureProjectHub(modelBuilder);
+        ConfigureStudentSpecializations(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
         {
             entity.ToTable("rubric_versions", table =>
@@ -98,6 +101,13 @@ public partial class AipmsDbContext
             entity.Property(e => e.EvidenceGuidance)
                 .HasMaxLength(1000)
                 .HasColumnName("evidence_guidance");
+            entity.Property(e => e.TargetScope)
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasColumnName("target_scope");
+            entity.Property(e => e.IsIntegration)
+                .HasDefaultValue(false)
+                .HasColumnName("is_integration");
             entity.HasMany(e => e.Levels)
                 .WithOne(e => e.RubricCriterion)
                 .HasForeignKey(e => e.RubricCriterionId)
