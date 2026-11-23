@@ -315,8 +315,6 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
-        if (await context.Set<AIPMS.Infrastructure.Persistence.Models.IndustryExpert>().AnyAsync(e => e.UserId == userId, cancellationToken))
-            throw new ConflictException("Industry experts use scoped advisory assignments, not global academic roles.");
         context.UserRoles.Add(new UserRole
         {
             UserId = userId,

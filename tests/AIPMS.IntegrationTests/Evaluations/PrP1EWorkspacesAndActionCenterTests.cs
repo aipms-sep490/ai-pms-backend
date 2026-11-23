@@ -7,7 +7,7 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.IntegrationTests.Evaluations;
 
-public sealed class PrP1EWorkspacesActionCenterAndIndustryTests(EvaluationDraftDatabaseFixture database)
+public sealed class PrP1EWorkspacesAndActionCenterTests(EvaluationDraftDatabaseFixture database)
     : IClassFixture<EvaluationDraftDatabaseFixture>
 {
     private static DateTime Now => EvaluationDraftDatabaseFixture.Now;
@@ -21,10 +21,10 @@ public sealed class PrP1EWorkspacesActionCenterAndIndustryTests(EvaluationDraftD
     }
 
     [Fact]
-    public async Task Action_aggregators_surface_unified_lecturer_triage_exclude_soft_deleted_tasks_and_isolate_industry()
+    public async Task Action_aggregators_surface_unified_lecturer_triage_exclude_soft_deleted_tasks_and_isolate_roles()
     {
         var s = await database.Seed(false);
-        long supervisorUserId, evalAssignmentId, activeTaskId, deletedTaskId, blockedTaskId, expertUserId;
+        long supervisorUserId, evalAssignmentId, activeTaskId, deletedTaskId, blockedTaskId;
 
         await using (var db = database.CreateContext())
         {
@@ -118,24 +118,13 @@ public sealed class PrP1EWorkspacesActionCenterAndIndustryTests(EvaluationDraftD
                 LockRequestedAt = Now.AddHours(-2)
             };
             db.Set<FinalSubmissionDraft>().Add(pendingLock);
-
-            var expertUser = new M.User
-            {
-                Email = $"expert_{Guid.NewGuid():N}@industry.invalid",
-                FullName = "External Mentor",
-                PasswordHash = "unused",
-                Status = "ACTIVE"
-            };
-            db.Users.Add(expertUser);
             await db.SaveChangesAsync();
             evalAssignmentId = evalAssign.Id;
-            expertUserId = expertUser.Id;
         }
 
         using var factory = new EvaluationFactory(database);
         using var studentClient = factory.CreateAuthenticatedClient(s.Scope.Users.Student, roles: ["STUDENT"]);
         using var supervisorClient = factory.CreateAuthenticatedClient(supervisorUserId, roles: ["LECTURER"]);
-        using var expertClient = factory.CreateAuthenticatedClient(expertUserId, roles: ["INDUSTRY_EXPERT"]);
 
         // 1. Student Next Actions excludes soft-deleted task while keeping active task
         var studentActions = await Body<StudentNextActionsDto>(await studentClient.GetAsync("/api/v1/students/me/next-actions"));
@@ -148,10 +137,10 @@ public sealed class PrP1EWorkspacesActionCenterAndIndustryTests(EvaluationDraftD
         Assert.Contains(triage.Items, x => x.Kind == "TASK_BLOCKED_48H" && x.Id == blockedTaskId);
         Assert.Contains(triage.Items, x => x.Kind == "FINAL_LOCK_APPROVAL" && x.ProjectId == s.ProjectId);
 
-        // 3. Negative role isolation: Lecturer cannot call Student next-actions; Industry Expert gets 403 on internal workspaces
+        // 3. Negative role isolation across core workspaces
         Assert.Equal(HttpStatusCode.Forbidden, (await supervisorClient.GetAsync("/api/v1/students/me/next-actions")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await expertClient.GetAsync("/api/v1/supervisors/me/triage-queue")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await expertClient.GetAsync("/api/v1/students/me/next-actions")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await expertClient.GetAsync($"/api/v1/departments/{s.Scope.Users.DepartmentId}/urgent-actions")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await studentClient.GetAsync("/api/v1/supervisors/me/triage-queue")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await studentClient.GetAsync($"/api/v1/departments/{s.Scope.Users.DepartmentId}/urgent-actions")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await supervisorClient.GetAsync($"/api/v1/departments/{s.Scope.Users.DepartmentId}/urgent-actions")).StatusCode);
     }
 }
