@@ -44,6 +44,8 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public async Task<ActionResult<ReviewGateTemplateDto>> UpdateTemplate(long id, SaveReviewGateTemplateRequest request, CancellationToken ct) => Ok(await service.SaveTemplate(request, id, ct));
     [HttpPost("api/v1/academic/gate-templates/{id:long}/publish")]
     public async Task<ActionResult<ReviewGateTemplateDto>> PublishTemplate(long id, PublishReviewGateTemplateRequest? request, CancellationToken ct) => Ok(await service.PublishTemplate(id, request, ct));
+    [HttpDelete("api/v1/academic/gate-templates/{id:long}")]
+    public async Task<IActionResult> DeleteTemplate(long id, CancellationToken ct) { await service.DeleteTemplate(id, ct); return NoContent(); }
     [HttpGet("api/v1/projects/{projectId:long}/review-gates/timeline")]
     public async Task<ActionResult<StudentReviewTimelineDto>> Timeline(long projectId, CancellationToken ct) => Ok(await service.Timeline(projectId, ct));
     [HttpGet("api/v1/projects/{projectId:long}/review-gates")]

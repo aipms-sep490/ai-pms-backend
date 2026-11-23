@@ -13,6 +13,7 @@ public interface IReviewGateService
     Task<GateWorkbookPreview> PreviewTemplateWorkbook(long id, byte[] content, CancellationToken ct);
     Task<ReviewGateTemplateDto> SaveTemplate(SaveReviewGateTemplateRequest request, long? id, CancellationToken ct);
     Task<ReviewGateTemplateDto> PublishTemplate(long id, PublishReviewGateTemplateRequest? request, CancellationToken ct);
+    Task DeleteTemplate(long id, CancellationToken ct);
     Task<StudentReviewTimelineDto> Timeline(long projectId, CancellationToken ct);
     Task<StudentReviewTimelineDto> MyTimeline(CancellationToken ct);
     Task<StudentReviewTimelineDto> SubmitEvidence(long projectId, string gateCode, SubmitReviewGateEvidenceRequest request, CancellationToken ct);
