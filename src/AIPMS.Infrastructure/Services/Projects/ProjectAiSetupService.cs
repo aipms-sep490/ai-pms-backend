@@ -6,10 +6,12 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.AcademicKnowledge;
 using AIPMS.Application.Features.AcademicKnowledge.Abstractions;
+using AIPMS.Application.Features.Cold.Abstractions;
 using AIPMS.Application.Features.Evaluations.Commands;
 using AIPMS.Application.Features.Evaluations.DTOs;
 using AIPMS.Application.Features.Evaluations.Models;
 using AIPMS.Application.Features.Milestones.Abstractions;
+using AIPMS.Application.Features.ReviewGates.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using MediatR;
@@ -18,13 +20,15 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.Infrastructure.Services.Projects;
 
-internal sealed class ProjectAiSetupService(
+internal sealed partial class ProjectAiSetupService(
     AipmsDbContext db,
     ICurrentUser currentUser,
     IProjectExecutionGuard executionGuard,
     ISender sender,
     IAuditTrail audit,
-    TimeProvider clock) : IAiSetupService
+    TimeProvider clock,
+    IReviewGateService? reviewGates = null,
+    IColdSubmissionService? coldService = null) : IAiSetupService
 {
     public async Task<ApplyProjectSetupResultDto> ApplyProjectSetupAsync(long projectId, ApplyProjectSetupRequest request, CancellationToken ct = default)
     {

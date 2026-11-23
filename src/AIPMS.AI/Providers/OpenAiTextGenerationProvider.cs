@@ -18,8 +18,14 @@ public sealed class OpenAiTextGenerationProvider(
     private int ResolveMaxTokens(string systemPrompt)
     {
         var configured = Math.Clamp(options.OpenAi.MaxCompletionTokens, 256, 4096);
+        if (systemPrompt.Contains("TOPIC_BATCH_SETUP", StringComparison.Ordinal)
+            || systemPrompt.Contains("KNOWLEDGE_DOC_INGEST", StringComparison.Ordinal))
+            return Math.Max(configured, 3200);
         if (systemPrompt.Contains("PROJECT_SETUP", StringComparison.Ordinal)
             || systemPrompt.Contains("RUBRIC_SETUP", StringComparison.Ordinal)
+            || systemPrompt.Contains("REVIEW_GATE_SETUP", StringComparison.Ordinal)
+            || systemPrompt.Contains("COLD_TEMPLATE_SETUP", StringComparison.Ordinal)
+            || systemPrompt.Contains("MILESTONE_TEMPLATE_SETUP", StringComparison.Ordinal)
             || systemPrompt.Contains("MEETING_AI_MINUTES", StringComparison.Ordinal)
             || systemPrompt.Contains("MEETING_AI_COACH", StringComparison.Ordinal)
             || systemPrompt.Contains("AI_SUITE_", StringComparison.Ordinal))

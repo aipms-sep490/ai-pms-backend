@@ -148,6 +148,179 @@ internal static class AssistantSetupPlanParser
             Text(value, "majorName", 255), criteria, StringList(value, "warnings", 10, 400));
     }
 
+    public static AssistantReviewGateSetupPlanDto? ParseReviewGateSetup(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object) return null;
+        var name = Text(value, "name", 200);
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        var rawCode = Text(value, "code", 60) ?? "GATE_AI_DRAFT";
+        var code = Regex.Replace(rawCode.ToUpperInvariant(), @"[^A-Z0-9_\-]", "_");
+        if (string.IsNullOrWhiteSpace(code)) code = "GATE_AI_DRAFT";
+        var mode = Text(value, "mode", 24)?.ToUpperInvariant();
+        if (mode is not ("SINGLE_MAJOR" or "INTERDISCIPLINARY")) mode = "SINGLE_MAJOR";
+        var majorCode = Text(value, "majorCode", 80) ?? Text(value, "major", 80);
+        var summary = Text(value, "summary", 1000) ?? "Khung cổng thẩm định nháp do AI đề xuất. Kiểm tra ngày, trọng số (tổng 100%) và yêu cầu minh chứng trước khi lưu bản nháp.";
+
+        var gates = new List<AssistantReviewGateDraftDto>();
+        if (value.TryGetProperty("gates", out var gateArr) && gateArr.ValueKind == JsonValueKind.Array)
+        {
+            var seq = 0;
+            foreach (var item in gateArr.EnumerateArray().Take(10))
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var title = Text(item, "title", 200);
+                if (string.IsNullOrWhiteSpace(title)) continue;
+                seq++;
+                var gCodeRaw = Text(item, "code", 32) ?? $"G{seq}";
+                var gCode = Regex.Replace(gCodeRaw.ToUpperInvariant(), @"[^A-Z0-9_\-]", "_");
+                if (string.IsNullOrWhiteSpace(gCode)) gCode = $"G{seq}";
+                var gSeq = item.TryGetProperty("sequence", out var seqEl) && seqEl.ValueKind == JsonValueKind.Number && seqEl.TryGetInt32(out var s) && s > 0 ? s : seq;
+                var weight = DecimalVal(item, "weight");
+                if (weight is < 0 or > 100) weight = null;
+                var startDate = Day(Text(item, "startDate", 10));
+                var endDate = Day(Text(item, "endDate", 10));
+                if (startDate != null && endDate != null && string.CompareOrdinal(endDate, startDate) < 0) endDate = startDate;
+                var required = !item.TryGetProperty("required", out var reqEl) || reqEl.ValueKind != JsonValueKind.False;
+                var blockNext = item.TryGetProperty("blockNextGate", out var bnEl) && bnEl.ValueKind == JsonValueKind.True;
+                var blocksDefense = item.TryGetProperty("blocksDefense", out var bdEl) && bdEl.ValueKind == JsonValueKind.True;
+                var reviewerPolicy = Text(item, "reviewerPolicy", 40)?.ToUpperInvariant();
+                if (reviewerPolicy is not ("SUPERVISOR" or "LECTURER" or "COUNCIL" or "DEPARTMENT_STAFF")) reviewerPolicy = "COUNCIL";
+                var reviewScope = Text(item, "reviewScope", 32)?.ToUpperInvariant();
+                if (reviewScope is not ("COMMON" or "MAJOR_SPECIFIC" or "HYBRID")) reviewScope = mode == "INTERDISCIPLINARY" ? "HYBRID" : "COMMON";
+
+                var reqs = new List<AssistantReviewGateRequirementDraftDto>();
+                if (item.TryGetProperty("requirements", out var reqArr) && reqArr.ValueKind == JsonValueKind.Array)
+                {
+                    var rIdx = 0;
+                    foreach (var r in reqArr.EnumerateArray().Take(15))
+                    {
+                        if (r.ValueKind != JsonValueKind.Object) continue;
+                        var rTitle = Text(r, "title", 200);
+                        if (string.IsNullOrWhiteSpace(rTitle)) continue;
+                        rIdx++;
+                        var rCodeRaw = Text(r, "code", 40) ?? $"{gCode}_REQ_{rIdx}";
+                        var rCode = Regex.Replace(rCodeRaw.ToUpperInvariant(), @"[^A-Z0-9_\-]", "_");
+                        if (string.IsNullOrWhiteSpace(rCode)) rCode = $"{gCode}_REQ_{rIdx}";
+                        var rType = Text(r, "type", 24)?.ToUpperInvariant();
+                        if (rType is not ("FILE" or "EXTERNAL_LINK" or "TEXT" or "ARTIFACT")) rType = "FILE";
+                        var rScope = Text(r, "scope", 24)?.ToUpperInvariant();
+                        if (rScope is not ("COMMON" or "MAJOR_SPECIFIC")) rScope = "COMMON";
+                        var rVer = Text(r, "verification", 24)?.ToUpperInvariant();
+                        if (rVer is not ("HUMAN" or "AUTO")) rVer = "HUMAN";
+                        var rRequired = !r.TryGetProperty("required", out var rrEl) || rrEl.ValueKind != JsonValueKind.False;
+                        reqs.Add(new(rCode, rTitle, Text(r, "description", 600), rType, rScope,
+                            rScope == "MAJOR_SPECIFIC" ? Text(r, "majorName", 160) : null, rVer, rRequired));
+                    }
+                }
+                if (reqs.Count == 0)
+                {
+                    reqs.Add(new($"{gCode}_DOC_1", $"Báo cáo & minh chứng cổng {gCode}", "Tài liệu minh chứng hoàn thành mục tiêu cổng.", "FILE", "COMMON", null, "HUMAN", true));
+                }
+                gates.Add(new(gCode, gSeq, title, Text(item, "objective", 1000) ?? $"Thẩm định kết quả tại cổng {gCode}.",
+                    weight, startDate, endDate, required, blockNext, blocksDefense, reviewerPolicy, reviewScope, reqs));
+            }
+        }
+        if (gates.Count == 0) return null;
+        return new(code, name, mode, majorCode, summary, gates, StringList(value, "warnings", 10, 400));
+    }
+
+    public static AssistantTopicBatchPlanDto? ParseTopicBatchSetup(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object) return null;
+        var summary = Text(value, "summary", 1000) ?? "Danh sách đề tài nháp trích xuất bởi AI. Kiểm tra cảnh báo trùng 3 kỳ và chọn lọc trước khi lưu bản nháp.";
+        var topics = new List<AssistantTopicDraftDto>();
+        if (value.TryGetProperty("topics", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            var idx = 0;
+            foreach (var item in arr.EnumerateArray().Take(25))
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var title = Text(item, "title", 255);
+                if (string.IsNullOrWhiteSpace(title)) continue;
+                idx++;
+                var tempKey = Text(item, "tempKey", 40) ?? $"TOP_{idx}";
+                var rawCode = Text(item, "code", 40) ?? $"TOPIC_{idx:00}";
+                var code = Regex.Replace(rawCode.ToUpperInvariant(), @"[^A-Z0-9_\-]", "_");
+                if (code.Length < 2) code = $"TOPIC_{idx:00}";
+                if (code.Length > 40) code = code[..40];
+                var mode = Text(item, "projectMode", 24)?.ToUpperInvariant();
+                if (mode is not ("SINGLE_MAJOR" or "INTERDISCIPLINARY")) mode = "SINGLE_MAJOR";
+                long? primaryMajorId = item.TryGetProperty("primaryMajorId", out var pmEl) && pmEl.ValueKind == JsonValueKind.Number && pmEl.TryGetInt64(out var pmid) && pmid > 0 ? pmid : null;
+                var primaryMajorName = Text(item, "primaryMajorName", 160);
+
+                var reqs = new List<AssistantTopicRequirementDraftDto>();
+                if (item.TryGetProperty("requirements", out var reqArr) && reqArr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var r in reqArr.EnumerateArray().Take(6))
+                    {
+                        if (r.ValueKind != JsonValueKind.Object) continue;
+                        long? mId = r.TryGetProperty("majorId", out var midEl) && midEl.ValueKind == JsonValueKind.Number && midEl.TryGetInt64(out var mid) && mid > 0 ? mid : null;
+                        var mName = Text(r, "majorName", 160);
+                        var minM = r.TryGetProperty("minMembers", out var minEl) && minEl.ValueKind == JsonValueKind.Number && minEl.TryGetInt32(out var mn) && mn >= 1 ? Math.Min(mn, 12) : 1;
+                        var maxM = r.TryGetProperty("maxMembers", out var maxEl) && maxEl.ValueKind == JsonValueKind.Number && maxEl.TryGetInt32(out var mx) && mx >= minM ? Math.Min(mx, 12) : Math.Max(minM, 5);
+                        var resp = Text(r, "responsibility", 500) ?? "Thực hiện phần chuyên môn chính của đề tài.";
+                        reqs.Add(new(mId, mName, minM, maxM, resp));
+                    }
+                }
+
+                topics.Add(new(
+                    tempKey, code, title,
+                    Text(item, "description", 2000),
+                    Text(item, "problemStatement", 2000),
+                    Text(item, "objectives", 2000),
+                    Text(item, "expectedOutput", 2000),
+                    Text(item, "domain", 120),
+                    StringList(item, "technologies", 12, 80),
+                    StringList(item, "keywords", 12, 80),
+                    mode, primaryMajorId, primaryMajorName, reqs));
+            }
+        }
+        if (topics.Count == 0) return null;
+        return new(summary, topics, StringList(value, "warnings", 10, 400));
+    }
+
+    public static AssistantColdTemplateSetupPlanDto? ParseColdTemplateSetup(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object) return null;
+        var name = Text(value, "name", 200);
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        var scope = Text(value, "scope", 24)?.ToUpperInvariant();
+        if (scope is not ("COMMON" or "MAJOR_SPECIFIC")) scope = "MAJOR_SPECIFIC";
+        var majorName = scope == "MAJOR_SPECIFIC" ? Text(value, "majorName", 160) : null;
+        var summary = Text(value, "summary", 1000) ?? "Danh mục báo cáo chấm nguội đề xuất bởi AI. Kiểm tra mã báo cáo và phạm vi trước khi lưu phiên bản mới.";
+
+        var reports = new List<AssistantColdReportItemDraftDto>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        if (value.TryGetProperty("reports", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            var idx = 0;
+            foreach (var item in arr.EnumerateArray().Take(30))
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var rName = Text(item, "name", 200);
+                if (string.IsNullOrWhiteSpace(rName)) continue;
+                idx++;
+                var rawCode = Text(item, "code", 80) ?? $"REPORT_{idx}";
+                var code = Regex.Replace(rawCode.ToUpperInvariant(), @"[^A-Z0-9_]", "_").Trim('_');
+                if (string.IsNullOrWhiteSpace(code)) code = $"REPORT_{idx}";
+                if (code.Length > 80) code = code[..80];
+                if (!seen.Add(code))
+                {
+                    code = $"{code[..Math.Min(code.Length, 72)]}_{idx}";
+                    seen.Add(code);
+                }
+                var required = !item.TryGetProperty("required", out var reqEl) || reqEl.ValueKind != JsonValueKind.False;
+                reports.Add(new(code, rName, required));
+            }
+        }
+        if (reports.Count == 0) return null;
+        if (!reports.Any(r => r.Required))
+        {
+            reports[0] = reports[0] with { Required = true };
+        }
+        return new(name, scope, majorName, summary, reports, StringList(value, "warnings", 10, 400));
+    }
+
     public static AssistantStructuredReportDto? ParseStructuredReport(
         JsonElement root,
         ProjectBoundedContext? context,
