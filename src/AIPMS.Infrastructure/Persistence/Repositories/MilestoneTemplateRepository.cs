@@ -1,5 +1,6 @@
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Common.Exceptions;
+using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.MilestoneTemplates.Abstractions;
 using AIPMS.Application.Features.MilestoneTemplates.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
@@ -21,7 +22,7 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
         ValidateTemplate(name);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await MilestoneTemplateLock.AcquireAsync(db, ct);
-        await EnsureAdminAsync(actorId, ct);
+        await EnsureDepartmentStaffAsync(actorId, ct);
         var entity = new M.MilestoneTemplate { Name = name.Trim(), Description = description?.Trim(), Status = "ACTIVE", CreatedBy = actorId, CreatedAt = now, UpdatedAt = now };
         db.MilestoneTemplates.Add(entity);
         await db.SaveChangesAsync(ct);
@@ -35,7 +36,7 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
         ValidateTemplate(name);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await MilestoneTemplateLock.AcquireAsync(db, ct);
-        await EnsureAdminAsync(actorId, ct);
+        await EnsureDepartmentStaffAsync(actorId, ct);
         var template = await LoadTemplateForUpdateAsync(templateId, ct);
         if (await db.MilestoneTemplateVersions.AnyAsync(v => v.MilestoneTemplateId == templateId && v.LockedAt != null, ct) ||
             await db.ProjectPeriods.AnyAsync(p => p.MilestoneTemplateId == templateId, ct) ||
@@ -53,7 +54,7 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
     {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await MilestoneTemplateLock.AcquireAsync(db, ct);
-        await EnsureAdminAsync(actorId, ct);
+        await EnsureDepartmentStaffAsync(actorId, ct);
         var template = await LoadTemplateForUpdateAsync(templateId, ct);
         if (await db.MilestoneTemplateVersions.AnyAsync(v => v.MilestoneTemplateId == templateId && v.LockedAt != null, ct) ||
             await db.ProjectPeriods.AnyAsync(p => p.MilestoneTemplateId == templateId, ct) ||
@@ -71,7 +72,7 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
     {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await MilestoneTemplateLock.AcquireAsync(db, ct);
-        await EnsureAdminAsync(actorId, ct);
+        await EnsureDepartmentStaffAsync(actorId, ct);
         var template = await LoadTemplateForUpdateAsync(templateId, ct);
         if (template.Status != "ACTIVE") throw new ConflictException("Only active templates can receive a new version.");
         List<M.MilestoneTemplateItem>? sourceItems = null;
@@ -112,7 +113,7 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
     {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await MilestoneTemplateLock.AcquireAsync(db, ct);
-        await EnsureAdminAsync(actorId, ct);
+        await EnsureDepartmentStaffAsync(actorId, ct);
         var version = await db.MilestoneTemplateVersions.Include(v => v.Items).Include(v => v.MilestoneTemplate)
             .SingleOrDefaultAsync(v => v.Id == versionId, ct) ?? throw new NotFoundException("MilestoneTemplateVersion", versionId);
         if (version.MilestoneTemplate.Status != "ACTIVE" || version.Status != "DRAFT" || version.LockedAt.HasValue || version.Items.Count == 0)
@@ -129,7 +130,7 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
         Validate(request);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await MilestoneTemplateLock.AcquireAsync(db, ct);
-        await EnsureAdminAsync(actorId, ct);
+        await EnsureDepartmentStaffAsync(actorId, ct);
         var version = await EditableVersionAsync(versionId, ct);
         db.MilestoneTemplateItems.Add(new M.MilestoneTemplateItem { MilestoneTemplateVersionId = version.Id, Title = request.Title.Trim(), Description = request.Description?.Trim(), StartOffsetDays = request.StartOffsetDays, DueOffsetDays = request.DueOffsetDays, SortOrder = request.SortOrder, CreatedAt = now, UpdatedAt = now });
         await db.SaveChangesAsync(ct);
@@ -143,7 +144,7 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
         Validate(request);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await MilestoneTemplateLock.AcquireAsync(db, ct);
-        await EnsureAdminAsync(actorId, ct);
+        await EnsureDepartmentStaffAsync(actorId, ct);
         var item = await db.MilestoneTemplateItems.Include(i => i.MilestoneTemplateVersion).ThenInclude(v => v.MilestoneTemplate).SingleOrDefaultAsync(i => i.Id == itemId, ct)
             ?? throw new NotFoundException("MilestoneTemplateItem", itemId);
         await EnsureEditableAsync(item.MilestoneTemplateVersion, ct);
@@ -158,7 +159,7 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
     {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await MilestoneTemplateLock.AcquireAsync(db, ct);
-        await EnsureAdminAsync(actorId, ct);
+        await EnsureDepartmentStaffAsync(actorId, ct);
         var item = await db.MilestoneTemplateItems.Include(i => i.MilestoneTemplateVersion).ThenInclude(v => v.MilestoneTemplate).SingleOrDefaultAsync(i => i.Id == itemId, ct)
             ?? throw new NotFoundException("MilestoneTemplateItem", itemId);
         await EnsureEditableAsync(item.MilestoneTemplateVersion, ct);
@@ -172,7 +173,7 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
     {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         await MilestoneTemplateLock.AcquireAsync(db, ct);
-        await EnsureAdminAsync(actorId, ct);
+        await EnsureDepartmentStaffAsync(actorId, ct);
         var template = await LoadTemplateForUpdateAsync(templateId, ct);
         if (template.Status != "ACTIVE") throw new ConflictException("Only active templates can be assigned.");
         var period = await db.ProjectPeriods.Include(p => p.AcademicSemester).SingleOrDefaultAsync(p => p.Id == periodId, ct) ?? throw new NotFoundException("ProjectPeriod", periodId);
@@ -206,10 +207,10 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
             throw new ConflictException("A published or assigned template version is immutable.");
     }
 
-    private async Task EnsureAdminAsync(long actorId, CancellationToken ct)
+    private async Task EnsureDepartmentStaffAsync(long actorId, CancellationToken ct)
     {
-        if (!await db.Users.AnyAsync(u => u.Id == actorId && u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"), ct))
-            throw new ForbiddenException("An active administrator is required.");
+        if (!await db.Users.AnyAsync(u => u.Id == actorId && u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.DepartmentStaff), ct))
+            throw new ForbiddenException("Chỉ Cán bộ bộ môn / Khoa (DEPARTMENT_STAFF) đang hoạt động mới có quyền quản lý mẫu mốc đồ án.");
     }
 
     private static void ValidateTemplate(string name)
