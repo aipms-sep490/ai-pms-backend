@@ -79,7 +79,8 @@ public sealed class PreSemesterRolloverServiceTests
         Assert.True(readiness.IsDepartmentStaff);
         Assert.False(readiness.IsAdmin);
         Assert.Contains(readiness.Items, i => i.Key == "RUBRICS" && i.Status == "MISSING" && i.AllowedByRole);
-        Assert.Contains(readiness.Items, i => i.Key == "MILESTONE_TEMPLATES" && !i.AllowedByRole);
+        Assert.Contains(readiness.Items, i => i.Key == "MILESTONE_TEMPLATES" && i.AllowedByRole && i.Route == "/department/milestone-templates");
+        Assert.Contains(readiness.Items, i => i.Key == "PERIODS" && !i.AllowedByRole);
 
         // 2. Preview rollover 201 (SP26) -> 202 (FA26)
         var preview = await svc.PreviewRolloverAsync(new RolloverPreviewRequest(201, 202, 10, true, true, true, true, true, true), Ct);

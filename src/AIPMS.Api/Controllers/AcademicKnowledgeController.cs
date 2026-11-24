@@ -60,7 +60,7 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
         setup.ApplyColdTemplateSetupAsync(request, ct);
 
     [HttpPost("ai/milestone-template-setup/apply")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Roles = AppRoles.DepartmentStaff)]
     [EnableRateLimiting("ai-assistant")]
     [ProducesResponseType<ApplyMilestoneTemplateSetupResultDto>(200)]
     public Task<ApplyMilestoneTemplateSetupResultDto> ApplyMilestoneTemplateSetup([FromBody] ApplyMilestoneTemplateSetupRequest request,

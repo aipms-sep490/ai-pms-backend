@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AIPMS.Api.Controllers;
-[ApiController, Authorize(Policy = AuthorizationPolicies.AdminOnly), Route("api/v1/milestone-templates")]
+[ApiController, Authorize(Roles = AppRoles.DepartmentStaff), Route("api/v1/milestone-templates")]
 public sealed class MilestoneTemplatesController(ISender sender) : ControllerBase
 {
     [HttpGet] public Task<IReadOnlyList<MilestoneTemplateDto>> List(CancellationToken ct) => sender.Send(new GetMilestoneTemplatesQuery(), ct);

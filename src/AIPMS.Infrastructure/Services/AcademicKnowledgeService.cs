@@ -143,8 +143,8 @@ internal sealed partial class AcademicKnowledgeService(
             throw new ArgumentException("Mở trợ lý trong đồ án để dùng chức năng này.");
         if (request.ToolMode is "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP" && !await db.UserRoles.AnyAsync(r => r.UserId == actor.Id && (r.Role.Code == AppRoles.Admin || r.Role.Code == AppRoles.DepartmentStaff), ct))
             throw new ForbiddenException("Chỉ cán bộ khoa hoặc quản trị viên được yêu cầu trợ lý soạn nháp cấu hình đầu kỳ.");
-        if (request.ToolMode == "MILESTONE_TEMPLATE_SETUP" && !await db.UserRoles.AnyAsync(r => r.UserId == actor.Id && r.Role.Code == AppRoles.Admin, ct))
-            throw new ForbiddenException("Chỉ Quản trị viên (ADMIN) mới được dùng trợ lý soạn nháp Mẫu mốc đồ án.");
+        if (request.ToolMode == "MILESTONE_TEMPLATE_SETUP" && !await db.UserRoles.AnyAsync(r => r.UserId == actor.Id && r.Role.Code == AppRoles.DepartmentStaff, ct))
+            throw new ForbiddenException("Chỉ Cán bộ bộ môn / Khoa (DEPARTMENT_STAFF) mới được dùng trợ lý soạn nháp Mẫu mốc đồ án.");
         if (request.ToolMode == "REPORT_REVIEW" && (files.Count == 0 || request.RubricId is null))
             throw new ArgumentException("Chọn rubric đã công bố và đính kèm báo cáo cần nhận xét.");
         if (request.RubricId != null && request.ToolMode != "REPORT_REVIEW") throw new ArgumentException("Rubric chỉ dùng trong chế độ nhận xét báo cáo.");
