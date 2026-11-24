@@ -177,6 +177,8 @@ internal sealed class MilestoneTemplateRepository(AipmsDbContext db, IAuditTrail
         var template = await LoadTemplateForUpdateAsync(templateId, ct);
         if (template.Status != "ACTIVE") throw new ConflictException("Only active templates can be assigned.");
         var period = await db.ProjectPeriods.Include(p => p.AcademicSemester).SingleOrDefaultAsync(p => p.Id == periodId, ct) ?? throw new NotFoundException("ProjectPeriod", periodId);
+        if (!string.Equals(period.PeriodType, "EXECUTION", StringComparison.OrdinalIgnoreCase))
+            throw new ValidationException(new Dictionary<string, string[]> { ["periodId"] = ["Chỉ áp dụng mẫu mốc cho kỳ giai đoạn Thực hiện (EXECUTION). Mốc của nhóm được sinh từ kỳ Thực hiện khi đồ án được kích hoạt."] });
         if (period.Status is "CLOSED" or "ARCHIVED" || period.AcademicSemester.Status is "CLOSED" or "ARCHIVED" || period.EndAt <= now) throw new ConflictException("The project period is no longer assignable.");
         var version = versionId.HasValue
             ? await db.MilestoneTemplateVersions.SingleOrDefaultAsync(v => v.Id == versionId && v.MilestoneTemplateId == templateId, ct)

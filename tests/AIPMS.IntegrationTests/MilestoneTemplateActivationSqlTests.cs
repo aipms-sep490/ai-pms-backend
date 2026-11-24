@@ -83,6 +83,32 @@ public sealed class MilestoneTemplateActivationSqlTests(SupervisorDatabaseFixtur
     }
 
     [Fact]
+    public async Task Assigning_to_a_non_execution_period_is_rejected_and_does_not_lock_the_version()
+    {
+        var s = await SeedAsync(withTemplate: false);
+        long registrationPeriodId;
+        await using (var db = database.CreateContext())
+        {
+            var exec = await db.ProjectPeriods.SingleAsync(p => p.Id == s.PeriodId);
+            var registration = new ProjectPeriod
+            {
+                AcademicSemesterId = exec.AcademicSemesterId, Code = "REG", Name = "Registration", PeriodType = "REGISTRATION", Status = "ACTIVE",
+                StartAt = DateTime.UtcNow.AddDays(-1), EndAt = DateTime.UtcNow.AddDays(30)
+            };
+            db.ProjectPeriods.Add(registration);
+            await db.SaveChangesAsync();
+            registrationPeriodId = registration.Id;
+        }
+        using var app = new SupervisorFactory(database);
+        using var scope = app.Services.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IMilestoneTemplateRepository>();
+        await Assert.ThrowsAsync<ValidationException>(() => repo.AssignAsync(registrationPeriodId, s.TemplateId, s.VersionId, s.Staff, DateTime.UtcNow, default));
+        await using var verify = database.CreateContext();
+        Assert.Null((await verify.ProjectPeriods.FindAsync(registrationPeriodId))!.MilestoneTemplateVersionId);
+        Assert.Null((await verify.MilestoneTemplateVersions.FindAsync(s.VersionId))!.LockedAt);
+    }
+
+    [Fact]
     public async Task Catalog_crud_validates_inputs_and_preserves_audit()
     {
         var s = await SeedAsync();
