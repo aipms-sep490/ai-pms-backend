@@ -22,7 +22,7 @@ public sealed class MilestoneTemplateActivationSqlTests(SupervisorDatabaseFixtur
         {
             using var scope = app.Services.CreateScope();
             await scope.ServiceProvider.GetRequiredService<IProjectActivationService>()
-                .ApplyMilestoneTemplateAsync(s.ProjectId, s.Admin, DateTime.UtcNow);
+                .ApplyMilestoneTemplateAsync(s.ProjectId, s.Staff, DateTime.UtcNow);
         }
         await Task.WhenAll(Activate(), Activate());
         await Activate();
@@ -39,10 +39,10 @@ public sealed class MilestoneTemplateActivationSqlTests(SupervisorDatabaseFixtur
         using var app = new SupervisorFactory(database);
         using var scope = app.Services.CreateScope();
         var activation = scope.ServiceProvider.GetRequiredService<IProjectActivationService>();
-        await activation.ApplyMilestoneTemplateAsync(s.ProjectId, s.Admin, DateTime.UtcNow);
+        await activation.ApplyMilestoneTemplateAsync(s.ProjectId, s.Staff, DateTime.UtcNow);
         var repo = scope.ServiceProvider.GetRequiredService<IMilestoneTemplateRepository>();
-        await repo.AssignAsync(s.PeriodId, s.TemplateId, s.VersionId, s.Admin, DateTime.UtcNow, default);
-        await activation.ApplyMilestoneTemplateAsync(s.ProjectId, s.Admin, DateTime.UtcNow);
+        await repo.AssignAsync(s.PeriodId, s.TemplateId, s.VersionId, s.Staff, DateTime.UtcNow, default);
+        await activation.ApplyMilestoneTemplateAsync(s.ProjectId, s.Staff, DateTime.UtcNow);
         await using var db = database.CreateContext();
         Assert.False(await db.Milestones.AnyAsync(m => m.ProjectId == s.ProjectId));
         Assert.True((await db.Projects.FindAsync(s.ProjectId))!.MilestonesInitialized);
@@ -55,13 +55,13 @@ public sealed class MilestoneTemplateActivationSqlTests(SupervisorDatabaseFixtur
         using var app = new SupervisorFactory(database);
         using var scope = app.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IMilestoneTemplateRepository>();
-        var v2 = await repo.CreateVersionAsync(s.TemplateId, s.Admin, DateTime.UtcNow, default);
-        await repo.AddItemAsync(v2.Id, new("Different", null, 0, 14, 1), s.Admin, DateTime.UtcNow, default);
-        await repo.PublishVersionAsync(v2.Id, s.Admin, DateTime.UtcNow, default);
-        await repo.AssignAsync(s.PeriodId, s.TemplateId, s.VersionId, s.Admin, DateTime.UtcNow, default);
-        await Assert.ThrowsAsync<ConflictException>(() => repo.UpdateAsync(s.TemplateId, "Changed", null, s.Admin, DateTime.UtcNow, default));
-        await Assert.ThrowsAsync<ConflictException>(() => repo.AddItemAsync(s.VersionId, new("Forbidden", null, 0, 2, 2), s.Admin, DateTime.UtcNow, default));
-        await scope.ServiceProvider.GetRequiredService<IProjectActivationService>().ApplyMilestoneTemplateAsync(s.ProjectId, s.Admin, DateTime.UtcNow);
+        var v2 = await repo.CreateVersionAsync(s.TemplateId, s.Staff, DateTime.UtcNow, default);
+        await repo.AddItemAsync(v2.Id, new("Different", null, 0, 14, 1), s.Staff, DateTime.UtcNow, default);
+        await repo.PublishVersionAsync(v2.Id, s.Staff, DateTime.UtcNow, default);
+        await repo.AssignAsync(s.PeriodId, s.TemplateId, s.VersionId, s.Staff, DateTime.UtcNow, default);
+        await Assert.ThrowsAsync<ConflictException>(() => repo.UpdateAsync(s.TemplateId, "Changed", null, s.Staff, DateTime.UtcNow, default));
+        await Assert.ThrowsAsync<ConflictException>(() => repo.AddItemAsync(s.VersionId, new("Forbidden", null, 0, 2, 2), s.Staff, DateTime.UtcNow, default));
+        await scope.ServiceProvider.GetRequiredService<IProjectActivationService>().ApplyMilestoneTemplateAsync(s.ProjectId, s.Staff, DateTime.UtcNow);
         await using var db = database.CreateContext();
         Assert.Equal("Design", (await db.Milestones.SingleAsync(m => m.ProjectId == s.ProjectId)).Title);
         Assert.Equal(s.VersionId, (await db.ProjectPeriods.FindAsync(s.PeriodId))!.MilestoneTemplateVersionId);
@@ -76,7 +76,7 @@ public sealed class MilestoneTemplateActivationSqlTests(SupervisorDatabaseFixtur
         {
             using var scope = app.Services.CreateScope();
             return await scope.ServiceProvider.GetRequiredService<IMilestoneTemplateRepository>()
-                .CreateVersionAsync(s.TemplateId, s.Admin, DateTime.UtcNow, default);
+                .CreateVersionAsync(s.TemplateId, s.Staff, DateTime.UtcNow, default);
         }
         var versions = await Task.WhenAll(Create(), Create());
         Assert.Equal(new[] { 2, 3 }, versions.Select(v => v.VersionNumber).Order().ToArray());
@@ -89,14 +89,15 @@ public sealed class MilestoneTemplateActivationSqlTests(SupervisorDatabaseFixtur
         using var app = new SupervisorFactory(database);
         using var scope = app.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IMilestoneTemplateRepository>();
-        var template = await repo.CreateAsync("Draft plan", null, s.Admin, DateTime.UtcNow, default);
-        await repo.UpdateAsync(template.Id, "Updated plan", "Description", s.Admin, DateTime.UtcNow, default);
-        var version = await repo.CreateVersionAsync(template.Id, s.Admin, DateTime.UtcNow, default);
-        var result = await repo.AddItemAsync(version.Id, new("Draft item", null, 0, 1, 1), s.Admin, DateTime.UtcNow, default);
-        await repo.UpdateItemAsync(result.Items.Single().Id, new("Changed item", null, 2, 4, 2), s.Admin, DateTime.UtcNow, default);
-        await Assert.ThrowsAsync<ValidationException>(() => repo.AddItemAsync(version.Id, new(new string('a', 256), null, 0, 1, 1), s.Admin, DateTime.UtcNow, default));
-        await repo.DeleteItemAsync(result.Items.Single().Id, s.Admin, default);
-        await repo.DeleteAsync(template.Id, s.Admin, default);
+        await Assert.ThrowsAsync<ForbiddenException>(() => repo.CreateAsync("Admin forbidden", null, s.Admin, DateTime.UtcNow, default));
+        var template = await repo.CreateAsync("Draft plan", null, s.Staff, DateTime.UtcNow, default);
+        await repo.UpdateAsync(template.Id, "Updated plan", "Description", s.Staff, DateTime.UtcNow, default);
+        var version = await repo.CreateVersionAsync(template.Id, s.Staff, DateTime.UtcNow, default);
+        var result = await repo.AddItemAsync(version.Id, new("Draft item", null, 0, 1, 1), s.Staff, DateTime.UtcNow, default);
+        await repo.UpdateItemAsync(result.Items.Single().Id, new("Changed item", null, 2, 4, 2), s.Staff, DateTime.UtcNow, default);
+        await Assert.ThrowsAsync<ValidationException>(() => repo.AddItemAsync(version.Id, new(new string('a', 256), null, 0, 1, 1), s.Staff, DateTime.UtcNow, default));
+        await repo.DeleteItemAsync(result.Items.Single().Id, s.Staff, default);
+        await repo.DeleteAsync(template.Id, s.Staff, default);
         await using var db = database.CreateContext();
         Assert.False(await db.MilestoneTemplates.AnyAsync(t => t.Id == template.Id));
         Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == "MILESTONE_TEMPLATE_DELETED" && a.EntityId == template.Id.ToString()));
@@ -109,10 +110,10 @@ public sealed class MilestoneTemplateActivationSqlTests(SupervisorDatabaseFixtur
         using var app = new SupervisorFactory(database, failAudit: true);
         using (var scope = app.Services.CreateScope())
             await Assert.ThrowsAsync<InvalidOperationException>(() => scope.ServiceProvider.GetRequiredService<IMilestoneTemplateRepository>()
-                .CreateVersionAsync(s.TemplateId, s.Admin, DateTime.UtcNow, default));
+                .CreateVersionAsync(s.TemplateId, s.Staff, DateTime.UtcNow, default));
         using (var scope = app.Services.CreateScope())
             await Assert.ThrowsAsync<InvalidOperationException>(() => scope.ServiceProvider.GetRequiredService<IMilestoneTemplateRepository>()
-                .AssignAsync(s.PeriodId, s.TemplateId, s.VersionId, s.Admin, DateTime.UtcNow, default));
+                .AssignAsync(s.PeriodId, s.TemplateId, s.VersionId, s.Staff, DateTime.UtcNow, default));
         await using var db = database.CreateContext();
         Assert.Equal(1, await db.MilestoneTemplateVersions.CountAsync(v => v.MilestoneTemplateId == s.TemplateId));
         Assert.Null((await db.ProjectPeriods.FindAsync(s.PeriodId))!.MilestoneTemplateVersionId);
@@ -128,7 +129,7 @@ public sealed class MilestoneTemplateActivationSqlTests(SupervisorDatabaseFixtur
         var db = scope.ServiceProvider.GetRequiredService<AIPMS.Infrastructure.Persistence.Generated.AipmsDbContext>();
         await using (var tx = await db.Database.BeginTransactionAsync())
         {
-            await scope.ServiceProvider.GetRequiredService<IProjectActivationService>().ApplyMilestoneTemplateAsync(s.ProjectId, s.Admin, DateTime.UtcNow);
+            await scope.ServiceProvider.GetRequiredService<IProjectActivationService>().ApplyMilestoneTemplateAsync(s.ProjectId, s.Staff, DateTime.UtcNow);
             await tx.RollbackAsync();
         }
         await using var verify = database.CreateContext();
@@ -155,12 +156,12 @@ public sealed class MilestoneTemplateActivationSqlTests(SupervisorDatabaseFixtur
             };
             var template = new MilestoneTemplate
             {
-                Name = "Pinned template", Status = "ACTIVE", CreatedBy = accounts.Admin,
+                Name = "Pinned template", Status = "ACTIVE", CreatedBy = accounts.Staff,
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
             };
             var version = new MilestoneTemplateVersion
             {
-                MilestoneTemplate = template, VersionNumber = 1, Status = "PUBLISHED", CreatedBy = accounts.Admin,
+                MilestoneTemplate = template, VersionNumber = 1, Status = "PUBLISHED", CreatedBy = accounts.Staff,
                 CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
                 Items = [new MilestoneTemplateItem { Title = "Design", SortOrder = 1, StartOffsetDays = 0, DueOffsetDays = 7,
                     CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow }]
@@ -193,7 +194,7 @@ public sealed class MilestoneTemplateActivationSqlTests(SupervisorDatabaseFixtur
             templateId = template.Id;
         }
 
-        return new(accounts.Admin, accounts.Student, projectId, templateId, templateVersionId, periodId);
+        return new(accounts.Admin, accounts.Staff, accounts.Student, projectId, templateId, templateVersionId, periodId);
     }
-    private sealed record Scenario(long Admin, long Student, long ProjectId, long TemplateId, long VersionId, long PeriodId);
+    private sealed record Scenario(long Admin, long Staff, long Student, long ProjectId, long TemplateId, long VersionId, long PeriodId);
 }
