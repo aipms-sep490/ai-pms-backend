@@ -220,9 +220,9 @@ internal sealed class PreSemesterRolloverService(
             new("KNOWLEDGE_BASE", "Kho tri thức AI học vụ (RAG)", "Nạp quy định, syllabus, biểu mẫu để Trợ lý AI trả lời chuẩn xác cho sinh viên.",
                 CalcStatus(kbRows.Count, kbPub), kbRows.Count, kbDraft, kbPub,
                 "/academic/knowledge", false, true, actor.IsAdmin || actor.IsStaff),
-            new("MILESTONE_TEMPLATES", "Mẫu mốc tiến độ dùng chung", "Bộ mốc mẫu gắn vào kỳ đồ án cho các nhóm sinh viên (Quyền Quản trị viên).",
+            new("MILESTONE_TEMPLATES", "Mẫu mốc tiến độ dùng chung", "Bộ mốc mẫu gắn vào kỳ đồ án cho các nhóm sinh viên (Khoa / Bộ môn quản lý).",
                 CalcStatus(msVersions.Count, msPub), msVersions.Count, msDraft, msPub,
-                "/admin/milestone-templates", false, true, actor.IsAdmin)
+                "/department/milestone-templates", false, true, actor.IsStaff)
         };
 
         var relevant = items.Where(x => x.AllowedByRole).ToArray();

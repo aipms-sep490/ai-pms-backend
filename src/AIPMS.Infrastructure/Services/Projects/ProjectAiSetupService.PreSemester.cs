@@ -436,10 +436,7 @@ internal sealed partial class ProjectAiSetupService
         if (request.Items.Count > 20)
             throw new ArgumentException("Tối đa 20 mốc trong một phiên bản mẫu.");
 
-        var isAdmin = currentUser.Roles.Any(r => string.Equals(r, "ADMIN", StringComparison.OrdinalIgnoreCase))
-            || await db.UserRoles.AsNoTracking().AnyAsync(r => r.UserId == actorId && r.Role.Code == "ADMIN", ct);
-        if (!isAdmin)
-            throw new ForbiddenException("Chỉ Quản trị viên (ADMIN) mới được tạo bản nháp Mẫu mốc đồ án.");
+        await RequireDepartmentStaffActorAsync(actorId, ct);
 
         var replay = await db.AiSetupApplications.AsNoTracking()
             .SingleOrDefaultAsync(x => x.ActorId == actorId && x.IdempotencyKey == request.IdempotencyKey && x.ScopeType == "MILESTONE_TEMPLATE", ct);

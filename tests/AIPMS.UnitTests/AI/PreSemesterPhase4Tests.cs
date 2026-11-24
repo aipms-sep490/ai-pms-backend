@@ -30,7 +30,7 @@ public sealed class PreSemesterPhase4Tests
     private static readonly CancellationToken Ct = CancellationToken.None;
 
     [Fact]
-    public async Task MilestoneTemplate_ApplyAiSetup_EnforcesAdminRbac_CreatesDraftItems_AndReplaysIdempotently()
+    public async Task MilestoneTemplate_ApplyAiSetup_EnforcesDepartmentStaffRbac_BlocksPureAdmin_AndReplaysIdempotently()
     {
         await using var db = SeedDb();
         var audit = new TestAudit();
@@ -43,21 +43,21 @@ public sealed class PreSemesterPhase4Tests
             new("Mốc 2: Bảo vệ", "Nghiệm thu", 22, 98, 1)
         ]);
 
-        // DEPARTMENT_STAFF without ADMIN is rejected
-        var staffSvc = new ProjectAiSetupService(db, new TestUser(1, ["DEPARTMENT_STAFF"]), new AllowGuard(), sender, audit, clock);
-        await Assert.ThrowsAsync<ForbiddenException>(() => staffSvc.ApplyMilestoneTemplateSetupAsync(req, Ct));
+        // Pure ADMIN without DEPARTMENT_STAFF is rejected (V4 strict Admin/Department isolation)
+        var adminSvc = new ProjectAiSetupService(db, new TestUser(2, ["ADMIN"]), new AllowGuard(), sender, audit, clock);
+        await Assert.ThrowsAsync<ForbiddenException>(() => adminSvc.ApplyMilestoneTemplateSetupAsync(req, Ct));
         Assert.Equal(0, sender.TemplatesCreated);
 
-        // ADMIN succeeds and replays idempotently
-        var adminSvc = new ProjectAiSetupService(db, new TestUser(2, ["ADMIN"]), new AllowGuard(), sender, audit, clock);
-        var first = await adminSvc.ApplyMilestoneTemplateSetupAsync(req, Ct);
+        // DEPARTMENT_STAFF succeeds and replays idempotently
+        var staffSvc = new ProjectAiSetupService(db, new TestUser(1, ["DEPARTMENT_STAFF"]), new AllowGuard(), sender, audit, clock);
+        var first = await staffSvc.ApplyMilestoneTemplateSetupAsync(req, Ct);
         Assert.False(first.Replay);
         Assert.Equal("DRAFT", first.Status);
         Assert.Equal(2, first.ItemsCount);
         Assert.Equal(1, sender.TemplatesCreated);
         Assert.Equal(2, sender.ItemsAdded);
 
-        var second = await adminSvc.ApplyMilestoneTemplateSetupAsync(req, Ct);
+        var second = await staffSvc.ApplyMilestoneTemplateSetupAsync(req, Ct);
         Assert.True(second.Replay);
         Assert.Equal(1, sender.TemplatesCreated);
     }
