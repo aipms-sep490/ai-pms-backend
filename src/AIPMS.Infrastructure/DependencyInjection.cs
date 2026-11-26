@@ -99,6 +99,10 @@ public static class DependencyInjection
                 settings.DriveClientId = config["GoogleDrive:ClientId"] ?? "";
                 settings.AllowedOrigins = config.GetSection("GoogleAuth:AllowedOrigins").GetChildren()
                     .Select(x => x.Value ?? "").ToArray();
+                settings.AllowedAuthorizedParties = config.GetSection("GoogleAuth:AllowedAuthorizedParties").GetChildren()
+                    .Select(x => (x.Value ?? "").Trim())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .ToArray();
             })
             .Validate(static settings => settings.IsValid(), "GoogleAuth requires a Web Client ID and explicit secure origins.")
             .ValidateOnStart();
