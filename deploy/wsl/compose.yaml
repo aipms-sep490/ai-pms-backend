@@ -15,6 +15,7 @@ services:
       ASPNETCORE_HTTP_PORTS: "8080"
       COMMIT_SHA: ${COMMIT_SHA:-}
       FileStorage__RootPath: /var/lib/aipms/files
+      OfficePreview__GotenbergUrl: http://aipms-gotenberg:3000
     ports:
       - "127.0.0.1:5088:8080"
     volumes:
@@ -46,6 +47,38 @@ services:
       interval: 30s
       timeout: 5s
       start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: aipms-gotenberg
+    restart: unless-stopped
+    command:
+      - gotenberg
+      - --chromium-disable-routes
+      - --libreoffice-auto-start=false
+      - --libreoffice-idle-shutdown-timeout=5m
+      - --libreoffice-max-queue-size=10
+      - --libreoffice-deny-private-ips
+      - --libreoffice-deny-public-ips
+      - --api-timeout=45s
+      - --log-level=warn
+    mem_limit: 768m
+    networks:
+      database:
+        aliases: [aipms-gotenberg]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, http://127.0.0.1:3000/health]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
       retries: 3
     logging:
       driver: json-file
