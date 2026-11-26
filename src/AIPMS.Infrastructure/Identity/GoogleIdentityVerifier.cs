@@ -79,7 +79,9 @@ internal sealed class GoogleIdentityVerifier(IGoogleSigningKeys keys, IOptions<G
             || !token.TryGetPayloadValue<bool>("email_verified", out var verified) || !verified
             || !token.TryGetPayloadValue<string>("nonce", out var nonce) || string.IsNullOrWhiteSpace(nonce) || nonce.Length > 256
             || !token.TryGetPayloadValue<long>("iat", out var issued) || issued > clock.GetUtcNow().AddSeconds(30).ToUnixTimeSeconds()) throw Invalid();
-        if (token.TryGetPayloadValue<string>("azp", out var presenter) && presenter != settings.Value.ClientId) throw Invalid();
+        if (token.TryGetPayloadValue<string>("azp", out var presenter)
+            && presenter != settings.Value.ClientId
+            && !settings.Value.AllowedAuthorizedParties.Contains(presenter, StringComparer.Ordinal)) throw Invalid();
         var domain = email.Trim().Split('@').Last();
         var authoritative = domain.Equals("gmail.com", StringComparison.OrdinalIgnoreCase)
             || domain.Equals("googlemail.com", StringComparison.OrdinalIgnoreCase)

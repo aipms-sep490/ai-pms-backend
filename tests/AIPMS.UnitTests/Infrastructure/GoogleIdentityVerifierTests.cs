@@ -61,16 +61,56 @@ public sealed class GoogleIdentityVerifierTests : IDisposable
         await Assert.ThrowsAsync<ServiceUnavailableException>(() => keys.GetAsync(false, default));
     }
 
+    [Fact]
+    public async Task Accepts_mobile_android_authorized_party_when_configured()
+    {
+        const string androidClient = "android-mobile.apps.googleusercontent.com";
+        var verifier = new GoogleIdentityVerifier(
+            new Keys(new RsaSecurityKey(rsa) { KeyId = "test" }),
+            Options.Create(new GoogleAuthSettings
+            {
+                ClientId = Client,
+                AllowedAuthorizedParties = [androidClient]
+            }),
+            TimeProvider.System);
+
+        var result = await verifier.VerifyAsync(Token(authorizedParty: androidClient), default);
+        Assert.Equal("CaseSensitiveSubject", result.Subject);
+        Assert.Equal("student@gmail.com", result.Email);
+    }
+
+    [Fact]
+    public void Configuration_validates_allowed_authorized_parties()
+    {
+        var valid = new GoogleAuthSettings
+        {
+            Enabled = true,
+            ClientId = Client,
+            AllowedOrigins = ["https://app.example.com"],
+            AllowedAuthorizedParties = ["android-mobile.apps.googleusercontent.com"]
+        };
+        var invalid = new GoogleAuthSettings
+        {
+            Enabled = true,
+            ClientId = Client,
+            AllowedOrigins = ["https://app.example.com"],
+            AllowedAuthorizedParties = ["not-a-google-client"]
+        };
+        Assert.True(valid.IsValid());
+        Assert.False(invalid.IsValid());
+    }
+
     private GoogleIdentityVerifier Verifier() => new(new Keys(new RsaSecurityKey(rsa) { KeyId = "test" }),
         Options.Create(new GoogleAuthSettings { ClientId = Client }), TimeProvider.System);
 
-    private string Token(string? defect = null, string? email = null, string? hostedDomain = null)
+    private string Token(string? defect = null, string? email = null, string? hostedDomain = null, string? authorizedParty = null)
     {
         var now = DateTime.UtcNow;
         var claims = new Dictionary<string, object>
         { ["sub"] = "CaseSensitiveSubject", ["email"] = "student@gmail.com", ["email_verified"] = true, ["nonce"] = "nonce" };
         if (email is not null) claims["email"] = email;
         if (hostedDomain is not null) claims["hd"] = hostedDomain;
+        if (authorizedParty is not null) claims["azp"] = authorizedParty;
         if (defect is "nonce" or "sub" or "email") claims.Remove(defect);
         if (defect == "email_verified") claims["email_verified"] = false;
         if (defect == "azp") claims["azp"] = "drive-client";

@@ -5,11 +5,14 @@ public sealed class GoogleAuthSettings
     public bool Enabled { get; set; }
     public string ClientId { get; set; } = "";
     public string[] AllowedOrigins { get; set; } = [];
+    public string[] AllowedAuthorizedParties { get; set; } = [];
     internal string DriveClientId { get; set; } = "";
 
     public bool IsValid() => !Enabled ||
         (ClientId.EndsWith(".apps.googleusercontent.com", StringComparison.Ordinal) && ClientId != DriveClientId
-         && AllowedOrigins.Length > 0 && AllowedOrigins.All(IsOrigin));
+         && AllowedOrigins.Length > 0 && AllowedOrigins.All(IsOrigin)
+         && AllowedAuthorizedParties.All(id =>
+             id.EndsWith(".apps.googleusercontent.com", StringComparison.Ordinal) && id != DriveClientId));
 
     private static bool IsOrigin(string value) => Uri.TryCreate(value, UriKind.Absolute, out var uri)
         && (uri.Scheme == "https" || uri.Scheme == "http" && uri.IsLoopback)
