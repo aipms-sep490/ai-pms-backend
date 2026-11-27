@@ -148,7 +148,7 @@ public sealed class GetRubricsQueryValidator : AbstractValidator<GetRubricsQuery
     {
         RuleFor(x => x.DepartmentId).GreaterThan(0).When(x => x.DepartmentId.HasValue);
         RuleFor(x => x.AcademicSemesterId).GreaterThan(0).When(x => x.AcademicSemesterId.HasValue);
-        RuleFor(x => x.Status).Must(x => x is null or RubricStatuses.Draft or RubricStatuses.Published or RubricStatuses.Retired);
+        RuleFor(x => x.Status).Must(x => x is null or RubricStatuses.Draft or RubricStatuses.PendingApproval or RubricStatuses.Published or RubricStatuses.Retired);
         RuleFor(x => x.Search).MaximumLength(255);
         RuleFor(x => x.Page).InclusiveBetween(1, 1000000);
         RuleFor(x => x.PageSize).InclusiveBetween(1, 100);

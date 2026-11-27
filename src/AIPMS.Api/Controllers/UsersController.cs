@@ -162,13 +162,39 @@ public sealed class UsersController(ISender sender, IUserAvatarService avatars, 
     }
 
     [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
+    [HttpGet("{userId:long}/active-obligations")]
+    [ProducesResponseType<UserActiveObligationsDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<UserActiveObligationsDto>> GetActiveObligations(
+        long userId,
+        CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new GetUserActiveObligationsQuery(userId), cancellationToken));
+
+    [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
+    [HttpPost("{userId:long}/temporary-password")]
+    [ProducesResponseType<TemporaryPasswordResultDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TemporaryPasswordResultDto>> IssueTemporaryPassword(
+        long userId,
+        [FromBody] IssueTemporaryPasswordRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new IssueTemporaryPasswordCommand(userId, request?.Reason), cancellationToken);
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers["Pragma"] = "no-cache";
+        return Ok(result);
+    }
+
+    [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
     [HttpPatch("{userId:long}/status")]
     [ProducesResponseType<UserAccountDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<UserAccountDto>> SetStatus(
         long userId,
         SetUserStatusRequest request,
         CancellationToken cancellationToken) =>
-        Ok(await sender.Send(new SetUserStatusCommand(userId, request.Status), cancellationToken));
+        Ok(await sender.Send(
+            new SetUserStatusCommand(userId, request.Status, request.Reason, request.AcknowledgeObligations),
+            cancellationToken));
 
     [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
     [HttpPost("{userId:long}/activate")]
@@ -176,23 +202,25 @@ public sealed class UsersController(ISender sender, IUserAvatarService avatars, 
     public Task<ActionResult<UserAccountDto>> Activate(
         long userId,
         CancellationToken cancellationToken) =>
-        ChangeStatus(userId, "ACTIVE", cancellationToken);
+        ChangeStatus(userId, "ACTIVE", null, cancellationToken);
 
     [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
     [HttpPost("{userId:long}/deactivate")]
     [ProducesResponseType<UserAccountDto>(StatusCodes.Status200OK)]
     public Task<ActionResult<UserAccountDto>> Deactivate(
         long userId,
+        [FromBody] UserStatusActionRequest? request,
         CancellationToken cancellationToken) =>
-        ChangeStatus(userId, "INACTIVE", cancellationToken);
+        ChangeStatus(userId, "INACTIVE", request, cancellationToken);
 
     [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
     [HttpPost("{userId:long}/block")]
     [ProducesResponseType<UserAccountDto>(StatusCodes.Status200OK)]
     public Task<ActionResult<UserAccountDto>> Block(
         long userId,
+        [FromBody] UserStatusActionRequest? request,
         CancellationToken cancellationToken) =>
-        ChangeStatus(userId, "SUSPENDED", cancellationToken);
+        ChangeStatus(userId, "SUSPENDED", request, cancellationToken);
 
     [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
     [HttpPost("{userId:long}/unblock")]
@@ -200,7 +228,7 @@ public sealed class UsersController(ISender sender, IUserAvatarService avatars, 
     public Task<ActionResult<UserAccountDto>> Unblock(
         long userId,
         CancellationToken cancellationToken) =>
-        ChangeStatus(userId, "ACTIVE", cancellationToken);
+        ChangeStatus(userId, "ACTIVE", null, cancellationToken);
 
     [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
     [HttpPut("{userId:long}/roles/{roleId:long}")]
@@ -229,8 +257,11 @@ public sealed class UsersController(ISender sender, IUserAvatarService avatars, 
     private async Task<ActionResult<UserAccountDto>> ChangeStatus(
         long userId,
         string status,
+        UserStatusActionRequest? request,
         CancellationToken cancellationToken) =>
-        Ok(await sender.Send(new SetUserStatusCommand(userId, status), cancellationToken));
+        Ok(await sender.Send(
+            new SetUserStatusCommand(userId, status, request?.Reason, request?.AcknowledgeObligations),
+            cancellationToken));
 }
 
 public sealed class UserAvatarUploadForm

@@ -230,22 +230,30 @@ public sealed class GetDepartmentDashboardQueryHandler(IDashboardRepository repo
     }
 }
 
-public sealed class GetAdminDashboardQueryHandler(IDashboardRepository repository, ICurrentUser currentUser,
-    IProgressAnalysisService analysis, TimeProvider clock)
-    : IRequestHandler<GetAdminDashboardQuery, PortfolioDashboardDto>
+public sealed class GetAdminDashboardQueryHandler : IRequestHandler<GetAdminDashboardQuery, PortfolioDashboardDto>
 {
+    private readonly ICurrentUser _currentUser;
+
+    public GetAdminDashboardQueryHandler(
+        IDashboardRepository repository,
+        ICurrentUser currentUser,
+        IProgressAnalysisService analysis,
+        TimeProvider clock)
+    {
+        _ = (repository, analysis, clock);
+        _currentUser = currentUser;
+    }
+
     public Task<PortfolioDashboardDto> Handle(GetAdminDashboardQuery request, CancellationToken ct)
     {
-        var actor = DashboardMapping.Actor(currentUser, AppRoles.Admin);
-        return repository.InReadTransactionAsync(async token =>
-        {
-            await repository.RequireRoleAsync(actor, AppRoles.Admin, token);
-            var now = clock.GetUtcNow();
-            var filter = new DashboardPortfolioFilter(request.SemesterId, request.DepartmentId, request.MajorId,
-                request.Status, request.Search?.Trim(), request.Page, request.PageSize);
-            var facts = await repository.GetPortfolioAsync(actor, true, filter, now.UtcDateTime, token);
-            return DashboardMapping.Portfolio(facts, analysis, now, filter, token);
-        }, ct);
+        if (!_currentUser.IsAuthenticated || _currentUser.UserId is null)
+            throw new UnauthorizedException();
+        var isAdmin = _currentUser.Roles.Contains(AppRoles.Admin);
+        throw new ForbiddenException(
+            isAdmin
+                ? "Platform administrators cannot access academic project portfolios. Use /api/v1/dashboards/department as DEPARTMENT_STAFF."
+                : "This dashboard endpoint is disabled.",
+            isAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
     }
 }
 
@@ -256,21 +264,28 @@ public sealed class ExportPortfolioDashboardQueryHandler(IDashboardRepository re
     public Task<DashboardCsvExport> Handle(ExportPortfolioDashboardQuery request, CancellationToken ct)
     {
         var actor = currentUser.UserId ?? throw new UnauthorizedException();
-        var isAdmin = currentUser.Roles.Contains(AppRoles.Admin);
-        if (!isAdmin && !currentUser.Roles.Contains(AppRoles.DepartmentStaff))
-            throw new ForbiddenException("Only department staff or administrators can export dashboard data.");
-        if (!isAdmin && request.DepartmentId.HasValue)
-            throw new ForbiddenException("Department filtering is only available to administrators.");
+        var isStaff = currentUser.Roles.Contains(AppRoles.DepartmentStaff);
+        if (!isStaff)
+        {
+            var isAdmin = currentUser.Roles.Contains(AppRoles.Admin);
+            throw new ForbiddenException(
+                isAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot export academic project portfolios."
+                    : "Only department staff can export dashboard data.",
+                isAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
+        if (request.DepartmentId.HasValue)
+            throw new ForbiddenException("Department staff can only export portfolio data for their assigned department.");
         return repository.InReadTransactionAsync(async token =>
         {
-            await repository.RequireRoleAsync(actor, isAdmin ? AppRoles.Admin : AppRoles.DepartmentStaff, token);
+            await repository.RequireRoleAsync(actor, AppRoles.DepartmentStaff, token);
             var format = (request.Format ?? "csv").Trim().ToLowerInvariant();
             if (format is not ("csv" or "xlsx" or "pdf"))
                 throw new DomainException("Export format must be csv, xlsx or pdf.");
-            var filter = new DashboardPortfolioFilter(request.SemesterId, isAdmin ? request.DepartmentId : null,
+            var filter = new DashboardPortfolioFilter(request.SemesterId, null,
                 request.MajorId, request.Status, request.Search?.Trim(), 1, 10000);
             var now = clock.GetUtcNow();
-            var facts = await repository.GetPortfolioAsync(actor, isAdmin, filter, now.UtcDateTime, token);
+            var facts = await repository.GetPortfolioAsync(actor, false, filter, now.UtcDateTime, token);
             if (facts.Projects.Count > 10000)
                 throw new DomainException("The export exceeds the bounded 10000-row limit.");
             var analyzed = facts.Projects.Select(p => (Project: p, Analysis: analysis.Analyze(p.Facts, now.UtcDateTime, token))).ToArray();
@@ -283,13 +298,12 @@ public sealed class ExportPortfolioDashboardQueryHandler(IDashboardRepository re
             await audit.RecordAsync(new AuditEntry(actor, "DASHBOARD_EXPORTED", "DASHBOARD", null,
                 new Dictionary<string, object?>
                 {
-                    ["role"] = isAdmin ? AppRoles.Admin : AppRoles.DepartmentStaff,
+                    ["role"] = AppRoles.DepartmentStaff,
                     ["format"] = format, ["rowCount"] = facts.Projects.Count, ["result"] = "SUCCEEDED",
                     ["semesterId"] = filter.SemesterId, ["departmentId"] = facts.DepartmentId,
                     ["majorId"] = filter.MajorId, ["status"] = filter.Status, ["search"] = filter.Search
                 }), token);
-            var scope = isAdmin ? "admin" : "department";
-            return new DashboardCsvExport(content, $"dashboard-{scope}-{now:yyyyMMddHHmmss}.{extension}", contentType);
+            return new DashboardCsvExport(content, $"dashboard-department-{now:yyyyMMddHHmmss}.{extension}", contentType);
         }, ct);
     }
 }

@@ -216,11 +216,23 @@ internal sealed partial class ReviewGateService
         var now = Now;
         var events = new List<SlaEventSummaryDto>();
 
-        // 1. Project dual-department reviews pending >= 48h (REMINDER_48H) and >= 72h (ESCALATION_72H to LeadScope)
-        var pendingProjectReviews = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
+        // 1. Project dual-department reviews (latest snapshot per project only) pending >= 2 WD (REMINDER_48H) and >= 3 WD (ESCALATION_72H to LeadScope)
+        var allSnapshotsWithPending = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
             .Include(s => s.Decisions)
             .Where(s => s.Decisions.Any(d => d.Decision == "PENDING"))
             .ToListAsync(token);
+
+        var latestSnapshotIds = allSnapshotsWithPending.Count == 0
+            ? new HashSet<long>()
+            : (await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
+                .Where(s => allSnapshotsWithPending.Select(x => x.ProjectId).Contains(s.ProjectId))
+                .GroupBy(s => s.ProjectId)
+                .Select(g => g.Max(x => x.Id))
+                .ToListAsync(token)).ToHashSet();
+
+        var pendingProjectReviews = allSnapshotsWithPending
+            .Where(s => latestSnapshotIds.Contains(s.Id))
+            .ToList();
 
         var projectStatuses = pendingProjectReviews.Count == 0
             ? new Dictionary<long, string>()
@@ -228,21 +240,25 @@ internal sealed partial class ReviewGateService
                 .Where(p => pendingProjectReviews.Select(s => s.ProjectId).Contains(p.Id))
                 .ToDictionaryAsync(p => p.Id, p => p.Status, token);
 
+        var nowOffset = new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc));
         foreach (var snap in pendingProjectReviews)
         {
             if (!projectStatuses.TryGetValue(snap.ProjectId, out var status) || status is not ("SUBMITTED" or "UNDER_REVIEW"))
                 continue;
-            var elapsedHours = (now - snap.SubmittedAt).TotalHours;
+            var submittedOffset = new DateTimeOffset(DateTime.SpecifyKind(snap.SubmittedAt, DateTimeKind.Utc));
+            var elapsedWd = workingDayCalculator is not null
+                ? workingDayCalculator.CountElapsedWorkingDays(submittedOffset, nowOffset, snap.ProjectPeriodId)
+                : AIPMS.Application.Features.Semesters.WorkingDayMath.CountElapsedWorkingDays(submittedOffset, nowOffset, 62, []);
             foreach (var dec in snap.Decisions.Where(d => d.Decision == "PENDING"))
             {
-                if (elapsedHours >= 48.0)
+                if (elapsedWd >= 2)
                     await TryEmitSlaAsync("PROJECT_REVIEW", snap.Id, 1, dec.DepartmentId, "REMINDER_48H",
-                        $"Nhắc SLA 48h: Hồ sơ dự án #{snap.ProjectId} chờ thẩm định",
-                        $"Khoa của bạn có hồ sơ dự án #{snap.ProjectId} chờ duyệt quá 48 giờ.", now, events, token);
-                if (elapsedHours >= 72.0)
+                        $"Nhắc SLA 2 ngày làm việc: Hồ sơ dự án #{snap.ProjectId} chờ thẩm định",
+                        $"Khoa của bạn có hồ sơ dự án #{snap.ProjectId} chờ duyệt quá 2 ngày làm việc.", now, events, token);
+                if (elapsedWd >= 3)
                     await TryEmitSlaAsync("PROJECT_REVIEW", snap.Id, 1, snap.LeadDepartmentId, "ESCALATION_72H",
-                        $"Leo thang SLA 72h: Hồ sơ dự án #{snap.ProjectId} quá hạn đồng duyệt",
-                        $"Đơn vị phối hợp (#{dec.DepartmentId}) chưa phản hồi dự án #{snap.ProjectId} quá 72 giờ; đề nghị LeadScope điều phối.", now, events, token);
+                        $"Leo thang SLA 3 ngày làm việc: Hồ sơ dự án #{snap.ProjectId} quá hạn đồng duyệt",
+                        $"Đơn vị phối hợp (#{dec.DepartmentId}) chưa phản hồi dự án #{snap.ProjectId} quá 3 ngày làm việc; Khoa chủ trì có thể kích hoạt Lead Override.", now, events, token);
             }
         }
 

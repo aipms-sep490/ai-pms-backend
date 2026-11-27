@@ -15,8 +15,8 @@ public sealed class TeamLeaderChangeRequestsController(ISender sender) : Control
     [HttpGet]
     public async Task<ActionResult<PagedResult<TeamLeaderChangeRequestDto>>> List(
         [FromQuery] long? teamId, [FromQuery] string? status,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) =>
-        Ok(await sender.Send(new GetTeamLeaderChangeRequestsQuery(teamId, status, page, pageSize), ct));
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] long? projectId = null, CancellationToken ct = default) =>
+        Ok(await sender.Send(new GetTeamLeaderChangeRequestsQuery(teamId, status, page, pageSize, projectId), ct));
 
     [HttpPost("{requestId:long}/approve")]
     public async Task<ActionResult<TeamLeaderChangeRequestDto>> Approve(long requestId,
@@ -27,4 +27,8 @@ public sealed class TeamLeaderChangeRequestsController(ISender sender) : Control
     public async Task<ActionResult<TeamLeaderChangeRequestDto>> Reject(long requestId,
         RespondToTeamLeaderChange request, CancellationToken ct) =>
         Ok(await sender.Send(new RejectTeamLeaderChangeCommand(requestId, request.Message), ct));
+
+    [HttpPost("{requestId:long}/cancel")]
+    public async Task<ActionResult<TeamLeaderChangeRequestDto>> Cancel(long requestId, CancellationToken ct) =>
+        Ok(await sender.Send(new CancelTeamLeaderChangeCommand(requestId), ct));
 }

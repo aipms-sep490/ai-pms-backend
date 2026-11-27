@@ -35,6 +35,11 @@ public sealed class StudentAccountImportController(IStudentAccountImportService 
 
     [HttpPost("commit")]
     [ProducesResponseType<StudentAccountImportResult>(201)]
-    public async Task<ActionResult<StudentAccountImportResult>> Commit(StudentAccountImportCommit request, CancellationToken ct) =>
-        StatusCode(201, await service.CommitAsync(request, ct));
+    public async Task<ActionResult<StudentAccountImportResult>> Commit(StudentAccountImportCommit request, CancellationToken ct)
+    {
+        var result = await service.CommitAsync(request, ct);
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers["Pragma"] = "no-cache";
+        return StatusCode(201, result);
+    }
 }

@@ -184,11 +184,35 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             projectId = source.ProjectId;
             teamId = source.TeamId;
             if (status == "PENDING")
-                targetUser = await context.SupervisorProfiles.Where(p => p.Id == source.MentorProfileId)
-                    .Select(p => p.UserId).SingleAsync(ct);
+            {
+                if (source.MentorProfileId.HasValue)
+                {
+                    targetUser = await context.SupervisorProfiles.Where(p => p.Id == source.MentorProfileId.Value)
+                        .Select(p => (long?)p.UserId).SingleOrDefaultAsync(ct);
+                    role = AppRoles.Lecturer;
+                }
+                else
+                {
+                    var projScope = await AIPMS.Infrastructure.Services.Projects.ProjectAcademicScopeReader.ReadAsync(context, source.ProjectId, ct);
+                    if (projScope.LeadDepartmentId.HasValue)
+                    {
+                        replacementLecturers = await AIPMS.Infrastructure.Services.Projects.V4WorkflowNotificationHelper
+                            .GetDepartmentStaffIdsAsync(context, projScope.LeadDepartmentId.Value, ct);
+                    }
+                    role = AppRoles.DepartmentStaff;
+                }
+            }
+            else if (status == "APPROVED")
+            {
+                // BN-09: notify both previous leader/requester and newly appointed leader.
+                replacementLecturers = new[] { source.RequestedBy, source.CurrentLeaderUserId, source.NewLeaderUserId }.Distinct().ToArray();
+                role = AppRoles.Student;
+            }
             else
+            {
                 targetUser = source.RequestedBy;
-            role = status == "PENDING" ? AppRoles.Lecturer : AppRoles.Student;
+                role = AppRoles.Student;
+            }
         }
         else
         {
@@ -254,6 +278,8 @@ internal sealed class WorkflowNotificationWriter(AipmsDbContext context) : IWork
             if (replacementEvent)
                 recipients = recipients.Where(u => replacementLecturers.Contains(u.Id)
                     || u.TeamMembers.Any(m => m.TeamId == teamId && m.LeftAt == null));
+            else if (leaderChangeEvent && replacementLecturers.Length > 0)
+                recipients = recipients.Where(u => replacementLecturers.Contains(u.Id));
             else if (targetUser.HasValue)
                 recipients = recipients.Where(u => u.Id == targetUser.Value);
             else if (projectResult || projectStateEvent || feedbackEvent)

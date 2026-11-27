@@ -83,6 +83,19 @@ public interface IProjectRepository
         string concurrencyToken,
         CancellationToken cancellationToken);
 
+    Task<ProjectDto> DeselectTopicAsync(
+        long projectId,
+        CancellationToken cancellationToken) => throw new NotImplementedException();
+
+    Task<int> CountNonRejectedTopicSelectionsAsync(
+        long topicId,
+        long? excludeProjectId,
+        CancellationToken cancellationToken) => Task.FromResult(0);
+
+    Task LockTopicAsync(
+        long topicId,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
     Task<ProjectDto> UpdateStatusAsync(
         long projectId,
         string concurrencyToken,
@@ -161,6 +174,20 @@ public interface IProjectRepository
 
     Task<bool> IsWorkingAgreementReadyForActivationAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult(true);
+
+    Task<string> ConsolidateRevisionNotesAsync(long projectId, string leadReason, CancellationToken cancellationToken) =>
+        Task.FromResult(leadReason);
+
+    Task<ProjectDto> LeadOverrideApproveAsync(
+        long projectId,
+        long actorUserId,
+        string concurrencyToken,
+        string reason,
+        CancellationToken cancellationToken) =>
+        throw new NotImplementedException();
+
+    Task NotifyProposalSubmittedAsync(long projectId, long actorUserId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }
 
 public sealed record ProjectSupervisorConfirmation(

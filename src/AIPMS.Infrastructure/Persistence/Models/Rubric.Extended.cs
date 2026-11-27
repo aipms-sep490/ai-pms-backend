@@ -12,6 +12,8 @@ public partial class Rubric
     public DateOnly? EffectiveFrom { get; set; }
     public DateOnly? EffectiveTo { get; set; }
     public string? ApprovalReference { get; set; }
+    public long? ParticipatingDepartmentId { get; set; }
 
     public virtual Major? Major { get; set; }
+    public virtual Department? ParticipatingDepartment { get; set; }
 }

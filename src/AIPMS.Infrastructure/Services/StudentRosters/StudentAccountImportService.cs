@@ -7,10 +7,13 @@ using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
+using AIPMS.Application.Features.AccountSecurity.Commands;
 using AIPMS.Application.Features.StudentRosters;
 using AIPMS.Application.Features.StudentRosters.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
+using AIPMS.Infrastructure.Persistence.Models;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -101,6 +104,8 @@ internal sealed class StudentAccountImportService(AipmsDbContext db, ICurrentUse
                 .Where(s => s.DepartmentId == departmentId && s.IsActive && (s.MajorId == null || s.MajorId == request.MajorId))
                 .Select(s => new { s.Id, s.Code, s.Name }).ToArrayAsync(ct);
             var now = clock.GetUtcNow().UtcDateTime;
+            var createdUsers = new List<User>(preview.Rows.Count);
+            var initialCredentials = request.RequireGoogleSso ? null : new List<StudentImportedCredential>(preview.Rows.Count);
             foreach (var item in preview.Rows.OrderBy(x => x.Account.Email, StringComparer.Ordinal))
             {
                 var row = item.Account;
@@ -108,19 +113,90 @@ internal sealed class StudentAccountImportService(AipmsDbContext db, ICurrentUse
                     ? null
                     : specs.FirstOrDefault(s => string.Equals(s.Code, row.SpecializationCode, StringComparison.OrdinalIgnoreCase)
                         || string.Equals(s.Name, row.SpecializationCode, StringComparison.OrdinalIgnoreCase))?.Id;
-                var user = new User { Email = row.Email, StudentCode = row.StudentCode, FullName = row.FullName, Phone = row.Phone,
-                    CurriculumCode = row.CurriculumCode, ClassCode = row.ClassCode, SpecializationId = specId,
-                    MajorId = request.MajorId, DepartmentId = departmentId,
-                    Status = "ACTIVE", AcademicProfileStatus = "PENDING", GoogleEnrollmentPending = true,
-                    PasswordHash = passwords.Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))), CreatedAt = now, UpdatedAt = now };
+
+                string rawPassword;
+                if (request.RequireGoogleSso)
+                {
+                    rawPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+                }
+                else
+                {
+                    rawPassword = IssueTemporaryPasswordCommandHandler.GenerateStrongPassword(12);
+                    initialCredentials!.Add(new StudentImportedCredential(row.StudentCode, row.FullName, row.Email, rawPassword));
+                }
+
+                var user = new User
+                {
+                    Email = row.Email,
+                    StudentCode = row.StudentCode,
+                    FullName = row.FullName,
+                    Phone = row.Phone,
+                    CurriculumCode = row.CurriculumCode,
+                    ClassCode = row.ClassCode,
+                    SpecializationId = specId,
+                    MajorId = request.MajorId,
+                    DepartmentId = departmentId,
+                    Status = "ACTIVE",
+                    AcademicProfileStatus = request.MarkProfilesVerified ? "VERIFIED" : "PENDING",
+                    AcademicProfileReviewedBy = request.MarkProfilesVerified ? actor : null,
+                    AcademicProfileReviewedAt = request.MarkProfilesVerified ? now : null,
+                    GoogleEnrollmentPending = request.RequireGoogleSso,
+                    MustChangePassword = !request.RequireGoogleSso,
+                    PasswordHash = passwords.Hash(rawPassword),
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
                 user.UserRoleUsers.Add(new UserRole { RoleId = role.Id, AssignedBy = actor, AssignedAt = now });
                 db.Users.Add(user);
+                createdUsers.Add(user);
             }
             await db.SaveChangesAsync(ct);
+
+            if (request.MarkProfilesVerified)
+            {
+                foreach (var createdUser in createdUsers)
+                {
+                    db.AcademicProfileVerifications.Add(new()
+                    {
+                        UserId = createdUser.Id,
+                        Status = "VERIFIED",
+                        ReviewedBy = actor,
+                        ReviewedAt = now,
+                        RejectionReason = null
+                    });
+                }
+                await db.SaveChangesAsync(ct);
+            }
+            else
+            {
+                var staffIds = await V4WorkflowNotificationHelper.GetDepartmentStaffIdsAsync(db, departmentId, ct);
+                if (staffIds.Length > 0)
+                {
+                    await V4WorkflowNotificationHelper.EmitAsync(
+                        db,
+                        actor,
+                        "STUDENT_ACCOUNTS_IMPORTED_PENDING_VERIFICATION",
+                        $"Có {createdUsers.Count} hồ sơ sinh viên mới chờ xác minh",
+                        $"Admin vừa nhập lô {createdUsers.Count} sinh viên thuộc ngành {preview.MajorName} ở trạng thái chờ xác minh hồ sơ học vụ.",
+                        "DEPARTMENT",
+                        departmentId,
+                        staffIds,
+                        now,
+                        enqueueEmail: false,
+                        ct);
+                }
+            }
+
             await audit.RecordAsync(new AuditEntry(actor, "STUDENT_ACCOUNTS_IMPORTED", "USER", null,
-                new Dictionary<string, object?> { ["count"] = preview.Rows.Count, ["majorId"] = request.MajorId, ["loginMethod"] = "GOOGLE" }), ct);
+                new Dictionary<string, object?>
+                {
+                    ["count"] = preview.Rows.Count,
+                    ["majorId"] = request.MajorId,
+                    ["loginMethod"] = request.RequireGoogleSso ? "GOOGLE" : "PASSWORD",
+                    ["markProfilesVerified"] = request.MarkProfilesVerified
+                }), ct);
             await transaction.CommitAsync(ct);
-            return new(preview.Rows.Count);
+            return new(preview.Rows.Count, initialCredentials, request.MarkProfilesVerified);
         }
         catch (Exception ex)
         {

@@ -46,10 +46,18 @@ public sealed class TopicSelectionGuard(
             throw new NotFoundException("Topic", topicId);
         }
 
-        // 5. Topic must be PUBLISHED
+        // 5. Topic must be PUBLISHED and still have team capacity (max_teams)
         if (!string.Equals(topic.Status, TopicSelectionRules.StatusPublished, StringComparison.OrdinalIgnoreCase))
         {
             throw new ConflictException("Only published topics can be selected.");
+        }
+
+        var selectedCount = await projectRepository.CountNonRejectedTopicSelectionsAsync(topicId, projectId, cancellationToken);
+        if (selectedCount >= topic.MaxTeams)
+        {
+            throw new ConflictException(
+                $"This topic has reached its maximum team capacity ({topic.MaxTeams}).",
+                WorkflowErrorCodes.TopicCapacityFull);
         }
 
         // 6. Retrieve team and verify period/window

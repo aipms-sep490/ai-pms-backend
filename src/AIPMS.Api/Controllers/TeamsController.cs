@@ -143,6 +143,20 @@ public sealed class TeamsController(ISender sender) : ControllerBase
         return NoContent();
     }
 
+    [HttpPost("{teamId:long}/disband")]
+    public async Task<ActionResult<TeamDto>> Disband(long teamId, CancellationToken ct) =>
+        Ok(await sender.Send(new DisbandTeamCommand(teamId), ct));
+
+    [HttpPost("{teamId:long}/unlock")]
+    [Authorize(Roles = AIPMS.Application.Common.Security.AppRoles.DepartmentStaff)]
+    public async Task<ActionResult<TeamDto>> Unlock(long teamId, UnlockTeamRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new UnlockTeamCommand(teamId, request.Reason), ct));
+
+    [HttpPost("{teamId:long}/force-leader")]
+    [Authorize(Roles = AIPMS.Application.Common.Security.AppRoles.DepartmentStaff)]
+    public async Task<ActionResult<TeamDto>> ForceLeader(long teamId, ForceTeamLeaderRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new ForceTransferTeamLeaderCommand(teamId, request.NewLeaderUserId, request.Reason), ct));
+
     [HttpPost("{teamId:long}/leader")]
     public async Task<ActionResult> TransferLeader(long teamId,
         TransferTeamLeaderRequest request, CancellationToken ct) =>
@@ -159,3 +173,5 @@ public sealed record CreateTeamRequest(long AcademicSemesterId, string Code, str
 public sealed record UpdateTeamRequest(string Name, string? Description);
 public sealed record InviteTeamMemberRequest(long InvitedUserId, string? Message);
 public sealed record TransferTeamLeaderRequest(long NewLeaderUserId, string? Message = null);
+public sealed record UnlockTeamRequest(string Reason);
+public sealed record ForceTeamLeaderRequest(long NewLeaderUserId, string Reason);

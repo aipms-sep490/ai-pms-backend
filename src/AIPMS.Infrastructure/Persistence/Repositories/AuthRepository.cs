@@ -164,6 +164,7 @@ internal sealed class AuthRepository(AipmsDbContext context, IOptions<PasswordRe
         utcNow = clock.GetUtcNow().UtcDateTime;
         user.PasswordHash = passwordHash;
         user.PasswordChangedAt = NextPasswordVersion(user.PasswordChangedAt, utcNow);
+        user.MustChangePassword = false;
         user.AccessFailedCount = 0;
         user.LockoutEndAt = null;
         user.UpdatedAt = utcNow;
@@ -241,6 +242,7 @@ internal sealed class AuthRepository(AipmsDbContext context, IOptions<PasswordRe
             throw new UnauthorizedException("The password reset token is invalid or expired.");
         user.PasswordHash = passwordHash;
         user.PasswordChangedAt = NextPasswordVersion(user.PasswordChangedAt, utcNow);
+        user.MustChangePassword = false;
         user.AccessFailedCount = 0;
         user.LockoutEndAt = null;
         user.UpdatedAt = utcNow;
@@ -317,7 +319,8 @@ internal sealed class AuthRepository(AipmsDbContext context, IOptions<PasswordRe
             user.LockoutEndAt,
             user.PasswordChangedAt,
             user.Title,
-            user.Phone);
+            user.Phone,
+            user.MustChangePassword);
 
     private static RefreshTokenEntity ToEntity(
         long userId,

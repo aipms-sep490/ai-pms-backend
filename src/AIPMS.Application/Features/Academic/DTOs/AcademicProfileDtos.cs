@@ -26,3 +26,14 @@ public sealed record UpdateAcademicProfileRequest(
     string ConcurrencyToken);
 
 public sealed record RejectAcademicProfileRequest(string Reason);
+
+public sealed record BulkVerifyAcademicProfilesRequest(
+    IReadOnlyList<long>? UserIds = null,
+    string? ClassCode = null,
+    long? MajorId = null);
+
+public sealed record BulkVerifyAcademicProfilesResultDto(
+    int VerifiedCount,
+    int SkippedCount,
+    IReadOnlyList<long> VerifiedUserIds,
+    IReadOnlyList<long> SkippedUserIds);

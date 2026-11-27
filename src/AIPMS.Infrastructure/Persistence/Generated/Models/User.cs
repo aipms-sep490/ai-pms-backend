@@ -24,6 +24,7 @@ public partial class User
     public string? ClassCode { get; set; }
     public long? SpecializationId { get; set; }
     public bool GoogleEnrollmentPending { get; set; }
+    public bool MustChangePassword { get; set; }
 
     public string? EmployeeCode { get; set; }
 

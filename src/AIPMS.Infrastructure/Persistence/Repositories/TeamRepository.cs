@@ -399,4 +399,72 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
 
         return false;
     }
+
+    public async Task CancelAllPendingInvitationsAsync(long teamId, DateTime now, CancellationToken ct)
+    {
+        var pending = await context.TeamInvitations
+            .Where(i => i.TeamId == teamId && i.Status == "PENDING")
+            .ToListAsync(ct);
+        if (pending.Count == 0) return;
+        foreach (var inv in pending)
+        {
+            inv.Status = "CANCELLED";
+            inv.RespondedAt = now;
+            inv.UpdatedAt = now;
+        }
+        await SaveAsync(ct);
+    }
+
+    public async Task<long?> GetTeamLeadDepartmentIdAsync(long teamId, CancellationToken ct)
+    {
+        var configured = await context.Set<TeamAcademicConfiguration>().AsNoTracking()
+            .Where(c => c.TeamId == teamId)
+            .Select(c => (long?)c.LeadDepartmentId)
+            .SingleOrDefaultAsync(ct);
+        if (configured.HasValue) return configured;
+
+        var projectId = await context.Projects.AsNoTracking()
+            .Where(p => p.TeamId == teamId)
+            .OrderByDescending(p => p.Id)
+            .Select(p => (long?)p.Id)
+            .FirstOrDefaultAsync(ct);
+        if (projectId.HasValue)
+        {
+            var scope = await AIPMS.Infrastructure.Services.Projects.ProjectAcademicScopeReader.ReadAsync(context, projectId.Value, ct);
+            if (scope.LeadDepartmentId.HasValue) return scope.LeadDepartmentId;
+        }
+
+        return await context.TeamMembers.AsNoTracking()
+            .Where(m => m.TeamId == teamId && m.LeftAt == null)
+            .OrderByDescending(m => m.IsLeader).ThenBy(m => m.Id)
+            .Select(m => m.User.Major != null ? (long?)m.User.Major.DepartmentId : m.User.DepartmentId)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<(bool IsStaff, bool IsAdmin, long? DepartmentId)> GetStaffActorScopeAsync(long userId, CancellationToken ct)
+    {
+        var info = await context.Users.AsNoTracking()
+            .Where(u => u.Id == userId && u.Status == "ACTIVE")
+            .Select(u => new
+            {
+                u.DepartmentId,
+                HasActiveDept = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive,
+                IsStaff = u.UserRoleUsers.Any(r => r.Role.Code == AIPMS.Application.Common.Security.AppRoles.DepartmentStaff),
+                IsAdmin = u.UserRoleUsers.Any(r => r.Role.Code == AIPMS.Application.Common.Security.AppRoles.Admin)
+            })
+            .SingleOrDefaultAsync(ct);
+        if (info is null) return (false, false, null);
+        return (info.IsStaff && info.HasActiveDept, info.IsAdmin, info.DepartmentId);
+    }
+
+    public async Task NotifyTeamMembersAsync(long teamId, long actorUserId, string notificationType, string title, string content, DateTime now, CancellationToken ct)
+    {
+        var memberIds = await context.TeamMembers.AsNoTracking()
+            .Where(m => m.TeamId == teamId && m.LeftAt == null)
+            .Select(m => m.UserId)
+            .ToArrayAsync(ct);
+        if (memberIds.Length == 0) return;
+        await AIPMS.Infrastructure.Services.Projects.V4WorkflowNotificationHelper.EmitAsync(
+            context, actorUserId, notificationType, title, content, "TEAM", teamId, memberIds, now, enqueueEmail: false, ct);
+    }
 }

@@ -246,14 +246,28 @@ public sealed class ProjectTests
     {
         var repository = new StubProjectRepository { Confirmation = new(primary, missingMentor, missingMentor ? [302] : []) };
         repository.Projects[50] = new ProjectDto(50, 1, "Team 1", "PRJ001", "Title", null, null, "UNDER_REVIEW", FixedNow, null, null, null, 10, "L", FixedNow, FixedNow, "P", "O", "token123", [], []);
+        repository.ProjectDeptIds.Add(100);
+        var academicRepo = new StubAcademicStructureRepository();
+        academicRepo.UserScopes[11] = new AcademicUserScope(1, 100);
         var audit = new RecordingAuditTrail();
-        var handler = new ApproveProjectCommandHandler(repository, new StubAcademicStructureRepository(),
-            new TestCurrentUser(11, AppRoles.Admin), audit, new RecordingPublisher());
+        var handler = new ApproveProjectCommandHandler(repository, academicRepo,
+            new TestCurrentUser(11, AppRoles.DepartmentStaff), audit, new RecordingPublisher());
         var result = await handler.Handle(new(50, "token123"), default);
         Assert.Equal(expected, result.Status);
         Assert.Equal(expected == "ACTIVE" ? 3 : 1, repository.StatusHistories[50].Count);
         Assert.Equal(expected == "ACTIVE" ? 1 : 0, audit.Entries.Count(e => e.Action == "PROJECT_ACTIVATED"));
         Assert.Single(audit.Entries.Where(e => e.Action == "PROJECT_APPROVED"));
+    }
+
+    [Fact]
+    public async Task ApproveProject_PureAdmin_ThrowsForbiddenAdminNotAcademicAuthority()
+    {
+        var repository = new StubProjectRepository();
+        repository.Projects[50] = new ProjectDto(50, 1, "Team 1", "PRJ001", "Title", null, null, "UNDER_REVIEW", FixedNow, null, null, null, 10, "L", FixedNow, FixedNow, "P", "O", "token123", [], []);
+        var handler = new ApproveProjectCommandHandler(repository, new StubAcademicStructureRepository(),
+            new TestCurrentUser(11, AppRoles.Admin), new RecordingAuditTrail(), new RecordingPublisher());
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(new(50, "token123"), default));
+        Assert.Equal(WorkflowErrorCodes.AdminNotAcademicAuthority, ex.Code);
     }
 
     [Fact]

@@ -110,6 +110,20 @@ internal sealed class WorkingDayCalculator(AipmsDbContext db, ILogger<WorkingDay
         var calendar = Calendar(projectPeriodId);
         return calendar is null ? from.AddHours(workingHours) : WorkingDayMath.AddWorkingHours(from, workingHours, calendar.Value.Mask, calendar.Value.Holidays);
     }
+    public DateTimeOffset AddElapsedWorkingDays(DateTimeOffset from, int workingDays, long projectPeriodId)
+    {
+        var calendar = Calendar(projectPeriodId);
+        return calendar is null
+            ? WorkingDayMath.AddElapsedWorkingDays(from, workingDays, 62, [])
+            : WorkingDayMath.AddElapsedWorkingDays(from, workingDays, calendar.Value.Mask, calendar.Value.Holidays);
+    }
+    public int CountElapsedWorkingDays(DateTimeOffset from, DateTimeOffset to, long projectPeriodId)
+    {
+        var calendar = Calendar(projectPeriodId);
+        return calendar is null
+            ? WorkingDayMath.CountElapsedWorkingDays(from, to, 62, [])
+            : WorkingDayMath.CountElapsedWorkingDays(from, to, calendar.Value.Mask, calendar.Value.Holidays);
+    }
 }
 
 internal static class VietnamHolidays

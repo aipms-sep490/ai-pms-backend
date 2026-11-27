@@ -1,5 +1,7 @@
-using AIPMS.Application.Features.Files;
 using AIPMS.Application.Common.Models;
+using AIPMS.Application.Common.Security;
+using AIPMS.Application.Features.Files;
+using AIPMS.Application.Features.StudentQualifications.Abstractions;
 using AIPMS.Application.Features.StudentQualifications.Commands;
 using AIPMS.Application.Features.StudentQualifications.DTOs;
 using AIPMS.Application.Features.StudentQualifications.Models;
@@ -18,8 +20,36 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-public sealed class StudentQualificationsController(ISender sender) : ControllerBase
+public sealed class StudentQualificationsController(
+    ISender sender,
+    IStudentQualificationImportService importService) : ControllerBase
 {
+    [HttpGet("types")]
+    [ProducesResponseType<IReadOnlyList<StudentQualificationTypeDefinition>>(StatusCodes.Status200OK)]
+    public ActionResult<IReadOnlyList<StudentQualificationTypeDefinition>> GetTypes() =>
+        Ok(StudentQualificationTypes.Allowed);
+
+    [HttpPost("import/preview")]
+    [Authorize(Roles = AppRoles.DepartmentStaff)]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(UploadPolicies.StudentAccountImportLimit)]
+    [ProducesResponseType<StudentQualificationImportPreview>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<StudentQualificationImportPreview>> PreviewImport(
+        [FromForm] StudentQualificationImportForm request,
+        CancellationToken ct)
+    {
+        if (request.File is null) return BadRequest();
+        await using var stream = request.File.OpenReadStream();
+        return Ok(await importService.PreviewAsync(stream, request.File.FileName, ct));
+    }
+
+    [HttpPost("import/commit")]
+    [Authorize(Roles = AppRoles.DepartmentStaff)]
+    [ProducesResponseType<StudentQualificationImportResult>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<StudentQualificationImportResult>> CommitImport(
+        [FromBody] StudentQualificationImportCommit request,
+        CancellationToken ct) =>
+        Ok(await importService.CommitAsync(request, ct));
     [HttpPost("me/certificate")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
@@ -122,4 +152,9 @@ public sealed class QualificationCertificateForm
     public string? CertificateNumber { get; init; }
     public DateTime? IssuedAt { get; init; }
     public DateTime? ExpiresAt { get; init; }
+}
+
+public sealed class StudentQualificationImportForm
+{
+    [System.ComponentModel.DataAnnotations.Required] public IFormFile File { get; init; } = null!;
 }

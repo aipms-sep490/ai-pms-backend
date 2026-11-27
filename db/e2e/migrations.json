@@ -100,5 +100,10 @@
   "20261202_optional_defense_room_scheduler_v4.sql",
   "20261203_all_in_one_hub_core.sql",
   "20261204_student_class_and_specializations.sql",
-  "20261127_mark_industry_tables_deprecated.sql"
+  "20261127_mark_industry_tables_deprecated.sql",
+  "20261205_user_must_change_password.sql",
+  "20261206_rubric_single_staff_and_dual_dept_approval.sql",
+  "20261207_team_leader_change_staff_and_cancel.sql",
+  "20261208_topic_max_teams_and_metadata.sql",
+  "20261209_proposal_pol02_consolidated_and_override.sql"
 ]

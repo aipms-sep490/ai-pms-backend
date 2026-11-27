@@ -82,6 +82,13 @@ public sealed class UpdateTaskStatusCommandHandler(
                 throw new ConflictException("Cần ghi lý do khi mở lại, khôi phục hoặc hủy công việc đã hoàn thành.", WorkflowErrorCodes.TaskReopenReasonRequired);
         }
 
+        if (task.IsCoreGateTask && string.Equals(request.NewStatus, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ConflictException(
+                "Core gate tasks cannot be cancelled.",
+                WorkflowErrorCodes.RestrictedDelete);
+        }
+
         // Validate state machine transition
         if (!TaskStateMachine.CanTransition(task.Status, request.NewStatus))
         {

@@ -11,6 +11,7 @@ namespace AIPMS.Application.Features.Academic.Commands;
 public sealed record VerifyAcademicProfileCommand(long UserId) : IRequest<AcademicProfileDto>;
 public sealed record RejectAcademicProfileCommand(long UserId, string Reason) : IRequest<AcademicProfileDto>;
 public sealed record UpdateAcademicProfileCommand(long UserId, UpdateAcademicProfileRequest Request) : IRequest<AcademicProfileDto>;
+public sealed record BulkVerifyAcademicProfilesCommand(BulkVerifyAcademicProfilesRequest Request) : IRequest<BulkVerifyAcademicProfilesResultDto>;
 
 public sealed class UpdateAcademicProfileHandler(
     IAcademicProfileRepository repository, AcademicAccessService access, IAuditTrail audit, TimeProvider clock)
@@ -67,4 +68,30 @@ public sealed class RejectAcademicProfileHandler(
             new Dictionary<string, object?> { ["reason"] = request.Reason.Trim() }), ct);
         return result;
     }
+}
+
+public sealed class BulkVerifyAcademicProfilesHandler(
+    IAcademicProfileRepository repository, AcademicAccessService access, IAuditTrail audit, TimeProvider clock)
+    : IRequestHandler<BulkVerifyAcademicProfilesCommand, BulkVerifyAcademicProfilesResultDto>
+{
+    public Task<BulkVerifyAcademicProfilesResultDto> Handle(BulkVerifyAcademicProfilesCommand request, CancellationToken ct) =>
+        repository.InTransactionAsync(async token =>
+        {
+            var result = await repository.BulkVerifyAsync(
+                access.ActorUserId,
+                request.Request.UserIds,
+                request.Request.ClassCode,
+                request.Request.MajorId,
+                clock.GetUtcNow().UtcDateTime,
+                token);
+            await audit.RecordAsync(new AuditEntry(access.ActorUserId, "ACADEMIC_PROFILES_BULK_VERIFIED", "USER", null,
+                new Dictionary<string, object?>
+                {
+                    ["verifiedCount"] = result.VerifiedCount,
+                    ["skippedCount"] = result.SkippedCount,
+                    ["classCode"] = request.Request.ClassCode,
+                    ["majorId"] = request.Request.MajorId
+                }), token);
+            return result;
+        }, ct);
 }

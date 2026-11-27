@@ -55,15 +55,27 @@ public sealed class SupervisorAssignmentWorkflow(ISupervisorAssignmentRepository
             var actor = await access.EnsureCanReadAsync(token);
             await repository.LockAsync(assignmentId, token);
             var before = await RequireAssignmentAsync(assignmentId, token);
-            var permitted = actor.Roles.Contains(AppRoles.Admin) || IsOwner(actor, before)
-                || (actor.HasActiveAcademicScope && actor.Roles.Contains(AppRoles.DepartmentStaff)
-                    && actor.DepartmentId is long departmentId
-                    && await repository.IsAssignmentDepartmentAsync(before.Id, departmentId, token));
-            if (!permitted) throw new ForbiddenException("You cannot end this supervisor assignment.");
+            var isStaff = actor.HasActiveAcademicScope && actor.Roles.Contains(AppRoles.DepartmentStaff)
+                && actor.DepartmentId is long departmentId
+                && await repository.IsAssignmentDepartmentAsync(before.Id, departmentId, token);
+            var permitted = IsOwner(actor, before) || isStaff;
+            if (!permitted)
+            {
+                var pureAdmin = actor.Roles.Contains(AppRoles.Admin) && !actor.Roles.Contains(AppRoles.DepartmentStaff);
+                throw new ForbiddenException(
+                    pureAdmin
+                        ? "Platform administrators without DEPARTMENT_STAFF role cannot end supervisor assignments."
+                        : "You cannot end this supervisor assignment.",
+                    pureAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.Forbidden);
+            }
             if (before.EndedAt.HasValue) return await WithCapabilitiesAsync(actor, before, token);
             if (!before.HasKnownAcademicScope) throw new ConflictException("ACADEMIC_SCOPE_UNKNOWN");
             if (before.ProjectStatus != "ACTIVE")
                 throw new ConflictException("Only assignments on ACTIVE projects can be ended. Completed and archived projects are read-only.");
+            if (before.IsPrimary && string.Equals(before.AssignmentType, "PRIMARY", StringComparison.OrdinalIgnoreCase))
+                throw new ConflictException(
+                    "Cannot end the PRIMARY supervisor on an ACTIVE project; use Replace instead.",
+                    WorkflowErrorCodes.PrimarySupervisorReplaceRequired);
             var now = clock.GetUtcNow().UtcDateTime;
             if (now < before.AssignedAt)
                 throw new ConflictException("The assignment cannot end before its assigned time.");
@@ -106,8 +118,13 @@ public sealed class SupervisorAssignmentWorkflow(ISupervisorAssignmentRepository
         }
         else if (assignment.ProjectStatus != "ACTIVE") reasons.Add("REPLACEMENT_REQUIRES_ACTIVE_PROJECT");
         var owner = IsOwner(actor, assignment);
+        var isPrimaryOnActive = assignment.IsPrimary
+            && string.Equals(assignment.AssignmentType, "PRIMARY", StringComparison.OrdinalIgnoreCase)
+            && assignment.ProjectStatus == "ACTIVE";
         canEnd = assignment.HasKnownAcademicScope && !assignment.EndedAt.HasValue && assignment.ProjectStatus == "ACTIVE"
-            && (actor.Roles.Contains(AppRoles.Admin) || owner || canReplace);
+            && !isPrimaryOnActive && (owner || canReplace);
+        if (isPrimaryOnActive && !assignment.EndedAt.HasValue)
+            reasons.Add(WorkflowErrorCodes.PrimarySupervisorReplaceRequired);
         if (!canEnd && assignment.ProjectStatus != "ACTIVE") reasons.Add("END_REQUIRES_ACTIVE_PROJECT");
         return assignment.ToDto() with
         {

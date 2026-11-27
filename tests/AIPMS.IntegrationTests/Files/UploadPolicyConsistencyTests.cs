@@ -162,7 +162,8 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             }
         }
 
-        Assert.Equal(22, endpointsWithLimit.Count);
+        // 22 baseline + 1 TK-W1-05 qualification eligible import preview endpoint
+        Assert.Equal(23, endpointsWithLimit.Count);
 
         foreach (var (method, limit) in endpointsWithLimit)
         {
@@ -202,7 +203,8 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         }
 
         // All file, workbook, audio clip, and preview endpoints must have [RequestSizeLimit].
-        Assert.Equal(22, endpointsWithLimit.Count);
+        // 22 baseline + 1 TK-W1-05 qualification eligible import preview endpoint
+        Assert.Equal(23, endpointsWithLimit.Count);
 
         // Every endpoint's limit must match a recognized constant in UploadPolicies
         var validConstants = new[]
@@ -234,7 +236,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         Assert.Equal(2, archiveMultipartCount);
 
         var directMatchCount = endpointsWithLimit.Count(e => UploadPolicies.All.Any(p => p.MaxBytes == e.Limit));
-        Assert.Equal(7, directMatchCount);
+        Assert.Equal(8, directMatchCount);
         Assert.Single(endpointsWithLimit, e => e.Limit == UploadPolicies.UserAvatarTransportLimit);
         Assert.Single(endpointsWithLimit, e => e.Limit == UploadPolicies.ProjectFileChunkSize
             && e.Method.DeclaringType == typeof(ProjectFileUploadSessionsController) && e.Method.Name == "Append");

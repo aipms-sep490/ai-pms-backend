@@ -27,7 +27,8 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser current, IProjectRepository transactions,
     IAuditTrail audit, TimeProvider clock, IFileStorage storage, ColdSubmissionService cold,
-    IFileSecurityScanner scanner, ISignedPreviewTokenService previewTokens, IOfficePreviewService officePreview) : IReviewGateService
+    IFileSecurityScanner scanner, ISignedPreviewTokenService previewTokens, IOfficePreviewService officePreview,
+    AIPMS.Application.Features.Semesters.Abstractions.IWorkingDayCalculator? workingDayCalculator = null) : IReviewGateService
 {
     private long Actor => current.UserId ?? throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
@@ -762,7 +763,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         row.GateInstance.ReviewEligibility = input.Decision == "REVISION_REQUIRED" ? "BLOCKED" : "READY";
         await db.SaveChangesAsync(token);
         await NotifyGateChanged(row.GateInstance.ProjectId, row.GateInstance.Id, row.GateInstance.Code, $"Quyết định kiểm duyệt cổng {row.GateInstance.Code}: {GateStatusLabel(input.Decision)}.", token);
-        if (gatePassed && row.GateInstance.BlockNextGate) await OpenNextGate(row.GateInstance, token);
+        if (gatePassed) await OpenNextGate(row.GateInstance, token);
         await audit.RecordAsync(new(Actor, "REVIEW_GATE_DECISION_RECORDED", "REVIEW_GATE_ASSIGNMENT", row.Id, new Dictionary<string, object?> { ["decision"] = input.Decision }), token);
         var project = await db.Projects.AsNoTracking().SingleAsync(x => x.Id == row.GateInstance.ProjectId, token);
         return AssignmentDto(row, project, await LoadSubmitterNamesAsync([row.GateInstance], token), latestPkgId);
@@ -1082,15 +1083,60 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
     private async Task<ProjectGateInstance[]> EnsureInstances(AIPMS.Infrastructure.Persistence.Generated.Models.Project project, ProjectAcademicScope scope, CancellationToken ct)
     {
         var current = await db.ProjectGateInstances.Include(x => x.Requirements).ThenInclude(x => x.Evidence).Where(x => x.ProjectId == project.Id).OrderBy(x => x.Sequence).ToArrayAsync(ct);
-        if (current.Length > 0) return current;
+        if (current.Length > 0)
+        {
+            // Self-heal legacy blueprint-created gates that have 0 requirements when their template defines requirements.
+            if (current.All(g => g.Requirements.Count == 0))
+            {
+                var templateIds = current.Select(g => g.TemplateId).Distinct().ToArray();
+                var templatesById = await db.ReviewGateTemplates.AsNoTracking()
+                    .Include(x => x.Gates).ThenInclude(x => x.Requirements)
+                    .Where(x => templateIds.Contains(x.Id))
+                    .ToDictionaryAsync(x => x.Id, ct);
+                var activeMembers = await db.TeamMembers.AsNoTracking()
+                    .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
+                    .OrderBy(m => m.UserId)
+                    .Select(m => m.UserId)
+                    .ToArrayAsync(ct);
+                var healed = false;
+                foreach (var gate in current)
+                {
+                    if (!templatesById.TryGetValue(gate.TemplateId, out var tpl)) continue;
+                    var def = tpl.Gates.FirstOrDefault(g => string.Equals(g.Code, gate.Code, StringComparison.OrdinalIgnoreCase) || g.Sequence == gate.Sequence);
+                    if (def is null || def.Requirements.Count == 0) continue;
+                    var cloned = CloneTemplateRequirements(def.Requirements, activeMembers);
+                    foreach (var req in cloned) gate.Requirements.Add(req);
+                    if (cloned.Count > 0) healed = true;
+                }
+                if (healed) await db.SaveChangesAsync(ct);
+            }
+            return current;
+        }
         var mode = scope.MajorIds.Count > 1 ? "INTERDISCIPLINARY" : "SINGLE_MAJOR";
-        var periodId = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking().Where(x => x.ProjectId == project.Id)
+        var semesterId = await db.Teams.AsNoTracking().Where(t => t.Id == project.TeamId).Select(t => (long?)t.AcademicSemesterId).SingleOrDefaultAsync(ct);
+        var execPeriodId = semesterId.HasValue
+            ? await db.ProjectPeriods.AsNoTracking()
+                .Where(p => p.AcademicSemesterId == semesterId.Value && p.PeriodType == "EXECUTION" && p.Status != "ARCHIVED")
+                .OrderBy(p => p.StartAt).ThenBy(p => p.Id)
+                .Select(p => (long?)p.Id)
+                .FirstOrDefaultAsync(ct)
+            : null;
+        var regPeriodId = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking().Where(x => x.ProjectId == project.Id)
             .OrderByDescending(x => x.Id).Select(x => (long?)x.ProjectPeriodId).FirstOrDefaultAsync(ct);
-        var templates = db.ReviewGateTemplates.Include(x => x.Gates).ThenInclude(x => x.Requirements)
-            .Where(x => x.Status == "PUBLISHED" && x.Mode == mode);
-        if (periodId.HasValue) templates = templates.Where(x => x.ProjectPeriodId == periodId.Value);
-        else templates = templates.Where(x => x.ProjectPeriodId == null);
-        var candidates = await templates.OrderByDescending(x => x.Version).ThenByDescending(x => x.UpdatedAt).ToArrayAsync(ct);
+
+        async Task<ReviewGateTemplate[]> LoadCandidatesAsync(long? periodFilter)
+        {
+            var q = db.ReviewGateTemplates.Include(x => x.Gates).ThenInclude(x => x.Requirements)
+                .Where(x => x.Status == "PUBLISHED" && x.Mode == mode);
+            q = periodFilter.HasValue ? q.Where(x => x.ProjectPeriodId == periodFilter.Value) : q.Where(x => x.ProjectPeriodId == null);
+            return await q.OrderByDescending(x => x.Version).ThenByDescending(x => x.UpdatedAt).ToArrayAsync(ct);
+        }
+
+        var candidates = execPeriodId.HasValue ? await LoadCandidatesAsync(execPeriodId) : [];
+        if (candidates.Length == 0 && regPeriodId.HasValue && regPeriodId != execPeriodId)
+            candidates = await LoadCandidatesAsync(regPeriodId);
+        if (candidates.Length == 0)
+            candidates = await LoadCandidatesAsync(null);
         var major = scope.MajorIds.Count == 1
             ? await db.Majors.AsNoTracking().Where(x => x.Id == scope.MajorIds[0]).Select(x => new { x.Id, x.Code, x.Name }).SingleOrDefaultAsync(ct)
             : null;
@@ -1119,8 +1165,65 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         }
         var template = scope.MajorIds.Count > 1 ? interdisciplinary : exact.FirstOrDefault() ?? (generic.Length == 1 ? generic[0] : null);
         if (template is null) return [];
-        var created = template.Gates.OrderBy(x => x.Sequence).Select(g => new ProjectGateInstance { ProjectId = project.Id, TemplateId = template.Id, TemplateVersion = template.Version, Code = g.Code, Sequence = g.Sequence, Title = g.Title, Objective = g.Objective, Status = g.Sequence == 1 ? "PLANNED" : "LOCKED", ReviewEligibility = g.Sequence == 1 ? "READY" : "BLOCKED", Required = g.Required, BlockNextGate = g.BlockNextGate, BlocksDefense = g.BlocksDefense, Weight = g.Weight, WindowStart = g.WindowStart, WindowEnd = g.WindowEnd, CreatedAt = Now, Requirements = g.Requirements.Select(r => new ProjectGateRequirement { Code = r.Code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId, TargetStudentId = r.TargetStudentId, Required = r.Required }).ToList() }).ToArray();
+        var memberIds = await db.TeamMembers.AsNoTracking()
+            .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
+            .OrderBy(m => m.UserId)
+            .Select(m => m.UserId)
+            .ToArrayAsync(ct);
+        var orderedDefs = template.Gates.OrderBy(x => x.Sequence).ToArray();
+        var created = orderedDefs.Select((g, idx) =>
+        {
+            var openImmediately = idx == 0 || !g.BlockNextGate;
+            return new ProjectGateInstance
+            {
+                ProjectId = project.Id, TemplateId = template.Id, TemplateVersion = template.Version, Code = g.Code, Sequence = g.Sequence,
+                Title = g.Title, Objective = g.Objective, Status = openImmediately ? "PLANNED" : "LOCKED",
+                ReviewEligibility = openImmediately ? "READY" : "BLOCKED", Required = g.Required, BlockNextGate = g.BlockNextGate,
+                BlocksDefense = g.BlocksDefense, Weight = g.Weight, WindowStart = g.WindowStart, WindowEnd = g.WindowEnd,
+                CreatedAt = Now, Requirements = CloneTemplateRequirements(g.Requirements, memberIds)
+            };
+        }).ToArray();
         db.ProjectGateInstances.AddRange(created); await db.SaveChangesAsync(ct); return created;
+    }
+
+    private static List<ProjectGateRequirement> CloneTemplateRequirements(IEnumerable<ReviewGateRequirement> source, IReadOnlyList<long> activeMemberIds)
+    {
+        var list = new List<ProjectGateRequirement>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in source.OrderBy(x => x.Id))
+        {
+            if (string.Equals(r.TargetCardinality, "EACH_STUDENT", StringComparison.OrdinalIgnoreCase) && activeMemberIds.Count > 0)
+            {
+                foreach (var memberId in activeMemberIds)
+                {
+                    var raw = $"{r.Code}-S{memberId}";
+                    var code = raw.Length <= 50 ? raw : raw[..50];
+                    if (!seen.Add(code)) continue;
+                    list.Add(new ProjectGateRequirement
+                    {
+                        Code = code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId,
+                        TargetStudentId = memberId, Required = r.Required, TargetCardinality = r.TargetCardinality,
+                        DeliveryStage = r.DeliveryStage, FeedsCold = r.FeedsCold, FeedsDefense = r.FeedsDefense,
+                        InputKind = r.InputKind, TemplateDocumentId = r.TemplateDocumentId,
+                        CarryForwardFromCode = r.CarryForwardFromCode, PolicyTag = r.PolicyTag, RubricCriterionRef = r.RubricCriterionRef
+                    });
+                }
+            }
+            else
+            {
+                var code = r.Code.Length <= 50 ? r.Code : r.Code[..50];
+                if (!seen.Add(code)) continue;
+                list.Add(new ProjectGateRequirement
+                {
+                    Code = code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId,
+                    TargetStudentId = r.TargetStudentId, Required = r.Required, TargetCardinality = r.TargetCardinality,
+                    DeliveryStage = r.DeliveryStage, FeedsCold = r.FeedsCold, FeedsDefense = r.FeedsDefense,
+                    InputKind = r.InputKind, TemplateDocumentId = r.TemplateDocumentId,
+                    CarryForwardFromCode = r.CarryForwardFromCode, PolicyTag = r.PolicyTag, RubricCriterionRef = r.RubricCriterionRef
+                });
+            }
+        }
+        return list;
     }
 
     private async Task<StudentReviewTimelineDto> TimelineDto(AIPMS.Infrastructure.Persistence.Generated.Models.Project project, ProjectAcademicScope scope, ProjectGateInstance[] gates, CancellationToken ct)

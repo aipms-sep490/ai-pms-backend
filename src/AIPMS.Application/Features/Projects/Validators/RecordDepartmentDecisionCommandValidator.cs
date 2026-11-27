@@ -14,9 +14,9 @@ public sealed class RecordDepartmentDecisionCommandValidator : AbstractValidator
         {
             RuleFor(x => x.Decision.SnapshotId).GreaterThan(0);
             RuleFor(x => x.Decision.ConcurrencyToken).NotEmpty().MaximumLength(100);
-            RuleFor(x => x.Decision.Decision).Must(x => x is "APPROVED" or "REJECTED");
+            RuleFor(x => x.Decision.Decision).Must(x => x is "APPROVED" or "REVISION_REQUIRED" or "REJECTED");
             RuleFor(x => x.Decision.Reason).MaximumLength(2000);
-            RuleFor(x => x.Decision.Reason).NotEmpty().When(x => x.Decision.Decision == "REJECTED");
+            RuleFor(x => x.Decision.Reason).NotEmpty().When(x => x.Decision.Decision is "REJECTED" or "REVISION_REQUIRED");
         });
     }
 }

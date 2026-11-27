@@ -88,7 +88,9 @@ public partial class AipmsDbContext
             entity.Property(e => e.EffectiveFrom).HasColumnName("effective_from");
             entity.Property(e => e.EffectiveTo).HasColumnName("effective_to");
             entity.Property(e => e.ApprovalReference).HasMaxLength(1000).HasColumnName("approval_reference");
+            entity.Property(e => e.ParticipatingDepartmentId).HasColumnName("participating_department_id");
             entity.HasOne(e => e.Major).WithMany().HasForeignKey(e => e.MajorId).OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne(e => e.ParticipatingDepartment).WithMany().HasForeignKey(e => e.ParticipatingDepartmentId).OnDelete(DeleteBehavior.NoAction);
             entity.HasIndex(e => new { e.AcademicSemesterId, e.ProjectMode, e.EvaluationStage, e.EvaluationScope, e.MajorId })
                 .HasDatabaseName("ix_rubrics_scope");
         });
@@ -141,11 +143,15 @@ public partial class AipmsDbContext
             {
                 table.HasCheckConstraint("ck_rubric_approvals_decision", "[decision] IS NULL OR [decision] IN ('APPROVED','REJECTED')");
                 table.HasCheckConstraint("ck_rubric_approvals_decided", "([decided_by] IS NULL AND [decided_at] IS NULL) OR ([decided_by] IS NOT NULL AND [decided_at] IS NOT NULL)");
-                table.HasCheckConstraint("ck_rubric_approvals_four_eyes", "[decided_by] IS NULL OR [decided_by] <> [submitted_by]");
+                table.HasCheckConstraint("ck_rubric_approvals_scope_role", "[scope_role] IS NULL OR [scope_role] IN ('LEAD','PARTICIPATING')");
+                table.HasCheckConstraint("ck_rubric_approvals_four_eyes", "[decided_by] IS NULL OR [decided_by] <> [submitted_by] OR [is_single_staff_self_approval] = 1");
             });
             entity.HasKey(x => x.Id).HasName("pk_rubric_approvals");
             entity.Property(x => x.Id).HasColumnName("id");
             entity.Property(x => x.RubricId).HasColumnName("rubric_id");
+            entity.Property(x => x.DepartmentId).HasColumnName("department_id");
+            entity.Property(x => x.ScopeRole).HasColumnName("scope_role").HasMaxLength(20).IsUnicode(false);
+            entity.Property(x => x.IsSingleStaffSelfApproval).HasColumnName("is_single_staff_self_approval").HasDefaultValue(false);
             entity.Property(x => x.SubmittedBy).HasColumnName("submitted_by");
             entity.Property(x => x.SubmittedAt).HasPrecision(0).HasDefaultValueSql("(sysutcdatetime())").HasColumnName("submitted_at");
             entity.Property(x => x.DecidedBy).HasColumnName("decided_by");
@@ -154,6 +160,7 @@ public partial class AipmsDbContext
             entity.Property(x => x.Reason).HasColumnName("reason").HasMaxLength(1000);
             entity.HasIndex(x => x.RubricId).HasDatabaseName("ix_rubric_approvals_rubric");
             entity.HasOne(x => x.Rubric).WithMany().HasForeignKey(x => x.RubricId).OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.NoAction);
             entity.HasOne(x => x.Submitter).WithMany().HasForeignKey(x => x.SubmittedBy).OnDelete(DeleteBehavior.NoAction);
             entity.HasOne(x => x.Decider).WithMany().HasForeignKey(x => x.DecidedBy).OnDelete(DeleteBehavior.NoAction);
         });

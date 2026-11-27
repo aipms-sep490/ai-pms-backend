@@ -29,4 +29,6 @@ public sealed class WorkingAgreementsController(IWorkingAgreementService service
     public Task<WorkingAgreementDto> Publish(long projectId, AgreementTokenRequest input, CancellationToken ct) => service.Publish(projectId, input, ct);
     [HttpPost("acceptances"), ProducesResponseType<WorkingAgreementDto>(200)]
     public Task<WorkingAgreementDto> Accept(long projectId, AgreementTokenRequest input, CancellationToken ct) => service.Accept(projectId, input, ct);
+    [HttpPost("force-activate"), Authorize(Roles = AIPMS.Application.Common.Security.AppRoles.DepartmentStaff), ProducesResponseType<ForceActivateProjectResponse>(200), ProducesResponseType<ProblemDetails>(422)]
+    public Task<ForceActivateProjectResponse> ForceActivate(long projectId, ForceActivateProjectRequest input, CancellationToken ct) => service.ForceActivateAsync(projectId, input, ct);
 }

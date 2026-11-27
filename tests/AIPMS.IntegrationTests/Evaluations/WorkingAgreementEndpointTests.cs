@@ -151,20 +151,20 @@ public sealed class WorkingAgreementEndpointTests(EvaluationDraftDatabaseFixture
         Assert.Equal(HttpStatusCode.Conflict, (await leader.PostAsJsonAsync(Url(s.ProjectId) + "/acceptances", Token(active))).StatusCode);
     }
     [Fact]
-    public async Task Only_admin_changes_requirement_and_staff_cannot_publish_admin_toggle()
+    public async Task Staff_can_configure_period_working_agreement_and_existing_locked_projects_keep_captured_policy_TK_W1_18()
     {
         var s = await Seed(); using var app = new AgreementFactory(database);
         using var staff = app.CreateAuthenticatedClient(s.Scope.Users.Staff);
-        using var admin = app.CreateAuthenticatedClient(s.Scope.Users.Admin);
         var url = $"/api/v1/project-periods/{s.PeriodId}";
         var before = await Body<PeriodPolicyDto>(await staff.GetAsync(url + "/effective-policy"));
         var request = new UpdatePeriodPolicyRequest(before.Version, "SUCCESSOR", before.Policy with { RequireWorkingAgreement = true },
             EvaluationDraftDatabaseFixture.Now, EvaluationDraftDatabaseFixture.Now.AddHours(1));
-        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PutAsJsonAsync(url + "/policy", request)).StatusCode);
-        var draft = await Body<PeriodPolicyDto>(await admin.PutAsJsonAsync(url + "/policy", request));
+        // TK-W1-18: DEPARTMENT_STAFF can toggle and publish RequireWorkingAgreement per period
+        var draft = await Body<PeriodPolicyDto>(await staff.PutAsJsonAsync(url + "/policy", request));
         var publish = request with { Operation = "PUBLISH", ExpectedVersion = draft.Version, ConcurrencyToken = draft.ConcurrencyToken };
-        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PutAsJsonAsync(url + "/policy", publish)).StatusCode);
-        await Body<PeriodPolicyDto>(await admin.PutAsJsonAsync(url + "/policy", publish));
+        var published = await Body<PeriodPolicyDto>(await staff.PutAsJsonAsync(url + "/policy", publish));
+        Assert.True(published.Policy.RequireWorkingAgreement);
+        // Existing project bound to earlier LOCKED policy snapshot retains Required = false
         using var leader = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         var agreement = await Body<WorkingAgreementDto>(await leader.PutAsJsonAsync(Url(s.ProjectId) + "/draft", Input()));
         Assert.False(agreement.Required);

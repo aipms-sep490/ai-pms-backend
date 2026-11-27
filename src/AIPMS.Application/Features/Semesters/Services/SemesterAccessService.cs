@@ -38,6 +38,19 @@ public sealed class SemesterAccessService(ICurrentUser currentUser)
         }
     }
 
+    public bool EnsureCanUpdateProjectPeriod()
+    {
+        EnsureAuthenticated();
+
+        if (HasRole(AppRoles.Admin))
+            return true;
+        if (HasRole(AppRoles.DepartmentStaff))
+            return false;
+
+        throw new ForbiddenException(
+            "Only a system administrator or department staff can update project periods.");
+    }
+
     private void EnsureAuthenticated()
     {
         if (!currentUser.IsAuthenticated || currentUser.UserId is null)

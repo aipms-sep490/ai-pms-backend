@@ -113,6 +113,8 @@ public sealed class SubmitProjectCommandHandler(
 
             if (topicSelectionGuard is not null)
             {
+                // ISS-X-43: serialize topic capacity check across concurrent submissions under pessimistic lock.
+                await repository.LockProjectAndTopicAsync(project.Id, project.TopicId.Value, cancellationToken);
                 await topicSelectionGuard.ValidateTopicSelectionAsync(
                     project.TopicId.Value,
                     project.Id,
@@ -205,6 +207,9 @@ public sealed class SubmitProjectCommandHandler(
             actorUserId,
             null,
             cancellationToken);
+
+        // BN-07: Notify in-scope department staff that a new proposal is awaiting review
+        await repository.NotifyProposalSubmittedAsync(updatedProject.Id, actorUserId, cancellationToken);
 
         // Audit the submission
         await auditTrail.RecordAsync(

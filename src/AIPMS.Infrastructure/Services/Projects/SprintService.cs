@@ -82,6 +82,7 @@ internal sealed class SprintService(AipmsDbContext db, ICurrentUser user, IAudit
         if (id.HasValue) Current(s.ConcurrencyToken, input.ConcurrencyToken);
         if (s.Status != "PLANNED") throw new ConflictException("Only planned sprints can be edited.");
         s.Name = input.Name.Trim(); s.StartAt = input.StartAt.UtcDateTime; s.EndAt = input.EndAt.UtcDateTime; s.UpdatedAt = Now; s.ConcurrencyToken = Guid.NewGuid();
+        if (id.HasValue && !string.IsNullOrWhiteSpace(s.TemplateOriginId)) s.IsUserCustomized = true;
         if (!id.HasValue) db.Add(s);
         await db.SaveChangesAsync(ct); await Audit(id.HasValue ? "SPRINT_UPDATED" : "SPRINT_CREATED", s.Id, new { projectId }, ct);
         var active = await db.Set<Sprint>().AnyAsync(x => x.ProjectId == projectId && x.Status == "ACTIVE", ct);

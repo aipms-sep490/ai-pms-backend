@@ -121,6 +121,11 @@ public interface ISemesterRepository
         long semesterId,
         CancellationToken cancellationToken = default);
 
+    Task<long?> GetUserActiveOrganizationIdAsync(
+        long userId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<long?>(null);
+
     Task<bool> ValidateRubricUsableAsync(
         long rubricId,
         long semesterId,

@@ -40,9 +40,14 @@ public sealed partial class SupervisorRequestEndpointTests
         using var member = app.CreateAuthenticatedClient(p.MemberId);
         using var lecturer = app.CreateAuthenticatedClient(s.Lecturer);
         var request = await Body<SupervisorRequestDto>(await Send(leader, p.Id, s.ProfileId));
-        var denial = await Respond(lecturer, request.Id, "accept");
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, denial.StatusCode);
-        Assert.Contains("WORKING_AGREEMENT_INCOMPLETE", await denial.Content.ReadAsStringAsync());
+        // TK-W1-18: GVHD Accept succeeds and pauses project in SUPERVISOR_PENDING instead of rolling back with 422
+        var acceptedReq = await Body<SupervisorRequestDto>(await Respond(lecturer, request.Id, "accept"));
+        Assert.Equal("ACCEPTED", acceptedReq.Status);
+        await using (var db = database.CreateContext())
+        {
+            Assert.Equal("SUPERVISOR_PENDING", (await db.Projects.FindAsync(p.Id))!.Status);
+            Assert.Single(await db.SupervisorAssignments.Where(a => a.ProjectId == p.Id && a.EndedAt == null).ToArrayAsync());
+        }
         var capabilities = await Body<ProjectCapabilitiesDto>(await leader.GetAsync($"/api/v1/projects/{p.Id}/my-capabilities"));
         Assert.True(capabilities.WorkingAgreement!.Required); Assert.Equal("AWAITING_ACCEPTANCE", capabilities.WorkingAgreement.Status);
         var url = $"/api/v1/projects/{p.Id}/working-agreement";
@@ -50,22 +55,18 @@ public sealed partial class SupervisorRequestEndpointTests
         var active = await Body<WorkingAgreementDto>(await leader.PostAsJsonAsync(url + "/publish", new AgreementTokenRequest(draft.Id, draft.ConcurrencyToken)));
         var token = new AgreementTokenRequest(active.Id, active.ConcurrencyToken);
         await Body<WorkingAgreementDto>(await leader.PostAsJsonAsync(url + "/acceptances", token));
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await Respond(lecturer, request.Id, "accept")).StatusCode);
         await using (var db = database.CreateContext())
         {
-            Assert.Equal("PENDING", (await db.SupervisorRequests.FindAsync(request.Id))!.Status);
-            Assert.Equal("APPROVED", (await db.Projects.FindAsync(p.Id))!.Status);
-            Assert.False(await db.SupervisorAssignments.AnyAsync(a => a.ProjectId == p.Id));
+            Assert.Equal("SUPERVISOR_PENDING", (await db.Projects.FindAsync(p.Id))!.Status);
         }
         var ready = await Body<WorkingAgreementDto>(await member.PostAsJsonAsync(url + "/acceptances", token));
         Assert.Equal("READY", ready.Readiness.Status);
-        await Body<SupervisorRequestDto>(await Respond(lecturer, request.Id, "accept"));
         await using (var db = database.CreateContext())
         {
             Assert.Equal("ACTIVE", (await db.Projects.FindAsync(p.Id))!.Status);
             Assert.Single(await db.SupervisorAssignments.Where(a => a.ProjectId == p.Id).ToArrayAsync());
         }
-        await evidence.SaveAsync(new { incompleteStatusCode = 422, projectStatus = "ACTIVE",
+        await evidence.SaveAsync(new { holdInSupervisorPending = true, projectStatus = "ACTIVE",
             activeAssignments = 1, currentRosterConsentRequired = true });
     }
 }

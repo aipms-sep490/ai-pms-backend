@@ -60,6 +60,15 @@ public sealed class UpdateProjectDraftCommandHandler(
             throw new ConflictException("Project details can only be edited while in DRAFT or REVISION_REQUIRED status.");
         }
 
+        // TK-W1-16 (Q-X-19): Lock title when proposal is created from a published department topic
+        if (string.Equals(project.ProposalSource, "PUBLISHED_TOPIC", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(project.Title.Trim(), request.Title.Trim(), StringComparison.Ordinal))
+        {
+            throw new ConflictException(
+                "Title is locked for proposals created from a published topic. Deselect the topic first to convert to a student proposal.",
+                WorkflowErrorCodes.PublishedTopicTitleLocked);
+        }
+
         // Validate majors exist
         if (request.RequiredMajorIds.Count > 0 && 
             !await repository.ValidateMajorsExistAsync(request.RequiredMajorIds, cancellationToken))

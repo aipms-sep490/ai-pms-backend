@@ -13,4 +13,8 @@ public interface IWorkingDayCalculator
 {
     DateTimeOffset AddWorkingDays(DateTimeOffset from, int workingDays, long projectPeriodId);
     DateTimeOffset AddWorkingHours(DateTimeOffset from, int workingHours, long projectPeriodId);
+    DateTimeOffset AddElapsedWorkingDays(DateTimeOffset from, int workingDays, long projectPeriodId) =>
+        WorkingDayMath.AddElapsedWorkingDays(from, workingDays, 62, []);
+    int CountElapsedWorkingDays(DateTimeOffset from, DateTimeOffset to, long projectPeriodId) =>
+        WorkingDayMath.CountElapsedWorkingDays(from, to, 62, []);
 }

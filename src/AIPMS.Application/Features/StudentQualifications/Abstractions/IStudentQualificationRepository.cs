@@ -62,5 +62,10 @@ public interface IStudentQualificationRepository
         bool checkExpiration,
         DateTime utcNow,
         CancellationToken cancellationToken = default);
+
+    Task<long?> GetRegistrationPeriodOrganizationIdAsync(
+        long projectPeriodId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<long?>(null);
 }
 

@@ -59,18 +59,35 @@ public sealed class AcademicBlueprintsController(
     public async Task<ActionResult<SemesterReadinessDto>> GetSemesterReadiness(long semesterId, CancellationToken ct) =>
         Ok(await service.GetSemesterReadinessAsync(semesterId, ct));
 
+    [HttpGet("api/v1/academic/semesters/{semesterId:long}/track-presets")]
+    public async Task<ActionResult<IReadOnlyList<SemesterTrackPresetDto>>> GetSemesterTrackPresets(long semesterId, CancellationToken ct) =>
+        Ok(await service.GetSemesterTrackPresetsAsync(semesterId, ct));
+
     [HttpPost("api/v1/projects/{projectId:long}/blueprint-plan/dry-run")]
     public async Task<ActionResult<BlueprintDryRunDiffDto>> DryRunPlan(long projectId, [FromQuery] long? blueprintId, CancellationToken ct) =>
         Ok(await service.DryRunProjectPlanAsync(projectId, blueprintId, ct));
 
     [HttpPost("api/v1/projects/{projectId:long}/blueprint-plan/apply")]
-    [Authorize(Roles = "ADMIN,DEPARTMENT_STAFF")]
     public async Task<ActionResult<ProjectBlueprintSnapshotDto>> ApplyPlan(long projectId, [FromQuery] long? blueprintId, CancellationToken ct)
     {
         var actorId = currentUser.UserId ?? throw new AIPMS.Application.Common.Exceptions.UnauthorizedException();
+        var isStaff = currentUser.Roles.Contains(AIPMS.Application.Common.Security.AppRoles.DepartmentStaff);
+        if (!isStaff)
+        {
+            var isAdmin = currentUser.Roles.Contains(AIPMS.Application.Common.Security.AppRoles.Admin);
+            throw new AIPMS.Application.Common.Exceptions.ForbiddenException(
+                isAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot apply academic blueprints to projects."
+                    : "Only department staff can apply academic blueprints to projects.",
+                isAdmin ? AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
         var result = await service.ApplyBlueprintToProjectAsync(projectId, actorId, clock.GetUtcNow().UtcDateTime, blueprintId, ct);
         return Ok(result);
     }
+
+    [HttpGet("api/v1/projects/{projectId:long}/deadline-change-requests")]
+    public async Task<ActionResult<IReadOnlyList<GateDeadlineChangeRequestDto>>> ListAllDeadlineChanges(long projectId, CancellationToken ct) =>
+        Ok(await service.ListDeadlineChangeRequestsAsync(projectId, null, ct));
 
     [HttpGet("api/v1/projects/{projectId:long}/review-gates/{gateCode}/deadline-change-requests")]
     public async Task<ActionResult<IReadOnlyList<GateDeadlineChangeRequestDto>>> ListDeadlineChanges(long projectId, string gateCode, CancellationToken ct) =>

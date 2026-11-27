@@ -29,6 +29,9 @@ public sealed class ProjectTopic
     public DateTime? ClosedAt { get; set; }
     public string? CloseReason { get; set; }
     public Guid ConcurrencyToken { get; set; }
+    public int MaxTeams { get; set; } = 1;
+    public string? TrackCode { get; set; }
+    public long? SuggestedSupervisorProfileId { get; set; }
     public M.ProjectPeriod Period { get; set; } = null!;
     public M.Department LeadDepartment { get; set; } = null!;
     public List<TopicMajorRequirement> Requirements { get; set; } = [];

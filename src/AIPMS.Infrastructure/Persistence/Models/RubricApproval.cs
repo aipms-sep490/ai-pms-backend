@@ -13,8 +13,12 @@ public sealed class RubricApproval
     public DateTime? DecidedAt { get; set; }
     public string? Decision { get; set; }
     public string? Reason { get; set; }
+    public long? DepartmentId { get; set; }
+    public string? ScopeRole { get; set; }
+    public bool IsSingleStaffSelfApproval { get; set; }
 
     public Rubric Rubric { get; set; } = null!;
+    public Department? Department { get; set; }
     public User Submitter { get; set; } = null!;
     public User? Decider { get; set; }
 }

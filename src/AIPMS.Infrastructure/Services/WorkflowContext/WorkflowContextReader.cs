@@ -16,7 +16,7 @@ internal sealed partial class WorkflowContextReader(AipmsDbContext db, ITeamRepo
     ITeamFormationPolicyProvider policies, IProjectRepository projects, ISupervisorCandidateRepository candidateReader,
     IProjectAccessService projectAccess, TimeProvider clock) : IWorkflowContextReader
 {
-    private sealed record Actor(WorkflowUserDto User, UserAcademicContextDto Academic)
+    private sealed record Actor(WorkflowUserDto User, UserAcademicContextDto Academic, bool IsAcademicProfileVerified)
     {
         public bool HasRole(string role) => User.EffectiveRoles.Contains(role);
         public bool Admin => HasRole(AppRoles.Admin);
@@ -30,7 +30,7 @@ internal sealed partial class WorkflowContextReader(AipmsDbContext db, ITeamRepo
     {
         var user = await db.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => new
         {
-            u.Id, u.Email, u.FullName, u.Status, u.StudentCode, u.EmployeeCode,
+            u.Id, u.Email, u.FullName, u.Status, u.StudentCode, u.EmployeeCode, u.AcademicProfileStatus,
             Department = u.Department == null ? null : new AcademicReferenceDto(u.Department.Id, u.Department.Code, u.Department.Name, u.Department.IsActive),
             Organization = u.Department == null ? null : new AcademicReferenceDto(u.Department.Organization.Id,
                 u.Department.Organization.Code, u.Department.Organization.Name, u.Department.Organization.IsActive),
@@ -45,13 +45,16 @@ internal sealed partial class WorkflowContextReader(AipmsDbContext db, ITeamRepo
         var effective = roles.Intersect(tokenRoles, StringComparer.Ordinal).OrderBy(c => c, StringComparer.Ordinal).ToArray();
         var issues = new List<string>();
         var activeDepartment = user.Department is { IsActive: true } && user.Organization is { IsActive: true };
+        var isProfileVerified = string.Equals(user.AcademicProfileStatus, "VERIFIED", StringComparison.OrdinalIgnoreCase);
         var eligibleStudent = activeDepartment && user.Major is { IsActive: true } && user.MajorDepartmentId == user.Department!.Id;
         if (user.Department is null) issues.Add("DEPARTMENT_SCOPE_MISSING");
         else if (!activeDepartment) issues.Add("ACADEMIC_SCOPE_INACTIVE");
         if (roles.Contains(AppRoles.Student) && !eligibleStudent) issues.Add("STUDENT_PROFILE_INELIGIBLE");
+        if (roles.Contains(AppRoles.Student) && !isProfileVerified) issues.Add("ACADEMIC_PROFILE_NOT_VERIFIED");
         return new(new(user.Id, user.Email, user.FullName, user.Status, user.StudentCode, user.EmployeeCode,
                 roles, grants, effective, !roles.ToHashSet(StringComparer.Ordinal).SetEquals(tokenRoles)),
-            new(user.Organization, user.Department, user.Major, activeDepartment, eligibleStudent, issues));
+            new(user.Organization, user.Department, user.Major, activeDepartment, eligibleStudent, issues),
+            isProfileVerified);
     }
 
     private static WorkflowActionDto Action(string code, params (bool Pass, string Reason)[] gates)
@@ -120,6 +123,7 @@ internal sealed partial class WorkflowContextReader(AipmsDbContext db, ITeamRepo
             Action("view_supervisor_inbox", (actor.Lecturer, "LECTURER_ROLE_REQUIRED"), (actor.Academic.HasActiveDepartmentScope, "ACADEMIC_SCOPE_INACTIVE")),
             Action("manage_own_supervisor_profile", (actor.Lecturer, "LECTURER_ROLE_REQUIRED"), (actor.Academic.HasActiveDepartmentScope, "ACADEMIC_SCOPE_INACTIVE")),
             Action("create_team", (actor.Student, "STUDENT_ROLE_REQUIRED"), (actor.Academic.HasEligibleStudentProfile, "STUDENT_PROFILE_INELIGIBLE"),
+                (actor.IsAcademicProfileVerified, "ACADEMIC_PROFILE_NOT_VERIFIED"),
                 (selected is not null, "SEMESTER_SELECTION_REQUIRED"), (selected?.OrganizationId == organizationId, "ORGANIZATION_MISMATCH"),
                 (currentTeam is null, "TEAM_ALREADY_EXISTS"), (window is not null, "REGISTRATION_WINDOW_UNAVAILABLE"),
                 (policy is { IsValid: true }, "TEAM_POLICY_UNCONFIGURED"))

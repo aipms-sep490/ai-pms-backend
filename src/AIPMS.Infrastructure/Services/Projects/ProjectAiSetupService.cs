@@ -394,28 +394,16 @@ internal sealed partial class ProjectAiSetupService(
             if (prev is not null) return prev with { Replay = true };
         }
 
-        var isAdmin = currentUser.Roles.Any(r => string.Equals(r, "ADMIN", StringComparison.OrdinalIgnoreCase));
-        var user = await db.Users.AsNoTracking()
-            .Where(u => u.Id == actorId && u.Status == "ACTIVE")
-            .Select(u => new
-            {
-                u.Id,
-                u.DepartmentId,
-                OrganizationId = u.Department == null ? (long?)null : u.Department.OrganizationId,
-            })
-            .SingleOrDefaultAsync(ct) ?? throw new ForbiddenException("Tài khoản không hợp lệ.");
-
-        var departmentId = request.DepartmentId ?? user.DepartmentId
-            ?? throw new ArgumentException("Cần chỉ định khoa áp dụng cho bộ tiêu chí.");
-        if (!isAdmin && user.DepartmentId.HasValue && departmentId != user.DepartmentId.Value)
+        var (actorDepartmentId, actorOrgId) = await RequireDepartmentStaffActorAsync(actorId, ct);
+        var departmentId = request.DepartmentId ?? actorDepartmentId;
+        if (departmentId != actorDepartmentId)
             throw new ForbiddenException("Bạn chỉ có thể tạo bộ tiêu chí trong phạm vi bộ môn được phân công.");
 
         var semesterId = request.AcademicSemesterId;
         if (semesterId <= 0)
         {
-            var orgId = user.OrganizationId ?? await db.Departments.Where(d => d.Id == departmentId).Select(d => (long?)d.OrganizationId).SingleOrDefaultAsync(ct);
             semesterId = await db.AcademicSemesters.AsNoTracking()
-                .Where(s => s.OrganizationId == orgId && s.Status == "ACTIVE")
+                .Where(s => s.OrganizationId == actorOrgId && s.Status == "ACTIVE")
                 .OrderByDescending(s => s.StartDate).ThenByDescending(s => s.Id)
                 .Select(s => s.Id).FirstOrDefaultAsync(ct);
             if (semesterId <= 0) throw new ArgumentException("Không tìm thấy học kỳ đang hoạt động để tạo bộ tiêu chí.");

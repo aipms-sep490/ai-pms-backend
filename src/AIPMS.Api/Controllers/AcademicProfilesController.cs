@@ -22,6 +22,11 @@ public sealed class AcademicProfilesController(ISender sender) : ControllerBase
         => sender.Send(new GetAcademicProfilesQuery(status, departmentId, page, pageSize), ct);
 
     [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
+    [HttpPost("/api/v1/academic/profile-verifications/bulk-verify")]
+    public Task<BulkVerifyAcademicProfilesResultDto> BulkVerify(BulkVerifyAcademicProfilesRequest request, CancellationToken ct)
+        => sender.Send(new BulkVerifyAcademicProfilesCommand(request), ct);
+
+    [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
     [HttpPost("/api/v1/users/{userId:long}/academic-profile/verify")]
     public Task<AcademicProfileDto> Verify(long userId, CancellationToken ct)
         => sender.Send(new VerifyAcademicProfileCommand(userId), ct);

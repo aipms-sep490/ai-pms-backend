@@ -35,8 +35,10 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
     {
         if (rubric.EvaluationScope == "COMMON" && rubric.ProjectMode == "INTERDISCIPLINARY")
         {
-            if (actor.DepartmentId != rubric.DepartmentId)
-                throw new ForbiddenException("Only staff from the lead department can approve COMMON interdisciplinary rubrics.", "RUBRIC_SCOPE_NOT_LEAD_DEPARTMENT");
+            var isLead = actor.DepartmentId == rubric.DepartmentId;
+            var isParticipating = rubric.ParticipatingDepartmentId.HasValue && actor.DepartmentId == rubric.ParticipatingDepartmentId.Value;
+            if (!isLead && !isParticipating)
+                throw new ForbiddenException("Only staff from the lead or participating department can approve COMMON interdisciplinary rubrics.", "RUBRIC_SCOPE_NOT_LEAD_DEPARTMENT");
             return;
         }
 
@@ -85,12 +87,14 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
             throw new ForbiddenException("The actor is outside the rubric's department scope.", "RUBRIC_SCOPE_NOT_LEAD_DEPARTMENT");
     }
 
-    private async Task<(bool CanSubmit, bool CanApprove, bool CanReject)> ComputePermissionsAsync(
+    private async Task<(bool CanSubmit, bool CanApprove, bool CanReject, bool RequiresApprovalReferenceForSelfApproval, IReadOnlyList<RubricApprovalRecord> Approvals)> ComputePermissionsAsync(
         RubricRecord rubric, RubricActor actor, CancellationToken ct)
     {
         bool canSubmit = false;
         bool canApprove = false;
         bool canReject = false;
+        bool requiresRefForSelf = false;
+        var approvals = await repository.GetCurrentRoundApprovalsAsync(rubric.Id, ct);
 
         if (rubric.Status == RubricStatuses.Draft && !rubric.IsReferenced)
         {
@@ -106,10 +110,10 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         {
             if (actor.IsStaff && actor.DepartmentId.HasValue)
             {
-                var approval = await repository.GetLatestApprovalAsync(rubric.Id, ct);
-                if (approval is not null && !approval.DecidedAt.HasValue && actor.UserId != approval.SubmittedBy)
+                var matchingApproval = FindPendingApprovalForActor(approvals, actor.DepartmentId.Value);
+                if (matchingApproval is not null)
                 {
-                    bool scopeValid = false;
+                    bool scopeValid;
                     try
                     {
                         await ValidateApprovalScopeAuthority(actor, rubric, ct);
@@ -122,14 +126,52 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
 
                     if (scopeValid)
                     {
-                        canApprove = true;
-                        canReject = true;
+                        if (actor.UserId != matchingApproval.SubmittedBy)
+                        {
+                            canApprove = true;
+                            canReject = true;
+                        }
+                        else
+                        {
+                            var activeStaffCount = await repository.CountActiveDepartmentStaffAsync(actor.DepartmentId.Value, ct);
+                            if (activeStaffCount == 1)
+                            {
+                                canApprove = true;
+                                requiresRefForSelf = true;
+                            }
+                        }
                     }
                 }
             }
         }
 
-        return (canSubmit, canApprove, canReject);
+        return (canSubmit, canApprove, canReject, requiresRefForSelf, approvals);
+    }
+
+    private static RubricApprovalRecord? FindPendingApprovalForActor(
+        IReadOnlyList<RubricApprovalRecord> approvals,
+        long actorDepartmentId)
+    {
+        var pending = approvals.Where(a => !a.DecidedAt.HasValue).ToArray();
+        if (pending.Length == 0) return null;
+        return pending.FirstOrDefault(a => a.DepartmentId == actorDepartmentId)
+            ?? pending.FirstOrDefault(a => a.DepartmentId is null);
+    }
+
+    private async Task ValidateParticipatingDepartmentAsync(
+        long leadDepartmentId,
+        string? evaluationScope,
+        string? projectMode,
+        long? participatingDepartmentId,
+        CancellationToken ct)
+    {
+        if (!participatingDepartmentId.HasValue) return;
+        if (evaluationScope != "COMMON" || projectMode != "INTERDISCIPLINARY")
+            throw new DomainException("Participating department is only applicable to COMMON INTERDISCIPLINARY rubrics.");
+        if (participatingDepartmentId.Value == leadDepartmentId)
+            throw new DomainException("Participating department must differ from the lead department.");
+        if (!await repository.DepartmentInSameOrganizationAsync(leadDepartmentId, participatingDepartmentId.Value, ct))
+            throw new ConflictException("Participating department must belong to the same active organization as the lead department.");
     }
 
     private async Task<RubricRecord> Load(long id, RubricActor actor, bool forUpdate, CancellationToken ct) =>
@@ -160,7 +202,7 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         foreach (var r in result.Items)
         {
             var perms = await ComputePermissionsAsync(r, actor, ct);
-            dtos.Add(r.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject));
+            dtos.Add(r.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject, perms.RequiresApprovalReferenceForSelfApproval, perms.Approvals));
         }
         return new(dtos.ToArray(), result.Page, result.PageSize, result.TotalCount);
     }
@@ -170,7 +212,7 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         var actor = await Actor(ct);
         var rubric = await Load(id, actor, false, ct);
         var perms = await ComputePermissionsAsync(rubric, actor, ct);
-        return rubric.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject);
+        return rubric.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject, perms.RequiresApprovalReferenceForSelfApproval, perms.Approvals);
     }
 
     public Task<RubricDto> Create(CreateRubricRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
@@ -179,14 +221,15 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         await Scope(actor, input.DepartmentId, input.AcademicSemesterId, ct);
         RubricRules.EnsureValidHierarchy(input.Criteria);
         RubricRules.ValidateScope(input.EvaluationScope, input.MajorId, input.ProjectMode, input.EvaluationStage, input.EffectiveFrom, input.EffectiveTo);
+        await ValidateParticipatingDepartmentAsync(input.DepartmentId, input.EvaluationScope, input.ProjectMode, input.ParticipatingDepartmentId, ct);
         var rubric = await repository.CreateAsync(input.DepartmentId, input.AcademicSemesterId,
             input.Code.Trim().ToUpperInvariant(), input.Name.Trim(), input.Description?.Trim(), input.Criteria,
             actor.UserId, clock.GetUtcNow().UtcDateTime, null,
             input.MajorId, input.ProjectMode, input.EvaluationStage, input.EvaluationScope,
-            input.EffectiveFrom, input.EffectiveTo, ct);
+            input.EffectiveFrom, input.EffectiveTo, ct, input.ParticipatingDepartmentId);
         await Audit("RUBRIC_CREATED", rubric, actor.UserId, ct);
         var perms = await ComputePermissionsAsync(rubric, actor, ct);
-        return rubric.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject);
+        return rubric.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject, perms.RequiresApprovalReferenceForSelfApproval, perms.Approvals);
     }, ct);
 
     public Task<RubricDto> Update(long id, UpdateRubricRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
@@ -198,13 +241,14 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         RubricRules.EnsureValidHierarchy(input.Criteria);
         await Scope(actor, rubric.DepartmentId!.Value, rubric.AcademicSemesterId!.Value, ct);
         RubricRules.ValidateScope(input.EvaluationScope, input.MajorId, input.ProjectMode, input.EvaluationStage, input.EffectiveFrom, input.EffectiveTo);
+        await ValidateParticipatingDepartmentAsync(rubric.DepartmentId.Value, input.EvaluationScope, input.ProjectMode, input.ParticipatingDepartmentId, ct);
         var updated = await repository.UpdateAsync(id, input.Name.Trim(), input.Description?.Trim(),
             input.Criteria, clock.GetUtcNow().UtcDateTime,
             input.MajorId, input.ProjectMode, input.EvaluationStage, input.EvaluationScope,
-            input.EffectiveFrom, input.EffectiveTo, ct);
+            input.EffectiveFrom, input.EffectiveTo, ct, input.ParticipatingDepartmentId);
         await Audit("RUBRIC_UPDATED", updated, actor.UserId, ct);
         var perms = await ComputePermissionsAsync(updated, actor, ct);
-        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject);
+        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject, perms.RequiresApprovalReferenceForSelfApproval, perms.Approvals);
     }, ct);
 
     public Task<RubricDto> SubmitForApproval(long id, SubmitRubricForApprovalRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
@@ -216,17 +260,26 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
             throw new ConflictException("Only draft rubrics can be submitted for approval.");
         if (rubric.DepartmentId is null || rubric.AcademicSemesterId is null || string.IsNullOrWhiteSpace(rubric.EvaluationScope))
             throw new ConflictException("Legacy unscoped rubrics cannot be submitted for approval.", "RUBRIC_SCOPE_REQUIRED");
-        var existingApproval = await repository.GetLatestApprovalAsync(id, ct);
-        if (existingApproval is not null && !existingApproval.DecidedAt.HasValue)
+        var existingApprovals = await repository.GetCurrentRoundApprovalsAsync(id, ct);
+        if (existingApprovals.Any(a => !a.DecidedAt.HasValue))
             throw new ConflictException("An approval request is already pending for this rubric.");
         await Scope(actor, rubric.DepartmentId.Value, rubric.AcademicSemesterId.Value, ct);
         RubricRules.EnsureValidHierarchy(RubricHierarchy.ToInputs(rubric.Criteria));
         RubricRules.EnsurePublishable(rubric.Criteria, options.RequiredLevelCount, requireLevels: true);
-        await repository.SubmitForApprovalAsync(id, actor.UserId, clock.GetUtcNow().UtcDateTime, ct);
+        var now = clock.GetUtcNow().UtcDateTime;
+        await repository.SubmitForApprovalAsync(id, actor.UserId, now, ct);
+        var notifyDepts = new List<long> { rubric.DepartmentId.Value };
+        if (rubric.ParticipatingDepartmentId.HasValue && rubric.ParticipatingDepartmentId != rubric.DepartmentId)
+            notifyDepts.Add(rubric.ParticipatingDepartmentId.Value);
+        await repository.NotifyApprovalRequestedAsync(id, actor.UserId, rubric.Code, rubric.Name, notifyDepts, now, ct);
         var updated = await Load(id, actor, false, ct);
-        await Audit("RUBRIC_SUBMITTED_FOR_APPROVAL", updated, actor.UserId, ct, new() { ["submittedBy"] = actor.UserId });
+        await Audit("RUBRIC_SUBMITTED_FOR_APPROVAL", updated, actor.UserId, ct, new()
+        {
+            ["submittedBy"] = actor.UserId,
+            ["participatingDepartmentId"] = rubric.ParticipatingDepartmentId
+        });
         var perms = await ComputePermissionsAsync(updated, actor, ct);
-        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject);
+        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject, perms.RequiresApprovalReferenceForSelfApproval, perms.Approvals);
     }, ct);
 
     public Task<RubricDto> Approve(long id, ApproveRubricRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
@@ -238,11 +291,6 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
             throw new ConflictException("Only rubrics pending approval can be approved.");
         if (rubric.DepartmentId is null || rubric.AcademicSemesterId is null)
             throw new ConflictException("Legacy unscoped rubrics cannot be approved.");
-        var approval = await repository.GetLatestApprovalAsync(id, ct);
-        if (approval is null || approval.DecidedAt.HasValue)
-            throw new ConflictException("No active approval request found for this rubric.");
-        if (actor.UserId == approval.SubmittedBy)
-            throw new ForbiddenException("Submitter cannot approve their own rubric.", "RUBRIC_SELF_APPROVAL_FORBIDDEN");
         if (!actor.IsStaff)
         {
             if (actor.IsAdmin)
@@ -256,16 +304,42 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         if (scope.SemesterStatus is "CLOSED" or "ARCHIVED")
             throw new ConflictException("Rubrics cannot be changed in a closed or archived semester.");
         await ValidateApprovalScopeAuthority(actor, rubric, ct);
-        await repository.ApproveAsync(id, approval.Id, actor.UserId, input.ApprovalReference, clock.GetUtcNow().UtcDateTime, ct);
+
+        var roundApprovals = await repository.GetCurrentRoundApprovalsAsync(id, ct);
+        var approval = FindPendingApprovalForActor(roundApprovals, actor.DepartmentId.Value);
+        if (approval is null || approval.DecidedAt.HasValue)
+            throw new ConflictException("No pending approval request found for your department on this rubric.");
+
+        var isSingleStaffSelfApproval = false;
+        int? activeStaffCount = null;
+        if (actor.UserId == approval.SubmittedBy)
+        {
+            activeStaffCount = await repository.CountActiveDepartmentStaffAsync(actor.DepartmentId.Value, ct);
+            if (activeStaffCount.Value >= 2)
+                throw new ForbiddenException("Submitter cannot approve their own rubric.", "RUBRIC_SELF_APPROVAL_FORBIDDEN");
+            if (string.IsNullOrWhiteSpace(input.ApprovalReference) || input.ApprovalReference.Trim().Length < 5)
+            {
+                throw new DomainException(
+                    "Single-staff department self-approval requires a Dean/Department approval reference of at least 5 characters.",
+                    WorkflowErrorCodes.ApprovalReferenceRequired);
+            }
+            isSingleStaffSelfApproval = true;
+        }
+
+        await repository.ApproveAsync(id, approval.Id, actor.UserId, input.ApprovalReference, isSingleStaffSelfApproval, clock.GetUtcNow().UtcDateTime, ct);
         var updated = await Load(id, actor, false, ct);
         await Audit("RUBRIC_APPROVED", updated, actor.UserId, ct, new()
         {
             ["approvalId"] = approval.Id,
             ["decision"] = "APPROVED",
-            ["approvalReference"] = input.ApprovalReference
+            ["scopeRole"] = approval.ScopeRole,
+            ["departmentId"] = actor.DepartmentId,
+            ["approvalReference"] = input.ApprovalReference?.Trim(),
+            ["singleStaffSelfApproval"] = isSingleStaffSelfApproval,
+            ["activeDepartmentStaffCount"] = activeStaffCount
         });
         var perms = await ComputePermissionsAsync(updated, actor, ct);
-        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject);
+        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject, perms.RequiresApprovalReferenceForSelfApproval, perms.Approvals);
     }, ct);
 
     public Task<RubricDto> Reject(long id, RejectRubricRequest input, CancellationToken ct) => repository.InTransactionAsync(async () =>
@@ -279,11 +353,6 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
             throw new ConflictException("Only rubrics pending approval can be rejected.");
         if (rubric.DepartmentId is null || rubric.AcademicSemesterId is null)
             throw new ConflictException("Legacy unscoped rubrics cannot be rejected.");
-        var approval = await repository.GetLatestApprovalAsync(id, ct);
-        if (approval is null || approval.DecidedAt.HasValue)
-            throw new ConflictException("No active approval request found for this rubric.");
-        if (actor.UserId == approval.SubmittedBy)
-            throw new ForbiddenException("Submitter cannot reject their own rubric.", "RUBRIC_SELF_APPROVAL_FORBIDDEN");
         if (!actor.IsStaff)
         {
             if (actor.IsAdmin)
@@ -297,16 +366,26 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         if (scope.SemesterStatus is "CLOSED" or "ARCHIVED")
             throw new ConflictException("Rubrics cannot be changed in a closed or archived semester.");
         await ValidateApprovalScopeAuthority(actor, rubric, ct);
+
+        var roundApprovals = await repository.GetCurrentRoundApprovalsAsync(id, ct);
+        var approval = FindPendingApprovalForActor(roundApprovals, actor.DepartmentId.Value);
+        if (approval is null || approval.DecidedAt.HasValue)
+            throw new ConflictException("No pending approval request found for your department on this rubric.");
+        if (actor.UserId == approval.SubmittedBy)
+            throw new ForbiddenException("Submitter cannot reject their own rubric.", "RUBRIC_SELF_APPROVAL_FORBIDDEN");
+
         await repository.RejectAsync(id, approval.Id, actor.UserId, input.Reason.Trim(), clock.GetUtcNow().UtcDateTime, ct);
         var updated = await Load(id, actor, false, ct);
         await Audit("RUBRIC_REJECTED", updated, actor.UserId, ct, new()
         {
             ["approvalId"] = approval.Id,
             ["decision"] = "REJECTED",
+            ["scopeRole"] = approval.ScopeRole,
+            ["departmentId"] = actor.DepartmentId,
             ["reason"] = input.Reason.Trim()
         });
         var perms = await ComputePermissionsAsync(updated, actor, ct);
-        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject);
+        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject, perms.RequiresApprovalReferenceForSelfApproval, perms.Approvals);
     }, ct);
 
     public Task<RubricDto> ChangeStatus(long id, string token, bool publish, CancellationToken ct) => repository.InTransactionAsync(async () =>
@@ -345,10 +424,10 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
             input.Code.Trim().ToUpperInvariant(), rubric.Name, rubric.Description,
             RubricHierarchy.ToInputs(rubric.Criteria), actor.UserId, clock.GetUtcNow().UtcDateTime, id,
             rubric.MajorId, rubric.ProjectMode, rubric.EvaluationStage, rubric.EvaluationScope,
-            rubric.EffectiveFrom, rubric.EffectiveTo, ct);
+            rubric.EffectiveFrom, rubric.EffectiveTo, ct, rubric.ParticipatingDepartmentId);
         await Audit("RUBRIC_VERSION_CREATED", created, actor.UserId, ct);
         var perms = await ComputePermissionsAsync(created, actor, ct);
-        return created.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject);
+        return created.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject, perms.RequiresApprovalReferenceForSelfApproval, perms.Approvals);
     }, ct);
 
     public Task<RubricDto> CloneCriterion(long id, long criterionId, string token, CancellationToken ct) => repository.InTransactionAsync(async () =>
@@ -399,10 +478,10 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         RubricRules.EnsureValidHierarchy(nextRoots);
         var updated = await repository.UpdateAsync(id, rubric.Name, rubric.Description, nextRoots,
             clock.GetUtcNow().UtcDateTime, rubric.MajorId, rubric.ProjectMode, rubric.EvaluationStage,
-            rubric.EvaluationScope, rubric.EffectiveFrom, rubric.EffectiveTo, ct);
+            rubric.EvaluationScope, rubric.EffectiveFrom, rubric.EffectiveTo, ct, rubric.ParticipatingDepartmentId);
         await Audit("RUBRIC_CRITERION_CLONED", updated, actor.UserId, ct, new() { ["clonedFromCriterionId"] = criterionId });
         var perms = await ComputePermissionsAsync(updated, actor, ct);
-        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject);
+        return updated.ToDto(perms.CanSubmit, perms.CanApprove, perms.CanReject, perms.RequiresApprovalReferenceForSelfApproval, perms.Approvals);
     }, ct);
 
     public Task<bool> Delete(long id, string token, CancellationToken ct) => repository.InTransactionAsync(async () =>

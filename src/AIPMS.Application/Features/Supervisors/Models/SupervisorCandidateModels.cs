@@ -7,7 +7,8 @@ public sealed record SupervisorCandidateProject(long Id, long AcademicSemesterId
 
 public sealed record SupervisorMajorScope(long Id, long DepartmentId, string Code, string Name);
 
-public sealed record SupervisorSelectionPolicy(long PeriodId, int? MaxProjectsPerSupervisor);
+public sealed record SupervisorSelectionPolicy(long PeriodId, int? MaxProjectsPerSupervisor,
+    int SupervisorInvitationExpiryDays = 7, int MaxPendingSupervisorRequestsPerSlot = 2);
 
 public sealed record SupervisorCandidateSearch(long ProjectId, long AcademicSemesterId,
     IReadOnlyList<long> DepartmentIds, int SemesterLimit, string? Search,

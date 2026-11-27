@@ -15,7 +15,9 @@ using SupervisorAssignment = AIPMS.Infrastructure.Persistence.Generated.Models.S
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISupervisorRequestRepository
+internal sealed class SupervisorRequestRepository(
+    AipmsDbContext context,
+    AIPMS.Application.Abstractions.Projects.IProjectActivationService? activationService = null) : ISupervisorRequestRepository
 {
     public async Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct)
     {
@@ -83,6 +85,11 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
             && r.SupervisorProfileId == profileId && r.Status == "PENDING"
             && r.AssignmentType == assignmentType && r.MajorId == majorId, ct);
 
+    public Task<int> CountPendingForSlotAsync(long projectId, string assignmentType, long? majorId, CancellationToken ct) =>
+        context.SupervisorRequests.CountAsync(r => r.ProjectId == projectId
+            && r.Status == "PENDING"
+            && r.AssignmentType == assignmentType && r.MajorId == majorId, ct);
+
     public async Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct, long? excludeProjectId = null) =>
         await context.SupervisorProfiles.AsNoTracking().Where(p => p.Id == profileId)
             .Select(p => new SupervisorWorkload(p.MaxActiveProjects,
@@ -98,14 +105,15 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
         => await CreateAsync(projectId, profileId, actorId, message, now, ct, "PRIMARY", null);
 
     public async Task<SupervisorRequestModel> CreateAsync(long projectId, long profileId, long actorId,
-        string? message, DateTime now, CancellationToken ct, string assignmentType, long? majorId)
+        string? message, DateTime now, CancellationToken ct, string assignmentType, long? majorId, int expiryDays = 7)
     {
         RequireTransaction();
+        var effectiveDays = expiryDays is >= 1 and <= 30 ? expiryDays : 7;
         var request = new SupervisorRequest { ProjectId = projectId, SupervisorProfileId = profileId,
             RequestedBy = actorId, Status = "PENDING", RequestMessage = message,
             AssignmentType = assignmentType,
             MajorId = majorId,
-            ExpiresAt = now.AddDays(7),
+            ExpiresAt = now.AddDays(effectiveDays),
             RequestedAt = now, CreatedAt = now, UpdatedAt = now };
         context.SupervisorRequests.Add(request);
         await context.SaveChangesAsync(ct);
@@ -140,13 +148,42 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
                 NewStatus = next, ChangedBy = actorId, ChangedAt = now, Reason = $"Supervisor request {request.Id} accepted." });
             project.Status = next;
         }
-        var shouldActivate = request.AssignmentType == "PRIMARY"
-            && project.Status is "APPROVED" or "SUPERVISOR_PENDING";
-        if (shouldActivate)
+        var activated = false;
+        if (project.Status is "APPROVED" or "SUPERVISOR_PENDING")
         {
-            await WorkingAgreementGuard.EnsureActivation(context, project.Id, ct);
-            if (project.Status == "APPROVED") Transition("SUPERVISOR_PENDING");
-            Transition("ACTIVE");
+            var wa = await WorkingAgreementGuard.Read(context, project.Id, ct);
+            var waReady = !wa.Required || wa.Status == "READY";
+            var hasPrimary = request.AssignmentType == "PRIMARY"
+                || await context.SupervisorAssignments.AnyAsync(a => a.ProjectId == project.Id && a.EndedAt == null && a.IsPrimary && a.AssignmentType == "PRIMARY", ct);
+
+            // Check if any required interdisciplinary discipline mentors remain missing after this assignment
+            var missingMentor = false;
+            var snapshot = await context.Set<AIPMS.Infrastructure.Persistence.Models.ProjectRegistrationSnapshot>().AsNoTracking()
+                .Where(s => s.ProjectId == project.Id)
+                .OrderByDescending(s => s.Id)
+                .FirstOrDefaultAsync(ct);
+            var evidence = snapshot is null ? null : ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson);
+            if (evidence is not null && evidence.Scope.ProjectMode == "INTERDISCIPLINARY")
+            {
+                var mentorMajorIds = (await context.SupervisorAssignments.AsNoTracking()
+                    .Where(a => a.ProjectId == project.Id && a.EndedAt == null && a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId.HasValue)
+                    .Select(a => a.MajorId!.Value)
+                    .ToListAsync(ct)).ToHashSet();
+                if (request.AssignmentType == "DISCIPLINE_MENTOR" && request.MajorId.HasValue)
+                    mentorMajorIds.Add(request.MajorId.Value);
+                missingMentor = evidence.Scope.Requirements.Any(r => !mentorMajorIds.Contains(r.MajorId));
+            }
+
+            if (project.Status == "APPROVED")
+                Transition("SUPERVISOR_PENDING");
+
+            // TK-W1-18: Never throw/rollback GVHD acceptance when WorkingAgreement is incomplete;
+            // hold in SUPERVISOR_PENDING until the final member accepts WA or Staff force-activates.
+            if (hasPrimary && !missingMentor && waReady)
+            {
+                Transition("ACTIVE");
+                activated = true;
+            }
         }
         project.UpdatedAt = now;
         var assignment = new SupervisorAssignment { ProjectId = request.ProjectId,
@@ -156,8 +193,8 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
         context.SupervisorAssignments.Add(assignment);
         await context.SaveChangesAsync(ct);
         await AIPMS.Infrastructure.Services.Projects.PolicyVersions.InheritSupervisorAsync(context, assignment.ProjectId, assignment.Id, now, ct);
-        if (shouldActivate)
-            await new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context).ApplyMilestoneTemplateAsync(request.ProjectId, actorId, now, ct);
+        if (activated)
+            await (activationService ?? new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context)).ApplyMilestoneTemplateAsync(request.ProjectId, actorId, now, ct);
         return assignment.Id;
     }
 

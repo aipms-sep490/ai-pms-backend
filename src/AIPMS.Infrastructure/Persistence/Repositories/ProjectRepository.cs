@@ -16,7 +16,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvider? timeProvider = null) : IProjectRepository
+public sealed partial class ProjectRepository(
+    AipmsDbContext context,
+    TimeProvider? timeProvider = null,
+    AIPMS.Application.Abstractions.Projects.IProjectActivationService? activationService = null,
+    AIPMS.Application.Features.Semesters.Abstractions.IWorkingDayCalculator? workingDayCalculator = null) : IProjectRepository
 {
     private static readonly string[] ActiveStatuses = 
     [
@@ -272,6 +276,12 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
         {
             await ValidateProjectMajorsAsync(teamId, majorIds, cancellationToken);
             await ValidateGovernanceAsync(teamId, majorIds, topicId.HasValue ? "PUBLISHED_TOPIC" : "STUDENT_PROPOSAL", cancellationToken);
+            var teamScopeConfig = await context.Set<TeamAcademicConfiguration>().AsNoTracking()
+                .SingleOrDefaultAsync(c => c.TeamId == teamId, cancellationToken);
+            var resolvedTrackCode = AIPMS.Domain.Teams.AcademicTrackCodes.Normalize(teamScopeConfig?.TrackCode)
+                ?? (majorIds.Count > 1 || teamScopeConfig?.ProjectMode == "INTERDISCIPLINARY"
+                    ? AIPMS.Domain.Teams.AcademicTrackCodes.ItMkt
+                    : null);
             var utcNow = Now;
             var project = new Project
             {
@@ -286,7 +296,8 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
                 CreatedAt = utcNow,
                 UpdatedAt = utcNow,
                 ProblemStatement = problemStatement?.Trim(),
-                ExpectedOutput = expectedOutput?.Trim()
+                ExpectedOutput = expectedOutput?.Trim(),
+                TrackCode = resolvedTrackCode
             };
 
             context.Projects.Add(project);
@@ -461,6 +472,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
                 throw new ConflictException("Only an editable proposal can be updated.");
 
             var topic = await context.Set<ProjectTopic>().AsNoTracking()
+                .Include(t => t.Requirements)
                 .SingleOrDefaultAsync(t => t.Id == topicId, cancellationToken)
                 ?? throw new NotFoundException("Topic", topicId);
 
@@ -469,9 +481,43 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
                 throw new ConflictException("Only published topics can be selected.");
             }
 
+            var selectedCount = await context.Projects.CountAsync(
+                p => p.TopicId == topicId && p.Id != projectId && p.Status != "REJECTED",
+                cancellationToken);
+            if (selectedCount >= topic.MaxTeams)
+            {
+                throw new ConflictException(
+                    $"This topic has reached its maximum team capacity ({topic.MaxTeams}).",
+                    WorkflowErrorCodes.TopicCapacityFull);
+            }
+
+            var utcNow = Now;
             project.TopicId = topicId;
             project.ProposalSource = "PUBLISHED_TOPIC";
-            project.UpdatedAt = Now;
+            project.Title = topic.Title.Trim();
+            if (!string.IsNullOrWhiteSpace(topic.Description)) project.Description = topic.Description.Trim();
+            if (!string.IsNullOrWhiteSpace(topic.ProblemStatement)) project.ProblemStatement = topic.ProblemStatement.Trim();
+            if (!string.IsNullOrWhiteSpace(topic.Objectives)) project.Objectives = topic.Objectives.Trim();
+            if (!string.IsNullOrWhiteSpace(topic.ExpectedOutput)) project.ExpectedOutput = topic.ExpectedOutput.Trim();
+            if (!string.IsNullOrWhiteSpace(topic.TrackCode)) project.TrackCode = topic.TrackCode.Trim().ToUpperInvariant();
+
+            if (!string.IsNullOrWhiteSpace(topic.Domain))
+            {
+                var topicTechs = System.Text.Json.JsonSerializer.Deserialize<string[]>(topic.TechnologiesJson) ?? [];
+                var topicKeywords = System.Text.Json.JsonSerializer.Deserialize<string[]>(topic.KeywordsJson) ?? [];
+                context.ProjectTags.RemoveRange(project.ProjectTags);
+                var tags = await GetOrCreateTagsInternalAsync(topic.Domain, topicTechs, topicKeywords, utcNow, cancellationToken);
+                foreach (var tag in tags)
+                {
+                    context.ProjectTags.Add(new ProjectTag
+                    {
+                        Project = project,
+                        Tag = tag,
+                        CreatedAt = utcNow
+                    });
+                }
+            }
+            project.UpdatedAt = utcNow;
 
             await context.SaveChangesAsync(cancellationToken);
             if (transaction is not null) await transaction.CommitAsync(cancellationToken);
@@ -488,6 +534,44 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
             throw;
         }
+    }
+
+    public async Task<ProjectDto> DeselectTopicAsync(long projectId, CancellationToken cancellationToken)
+    {
+        await using var transaction = context.Database.CurrentTransaction is null
+            ? await context.Database.BeginTransactionAsync(cancellationToken) : null;
+        try
+        {
+            await LockProjectAsync(projectId, cancellationToken);
+            var project = await context.Projects.SingleOrDefaultAsync(p => p.Id == projectId, cancellationToken)
+                ?? throw new NotFoundException("Project", projectId);
+
+            if (project.Status is not ("DRAFT" or "REVISION_REQUIRED"))
+                throw new ConflictException("Topic can only be deselected while the project is in DRAFT or REVISION_REQUIRED status.");
+
+            project.TopicId = null;
+            project.ProposalSource = "STUDENT_PROPOSAL";
+            project.UpdatedAt = Now;
+            await context.SaveChangesAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+            return (await GetByIdAsync(project.Id, cancellationToken))!;
+        }
+        catch
+        {
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    public Task<int> CountNonRejectedTopicSelectionsAsync(long topicId, long? excludeProjectId, CancellationToken cancellationToken) =>
+        context.Projects.AsNoTracking()
+            .CountAsync(p => p.TopicId == topicId && p.Id != excludeProjectId && p.Status != "REJECTED", cancellationToken);
+
+    public async System.Threading.Tasks.Task LockTopicAsync(long topicId, CancellationToken cancellationToken)
+    {
+        if (context.Database.CurrentTransaction is null) return;
+        await context.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.project_topics WITH (UPDLOCK, HOLDLOCK) WHERE id = {topicId}")
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<ProjectDto> UpdateStatusAsync(
@@ -549,7 +633,7 @@ public sealed partial class ProjectRepository(AipmsDbContext context, TimeProvid
             context.ProjectStatusHistories.Add(history);
 
             if (newStatus == "ACTIVE")
-                await new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context).ApplyMilestoneTemplateAsync(projectId, actorUserId, utcNow, cancellationToken);
+                await (activationService ?? new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context)).ApplyMilestoneTemplateAsync(projectId, actorUserId, utcNow, cancellationToken);
 
             if (newStatus == "REVISION_REQUIRED")
             {

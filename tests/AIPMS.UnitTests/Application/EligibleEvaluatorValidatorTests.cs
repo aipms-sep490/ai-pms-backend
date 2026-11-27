@@ -18,11 +18,12 @@ public sealed class EligibleEvaluatorValidatorTests
         Assert.Equal(valid, new GetEligibleEvaluatorsQueryValidator().Validate(new GetEligibleEvaluatorsQuery(project, period, page, size)).IsValid);
 
     [Theory]
-    [InlineData(true, false, null, true)]
+    [InlineData(true, false, null, false)]
+    [InlineData(true, true, 7L, true)]
     [InlineData(false, true, 7L, true)]
     [InlineData(false, true, 8L, false)]
     [InlineData(false, true, null, false)]
     [InlineData(false, false, 7L, false)]
-    public void Archive_requires_administrative_scope(bool admin, bool staff, long? department, bool allowed) =>
+    public void Archive_requires_department_staff_scope(bool admin, bool staff, long? department, bool allowed) =>
         Assert.Equal(allowed, ProjectArchivePolicy.HasScope(admin, staff, department, [7]));
 }

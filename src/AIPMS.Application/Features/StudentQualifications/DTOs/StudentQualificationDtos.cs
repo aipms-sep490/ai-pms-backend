@@ -73,3 +73,31 @@ public static class ProjectPeriodQualificationPolicyDtoMapper
         model.ProjectPeriodId, model.RequireStudentQualification, model.QualificationType,
         model.RequireCertificate, model.CheckExpiration, model.UpdatedAt);
 }
+
+public sealed record StudentQualificationImportRow(
+    int RowNumber,
+    string StudentCode,
+    string QualificationType,
+    string? CertificateNumber = null,
+    DateTime? IssuedAt = null,
+    DateTime? ExpiresAt = null);
+
+public sealed record StudentQualificationImportPreviewRow(
+    StudentQualificationImportRow Row,
+    long? MatchedUserId,
+    string? StudentFullName,
+    IReadOnlyList<string> Errors);
+
+public sealed record StudentQualificationImportPreview(
+    long DepartmentId,
+    string DepartmentName,
+    IReadOnlyList<StudentQualificationImportPreviewRow> Rows,
+    bool CanCommit);
+
+public sealed record StudentQualificationImportCommit(
+    IReadOnlyList<StudentQualificationImportRow> Rows);
+
+public sealed record StudentQualificationImportResult(
+    int UpsertedCount,
+    int CreatedCount,
+    int UpdatedCount);

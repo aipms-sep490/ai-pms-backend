@@ -2090,6 +2090,7 @@ public partial class AipmsDbContext : DbContext
         {
             entity.Property(e => e.CurriculumCode).HasMaxLength(100).HasColumnName("curriculum_code");
             entity.Property(e => e.GoogleEnrollmentPending).HasDefaultValue(false).HasColumnName("google_enrollment_pending");
+            entity.Property(e => e.MustChangePassword).HasDefaultValue(false).HasColumnName("must_change_password");
             entity.Property(e => e.RowVersion).HasColumnName("row_version").IsRowVersion();
             entity.HasKey(e => e.Id).HasName("pk_users");
 

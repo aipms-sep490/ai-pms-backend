@@ -18,6 +18,7 @@ public interface IAcademicBlueprintService
 
     Task<SemesterReadinessDto> GetSemesterReadinessAsync(long semesterId, CancellationToken ct = default);
     Task EnsureSemesterBlueprintReadyForRegistrationAsync(long semesterId, CancellationToken ct = default);
+    Task<IReadOnlyList<SemesterTrackPresetDto>> GetSemesterTrackPresetsAsync(long semesterId, CancellationToken ct = default);
 
     Task<BlueprintDryRunDiffDto> DryRunProjectPlanAsync(long projectId, long? blueprintId = null, CancellationToken ct = default);
     Task<ProjectBlueprintSnapshotDto?> ApplyBlueprintToProjectAsync(long projectId, long actorUserId, DateTime activatedAtUtc, long? blueprintId = null, CancellationToken ct = default);

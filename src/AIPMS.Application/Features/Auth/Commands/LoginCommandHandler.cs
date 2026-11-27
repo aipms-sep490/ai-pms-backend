@@ -98,7 +98,8 @@ public sealed class LoginCommandHandler(
                 account.FullName,
                 account.Roles,
                 account.Title,
-                account.Phone));
+                account.Phone,
+                account.MustChangePassword));
     }
 
     private Task RecordLoginAuditAsync(

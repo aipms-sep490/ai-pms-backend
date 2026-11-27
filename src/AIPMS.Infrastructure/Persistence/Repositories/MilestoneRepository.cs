@@ -94,6 +94,8 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
         entity.DueDate = dueDate;
         entity.Status = status;
         entity.SortOrder = sortOrder;
+        if (!string.IsNullOrWhiteSpace(entity.TemplateOriginId))
+            entity.IsUserCustomized = true;
         entity.UpdatedAt = DateTime.UtcNow;
         entity.ConcurrencyToken = Guid.NewGuid();
 
