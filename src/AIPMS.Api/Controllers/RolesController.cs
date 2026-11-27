@@ -1,3 +1,4 @@
+using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.AccountSecurity.Commands;
@@ -12,8 +13,16 @@ namespace AIPMS.Api.Controllers;
 [ApiController]
 [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
 [Route("api/v1/security/roles")]
-public sealed class RolesController(ISender sender) : ControllerBase
+public sealed class RolesController(ISender sender, IConfiguration configuration) : ControllerBase
 {
+    private void EnsureRbacMatrixWritable()
+    {
+        if (!bool.TryParse(configuration["Security:RbacMatrixWriteEnabled"], out var enabled) || !enabled)
+            throw new ConflictException(
+                "The permission matrix is read-only. Assign one of the 4 system roles to user accounts instead.",
+                WorkflowErrorCodes.RbacPermissionMatrixReadOnly);
+    }
+
     [HttpGet]
     public async Task<ActionResult<PagedResult<SecurityRoleDto>>> GetRoles(
         [FromQuery] string? search,
@@ -33,6 +42,7 @@ public sealed class RolesController(ISender sender) : ControllerBase
         CreateSecurityCatalogRequest request,
         CancellationToken cancellationToken)
     {
+        EnsureRbacMatrixWritable();
         var result = await sender.Send(
             new CreateRoleCommand(request.Code, request.Name, request.Description),
             cancellationToken);
@@ -43,14 +53,18 @@ public sealed class RolesController(ISender sender) : ControllerBase
     public async Task<ActionResult<SecurityRoleDto>> UpdateRole(
         long roleId,
         UpdateSecurityCatalogRequest request,
-        CancellationToken cancellationToken) =>
-        Ok(await sender.Send(
+        CancellationToken cancellationToken)
+    {
+        EnsureRbacMatrixWritable();
+        return Ok(await sender.Send(
             new UpdateRoleCommand(roleId, request.Code, request.Name, request.Description),
             cancellationToken));
+    }
 
     [HttpDelete("{roleId:long}")]
     public async Task<IActionResult> DeleteRole(long roleId, CancellationToken cancellationToken)
     {
+        EnsureRbacMatrixWritable();
         await sender.Send(new DeleteRoleCommand(roleId), cancellationToken);
         return NoContent();
     }
@@ -59,8 +73,11 @@ public sealed class RolesController(ISender sender) : ControllerBase
     public async Task<ActionResult<SecurityRoleDto>> ReplacePermissions(
         long roleId,
         ReplaceRolePermissionsRequest request,
-        CancellationToken cancellationToken) =>
-        Ok(await sender.Send(
+        CancellationToken cancellationToken)
+    {
+        EnsureRbacMatrixWritable();
+        return Ok(await sender.Send(
             new ReplaceRolePermissionsCommand(roleId, request.PermissionIds),
             cancellationToken));
+    }
 }

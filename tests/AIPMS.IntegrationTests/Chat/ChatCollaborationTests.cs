@@ -70,7 +70,7 @@ public sealed class ChatCollaborationTests(FinalSubmissionDraftDatabaseFixture d
         var other = await Body<ChatConversationDto>(await leader.PostAsync($"/api/v1/chat/teams/{s.TeamId}/conversation", null));
         Assert.Equal(HttpStatusCode.Conflict, (await leader.PostAsJsonAsync(Url(other.Id) + "/messages", send)).StatusCode);
         using (var form = new MultipartFormDataContent()) { var file = new ByteArrayContent("not pdf"u8.ToArray()); file.Headers.ContentType = new("application/pdf"); form.Add(file, "file", "fake.pdf");
-            Assert.Equal(HttpStatusCode.BadRequest, (await leader.PostAsync(Url(c.Id) + "/uploads", form)).StatusCode); }
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, (await leader.PostAsync(Url(c.Id) + "/uploads", form)).StatusCode); }
         Assert.Equal(HttpStatusCode.BadRequest, (await leader.PostAsJsonAsync(Url(c.Id) + "/messages", new ChatSendRequest(Guid.NewGuid(), null, AttachmentIds: Enumerable.Range(1,11).Select(x => x.ToString()).ToArray()))).StatusCode);
         var message = await Send(leader, c.Id, upload.Id);
         var download = Url(c.Id) + $"/messages/{message.Id}/attachments/{upload.Id}/download";
@@ -296,7 +296,10 @@ public sealed class ChatCollaborationTests(FinalSubmissionDraftDatabaseFixture d
                 ["ConnectionStrings:DefaultConnection"] = connection,
                 ["Chat:Enabled"] = "true",
                 ["Chat:RealtimeEnabled"] = "false",
-                ["Chat:AiSummaryTimeoutSeconds"] = timeoutSeconds?.ToString()
+                ["Chat:AiSummaryTimeoutSeconds"] = timeoutSeconds?.ToString(),
+                ["AiAssistant:Enabled"] = "true",
+                ["AiAssistant:ChatAiEnabled"] = "true",
+                ["AiAssistant:DailyQuotaPerUser"] = "0"
             }));
             builder.ConfigureServices(s => { s.RemoveAll<IFileStorage>(); s.AddSingleton<IFileStorage>(Storage);
                 s.RemoveAll<IAiTextGenerationProvider>();

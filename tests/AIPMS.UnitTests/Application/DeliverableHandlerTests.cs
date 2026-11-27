@@ -289,7 +289,8 @@ public sealed class DeliverableHandlerTests
             Storage = new(Repository);
             Audit = new(Repository);
             workflow = new(Repository, Storage, new Actor(), Accounts, new Access(), Audit, TimeProvider.System,
-                NullLogger<DeliverableWorkflow>.Instance, new RecordingPublisher());
+                NullLogger<DeliverableWorkflow>.Instance, new RecordingPublisher(),
+                new AIPMS.Infrastructure.Services.Files.BasicSignatureAndArchiveScanner());
         }
         public async Task<DeliverableVersionDto> Submit()
         {

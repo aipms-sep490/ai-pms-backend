@@ -118,12 +118,15 @@ internal sealed partial class ProjectChecklistService(
     public async Task<IReadOnlyList<MasterChecklistTemplateDto>> ListTemplatesAsync(long? semesterId, string? trackCode, CancellationToken ct = default)
     {
         var actor = await GetActorAsync(ct);
-        if (!actor.IsAdmin && !actor.IsStaff) throw new ForbiddenException();
+        if (!actor.IsAdmin && !actor.IsStaff)
+            throw new ForbiddenException("Only department staff or admin can list master checklist templates.", WorkflowErrorCodes.ScopeAccessDenied);
+        if (!actor.IsAdmin && !actor.DepartmentId.HasValue)
+            throw new ForbiddenException("Department scope is required to list master checklist templates.", WorkflowErrorCodes.ScopeAccessDenied);
 
         var q = db.ReviewGateChecklistTemplates.AsNoTracking().AsQueryable();
         if (semesterId.HasValue) q = q.Where(t => t.AcademicSemesterId == semesterId.Value);
         if (!string.IsNullOrWhiteSpace(trackCode)) q = q.Where(t => t.TrackCode == trackCode.Trim().ToUpperInvariant());
-        if (!actor.IsAdmin && actor.DepartmentId.HasValue) q = q.Where(t => t.LeadDepartmentId == actor.DepartmentId.Value);
+        if (!actor.IsAdmin) q = q.Where(t => t.LeadDepartmentId == actor.DepartmentId!.Value);
         return (await q.OrderByDescending(t => t.CreatedAt).ToListAsync(ct)).Select(ToTemplateDto).ToArray();
     }
 

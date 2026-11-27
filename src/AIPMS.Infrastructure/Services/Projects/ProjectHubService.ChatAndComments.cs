@@ -37,8 +37,27 @@ internal sealed partial class ProjectHubService
             ConcurrencyToken = Guid.NewGuid()
         };
         db.Set<M.ChatConversation>().Add(conv);
-        await db.SaveChangesAsync(ct);
-        return conv;
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return conv;
+        }
+        catch (DbUpdateException)
+        {
+            db.Entry(conv).State = EntityState.Detached;
+            return await db.Set<M.ChatConversation>()
+                .SingleAsync(c => c.ProjectId == projectId && c.ChannelScope == channelScope, ct);
+        }
+    }
+
+    private Task<bool> IsActiveGateReviewerOnGateAsync(long gateId, CancellationToken ct)
+    {
+        var now = Now;
+        return db.GateReviewerAssignments.AsNoTracking()
+            .AnyAsync(a => a.GateInstanceId == gateId && a.ReviewerId == Actor
+                && a.Status != "REVOKED"
+                && (a.ValidFrom == null || a.ValidFrom <= now)
+                && (a.ValidUntil == null || now <= a.ValidUntil), ct);
     }
 
     public async Task<HubChannelDto> GetChannelAsync(long projectId, string channelScope, CancellationToken ct)
@@ -47,7 +66,12 @@ internal sealed partial class ProjectHubService
         var ctx = await LoadAccessAsync(projectId, ct);
         RequireChannelAccess(ctx, scope);
 
-        var conv = await GetOrCreateChannelConversationAsync(projectId, scope, ct);
+        // Pure read-only GET: never INSERT into dbo.chat_conversations
+        var conv = await db.Set<M.ChatConversation>().AsNoTracking()
+            .SingleOrDefaultAsync(c => c.ProjectId == projectId && c.ChannelScope == scope, ct);
+        if (conv is null)
+            return new(0, projectId, scope, []);
+
         var messages = await db.Set<M.ChatMessage>().AsNoTracking()
             .Where(m => m.ConversationId == conv.Id && m.RecalledAt == null)
             .OrderBy(m => m.Sequence).Take(100)
@@ -61,10 +85,13 @@ internal sealed partial class ProjectHubService
         var scope = NormalizeChannelScope(channelScope);
         var ctx = await LoadAccessAsync(projectId, ct);
         RequireChannelAccess(ctx, scope);
+        RequireActiveProject(ctx);
         if (string.IsNullOrWhiteSpace(input.Body) || input.Body.Trim().Length > 4000)
             throw new DomainException("Message body must be 1..4000 characters.", WorkflowErrorCodes.ValidationFailed);
 
         var conv = await GetOrCreateChannelConversationAsync(projectId, scope, ct);
+        if (string.Equals(conv.Status, "READ_ONLY", StringComparison.OrdinalIgnoreCase))
+            throw new ConflictException("This chat conversation is read-only.", "CHAT_CONVERSATION_READ_ONLY");
         var now = Now;
         conv.Sequence += 1;
         conv.Version += 1;
@@ -91,6 +118,7 @@ internal sealed partial class ProjectHubService
     {
         var ctx = await LoadAccessAsync(projectId, ct);
         RequireProjectMemberOrStaff(ctx);
+        RequireActiveProject(ctx);
 
         var message = await (from m in db.Set<M.ChatMessage>().AsNoTracking()
                              join c in db.Set<M.ChatConversation>().AsNoTracking() on m.ConversationId equals c.Id
@@ -152,6 +180,7 @@ internal sealed partial class ProjectHubService
     {
         var ctx = await LoadAccessAsync(projectId, ct);
         RequireProjectMemberOrStaff(ctx);
+        RequireActiveProject(ctx);
 
         var message = await (from m in db.Set<M.ChatMessage>().AsNoTracking()
                              join c in db.Set<M.ChatConversation>().AsNoTracking() on m.ConversationId equals c.Id
@@ -167,20 +196,30 @@ internal sealed partial class ProjectHubService
             return new(existing.Id, existing.MeetingId, messageId, existing.Content, AlreadyExisted: true);
 
         long meetingId;
+        DateTime? notesLockedAt;
         if (input.MeetingId.HasValue)
         {
-            if (!await db.Meetings.AsNoTracking().AnyAsync(m => m.Id == input.MeetingId.Value && m.ProjectId == projectId, ct))
-                throw new NotFoundException("Meeting", input.MeetingId.Value);
-            meetingId = input.MeetingId.Value;
+            var targetMeeting = await db.Meetings.AsNoTracking()
+                .Where(m => m.Id == input.MeetingId.Value && m.ProjectId == projectId)
+                .Select(m => new { m.Id, m.NotesLockedAt })
+                .SingleOrDefaultAsync(ct)
+                ?? throw new NotFoundException("Meeting", input.MeetingId.Value);
+            meetingId = targetMeeting.Id;
+            notesLockedAt = targetMeeting.NotesLockedAt;
         }
         else
         {
             var latest = await db.Meetings.AsNoTracking().Where(m => m.ProjectId == projectId)
-                .OrderByDescending(m => m.Id).Select(m => (long?)m.Id).FirstOrDefaultAsync(ct);
-            if (!latest.HasValue)
-                throw new DomainException("At least one project meeting is required before converting a chat message into a meeting decision.", WorkflowErrorCodes.ValidationFailed);
-            meetingId = latest.Value;
+                .OrderByDescending(m => m.Id)
+                .Select(m => new { m.Id, m.NotesLockedAt })
+                .FirstOrDefaultAsync(ct)
+                ?? throw new DomainException("At least one project meeting is required before converting a chat message into a meeting decision.", WorkflowErrorCodes.ValidationFailed);
+            meetingId = latest.Id;
+            notesLockedAt = latest.NotesLockedAt;
         }
+
+        if (notesLockedAt.HasValue)
+            throw new ConflictException("Meeting notes are locked and cannot accept new decisions.", "MEETING_NOTES_LOCKED");
 
         var content = !string.IsNullOrWhiteSpace(input.Content) ? input.Content.Trim() : (message.Body ?? "").Trim();
         var now = Now;
@@ -206,11 +245,11 @@ internal sealed partial class ProjectHubService
     public async Task<IReadOnlyList<AnchoredCommentDto>> ListAnchoredCommentsAsync(long projectId, string gateCode, CancellationToken ct)
     {
         var ctx = await LoadAccessAsync(projectId, ct);
-        RequireProjectMemberOrStaff(ctx);
         var gateId = await db.ProjectGateInstances.AsNoTracking()
             .Where(g => g.ProjectId == projectId && g.Code == gateCode)
             .Select(g => (long?)g.Id).SingleOrDefaultAsync(ct)
             ?? throw new NotFoundException("ProjectGate", 0);
+        RequireGateReviewOrProjectAccess(ctx, await IsActiveGateReviewerOnGateAsync(gateId, ct));
 
         return await db.Set<EvidenceAnchoredComment>().AsNoTracking()
             .Where(c => c.ProjectId == projectId && c.GateInstanceId == gateId)
@@ -223,11 +262,12 @@ internal sealed partial class ProjectHubService
     public async Task<AnchoredCommentDto> CreateAnchoredCommentAsync(long projectId, string gateCode, CreateAnchoredCommentRequest input, CancellationToken ct)
     {
         var ctx = await LoadAccessAsync(projectId, ct);
-        RequireProjectMemberOrStaff(ctx);
         var gateId = await db.ProjectGateInstances.AsNoTracking()
             .Where(g => g.ProjectId == projectId && g.Code == gateCode)
             .Select(g => (long?)g.Id).SingleOrDefaultAsync(ct)
             ?? throw new NotFoundException("ProjectGate", 0);
+        RequireGateReviewOrProjectAccess(ctx, await IsActiveGateReviewerOnGateAsync(gateId, ct));
+        RequireActiveProject(ctx);
 
         var severity = input.Severity?.Trim().ToUpperInvariant() ?? "INFO";
         if (severity is not ("INFO" or "WARNING" or "CRITICAL"))
@@ -267,15 +307,27 @@ internal sealed partial class ProjectHubService
     public async Task<AnchoredCommentDto> ResolveAnchoredCommentAsync(long projectId, string gateCode, long commentId, CancellationToken ct)
     {
         var ctx = await LoadAccessAsync(projectId, ct);
-        RequireProjectMemberOrStaff(ctx);
         var gateId = await db.ProjectGateInstances.AsNoTracking()
             .Where(g => g.ProjectId == projectId && g.Code == gateCode)
             .Select(g => (long?)g.Id).SingleOrDefaultAsync(ct)
             ?? throw new NotFoundException("ProjectGate", 0);
+        var isActiveGateReviewer = await IsActiveGateReviewerOnGateAsync(gateId, ct);
+        RequireGateReviewOrProjectAccess(ctx, isActiveGateReviewer);
+        RequireActiveProject(ctx);
 
         var comment = await db.Set<EvidenceAnchoredComment>()
             .SingleOrDefaultAsync(c => c.Id == commentId && c.ProjectId == projectId && c.GateInstanceId == gateId, ct)
             ?? throw new NotFoundException("EvidenceAnchoredComment", commentId);
+
+        if (string.Equals(comment.Severity, "CRITICAL", StringComparison.OrdinalIgnoreCase)
+            && ctx.IsTeamMember && !ctx.IsPrimarySupervisor && !ctx.IsMentor && !ctx.IsScopedStaff && !isActiveGateReviewer
+            && comment.CreatedBy != Actor)
+        {
+            throw new ForbiddenException(
+                "Students cannot resolve CRITICAL anchored comments raised by staff, supervisors, mentors, or gate reviewers.",
+                WorkflowErrorCodes.ScopeAccessDenied);
+        }
+
         comment.Status = "RESOLVED";
         comment.ResolvedBy = Actor;
         comment.ResolvedAt = Now;

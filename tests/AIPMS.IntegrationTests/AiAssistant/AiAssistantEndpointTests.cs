@@ -28,6 +28,7 @@ using Xunit;
 
 namespace AIPMS.IntegrationTests.AiAssistant;
 
+[Trait("Category", "InMemory")]
 public sealed class AiAssistantEndpointTests : IClassFixture<AiAssistantEndpointTests.AiAssistantTestFactory>
 {
     public sealed class AiAssistantTestFactory : AipmsWebApplicationFactory
@@ -44,6 +45,8 @@ public sealed class AiAssistantEndpointTests : IClassFixture<AiAssistantEndpoint
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
+            builder.UseSetting("AiAssistant:Enabled", "true");
+            builder.UseSetting("AiAssistant:LegacyProjectAskEnabled", "true");
             builder.ConfigureServices(services =>
             {
                 // These legacy HTTP contract tests deliberately use repository stubs, not SQL scope/history.
@@ -569,6 +572,7 @@ public enum ProviderTestMode
     SimulateTimeout
 }
 
+[Trait("Category", "InMemory")]
 public sealed class ConfigurableAiProvider : IAiTextGenerationProvider
 {
     public ProviderTestMode Mode { get; set; } = ProviderTestMode.Normal;
@@ -603,6 +607,7 @@ public sealed class ConfigurableAiProvider : IAiTextGenerationProvider
     }
 }
 
+[Trait("Category", "InMemory")]
 public sealed class StubProjectAccessService : IProjectAccessService
 {
     public Dictionary<(long UserId, long ProjectId), bool> AllowedProjectsByUser { get; } = new();
@@ -613,6 +618,7 @@ public sealed class StubProjectAccessService : IProjectAccessService
     }
 }
 
+[Trait("Category", "InMemory")]
 public sealed class StubProjectProgressDataReader : IProjectProgressDataReader
 {
     public Dictionary<long, ProjectProgressFacts> Projects { get; } = new();
@@ -624,6 +630,7 @@ public sealed class StubProjectProgressDataReader : IProjectProgressDataReader
         Task.FromResult(Projects.GetValueOrDefault(projectId));
 }
 
+[Trait("Category", "InMemory")]
 public sealed class StubProgressReportRepository : IProgressReportRepository
 {
     public Dictionary<long, ProgressReportDetailDto> Reports { get; } = new();
@@ -657,6 +664,7 @@ public sealed class StubProgressReportRepository : IProgressReportRepository
     public Task<long?> GetActiveSupervisorAssignmentIdAsync(long projectId, long supervisorUserId, CancellationToken cancellationToken) => Task.FromResult<long?>(null);
 }
 
+[Trait("Category", "InMemory")]
 public sealed class StubMilestoneRepository : IMilestoneRepository
 {
     public List<MilestoneDto> Milestones { get; } = new();
@@ -677,6 +685,7 @@ public sealed class StubMilestoneRepository : IMilestoneRepository
     public Task<IReadOnlyList<long>> GetDependsOnMilestoneIdsAsync(long milestoneId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<long>>(Array.Empty<long>());
 }
 
+[Trait("Category", "InMemory")]
 public sealed class StubTaskRepository : ITaskRepository
 {
     public Dictionary<long, List<TaskDto>> TasksByProject { get; } = new();
@@ -711,6 +720,7 @@ public sealed class StubTaskRepository : ITaskRepository
     public Task<bool> MajorBelongsToProjectAsync(long majorId, long projectId, CancellationToken cancellationToken = default) => Task.FromResult(true);
 }
 
+[Trait("Category", "InMemory")]
 public sealed class StubMeetingRepository : IMeetingRepository
 {
     public List<MeetingDto> Meetings { get; } = new();
@@ -750,6 +760,7 @@ public sealed class StubMeetingRepository : IMeetingRepository
     public Task<bool> IsParticipantAsync(long meetingId, long userId, CancellationToken cancellationToken) => Task.FromResult(true);
 }
 
+[Trait("Category", "InMemory")]
 public sealed class StubContributionRepository : IContributionRepository
 {
     public Task<ContributionSummaryDto> GetSummaryAsync(long projectId, bool storedOnly, CancellationToken ct) =>

@@ -117,7 +117,7 @@ internal sealed partial class AiSuiteService
         }, ct);
 
         string summary, completedWork, inProgressWork, plannedWork, issuesAndRisks;
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         using var doc = TryParseJsonObject(raw);
         if (doc is not null)
         {

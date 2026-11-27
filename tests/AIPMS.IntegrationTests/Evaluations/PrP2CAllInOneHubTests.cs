@@ -302,7 +302,13 @@ public sealed class PrP2CAllInOneHubTests(EvaluationDraftDatabaseFixture databas
         Assert.Equal(HttpStatusCode.UnprocessableEntity, blockedSubmit.StatusCode);
         Assert.Equal(WorkflowErrorCodes.UnresolvedCriticalComments, await ReadProblemCode(blockedSubmit));
 
-        var resolved = await Body<AnchoredCommentDto>(await leader.PostAsync(
+        // Negative: Student leader cannot self-resolve CRITICAL comment created by Staff => 403 SCOPE_ACCESS_DENIED
+        var studentResolveBlocked = await leader.PostAsync(
+            $"/api/v1/projects/{s.ProjectId}/hub/gates/G1/anchored-comments/{comment.Id}/resolve", null);
+        Assert.Equal(HttpStatusCode.Forbidden, studentResolveBlocked.StatusCode);
+        Assert.Equal(WorkflowErrorCodes.ScopeAccessDenied, await ReadProblemCode(studentResolveBlocked));
+
+        var resolved = await Body<AnchoredCommentDto>(await staff.PostAsync(
             $"/api/v1/projects/{s.ProjectId}/hub/gates/G1/anchored-comments/{comment.Id}/resolve", null));
         Assert.Equal("RESOLVED", resolved.Status);
 

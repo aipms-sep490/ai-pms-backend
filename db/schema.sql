@@ -3567,7 +3567,7 @@ BEGIN
   responsible_department_id BIGINT NOT NULL CONSTRAINT fk_appeal_request_department REFERENCES dbo.departments(id),
   frozen_inputs NVARCHAR(MAX) NOT NULL CONSTRAINT ck_appeal_request_snapshot CHECK(ISJSON(frozen_inputs)=1),
   base_stamp CHAR(64) NOT NULL,
-  status VARCHAR(20) NOT NULL CONSTRAINT ck_appeal_request_status CHECK(status IN ('PENDING','UNDER_REVIEW','ACCEPTED','REJECTED')),
+  status VARCHAR(20) NOT NULL CONSTRAINT ck_appeal_request_status CHECK(status IN ('PENDING','UNDER_REVIEW','ACCEPTED','REJECTED','WITHDRAWN')),
   requested_by BIGINT NOT NULL CONSTRAINT fk_appeal_request_creator REFERENCES dbo.users(id),
   requested_at DATETIME2(0) NOT NULL, reason NVARCHAR(2000) NOT NULL,
   reviewer_id BIGINT NULL CONSTRAINT fk_appeal_request_reviewer REFERENCES dbo.users(id),
@@ -3614,6 +3614,7 @@ GO
 SET QUOTED_IDENTIFIER ON;
 SET XACT_ABORT ON;
 BEGIN TRANSACTION;
+-- [DEPRECATED — Out of scope V4 Core: do not reference in new code]
 IF OBJECT_ID('dbo.industry_experts','U') IS NULL
 BEGIN
  CREATE TABLE dbo.industry_experts (
@@ -3624,6 +3625,7 @@ BEGIN
   enrolled_at DATETIME2(0) NULL
  );
 END;
+-- [DEPRECATED — Out of scope V4 Core: do not reference in new code]
 IF OBJECT_ID('dbo.industry_invitations','U') IS NULL
 BEGIN
  CREATE TABLE dbo.industry_invitations (
@@ -3640,6 +3642,7 @@ BEGIN
  );
  CREATE INDEX ix_industry_invite_expert ON dbo.industry_invitations(expert_id,id DESC);
 END;
+-- [DEPRECATED — Out of scope V4 Core: do not reference in new code]
 IF OBJECT_ID('dbo.industry_challenges','U') IS NULL
 BEGIN
  CREATE TABLE dbo.industry_challenges (
@@ -3649,6 +3652,7 @@ BEGIN
  );
  CREATE INDEX ix_industry_challenge_expiry ON dbo.industry_challenges(expires_at);
 END;
+-- [DEPRECATED — Out of scope V4 Core: do not reference in new code]
 IF OBJECT_ID('dbo.industry_assignments','U') IS NULL
 BEGIN
  CREATE TABLE dbo.industry_assignments (
@@ -3666,6 +3670,7 @@ BEGIN
  CREATE INDEX ix_industry_assignment_expert ON dbo.industry_assignments(expert_id,revoked_at,starts_at,ends_at);
  CREATE INDEX ix_industry_assignment_project ON dbo.industry_assignments(project_id,id DESC);
 END;
+-- [DEPRECATED — Out of scope V4 Core: do not reference in new code]
 IF OBJECT_ID('dbo.industry_evidence_shares','U') IS NULL
 BEGIN
  CREATE TABLE dbo.industry_evidence_shares (
@@ -3681,6 +3686,7 @@ BEGIN
  );
  CREATE UNIQUE INDEX ux_industry_share_active ON dbo.industry_evidence_shares(assignment_id,file_id) WHERE revoked_at IS NULL;
 END;
+-- [DEPRECATED — Out of scope V4 Core: do not reference in new code]
 IF OBJECT_ID('dbo.industry_feedback','U') IS NULL
 BEGIN
  CREATE TABLE dbo.industry_feedback (
@@ -4738,6 +4744,176 @@ IF COL_LENGTH(N'dbo.project_periods', N'cold_window_end_at') IS NULL
 IF COL_LENGTH(N'dbo.project_periods', N'defense_buffer_hours') IS NULL
     ALTER TABLE dbo.project_periods ADD defense_buffer_hours int NOT NULL CONSTRAINT df_project_periods_defense_buffer DEFAULT 12;
 
+-- ============================================================================
+-- TK-W0-12: Synced core tables & columns from db/changes/ (placed before rooms/tech_checks alter block)
+-- ============================================================================
+IF COL_LENGTH(N'dbo.projects', N'topic_id') IS NULL
+    ALTER TABLE dbo.projects ADD topic_id bigint NULL;
+IF COL_LENGTH(N'dbo.projects', N'proposal_source') IS NULL
+    ALTER TABLE dbo.projects ADD proposal_source varchar(30) NOT NULL CONSTRAINT df_projects_proposal_source DEFAULT ('STUDENT_PROPOSAL');
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_projects_proposal_source' AND parent_object_id = OBJECT_ID(N'dbo.projects'))
+    EXEC(N'ALTER TABLE dbo.projects ADD CONSTRAINT ck_projects_proposal_source CHECK (proposal_source IN (''STUDENT_PROPOSAL'', ''PUBLISHED_TOPIC''));');
+IF OBJECT_ID(N'dbo.project_topics', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_projects_topic' AND parent_object_id = OBJECT_ID(N'dbo.projects'))
+    EXEC(N'ALTER TABLE dbo.projects ADD CONSTRAINT fk_projects_topic FOREIGN KEY (topic_id) REFERENCES dbo.project_topics(id) ON DELETE NO ACTION ON UPDATE NO ACTION;');
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'ix_projects_topic_id' AND object_id = OBJECT_ID(N'dbo.projects'))
+    EXEC(N'CREATE NONCLUSTERED INDEX ix_projects_topic_id ON dbo.projects(topic_id) WHERE topic_id IS NOT NULL;');
+
+IF OBJECT_ID(N'dbo.rooms', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.rooms (
+        id bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        code nvarchar(50) NOT NULL,
+        building nvarchar(50) NOT NULL,
+        floor int NOT NULL,
+        capacity int NOT NULL CONSTRAINT df_room_capacity DEFAULT 40,
+        status varchar(20) NOT NULL CONSTRAINT df_room_status DEFAULT 'ACTIVE',
+        concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_room_token DEFAULT NEWID(),
+        created_at datetime2(0) NOT NULL CONSTRAINT df_room_created DEFAULT SYSUTCDATETIME(),
+        updated_at datetime2(0) NOT NULL CONSTRAINT df_room_updated DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT uq_room_code UNIQUE(code),
+        CONSTRAINT ck_room_capacity CHECK(capacity > 0),
+        CONSTRAINT ck_room_status CHECK(status IN ('ACTIVE','MAINTENANCE','INACTIVE'))
+    );
+    CREATE INDEX ix_room_building_floor ON dbo.rooms(building, floor);
+END;
+
+IF COL_LENGTH(N'dbo.defense_sessions', N'room_id') IS NULL
+    ALTER TABLE dbo.defense_sessions ADD room_id bigint NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_defense_session_room')
+    EXEC(N'ALTER TABLE dbo.defense_sessions ADD CONSTRAINT fk_defense_session_room FOREIGN KEY(room_id) REFERENCES dbo.rooms(id)');
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.defense_sessions') AND name = N'ix_defense_session_room_start')
+    EXEC(N'CREATE INDEX ix_defense_session_room_start ON dbo.defense_sessions(room_id, start_at)');
+
+IF COL_LENGTH(N'dbo.defense_committees', N'concurrency_token') IS NULL
+    ALTER TABLE dbo.defense_committees ADD concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_defense_committee_token DEFAULT NEWID();
+IF COL_LENGTH(N'dbo.defense_committee_members', N'role') IS NULL
+    ALTER TABLE dbo.defense_committee_members ADD role varchar(20) NOT NULL CONSTRAINT df_defense_committee_member_role DEFAULT 'MEMBER';
+
+IF OBJECT_ID(N'dbo.defense_schedule_change_requests', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.defense_schedule_change_requests (
+        id bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        defense_session_id bigint NOT NULL,
+        requester_id bigint NOT NULL,
+        current_room_id bigint NOT NULL,
+        current_start_at datetimeoffset(0) NOT NULL,
+        current_end_at datetimeoffset(0) NOT NULL,
+        desired_room_id bigint NOT NULL,
+        desired_start_at datetimeoffset(0) NOT NULL,
+        desired_end_at datetimeoffset(0) NOT NULL,
+        reason_category varchar(50) NOT NULL,
+        reason_details nvarchar(2000) NOT NULL,
+        evidence_file_url nvarchar(500) NULL,
+        status varchar(30) NOT NULL CONSTRAINT df_defense_change_status DEFAULT 'PENDING',
+        reviewer_id bigint NULL,
+        review_note nvarchar(2000) NULL,
+        reviewed_at datetimeoffset(0) NULL,
+        concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_defense_change_token DEFAULT NEWID(),
+        created_at datetimeoffset(0) NOT NULL CONSTRAINT df_defense_change_created DEFAULT SYSDATETIMEOFFSET(),
+        CONSTRAINT fk_defense_change_session FOREIGN KEY(defense_session_id) REFERENCES dbo.defense_sessions(id),
+        CONSTRAINT fk_defense_change_requester FOREIGN KEY(requester_id) REFERENCES dbo.users(id),
+        CONSTRAINT fk_defense_change_reviewer FOREIGN KEY(reviewer_id) REFERENCES dbo.users(id),
+        CONSTRAINT fk_defense_change_current_room FOREIGN KEY(current_room_id) REFERENCES dbo.rooms(id),
+        CONSTRAINT fk_defense_change_desired_room FOREIGN KEY(desired_room_id) REFERENCES dbo.rooms(id),
+        CONSTRAINT ck_defense_change_status CHECK(status IN ('PENDING','APPROVED','REJECTED','WITHDRAWN')),
+        CONSTRAINT ck_defense_change_reason CHECK(reason_category IN ('ROOM_FACILITY_ISSUE','SCHEDULE_CLASH','SPECIAL_REQUIREMENT','OTHER'))
+    );
+    CREATE INDEX ix_defense_change_session_status ON dbo.defense_schedule_change_requests(defense_session_id, status);
+END;
+
+IF COL_LENGTH(N'dbo.review_gate_assignments', N'session_role') IS NULL
+    ALTER TABLE dbo.review_gate_assignments ADD session_role varchar(20) NOT NULL CONSTRAINT DF_gate_assignment_session_role DEFAULT 'MEMBER';
+
+IF OBJECT_ID(N'dbo.gate_session_scripts', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.gate_session_scripts (
+        id bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        project_gate_instance_id bigint NOT NULL UNIQUE,
+        mode varchar(20) NOT NULL,
+        room_id bigint NULL,
+        live_kit_room_name nvarchar(100) NULL,
+        live_kit_session_id nvarchar(100) NULL,
+        scheduled_start_at datetimeoffset(0) NOT NULL,
+        scheduled_end_at datetimeoffset(0) NOT NULL,
+        actual_start_at datetimeoffset(0) NULL,
+        actual_end_at datetimeoffset(0) NULL,
+        total_duration_minutes int NULL,
+        presences_json nvarchar(max) NOT NULL CONSTRAINT DF_gate_script_presences DEFAULT '[]',
+        agenda_stages_json nvarchar(max) NOT NULL CONSTRAINT DF_gate_script_agenda DEFAULT '[]',
+        qa_log_json nvarchar(max) NOT NULL CONSTRAINT DF_gate_script_qa DEFAULT '[]',
+        remediation_items_json nvarchar(max) NOT NULL CONSTRAINT DF_gate_script_remediation DEFAULT '[]',
+        general_notes nvarchar(max) NULL,
+        verdict varchar(30) NOT NULL CONSTRAINT DF_gate_script_verdict DEFAULT 'PENDING',
+        signed_by_secretary nvarchar(100) NULL,
+        signed_by_chair nvarchar(100) NULL,
+        published_at datetimeoffset(0) NULL,
+        published_by bigint NULL,
+        concurrency_token uniqueidentifier NOT NULL CONSTRAINT DF_gate_script_token DEFAULT NEWID(),
+        created_at datetimeoffset(0) NOT NULL CONSTRAINT DF_gate_script_created DEFAULT SYSDATETIMEOFFSET(),
+        updated_at datetimeoffset(0) NOT NULL CONSTRAINT DF_gate_script_updated DEFAULT SYSDATETIMEOFFSET(),
+        CONSTRAINT FK_gate_script_gate FOREIGN KEY(project_gate_instance_id) REFERENCES dbo.project_gate_instances(id),
+        CONSTRAINT FK_gate_script_room FOREIGN KEY(room_id) REFERENCES dbo.rooms(id),
+        CONSTRAINT FK_gate_script_published_by FOREIGN KEY(published_by) REFERENCES dbo.users(id),
+        CONSTRAINT CK_gate_script_mode CHECK (mode IN ('ONLINE','OFFLINE')),
+        CONSTRAINT CK_gate_script_mode_target CHECK ((mode='ONLINE' AND live_kit_room_name IS NOT NULL AND room_id IS NULL) OR (mode='OFFLINE' AND room_id IS NOT NULL AND live_kit_room_name IS NULL))
+    );
+END;
+
+IF OBJECT_ID(N'dbo.project_period_calendars', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.project_period_calendars (
+        id bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        project_period_id bigint NOT NULL,
+        working_days_of_week int NOT NULL CONSTRAINT df_period_calendar_days DEFAULT 62,
+        holidays_json nvarchar(max) NOT NULL CONSTRAINT df_period_calendar_holidays DEFAULT N'[]',
+        concurrency_token uniqueidentifier NOT NULL CONSTRAINT df_period_calendar_token DEFAULT NEWID(),
+        created_at datetime2(0) NOT NULL CONSTRAINT df_period_calendar_created DEFAULT SYSUTCDATETIME(),
+        updated_at datetime2(0) NOT NULL CONSTRAINT df_period_calendar_updated DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT uq_period_calendar_period UNIQUE(project_period_id),
+        CONSTRAINT fk_period_calendar_period FOREIGN KEY(project_period_id) REFERENCES dbo.project_periods(id) ON DELETE CASCADE,
+        CONSTRAINT ck_period_calendar_days CHECK(working_days_of_week BETWEEN 1 AND 127),
+        CONSTRAINT ck_period_calendar_holidays CHECK(ISJSON(holidays_json) = 1)
+    );
+END;
+
+IF COL_LENGTH(N'dbo.project_gate_instances', N'decision_source') IS NULL
+    ALTER TABLE dbo.project_gate_instances ADD decision_source varchar(20) NOT NULL CONSTRAINT DF_project_gate_decision_source DEFAULT 'REVIEW';
+IF COL_LENGTH(N'dbo.project_gate_instances', N'overridden_by') IS NULL
+    ALTER TABLE dbo.project_gate_instances ADD overridden_by bigint NULL;
+IF COL_LENGTH(N'dbo.project_gate_instances', N'overridden_at') IS NULL
+    ALTER TABLE dbo.project_gate_instances ADD overridden_at datetime2(0) NULL;
+IF COL_LENGTH(N'dbo.project_gate_instances', N'override_reason') IS NULL
+    ALTER TABLE dbo.project_gate_instances ADD override_reason nvarchar(2000) NULL;
+
+IF OBJECT_ID(N'dbo.department_specializations', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.department_specializations (
+        id bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_department_specializations PRIMARY KEY,
+        department_id bigint NOT NULL,
+        major_id bigint NULL,
+        code nvarchar(50) NOT NULL,
+        name nvarchar(200) NOT NULL,
+        description nvarchar(500) NULL,
+        is_active bit NOT NULL CONSTRAINT df_department_specializations_is_active DEFAULT 1,
+        created_at datetime2(0) NOT NULL CONSTRAINT df_department_specializations_created_at DEFAULT SYSUTCDATETIME(),
+        updated_at datetime2(0) NOT NULL CONSTRAINT df_department_specializations_updated_at DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT uq_department_specializations_dept_code UNIQUE (department_id, code),
+        CONSTRAINT fk_department_specializations_department FOREIGN KEY (department_id) REFERENCES dbo.departments(id),
+        CONSTRAINT fk_department_specializations_major FOREIGN KEY (major_id) REFERENCES dbo.majors(id)
+    );
+    CREATE INDEX ix_department_specializations_dept_major ON dbo.department_specializations(department_id, major_id, is_active);
+END;
+
+IF COL_LENGTH(N'dbo.users', N'class_code') IS NULL
+    ALTER TABLE dbo.users ADD class_code nvarchar(50) NULL;
+IF COL_LENGTH(N'dbo.users', N'specialization_id') IS NULL
+    ALTER TABLE dbo.users ADD specialization_id bigint NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_users_specialization')
+    EXEC(N'ALTER TABLE dbo.users ADD CONSTRAINT fk_users_specialization FOREIGN KEY (specialization_id) REFERENCES dbo.department_specializations(id)');
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.users') AND name = N'ix_users_department_class_spec')
+    EXEC(N'CREATE INDEX ix_users_department_class_spec ON dbo.users(department_id, class_code, specialization_id) WHERE department_id IS NOT NULL');
+
 IF OBJECT_ID(N'dbo.rooms', N'U') IS NOT NULL
 BEGIN
     IF COL_LENGTH(N'dbo.rooms', N'room_cluster_type') IS NULL
@@ -5039,6 +5215,56 @@ BEGIN
                 CHECK (feedback_rating IS NULL OR feedback_rating IN (-1, 1));');
     END;
 END;
+
+-- Sync 9 migration constraints/indexes into canonical schema.sql for zero-drift parity (TK-W0-12)
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_project_periods_milestone_template_version')
+    EXEC(N'ALTER TABLE dbo.project_periods ADD CONSTRAINT fk_project_periods_milestone_template_version FOREIGN KEY (milestone_template_version_id) REFERENCES dbo.milestone_template_versions(id)');
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.milestone_template_versions') AND name = N'ix_milestone_template_versions_template_status')
+    EXEC(N'CREATE INDEX ix_milestone_template_versions_template_status ON dbo.milestone_template_versions(milestone_template_id, status)');
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.milestone_template_items') AND name = N'ix_milestone_template_items_version_sort')
+    EXEC(N'CREATE INDEX ix_milestone_template_items_version_sort ON dbo.milestone_template_items(milestone_template_version_id, sort_order)');
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.files') AND name = N'ix_files_task_id')
+    EXEC(N'CREATE INDEX ix_files_task_id ON dbo.files(task_id) WHERE task_id IS NOT NULL');
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.meetings') AND name = N'ix_meetings_video_channel')
+    EXEC(N'CREATE INDEX ix_meetings_video_channel ON dbo.meetings(video_channel, status)');
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_review_gate_assignment_revoked_by')
+    EXEC(N'ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT fk_review_gate_assignment_revoked_by FOREIGN KEY(revoked_by) REFERENCES dbo.users(id)');
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_review_gate_assignment_revocation')
+    EXEC(N'ALTER TABLE dbo.review_gate_assignments ADD CONSTRAINT ck_review_gate_assignment_revocation CHECK ((status <> ''REVOKED'' AND revoked_at IS NULL AND revoked_by IS NULL AND revocation_reason IS NULL) OR (status = ''REVOKED'' AND revoked_at IS NOT NULL AND revoked_by IS NOT NULL AND LEN(LTRIM(RTRIM(revocation_reason))) > 0))');
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_review_gate_definition_weight')
+    EXEC(N'ALTER TABLE dbo.review_gate_definitions ADD CONSTRAINT ck_review_gate_definition_weight CHECK (weight IS NULL OR (weight >= 0 AND weight <= 100))');
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'ck_project_gate_instance_weight')
+    EXEC(N'ALTER TABLE dbo.project_gate_instances ADD CONSTRAINT ck_project_gate_instance_weight CHECK (weight IS NULL OR (weight >= 0 AND weight <= 100))');
+
+-- Mark 6 dead industry_* tables as DEPRECATED via SQL Server extended properties (TK-W0-12)
+DECLARE @depTables TABLE (tbl sysname);
+INSERT INTO @depTables(tbl)
+VALUES (N'industry_experts'), (N'industry_invitations'), (N'industry_challenges'),
+       (N'industry_assignments'), (N'industry_evidence_shares'), (N'industry_feedback');
+
+DECLARE @tbl sysname;
+DECLARE @desc nvarchar(500) = N'DEPRECATED: Out of scope for V4 core; do not reference in new code.';
+DECLARE dep_cur CURSOR LOCAL FAST_FORWARD FOR SELECT tbl FROM @depTables;
+OPEN dep_cur;
+FETCH NEXT FROM dep_cur INTO @tbl;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    IF OBJECT_ID(N'dbo.' + @tbl, N'U') IS NOT NULL
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM sys.extended_properties
+            WHERE major_id = OBJECT_ID(N'dbo.' + @tbl) AND minor_id = 0 AND name = N'MS_Description'
+        )
+            EXEC sys.sp_updateextendedproperty @name = N'MS_Description', @value = @desc,
+                @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = @tbl;
+        ELSE
+            EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = @desc,
+                @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = @tbl;
+    END;
+    FETCH NEXT FROM dep_cur INTO @tbl;
+END;
+CLOSE dep_cur;
+DEALLOCATE dep_cur;
 
 COMMIT TRANSACTION;
 GO

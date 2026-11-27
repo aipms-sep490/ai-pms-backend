@@ -90,6 +90,103 @@ public sealed class SchemaParityTests
             "Server=localhost;Database=AI_PMS_TEST_" + Guid.NewGuid().ToString("N"), "USE [AI_PMS];"));
     }
 
+    [Fact]
+    public void DbChangesDirectory_MatchesMigrationsManifest_AndContainsNoDemoPasswords()
+    {
+        var changesDir = Path.Combine(SqlSchemaBootstrap.Root, "db", "changes");
+        var manifestPath = Path.Combine(SqlSchemaBootstrap.Root, "db", "e2e", "migrations.json");
+        var diskFiles = Directory.GetFiles(changesDir, "*.sql")
+            .Select(Path.GetFileName)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var manifestFiles = System.Text.Json.JsonSerializer.Deserialize<string[]>(System.IO.File.ReadAllText(manifestPath))!
+            .Select(Path.GetFileName)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(manifestFiles, diskFiles);
+        foreach (var file in Directory.GetFiles(changesDir, "*.sql"))
+        {
+            var content = System.IO.File.ReadAllText(file);
+            Assert.DoesNotContain("Aipms@123", content, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task FreshSchemaSqlAlone_MatchesSchemaPlusAllMigrations_AndIndustryTablesDeprecated()
+    {
+        var source = Environment.GetEnvironmentVariable("AIPMS_TEST_SQL_CONNECTION");
+        await using var schemaOnly = new IsolatedSqlDatabase();
+        await using var schemaPlusMigrations = new IsolatedSqlDatabase();
+        await schemaOnly.StartAsync(source, bootstrap: false);
+        await schemaPlusMigrations.StartAsync(source, bootstrap: false);
+
+        // Apply ONLY db/schema.sql to schemaOnly (skipping CREATE/USE [AI_PMS] header, same as SqlSchemaBootstrap.ApplyAsync)
+        var rawSchemaSql = await System.IO.File.ReadAllTextAsync(Path.Combine(SqlSchemaBootstrap.Root, "db", "schema.sql"));
+        var startIdx = rawSchemaSql.IndexOf("SET ANSI_NULLS ON;", StringComparison.Ordinal);
+        Assert.True(startIdx >= 0, "Expected SET ANSI_NULLS ON; header in db/schema.sql.");
+        await SqlSchemaBootstrap.ExecuteAsync(schemaOnly.ConnectionString, rawSchemaSql[startIdx..]);
+
+        // Apply db/schema.sql + all migrations.json (twice to verify idempotency) to schemaPlusMigrations
+        await SqlSchemaBootstrap.ApplyAsync(schemaPlusMigrations.ConnectionString);
+        await SqlSchemaBootstrap.ReplayAsync(schemaPlusMigrations.ConnectionString);
+
+        var onlyInv = await Inventory(schemaOnly.ConnectionString);
+        var fullInv = await Inventory(schemaPlusMigrations.ConnectionString);
+
+        // Verify all 6 previously missing tables exist in fresh schema.sql alone
+        await using (var conn = new SqlConnection(schemaOnly.ConnectionString))
+        {
+            await conn.OpenAsync();
+            var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            await using (var cmd = new SqlCommand("SELECT name FROM sys.tables WHERE schema_id = SCHEMA_ID('dbo')", conn))
+            await using (var r = await cmd.ExecuteReaderAsync())
+                while (await r.ReadAsync()) tables.Add(r.GetString(0));
+
+            Assert.True(tables.Count >= 207, $"Expected at least 207 tables in fresh schema.sql, found {tables.Count}.");
+            foreach (var required in new[] { "rooms", "defense_tech_checks", "defense_schedule_change_requests", "gate_session_scripts", "project_period_calendars", "department_specializations" })
+                Assert.Contains(required, tables);
+        }
+
+        // Verify mapped EF columns match fresh schema.sql alone
+        await VerifyMappedColumns(schemaOnly.ConnectionString);
+
+        // Verify fresh schema.sql alone produces the exact same semantic set of tables/columns/indexes/constraints as schema + all migrations
+        // (Distinct handles historical unnamed inline FKs on team_eligibility_* that 20260928_add_team_eligibility_snapshots.sql re-adds with explicit names.)
+        var onlyDistinct = onlyInv.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var fullDistinct = fullInv.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        Assert.True(onlyDistinct.SequenceEqual(fullDistinct),
+            "Schema-only entries: " + string.Join("; ", onlyDistinct.Except(fullDistinct))
+            + " | Migration-only entries: " + string.Join("; ", fullDistinct.Except(onlyDistinct)));
+
+        // Negative parity guard (TK-W0-12): dropping a migrated column or index causes parity check to fail
+        await SqlSchemaBootstrap.ExecuteAsync(schemaOnly.ConnectionString,
+            "DROP INDEX ix_defense_session_room_start ON dbo.defense_sessions;");
+        var mutatedOnly = (await Inventory(schemaOnly.ConnectionString)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        Assert.False(mutatedOnly.SequenceEqual(fullDistinct), "Expected schema parity check to detect missing index drift.");
+
+        // Verify all 6 industry_* tables carry MS_Description starting with DEPRECATED:
+        await using (var conn = new SqlConnection(schemaPlusMigrations.ConnectionString))
+        {
+            await conn.OpenAsync();
+            var deprecated = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            await using var cmd = new SqlCommand("""
+                SELECT t.name, CAST(ep.value AS nvarchar(500))
+                FROM sys.tables t
+                JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = N'MS_Description'
+                WHERE t.schema_id = SCHEMA_ID('dbo') AND t.name LIKE 'industry_%'
+                """, conn);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) deprecated[r.GetString(0)] = r.GetString(1);
+
+            foreach (var tbl in new[] { "industry_experts", "industry_invitations", "industry_challenges", "industry_assignments", "industry_evidence_shares", "industry_feedback" })
+            {
+                Assert.True(deprecated.TryGetValue(tbl, out var desc), $"Missing MS_Description on dbo.{tbl}");
+                Assert.StartsWith("DEPRECATED:", desc, StringComparison.Ordinal);
+            }
+        }
+    }
+
     private static async Task<string> SnapshotHash(string connectionString)
     {
         await using var connection = new SqlConnection(connectionString);

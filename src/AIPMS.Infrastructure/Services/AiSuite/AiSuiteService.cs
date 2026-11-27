@@ -102,6 +102,28 @@ internal sealed partial class AiSuiteService(
         }
     }
 
+    private static bool IsSimulatedModelVersion(string? modelVersion) =>
+        string.IsNullOrWhiteSpace(modelVersion)
+        || modelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsSimulatedProvider => IsSimulatedModelVersion(aiProvider?.ModelVersion);
+
+    private string ResolveGenerationStatus(bool parsed) =>
+        (!parsed || IsSimulatedProvider) ? "FALLBACK" : "COMPLETED";
+
+    private static AiSnapshotMetaDto BuildSnapshotMeta(
+        long? snapshotId,
+        string featureKey,
+        string status,
+        string? modelVersion,
+        DateTime generatedAt,
+        string? createdByName)
+    {
+        var simulated = IsSimulatedModelVersion(modelVersion);
+        var effectiveStatus = simulated ? "FALLBACK" : status;
+        return new AiSnapshotMetaDto(snapshotId, featureKey, effectiveStatus, modelVersion, generatedAt, createdByName, simulated);
+    }
+
     private async Task<AiSnapshotMetaDto> SaveSnapshotAsync<TPayload>(
         string featureKey,
         string scopeType,
@@ -117,6 +139,8 @@ internal sealed partial class AiSuiteService(
     {
         var now = Now;
         var modelVersion = aiProvider?.ModelVersion;
+        var simulated = IsSimulatedModelVersion(modelVersion);
+        var effectiveStatus = simulated ? "FALLBACK" : status;
         try
         {
             var row = new AiCopilotSnapshot
@@ -126,7 +150,7 @@ internal sealed partial class AiSuiteService(
                 ScopeId = scopeId,
                 ProjectId = projectId,
                 DepartmentId = departmentId,
-                Status = status,
+                Status = effectiveStatus,
                 ModelVersion = modelVersion,
                 Headline = Clip(headline, 400),
                 PayloadJson = JsonSerializer.Serialize(payload, JsonOptions),
@@ -136,12 +160,12 @@ internal sealed partial class AiSuiteService(
             db.AiCopilotSnapshots.Add(row);
             await db.SaveChangesAsync(ct);
             await RecordAuditAsync(actorId, $"AI_SUITE_{featureKey}", scopeType, scopeId, ct);
-            return new AiSnapshotMetaDto(row.Id, featureKey, status, modelVersion, now, actorName);
+            return new AiSnapshotMetaDto(row.Id, featureKey, effectiveStatus, modelVersion, now, actorName, simulated);
         }
         catch (Exception ex) when (IsMissingSnapshotTable(ex))
         {
             // Non-fatal if snapshot table has not been migrated yet: still return the AI result cleanly.
-            return new AiSnapshotMetaDto(null, featureKey, status, modelVersion, now, actorName);
+            return new AiSnapshotMetaDto(null, featureKey, effectiveStatus, modelVersion, now, actorName, simulated);
         }
     }
 

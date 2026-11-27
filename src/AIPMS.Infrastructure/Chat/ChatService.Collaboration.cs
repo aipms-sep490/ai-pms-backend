@@ -21,7 +21,27 @@ internal sealed partial class ChatService
         await Enabled(actor, ct);
         if (!await access.CanAccessAsync(actor, id, ct)) throw Hidden();
         if (upload.Length is <= 0 or > 10 * 1024 * 1024) throw new ArgumentException("CHAT_FILE_SIZE_LIMIT");
-        var validated = await UploadValidator.ReadAsync(upload, ct);
+        var validated = await UploadValidator.ReadAsync(upload, ct, allowArchiveVideoTier: false, allowQuarantineFallback: true);
+        var activeScanner = scanner ?? new AIPMS.Infrastructure.Services.Files.BasicSignatureAndArchiveScanner();
+        using (var scanStream = new MemoryStream(validated.Bytes, writable: false))
+        {
+            var scan = await activeScanner.ScanAsync(scanStream, validated.FileName, validated.ContentType, ct);
+            if (!scan.IsSafe)
+            {
+                db.AuditLogs.Add(new()
+                {
+                    ActorUserId = actor,
+                    Action = "FILE_SCAN_QUARANTINED",
+                    EntityType = "CHAT_UPLOAD",
+                    EntityId = S(id),
+                    Outcome = "DENIED",
+                    DetailsJson = System.Text.Json.JsonSerializer.Serialize(new { flow = "CHAT_ATTACHMENT", provider = scan.Provider, reason = scan.Details, fileName = validated.FileName, verdict = "QUARANTINED" }),
+                    OccurredAt = Now
+                });
+                await db.SaveChangesAsync(ct);
+                throw new AIPMS.Domain.Exceptions.DomainException(scan.Details ?? "File failed security scan and was quarantined.", WorkflowErrorCodes.FileQuarantined);
+            }
+        }
         var store = storage ?? throw new InvalidOperationException("Chat storage is not configured.");
         // Commit a reservation first. Interrupted uploads remain discoverable by durable cleanup.
         var row = await InConversation(actor, id, true, async _ => {

@@ -698,7 +698,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         if (!Covers(row, requirement)) throw new ForbiddenException("The reviewer assignment does not cover this requirement.", WorkflowErrorCodes.ScopeAccessDenied);
         if (!await db.Users.AnyAsync(x => x.Id == Actor && x.Status == "ACTIVE", token)) throw new ForbiddenException("The reviewer account is inactive.");
         if (await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, row.GateInstance.ProjectId, Actor, token))
-            throw new ConflictException("A project's current or former primary supervisor, or active mentor, cannot review its own gate.", WorkflowErrorCodes.EvaluatorRoleConflict);
+            throw new ConflictException("A project's current or former primary supervisor or discipline mentor cannot review its own gate (D17).", WorkflowErrorCodes.EvaluatorRoleConflict);
         var latestPackage = await db.Set<ReviewGatePackage>().Include(p => p.Items)
             .Where(p => p.GateInstanceId == row.GateInstanceId)
             .OrderByDescending(p => p.RoundNumber)
@@ -798,7 +798,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             && x.UserRoleUsers.Any(r => r.Role.Code == "LECTURER" || r.Role.Code == "DEPARTMENT_STAFF"), token)
             ?? throw new NotFoundException("EligibleReviewer", input.ReviewerId);
         if (await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, projectId, reviewer.Id, token))
-            throw new ConflictException("A project's current or former primary supervisor, or active mentor, cannot review its own gate.", WorkflowErrorCodes.EvaluatorRoleConflict);
+            throw new ConflictException("A project's current or former primary supervisor or discipline mentor cannot review its own gate (D17).", WorkflowErrorCodes.EvaluatorRoleConflict);
         if (gate.Sequence is >= 1 and <= 3)
         {
             var fixedPanel = await db.GateReviewerAssignments.AsNoTracking()
@@ -1236,7 +1236,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         if (!await HasReviewerPermission(ct))
             throw new ForbiddenException("An active reviewer permission is required.");
         if (await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, row.GateInstance.ProjectId, Actor, ct))
-            throw new ConflictException("A project's current or former primary supervisor, or active mentor, cannot review its own gate.", WorkflowErrorCodes.EvaluatorRoleConflict);
+            throw new ConflictException("A project's current or former primary supervisor or discipline mentor cannot review its own gate (D17).", WorkflowErrorCodes.EvaluatorRoleConflict);
     }
 
     private Task<bool> HasReviewerPermission(CancellationToken ct) => db.Users.AnyAsync(x => x.Id == Actor && x.Status == "ACTIVE" &&

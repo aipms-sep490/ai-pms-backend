@@ -4,6 +4,7 @@ using System.Text.Json;
 
 namespace AIPMS.IntegrationTests;
 
+[Trait("Category", "InMemory")]
 public sealed class DepartOpenApiTests
 {
     [Fact]

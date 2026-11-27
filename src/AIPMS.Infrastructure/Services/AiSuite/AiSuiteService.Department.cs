@@ -28,7 +28,7 @@ internal sealed partial class AiSuiteService
             var dto = JsonSerializer.Deserialize<DepartmentExecutiveBriefDto>(snap.Value.Row.PayloadJson, JsonOptions);
             return dto is null ? null : dto with
             {
-                Meta = new AiSnapshotMetaDto(snap.Value.Row.Id, FeatureDepartmentBrief, snap.Value.Row.Status, snap.Value.Row.ModelVersion, snap.Value.Row.CreatedAt, snap.Value.CreatorName)
+                Meta = BuildSnapshotMeta(snap.Value.Row.Id, FeatureDepartmentBrief, snap.Value.Row.Status, snap.Value.Row.ModelVersion, snap.Value.Row.CreatedAt, snap.Value.CreatorName)
             };
         }
         catch (JsonException) { return null; }
@@ -143,7 +143,7 @@ internal sealed partial class AiSuiteService
             supervisorLoads
         }, ct);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         var headline = $"Bản tin điều hành tuần — {scopeName}";
         var execSummary = $"Đang theo dõi {projects.Count} đồ án hoạt động ({atRiskCount} đồ án rủi ro cao, {silentTeamCount} nhóm > 14 ngày chưa họp, {pendingAppealsCount} khiếu nại chờ xử lý).";
         var reasonMap = new Dictionary<long, (string Reason, string Action)>();
@@ -199,7 +199,7 @@ internal sealed partial class AiSuiteService
         var preliminary = new DepartmentExecutiveBriefDto(
             resolvedDeptId, scopeName, projects.Count, atRiskCount, silentTeamCount, pendingAppealsCount,
             headline, execSummary, finalRisks, finalSupAlerts, weeklyActions,
-            new AiSnapshotMetaDto(null, FeatureDepartmentBrief, status, aiProvider.ModelVersion, Now, actorName));
+            BuildSnapshotMeta(null, FeatureDepartmentBrief, status, aiProvider.ModelVersion, Now, actorName));
 
         var meta = await SaveSnapshotAsync(FeatureDepartmentBrief, "DEPARTMENT", resolvedDeptId ?? 0L, null, resolvedDeptId, status, headline, preliminary, actor, actorName, ct);
         return preliminary with { Meta = meta };

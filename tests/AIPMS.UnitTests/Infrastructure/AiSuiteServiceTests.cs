@@ -50,6 +50,11 @@ public sealed class AiSuiteServiceTests
             new M.TeamMember { Id = 2, TeamId = 10, UserId = 2, IsLeader = false, AcademicSemesterId = 1 });
 
         db.Projects.Add(new M.Project { Id = 20, TeamId = 10, Code = "AI-2026-10", Title = "Hệ thống AI quản lý đồ án", Description = "Xây dựng nền tảng quản lý đồ án liên ngành tích hợp AI.", Status = "ACTIVE", RowVersion = [1] });
+        db.ProjectMajors.AddRange(
+            new M.ProjectMajor { ProjectId = 20, MajorId = 1 },
+            new M.ProjectMajor { ProjectId = 20, MajorId = 2 });
+        db.Departments.Add(new M.Department { Id = 2, OrganizationId = 1, Code = "MKT", Name = "Marketing" });
+        db.Users.Add(new M.User { Id = 6, Email = "otherstaff@test.vn", FullName = "Cán bộ Khoa khác", PasswordHash = "h", Status = "ACTIVE", DepartmentId = 2 });
         db.SupervisorProfiles.Add(new M.SupervisorProfile { Id = 30, UserId = 3 });
         db.SupervisorAssignments.Add(new M.SupervisorAssignment { Id = 31, ProjectId = 20, SupervisorProfileId = 30, IsPrimary = true });
 
@@ -118,12 +123,16 @@ public sealed class AiSuiteServiceTests
         var staffSvc = CreateService(db, 4, [AppRoles.DepartmentStaff]);
 
         // #1 Defense Mock + Voice/Text Answer Eval + Gate Script Draft
+        // TK-W0-09: Grounded local provider must NEVER report fake "COMPLETED" — always "FALLBACK" + IsSimulatedFallback=true
         var mock = await studentSvc.GenerateDefenseMockAsync(20, new DefenseMockRequest("ALL", 4), Ct);
-        Assert.Equal("COMPLETED", mock.Meta.Status);
+        Assert.Equal("FALLBACK", mock.Meta.Status);
+        Assert.True(mock.Meta.IsSimulatedFallback);
         Assert.NotEmpty(mock.Questions);
         var cachedMock = await studentSvc.GetLatestDefenseMockAsync(20, Ct);
         Assert.NotNull(cachedMock);
         Assert.Equal(mock.Meta.SnapshotId, cachedMock!.Meta.SnapshotId);
+        Assert.Equal("FALLBACK", cachedMock.Meta.Status);
+        Assert.True(cachedMock.Meta.IsSimulatedFallback);
 
         var evalAns = await studentSvc.EvaluateDefenseAnswerAsync(20, new DefenseAnswerEvalRequest(
             mock.Questions[0].Question,
@@ -217,6 +226,11 @@ public sealed class AiSuiteServiceTests
 
         // Another lecturer not assigned to assignment 83 cannot run rubric copilot for it
         await Assert.ThrowsAsync<ForbiddenException>(() => otherLecturerSvc.GenerateRubricGradingCopilotAsync(83, Ct));
+
+        // TK-W0-09: Out-of-scope department staff cannot run score calibration check (Cross-Dept IDOR -> 403 SCOPE_ACCESS_DENIED)
+        var otherDeptStaffSvc = CreateService(db, 6, [AppRoles.DepartmentStaff]);
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(() => otherDeptStaffSvc.CheckScoreCalibrationAsync(20, Ct));
+        Assert.Equal(WorkflowErrorCodes.ScopeAccessDenied, ex.Code);
     }
 
     private sealed class StubCurrentUser(long? userId, string[] roles) : ICurrentUser

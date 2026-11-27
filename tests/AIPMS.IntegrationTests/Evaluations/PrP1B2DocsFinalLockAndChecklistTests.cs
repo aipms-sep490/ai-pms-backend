@@ -288,10 +288,11 @@ public sealed class PrP1B2DocsFinalLockAndChecklistTests(EvaluationDraftDatabase
             new SubmitAdvisoryEvaluationRequest([new("IT-01", "ON_TRACK", "Cross-major attempt")]));
         Assert.Equal(HttpStatusCode.Forbidden, mentorCrossMajor.StatusCode);
 
-        // - MKT Mentor trying to write independent reviewer column => 403
+        // - MKT Mentor trying to write independent reviewer column => 409 EVALUATOR_ROLE_CONFLICT (D17 unified for active & former mentor!)
         var mentorWriteReviewer = await mktMentor.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/checklists/{projChk.Id}/reviewer-score",
             new SubmitReviewerEvaluationRequest([new("MKT-01", 1.0m, "Mentor overwriting reviewer")]));
-        Assert.Equal(HttpStatusCode.Forbidden, mentorWriteReviewer.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, mentorWriteReviewer.StatusCode);
+        Assert.Equal(WorkflowErrorCodes.EvaluatorRoleConflict, await ReadProblemCode(mentorWriteReviewer));
 
         // - Primary Supervisor trying to score independent reviewer column => 409 EVALUATOR_ROLE_CONFLICT (D17!)
         var supWriteReviewer = await primarySup.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/checklists/{projChk.Id}/reviewer-score",

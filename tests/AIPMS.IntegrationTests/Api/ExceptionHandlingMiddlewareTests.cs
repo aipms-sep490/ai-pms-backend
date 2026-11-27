@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AIPMS.IntegrationTests.Api;
 
+[Trait("Category", "InMemory")]
 public sealed class ExceptionHandlingMiddlewareTests
 {
     [Fact]

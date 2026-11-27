@@ -21,7 +21,8 @@ internal sealed class ProjectLabelService(
     AipmsDbContext db,
     ICurrentUser currentUser,
     IAuditTrail auditTrail,
-    TimeProvider clock) : IProjectLabelService
+    TimeProvider clock,
+    IProjectAccessService projectAccess) : IProjectLabelService
 {
     private const int MaxLabelsPerProject = 30;
     private const int MaxLabelsPerTask = 10;
@@ -78,27 +79,69 @@ internal sealed class ProjectLabelService(
 
     private async Task RequireLeaderOrSupervisorAsync(long projectId, CancellationToken ct)
     {
+        var project = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => new { p.Id, p.Status })
+            .SingleOrDefaultAsync(ct)
+            ?? throw new NotFoundException("Project", projectId);
+
         var isLeader = await db.TeamMembers.AsNoTracking()
             .AnyAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId && m.UserId == ActorId && m.IsLeader && m.LeftAt == null, ct);
-        if (isLeader) return;
-        var isSupervisor = await db.SupervisorAssignments.AsNoTracking()
+        var isSupervisor = !isLeader && await db.SupervisorAssignments.AsNoTracking()
             .AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == ActorId, ct);
-        if (isSupervisor) return;
-        var isStaffOrAdmin = await db.Users.AsNoTracking()
-            .AnyAsync(u => u.Id == ActorId && u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN" || r.Role.Code == "DEPARTMENT_STAFF"), ct);
-        if (isStaffOrAdmin) return;
-        throw new ForbiddenException("Only the team leader or assigned supervisor can create, edit, or delete project label definitions.");
+        var isLeadDeptStaff = false;
+        if (!isLeader && !isSupervisor)
+        {
+            var actorDept = await db.Users.AsNoTracking()
+                .Where(u => u.Id == ActorId && u.Status == "ACTIVE" && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"))
+                .Select(u => u.DepartmentId)
+                .SingleOrDefaultAsync(ct);
+            if (actorDept.HasValue)
+            {
+                var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: false);
+                isLeadDeptStaff = actorDept.Value == scope.LeadDepartmentId;
+            }
+        }
+
+        if (!isLeader && !isSupervisor && !isLeadDeptStaff)
+            throw new ForbiddenException(
+                "Only the team leader, assigned supervisor, or lead department staff can manage project label definitions.",
+                WorkflowErrorCodes.ScopeAccessDenied);
+
+        if (!string.Equals(project.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+            throw new ConflictException(
+                $"Project must be ACTIVE to manage project labels (current status: {project.Status}).",
+                WorkflowErrorCodes.ProjectNotActive);
     }
 
     public async Task<IReadOnlyList<ProjectLabelDto>> ListAsync(long projectId, CancellationToken ct = default)
     {
-        if (!await db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, ct))
-            throw new NotFoundException("Project", projectId);
-        await EnsureSeededAsync(projectId, ct);
+        var project = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => new { p.Id, p.TrackCode })
+            .SingleOrDefaultAsync(ct)
+            ?? throw new NotFoundException("Project", projectId);
+
+        if (!await projectAccess.CanAccessAsync(ActorId, projectId, ct))
+            throw new ForbiddenException("You do not have access to this project's labels.", WorkflowErrorCodes.ScopeAccessDenied);
+
         var rows = await db.ProjectLabels.AsNoTracking()
             .Where(l => l.ProjectId == projectId)
             .OrderByDescending(l => l.IsSystem).ThenBy(l => l.Slug)
             .ToListAsync(ct);
+
+        // Pure read-only GET: return in-memory defaults if unseeded (zero DB writes)
+        if (rows.Count == 0)
+        {
+            var isItMkt = project.TrackCode == AcademicTrackCodes.ItMkt
+                || await db.ProjectMajors.AsNoTracking().CountAsync(pm => pm.ProjectId == projectId, ct) > 1;
+            return DefaultLabels
+                .Where(item => !item.ItMktOnly || isItMkt)
+                .OrderBy(item => item.Slug)
+                .Select(item => new ProjectLabelDto(0, projectId, item.Slug, item.Name, item.Hex, item.Desc, true))
+                .ToArray();
+        }
+
         return rows.Select(ToDto).ToArray();
     }
 
@@ -150,6 +193,8 @@ internal sealed class ProjectLabelService(
         var slug = (request.Slug ?? "").Trim().ToLowerInvariant();
         if (!SlugRegex.IsMatch(slug))
             throw new DomainException("Label slug must be lowercase ASCII alphanumeric with hyphens.", "INVALID_LABEL_SLUG");
+        if (entity.IsSystem && !string.Equals(entity.Slug, slug, StringComparison.OrdinalIgnoreCase))
+            throw new ConflictException("System labels cannot have their slug renamed.", WorkflowErrorCodes.RestrictedDelete);
         var hex = (request.ColorHex ?? "").Trim().ToUpperInvariant();
         if (!HexRegex.IsMatch(hex))
             throw new DomainException("ColorHex must be #RRGGBB.", "INVALID_LABEL_COLOR");
@@ -169,6 +214,8 @@ internal sealed class ProjectLabelService(
         await RequireLeaderOrSupervisorAsync(projectId, ct);
         var entity = await db.ProjectLabels.SingleOrDefaultAsync(l => l.Id == labelId && l.ProjectId == projectId, ct)
             ?? throw new NotFoundException("ProjectLabel", labelId);
+        if (entity.IsSystem)
+            throw new ConflictException("System labels cannot be deleted.", WorkflowErrorCodes.RestrictedDelete);
         db.ProjectLabels.Remove(entity);
         await db.SaveChangesAsync(ct);
     }
@@ -184,11 +231,13 @@ internal sealed class ProjectLabelService(
         if (project.Status != "ACTIVE")
             throw new ConflictException("Project must be ACTIVE to modify task taxonomy.", WorkflowErrorCodes.ProjectNotActive);
 
-        // Authorization: active member, leader, or assigned supervisor
+        // Authorization: active member, leader, or assigned supervisor (with IProjectAccessService check)
+        if (!await projectAccess.CanAccessAsync(ActorId, projectId, ct))
+            throw new ForbiddenException("You do not have access to this project.", WorkflowErrorCodes.ScopeAccessDenied);
         var isMember = await db.TeamMembers.AsNoTracking().AnyAsync(m => m.TeamId == project.TeamId && m.UserId == ActorId && m.LeftAt == null, ct);
         var isSupervisor = await db.SupervisorAssignments.AsNoTracking().AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == ActorId, ct);
         if (!isMember && !isSupervisor)
-            throw new ForbiddenException("Only active project members or supervisors can update task taxonomy.");
+            throw new ForbiddenException("Only active project members or supervisors can update task taxonomy.", WorkflowErrorCodes.ScopeAccessDenied);
 
         if (!string.IsNullOrWhiteSpace(request.ConcurrencyToken) &&
             (!Guid.TryParse(request.ConcurrencyToken, out var tok) || tok != task.ConcurrencyToken))

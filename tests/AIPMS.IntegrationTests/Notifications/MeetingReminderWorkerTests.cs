@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AIPMS.IntegrationTests.Notifications;
 
+[Trait("Category", "InMemory")]
 public sealed class MeetingReminderWorkerTests
 {
     private static readonly DateTime Now = new(2026, 10, 6, 10, 0, 0, DateTimeKind.Utc);

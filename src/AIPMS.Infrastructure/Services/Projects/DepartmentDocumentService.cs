@@ -22,7 +22,7 @@ using Microsoft.Extensions.Logging;
 namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed class DepartmentDocumentService(AipmsDbContext db, ICurrentUser current, IFileStorage storage,
-    IAuditTrail audit, TimeProvider clock, ILogger<DepartmentDocumentService> logger) : IDepartmentDocumentService
+    IAuditTrail audit, TimeProvider clock, IFileSecurityScanner scanner, ILogger<DepartmentDocumentService> logger) : IDepartmentDocumentService
 {
     private long Actor => current.IsAuthenticated && current.UserId is long id ? id : throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
@@ -96,7 +96,18 @@ internal sealed class DepartmentDocumentService(AipmsDbContext db, ICurrentUser 
         if (title.Length is < 2 or > 200) throw Invalid("title", "Title must contain 2–200 characters.");
         if (Path.GetExtension(file.FileName).ToLowerInvariant() is not (".pdf" or ".docx" or ".xlsx"))
             throw Invalid("file", "Department templates accept PDF, DOCX or XLSX.");
-        var validated = await UploadValidator.ReadAsync(file, ct);
+        var validated = await UploadValidator.ReadAsync(file, ct, allowArchiveVideoTier: false, allowQuarantineFallback: true);
+        using (var scanStream = new MemoryStream(validated.Bytes, writable: false))
+        {
+            var scan = await scanner.ScanAsync(scanStream, validated.FileName, validated.ContentType, ct);
+            if (!scan.IsSafe)
+            {
+                await audit.RecordAsync(new(Actor, "FILE_SCAN_QUARANTINED", "DEPARTMENT_DOCUMENT_TEMPLATE", null,
+                    new Dictionary<string, object?> { ["flow"] = "DEPARTMENT_DOCUMENT", ["provider"] = scan.Provider, ["reason"] = scan.Details, ["fileName"] = validated.FileName, ["verdict"] = "QUARANTINED" },
+                    Outcome: "DENIED"), ct);
+                throw new AIPMS.Domain.Exceptions.DomainException(scan.Details ?? "File failed security scan and was quarantined.", WorkflowErrorCodes.FileQuarantined);
+            }
+        }
         var key = Guid.NewGuid().ToString("N");
         await using (var stream = new MemoryStream(validated.Bytes, writable: false))
             await storage.WriteAsync(key, stream, ct);

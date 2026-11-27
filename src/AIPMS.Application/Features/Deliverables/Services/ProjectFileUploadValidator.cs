@@ -16,12 +16,11 @@ public static class ProjectFileUploadValidator
 
     public static void ValidateMetadata(string fileName, string contentType, long length)
     {
-        if (length > UploadPolicies.ProjectFileLimit)
-            throw new PayloadTooLargeException(UploadPolicies.ProjectFileLimit, "Tệp vượt giới hạn 500 MiB.");
         if (string.IsNullOrWhiteSpace(fileName) || fileName != fileName.Trim() || fileName.Length > 255
             || fileName.Any(c => char.IsControl(c) || "<>:\"/\\|?*".Contains(c)) || fileName.EndsWith('.') || length <= 0)
             throw Invalid("Tên hoặc kích thước tệp không hợp lệ.");
-        var mime = Path.GetExtension(fileName).ToLowerInvariant() switch
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        var mime = extension switch
         {
             ".pdf" => "application/pdf",
             ".png" => "image/png",
@@ -32,6 +31,15 @@ public static class ProjectFileUploadValidator
         };
         if (mime is null || !string.Equals(mime, contentType, StringComparison.OrdinalIgnoreCase))
             throw Invalid("Chỉ hỗ trợ PDF, DOCX, ZIP, PNG, JPG, JPEG với định dạng nội dung tương ứng.");
+        if (extension == ".zip")
+        {
+            if (length > UploadPolicies.ProjectFileLimit)
+                throw new PayloadTooLargeException(UploadPolicies.ProjectFileLimit, "Tệp ZIP vượt giới hạn 500 MiB.");
+        }
+        else if (length > UploadValidator.MaxBytes)
+        {
+            throw new PayloadTooLargeException(UploadValidator.MaxBytes, "Tài liệu hoặc hình ảnh vượt giới hạn 20 MiB (POL-06).");
+        }
     }
 
     public static async Task<UploadMetadata> ValidateAsync(Stream content, string fileName, string contentType,

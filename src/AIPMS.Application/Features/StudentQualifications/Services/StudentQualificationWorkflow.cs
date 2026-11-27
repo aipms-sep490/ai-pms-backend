@@ -21,7 +21,7 @@ public sealed class StudentQualificationWorkflow(
     ICurrentUser currentUser,
     IAuditTrail audit,
     TimeProvider clock,
-    IFileStorage storage, ILogger<StudentQualificationWorkflow> logger)
+    IFileStorage storage, IFileSecurityScanner scanner, ILogger<StudentQualificationWorkflow> logger)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -31,7 +31,18 @@ public sealed class StudentQualificationWorkflow(
         var actor = RequireRole(AppRoles.Student);
         if (upload.ContentType is not ("application/pdf" or "image/png" or "image/jpeg"))
             throw new AIPMS.Domain.Exceptions.DomainException("Certificates must be PDF, PNG or JPEG.");
-        var file = await UploadValidator.ReadAsync(upload, ct);
+        var file = await UploadValidator.ReadAsync(upload, ct, allowArchiveVideoTier: false, allowQuarantineFallback: true);
+        using (var scanStream = new MemoryStream(file.Bytes, writable: false))
+        {
+            var scan = await scanner.ScanAsync(scanStream, file.FileName, file.ContentType, ct);
+            if (!scan.IsSafe)
+            {
+                await audit.RecordAsync(new(actor, "FILE_SCAN_QUARANTINED", "STUDENT_QUALIFICATION", null,
+                    new Dictionary<string, object?> { ["flow"] = "STUDENT_QUALIFICATION", ["provider"] = scan.Provider, ["reason"] = scan.Details, ["fileName"] = file.FileName, ["verdict"] = "QUARANTINED" },
+                    Outcome: "DENIED"), ct);
+                throw new AIPMS.Domain.Exceptions.DomainException(scan.Details ?? "File failed security scan and was quarantined.", WorkflowErrorCodes.FileQuarantined);
+            }
+        }
         var key = Guid.NewGuid().ToString("N");
         var actionCompleted = false;
         try
@@ -260,7 +271,9 @@ public sealed class StudentQualificationWorkflow(
                 throw new ConflictException("Only a pending qualification can be verified or rejected.");
             var expected = expectedConcurrencyToken ?? current.ConcurrencyToken;
             if (expected != current.ConcurrencyToken)
-                throw new ConflictException("The qualification changed concurrently. Reload before deciding.");
+                throw new ConflictException(
+                    "The qualification changed concurrently. Reload before deciding.",
+                    WorkflowErrorCodes.StaleConcurrencyToken);
             if (status == StudentQualificationStatuses.Verified
                 && current.TrainingStatus != StudentTrainingStatuses.Completed)
                 throw new ConflictException("Training must be completed before qualification verification.");

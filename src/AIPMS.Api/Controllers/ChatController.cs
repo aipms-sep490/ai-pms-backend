@@ -69,9 +69,9 @@ public sealed class ChatController(IChatService chat,ICurrentUser user) : Contro
     public Task<ChatMessageDto> Unreact(long id, long messageId, [FromQuery] string emoji, CancellationToken ct) => chat.ReactAsync(Actor, id, messageId, emoji, false, ct);
     [HttpPut("conversations/{id:long}/mute"), EnableRateLimiting("chat-write"), ProducesResponseType<ChatConversationDto>(200)]
     public Task<ChatConversationDto> Mute(long id, ChatMuteRequest input, CancellationToken ct) => chat.MuteAsync(Actor, id, input, ct);
-    [HttpPost("conversations/{id:long}/ai/summary"), EnableRateLimiting("chat-write"), ProducesResponseType<ChatAiSummaryDto>(200)]
+    [HttpPost("conversations/{id:long}/ai/summary"), EnableRateLimiting("ai-assistant"), AIPMS.Api.Filters.AiFeatureGate(AIPMS.Api.Filters.AiFeatureArea.ChatAi), ProducesResponseType<ChatAiSummaryDto>(200)]
     public Task<ChatAiSummaryDto> Summarize(long id, ChatAiSummaryRequest request, CancellationToken ct) => chat.SummarizeAsync(Actor, id, request, ct);
-    [HttpPost("conversations/{id:long}/ai/assist"), EnableRateLimiting("chat-write"), ProducesResponseType<ChatAiAssistDto>(200)]
+    [HttpPost("conversations/{id:long}/ai/assist"), EnableRateLimiting("ai-assistant"), AIPMS.Api.Filters.AiFeatureGate(AIPMS.Api.Filters.AiFeatureArea.ChatAi), ProducesResponseType<ChatAiAssistDto>(200)]
     public Task<ChatAiAssistDto> Assist(long id, ChatAiAssistRequest request, CancellationToken ct) => chat.AssistAsync(Actor, id, request, ct);
 }
 

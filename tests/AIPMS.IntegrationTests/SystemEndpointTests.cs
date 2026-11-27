@@ -10,13 +10,16 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AIPMS.IntegrationTests;
 
+[Trait("Category", "InMemory")]
 public sealed class SystemEndpointTests : IClassFixture<AipmsWebApplicationFactory>
 {
+    private readonly AipmsWebApplicationFactory _factory;
     private readonly HttpClient _client;
     private readonly HttpClient _authenticatedClient;
 
     public SystemEndpointTests(AipmsWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
         _authenticatedClient = factory.CreateAuthenticatedClient();
     }
@@ -120,9 +123,12 @@ public sealed class SystemEndpointTests : IClassFixture<AipmsWebApplicationFacto
     [Fact]
     public async Task AnalyzeProgress_InvalidTaskCounts_ReturnsProblemDetails()
     {
+        using var enabledApp = _factory.WithWebHostBuilder(b => b.UseSetting("AiAssistant:Enabled", "true").UseSetting("AiAssistant:InsightsEnabled", "true"));
+        using var client = enabledApp.CreateClient();
+        client.DefaultRequestHeaders.Authorization = _authenticatedClient.DefaultRequestHeaders.Authorization;
         var input = new AnalyzeProgressCommand(2, 3, 0, 0.5m);
 
-        var response = await _authenticatedClient.PostAsJsonAsync(
+        var response = await client.PostAsJsonAsync(
             "/api/v1/ai/insights/progress",
             input);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
@@ -137,9 +143,12 @@ public sealed class SystemEndpointTests : IClassFixture<AipmsWebApplicationFacto
     [Fact]
     public async Task AnalyzeProgress_ValidInput_ReturnsAnalysisFromHandler()
     {
+        using var enabledApp = _factory.WithWebHostBuilder(b => b.UseSetting("AiAssistant:Enabled", "true").UseSetting("AiAssistant:InsightsEnabled", "true"));
+        using var client = enabledApp.CreateClient();
+        client.DefaultRequestHeaders.Authorization = _authenticatedClient.DefaultRequestHeaders.Authorization;
         var input = new AnalyzeProgressCommand(10, 4, 2, 0.4m);
 
-        var response = await _authenticatedClient.PostAsJsonAsync(
+        var response = await client.PostAsJsonAsync(
             "/api/v1/ai/insights/progress",
             input);
         var result = await response.Content.ReadFromJsonAsync<ProgressAnalysisResult>();

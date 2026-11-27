@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 
 namespace AIPMS.IntegrationTests;
 
+[Trait("Category", "InMemory")]
 public sealed class ConfigurationValidationTests
 {
     [Fact]

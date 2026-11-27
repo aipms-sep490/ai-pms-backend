@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using AIPMS.Api.Filters;
 using AIPMS.Application.Features.AiSuite;
 using AIPMS.Application.Features.AiSuite.Abstractions;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +12,8 @@ namespace AIPMS.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[EnableRateLimiting("ai-assistant")]
+[AiFeatureGate(AiFeatureArea.Suite)]
 [Route("api/v1/ai-suite")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -53,11 +56,13 @@ public sealed class AiSuiteController(IAiSuiteService suite) : ControllerBase
 
     // #3 Contribution Fairness & Free-rider / Burnout
     [HttpPost("projects/{projectId:long}/contributions/fairness")]
+    [AiFeatureGate(AiFeatureArea.ContributionFairness)]
     [ProducesResponseType<ContributionFairnessDto>(StatusCodes.Status200OK)]
     public Task<ContributionFairnessDto> AnalyzeContributionFairness(long projectId, CancellationToken ct) =>
         suite.AnalyzeContributionFairnessAsync(projectId, ct);
 
     [HttpGet("projects/{projectId:long}/contributions/fairness/latest")]
+    [AiFeatureGate(AiFeatureArea.ContributionFairness)]
     [ProducesResponseType<ContributionFairnessDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<ActionResult<ContributionFairnessDto>> GetLatestContributionFairness(long projectId, CancellationToken ct)
@@ -68,6 +73,7 @@ public sealed class AiSuiteController(IAiSuiteService suite) : ControllerBase
 
     // #4 Rubric Grading Copilot, Calibration & Appeal Assist
     [HttpPost("evaluations/assignments/{assignmentId:long}/rubric-copilot")]
+    [AiFeatureGate(AiFeatureArea.RubricGradingCopilot)]
     [ProducesResponseType<RubricGradingCopilotDto>(StatusCodes.Status200OK)]
     public Task<RubricGradingCopilotDto> GenerateRubricGradingCopilot(long assignmentId, CancellationToken ct) =>
         suite.GenerateRubricGradingCopilotAsync(assignmentId, ct);
@@ -78,12 +84,13 @@ public sealed class AiSuiteController(IAiSuiteService suite) : ControllerBase
         suite.CheckScoreCalibrationAsync(projectId, ct);
 
     [HttpPost("appeals/{appealId:long}/review-assist")]
+    [AiFeatureGate(AiFeatureArea.AppealReviewAssist)]
     [ProducesResponseType<AppealAssistDto>(StatusCodes.Status200OK)]
     public Task<AppealAssistDto> AssistAppealReview(long appealId, CancellationToken ct) =>
         suite.AssistAppealReviewAsync(appealId, ct);
 
     [HttpPost("projects/{projectId:long}/evaluation-schemes/suggest")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.SuggestEvaluationScheme)]
     [ProducesResponseType<EvaluationSchemeSuggestDto>(StatusCodes.Status200OK)]
     public Task<EvaluationSchemeSuggestDto> SuggestEvaluationScheme(long projectId, CancellationToken ct) =>
         suite.SuggestEvaluationSchemeAsync(projectId, ct);

@@ -48,7 +48,8 @@ public sealed class ProjectFileUploadSessionTests : IDisposable
     public async Task Rejects_oversize_files_chunks_wrong_offsets_and_incomplete_completion()
     {
         var store = Store();
-        await Assert.ThrowsAsync<PayloadTooLargeException>(() => store.CreateAsync(10, Request(UploadPolicies.ProjectFileLimit + 1), default));
+        await Assert.ThrowsAsync<PayloadTooLargeException>(() => store.CreateAsync(10, new CreateProjectFileUploadSession("TASK", 1, "bundle.zip", "application/zip", UploadPolicies.ProjectFileLimit + 1), default));
+        await Assert.ThrowsAsync<PayloadTooLargeException>(() => store.CreateAsync(10, Request(21L * 1024 * 1024), default));
         await Assert.ThrowsAsync<ValidationException>(() => store.CreateAsync(10, Request() with { FileName = " evidence.pdf" }, default));
         var session = await store.CreateAsync(10, Request(), default);
         await Assert.ThrowsAsync<PayloadTooLargeException>(() => store.AppendAsync(10, session.SessionId, 0, Stream.Null, UploadPolicies.ProjectFileChunkSize + 1, default));
@@ -75,7 +76,7 @@ public sealed class ProjectFileUploadSessionTests : IDisposable
     public async Task Per_user_and_global_reservations_are_enforced_and_cancel_releases_quota()
     {
         var store = Store(UploadPolicies.ProjectFileLimit);
-        var first = await store.CreateAsync(10, Request(UploadPolicies.ProjectFileLimit), default);
+        var first = await store.CreateAsync(10, new CreateProjectFileUploadSession("TASK", 1, "bundle.zip", "application/zip", UploadPolicies.ProjectFileLimit), default);
         await Assert.ThrowsAsync<ConflictException>(() => store.CreateAsync(20, Request(), default));
         await store.CancelAsync(10, first.SessionId, default);
         await store.CreateAsync(10, Request(), default);

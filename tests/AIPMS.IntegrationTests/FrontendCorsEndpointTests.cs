@@ -2,6 +2,7 @@ using System.Net;
 
 namespace AIPMS.IntegrationTests;
 
+[Trait("Category", "InMemory")]
 public sealed class FrontendCorsEndpointTests(AipmsWebApplicationFactory factory)
     : IClassFixture<AipmsWebApplicationFactory>
 {

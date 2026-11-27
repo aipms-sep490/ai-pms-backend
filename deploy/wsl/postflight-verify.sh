@@ -82,6 +82,23 @@ if [[ -n "$LOCAL_URL" ]] && command -v curl >/dev/null 2>&1; then
     else
         warn "Local port did not respond directly (may be behind isolated network or host loopback boundary)."
     fi
+
+    info "Step 2b: Checking readiness probe ($LOCAL_URL/health/ready)..."
+    READY_HTTP=$(curl -s -m 5 -o /tmp/aipms_ready.json -w "%{http_code}" "$LOCAL_URL/health/ready" 2>/dev/null || echo "000")
+    READY_BODY=$(cat /tmp/aipms_ready.json 2>/dev/null || echo "")
+    rm -f /tmp/aipms_ready.json
+    if [[ "$READY_HTTP" == "200" ]]; then
+        if echo "$READY_BODY" | grep -q '"gotenberg":{"status":"Degraded"'; then
+            warn "Readiness returned 200 Degraded (Gotenberg degraded): $READY_BODY"
+        else
+            pass "Readiness probe passed (HTTP 200): $READY_BODY"
+        fi
+    elif [[ "$READY_HTTP" != "000" ]]; then
+        fail "Readiness probe failed (HTTP $READY_HTTP): $READY_BODY"
+        exit 7
+    else
+        warn "Local readiness probe unreachable from this shell."
+    fi
 else
     info "Step 2: Skipping local port curl (Docker unmapped or curl not available)."
 fi

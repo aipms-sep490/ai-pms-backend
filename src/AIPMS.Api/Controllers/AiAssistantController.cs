@@ -22,7 +22,11 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
-public sealed class AiAssistantController(ISender sender, AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore runs, IAcademicKnowledgeService knowledge) : ControllerBase
+public sealed class AiAssistantController(
+    ISender sender,
+    AIPMS.Application.Features.AiAssistant.Abstractions.IAiRunStore runs,
+    IAcademicKnowledgeService knowledge,
+    IConfiguration configuration) : ControllerBase
 {
     [HttpGet("/api/v1/projects/{projectId:long}/ai/digest")]
     [ProducesResponseType<ProjectAiDigestDto>(StatusCodes.Status200OK)]
@@ -85,6 +89,12 @@ public sealed class AiAssistantController(ISender sender, AIPMS.Application.Feat
             return BadRequest(new ProblemDetails { Title = "ProjectId must match the route project." });
         if (!string.IsNullOrWhiteSpace(request.Scope) && !string.Equals(request.Scope, "PROJECT", StringComparison.OrdinalIgnoreCase))
             return Ok(await knowledge.AskAsync(new AcademicAssistantAskRequest(request.Query, request.Scope, projectId), cancellationToken));
+        var opts = configuration.GetSection(AIPMS.AI.Configuration.AiAssistantOptions.SectionName).Get<AIPMS.AI.Configuration.AiAssistantOptions>()
+            ?? new AIPMS.AI.Configuration.AiAssistantOptions();
+        if (!opts.Enabled || !opts.LegacyProjectAskEnabled)
+            throw new AIPMS.Application.Common.Exceptions.ServiceUnavailableException(
+                "Legacy project AI ask is disabled by system configuration.",
+                AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.AiFeatureDisabled);
         var result = await sender.Send(new AskProjectAssistantQuery(projectId, request.Query), cancellationToken);
         return Ok(result);
     }

@@ -6,12 +6,17 @@ using MediatR;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using System.Threading.Tasks;
 
 namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed class ExecutionConcurrencyBehavior<TRequest, TResponse>(
-    AipmsDbContext db, IConfiguration configuration, ICurrentUser actor, IProjectAccessService access)
+    AipmsDbContext db,
+    IConfiguration configuration,
+    ICurrentUser actor,
+    IProjectAccessService access,
+    ILogger<ExecutionConcurrencyBehavior<TRequest, TResponse>> logger)
     : IPipelineBehavior<TRequest, TResponse> where TRequest : notnull
 {
     public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken ct)
@@ -19,6 +24,7 @@ internal sealed class ExecutionConcurrencyBehavior<TRequest, TResponse>(
         if (request is not IExecutionMutation mutation) return await next();
         var writes = mutation.Writes;
         var required = bool.TryParse(configuration["ExecutionConcurrency:RequireTokens"], out var configured) && configured;
+        var logMissingTokens = !bool.TryParse(configuration["ExecutionConcurrency:LogMissingTokens"], out var logCfg) || logCfg;
         // Legacy clients may omit tokens, but mutations and audit still commit together.
         var userId = actor.UserId ?? throw new UnauthorizedException();
         await using var tx = db.Database.CurrentTransaction is null
@@ -52,7 +58,19 @@ internal sealed class ExecutionConcurrencyBehavior<TRequest, TResponse>(
             }
             foreach (var write in writes.OrderBy(w => w.Resource).ThenBy(w => w.Id))
             {
-                if (!required && write.ConcurrencyToken is null) continue;
+                if (!required && write.ConcurrencyToken is null)
+                {
+                    if (logMissingTokens)
+                    {
+                        logger.LogWarning(
+                            "Missing concurrencyToken on {RequestName} for {Resource}:{ResourceId} (UserId={UserId})",
+                            typeof(TRequest).Name,
+                            write.Resource,
+                            write.Id,
+                            userId);
+                    }
+                    continue;
+                }
                 if (!Guid.TryParse(write.ConcurrencyToken, out var expected))
                     throw new ConflictException("A current concurrencyToken is required. Reload the resource.", WorkflowErrorCodes.StaleConcurrencyToken);
                 var table = write.Resource switch

@@ -60,10 +60,9 @@ internal sealed partial class AcademicTrackingService
             throw Invalid("Committee must contain 1..20 unique scoped members and at most one chair and secretary.");
         if (majors.Except(members.Select(m => m.MajorId)).Any()) throw new ConflictException("DEFENSE_MAJOR_COVERAGE_REQUIRED", "DEFENSE_MAJOR_COVERAGE_REQUIRED");
         var users = members.Select(m => m.UserId).Distinct().ToArray();
-        if (await db.SupervisorAssignments.AsNoTracking().AnyAsync(a => a.ProjectId == access.Project.Id
-            && ((a.IsPrimary && a.AssignmentType == "PRIMARY") || a.EndedAt == null)
-            && users.Contains(a.SupervisorProfile.UserId), ct))
-            throw new ConflictException("A current or former primary supervisor, or an active mentor, cannot evaluate their own project defense.",
+        var conflictingSupervisors = await AcademicAssignmentGuard.GetConflictingSupervisorOrMentorUserIdsAsync(db, access.Project.Id, users, ct);
+        if (conflictingSupervisors.Count > 0)
+            throw new ConflictException("A current or former primary supervisor or discipline mentor cannot evaluate their own project defense (D17).",
                 WorkflowErrorCodes.EvaluatorRoleConflict);
         var profiles = await db.SupervisorProfiles.AsNoTracking().Where(p => users.Contains(p.UserId) && p.IsAvailable && p.User.Status == "ACTIVE"
             && p.User.Department != null && p.User.Department.IsActive && p.User.Department.Organization.IsActive
@@ -103,9 +102,7 @@ internal sealed partial class AcademicTrackingService
                 && p.User.UserRoleUsers.Any(r => r.Role.Code == "LECTURER"))
             .Select(p => new { p.UserId, p.User.FullName, p.User.DepartmentId, p.IsAvailable,
                 Expertise = p.SupervisorExpertises.Select(e => e.ExpertiseName).ToArray() }).ToArrayAsync(ct);
-        var supervisors = (await db.SupervisorAssignments.AsNoTracking()
-            .Where(a => a.ProjectId == projectId && ((a.IsPrimary && a.AssignmentType == "PRIMARY") || a.EndedAt == null))
-            .Select(a => a.SupervisorProfile.UserId).Distinct().ToArrayAsync(ct)).ToHashSet();
+        var supervisors = await AcademicAssignmentGuard.GetConflictingSupervisorOrMentorUserIdsAsync(db, projectId, null, ct);
         var rows = (from major in majors
                     from profile in profiles
                     where profile.DepartmentId == departments[major.Id]

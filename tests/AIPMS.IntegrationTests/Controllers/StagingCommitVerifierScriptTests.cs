@@ -5,6 +5,7 @@ using System.Text;
 
 namespace AIPMS.IntegrationTests.Controllers;
 
+[Trait("Category", "InMemory")]
 public sealed class StagingCommitVerifierScriptTests
 {
     private static readonly string ScriptPath = Path.GetFullPath(

@@ -11,6 +11,7 @@ using Xunit;
 
 namespace AIPMS.IntegrationTests.Files;
 
+[Trait("Category", "InMemory")]
 public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplicationFactory>
 {
     private readonly AipmsWebApplicationFactory _factory;
@@ -59,7 +60,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
     [Theory]
     [InlineData("REVIEW_GATE_EVIDENCE", 100 * 1024 * 1024, "100 MiB (ZIP/Video); 20 MiB (Tài liệu/Ảnh)")]
     [InlineData("DELIVERABLE_VERSION", 20 * 1024 * 1024, "20 MiB")]
-    [InlineData("PROJECT_FILE", 500 * 1024 * 1024, "500 MiB")]
+    [InlineData("PROJECT_FILE", 500 * 1024 * 1024, "20 MiB (Tài liệu/Ảnh); 500 MiB (ZIP tải phân đoạn)")]
     [InlineData("STUDENT_QUALIFICATION", 20 * 1024 * 1024, "20 MiB")]
     [InlineData("COLD_SUBMISSION", 100 * 1024 * 1024, "100 MiB (ZIP/Video); 20 MiB (Tài liệu/Ảnh)")]
     [InlineData("RESULT_APPEAL", 11 * 1024 * 1024, "11 MiB")]
@@ -79,6 +80,11 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         Assert.Equal(parentType, policy.ParentType);
         Assert.Equal(expectedMaxBytes, policy.MaxBytes);
         Assert.Equal(expectedLabel, policy.MaxBytesLabel);
+        if (parentType == "DELIVERABLE_VERSION")
+        {
+            Assert.DoesNotContain(".rar", policy.AllowedExtensions, StringComparer.OrdinalIgnoreCase);
+            Assert.DoesNotContain("application/x-rar-compressed", policy.AllowedMimeTypes, StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     [Theory]
@@ -156,7 +162,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
             }
         }
 
-        Assert.Equal(21, endpointsWithLimit.Count);
+        Assert.Equal(22, endpointsWithLimit.Count);
 
         foreach (var (method, limit) in endpointsWithLimit)
         {
@@ -196,7 +202,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         }
 
         // All file, workbook, audio clip, and preview endpoints must have [RequestSizeLimit].
-        Assert.Equal(21, endpointsWithLimit.Count);
+        Assert.Equal(22, endpointsWithLimit.Count);
 
         // Every endpoint's limit must match a recognized constant in UploadPolicies
         var validConstants = new[]
@@ -222,7 +228,7 @@ public sealed class UploadPolicyConsistencyTests : IClassFixture<AipmsWebApplica
         }
 
         var multipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartTransportCeiling);
-        Assert.Equal(8, multipartCount);
+        Assert.Equal(9, multipartCount);
 
         var archiveMultipartCount = endpointsWithLimit.Count(e => e.Limit == UploadPolicies.MultipartArchiveCeiling);
         Assert.Equal(2, archiveMultipartCount);

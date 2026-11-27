@@ -102,7 +102,7 @@ internal sealed partial class AiSuiteService
             }).ToArray()
         }, ct);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         int readinessScore = 75;
         string summary = $"Đánh giá cấu trúc năng lực của nhóm {team.Name} ({members.Count} thành viên, mô hình {projectMode}).";
         var matrix = new List<SkillCoverageItemDto>();
@@ -181,7 +181,7 @@ internal sealed partial class AiSuiteService
             teamPreferences = Clip(request.TeamPreferences, 600)
         }, ct);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         var summary = $"Bản nháp Thỏa thuận làm việc nhóm cho đồ án {project.Title}.";
         var sections = new List<WorkingAgreementSectionDraftDto>();
 

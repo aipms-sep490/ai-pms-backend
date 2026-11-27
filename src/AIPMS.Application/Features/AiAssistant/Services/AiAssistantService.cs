@@ -215,6 +215,8 @@ public sealed class AiAssistantService(
                 // Evidence list in response contains ONLY authoritative backend retrieved evidence
                 var responseEvidence = citedEvidence.Count > 0 ? (IReadOnlyList<EvidenceReferenceDto>)citedEvidence : context.EvidenceList;
 
+                var isSimulatedProvider = string.IsNullOrWhiteSpace(provider.ModelVersion)
+                    || provider.ModelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.OrdinalIgnoreCase);
                 return new ProjectAssistantResponseDto(
                     ProjectId: projectId,
                     Answer: validatedAnswer.Trim(),
@@ -222,7 +224,7 @@ public sealed class AiAssistantService(
                     Evidence: responseEvidence,
                     LimitationNote: limitationNote,
                     InsufficientEvidence: isInsufficient,
-                    GeneratedAt: now, GenerationStatus: isInsufficient ? "INSUFFICIENT_EVIDENCE" : "COMPLETED");
+                    GeneratedAt: now, GenerationStatus: isInsufficient ? "INSUFFICIENT_EVIDENCE" : (isSimulatedProvider ? "FALLBACK" : "COMPLETED"));
             }
 
             logger?.LogWarning("Provider returned empty output for project {ProjectId} query. Using deterministic fallback.", projectId);

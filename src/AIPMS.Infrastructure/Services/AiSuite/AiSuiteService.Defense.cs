@@ -31,7 +31,7 @@ internal sealed partial class AiSuiteService
                 payload.ReadinessAssessment,
                 payload.WeakSpots ?? [],
                 payload.Questions ?? [],
-                new AiSnapshotMetaDto(snap.Value.Row.Id, FeatureDefensePrep, snap.Value.Row.Status, snap.Value.Row.ModelVersion, snap.Value.Row.CreatedAt, snap.Value.CreatorName));
+                BuildSnapshotMeta(snap.Value.Row.Id, FeatureDefensePrep, snap.Value.Row.Status, snap.Value.Row.ModelVersion, snap.Value.Row.CreatedAt, snap.Value.CreatorName));
         }
         catch (JsonException) { return null; }
     }
@@ -116,7 +116,7 @@ internal sealed partial class AiSuiteService
         var raw = await CallAiAsync(systemPrompt, payload, ct);
         var allowedNames = members.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         DefenseMockPayload parsed;
         using var doc = TryParseJsonObject(raw);
         if (doc is not null)
@@ -213,14 +213,14 @@ internal sealed partial class AiSuiteService
                 ReadStringArray(r, "missingPoints", 5, 240),
                 ReadString(r, "improvedAnswerSample", "", 1500),
                 ReadNullableString(r, "followUpProbe", 400),
-                new AiSnapshotMetaDto(null, "DEFENSE_EVAL", "COMPLETED", aiProvider.ModelVersion, now, actorName));
+                BuildSnapshotMeta(null, "DEFENSE_EVAL", ResolveGenerationStatus(true), aiProvider.ModelVersion, now, actorName));
         }
 
         return new DefenseAnswerEvalDto(
             projectId, 0m, "NEEDS_IMPROVEMENT",
             "Chưa thể chấm câu trả lời lúc này. Vui lòng thử lại sau ít giây.",
             [], [], "", null,
-            new AiSnapshotMetaDto(null, "DEFENSE_EVAL", "FALLBACK", aiProvider.ModelVersion, now, actorName));
+            BuildSnapshotMeta(null, "DEFENSE_EVAL", "FALLBACK", aiProvider.ModelVersion, now, actorName));
     }
 
     public async Task<GateScriptDraftDto> GenerateGateScriptDraftAsync(long gateInstanceId, GateScriptDraftRequest request, CancellationToken ct)
@@ -288,7 +288,7 @@ internal sealed partial class AiSuiteService
         }, ct);
 
         var allowedMembers = members.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         GateScriptPayload parsed;
         using var doc = TryParseJsonObject(raw);
         if (doc is not null)

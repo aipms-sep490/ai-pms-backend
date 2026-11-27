@@ -470,4 +470,78 @@ public sealed class PrP0AAuthCoiAndRevokeTests(ReviewGateBehaviorFixture fixture
         Assert.True(unauthJson.RootElement.TryGetProperty("message", out _));
         Assert.False(unauthJson.RootElement.TryGetProperty("fieldErrors", out _));
     }
+
+    [Fact]
+    public async Task TEST_W0_04_ActiveAndFormerMentor_Blocked_TwoWay_And_UnrelatedProjectAllowed()
+    {
+        var storage = new StorageStub();
+        var seeded = await SeedInterdisciplinaryScopeAsync(storage);
+        var s = fixture.Scenario;
+
+        // 1. Active DISCIPLINE_MENTOR cannot be assigned as evaluator (409 EVALUATOR_ROLE_CONFLICT) or Gate Reviewer
+        await using (var db = fixture.CreateContext())
+        {
+            await using var tx = await db.Database.BeginTransactionAsync();
+            var activeMentorEvalEx = await Assert.ThrowsAsync<ConflictException>(() =>
+                AcademicAssignmentGuard.EnsureEvaluatorAsync(db, seeded.Project.Id, seeded.MktMentorId, "LECTURER", default));
+            Assert.Equal(WorkflowErrorCodes.EvaluatorRoleConflict, activeMentorEvalEx.Code);
+            await tx.RollbackAsync();
+        }
+
+        // 2. End MKT Mentor assignment -> FORMER DISCIPLINE_MENTOR MUST STILL BE BLOCKED (QD-06 / D17)!
+        await using (var db = fixture.CreateContext())
+        {
+            var mentorAssign = await db.SupervisorAssignments.SingleAsync(
+                a => a.ProjectId == seeded.Project.Id && a.AssignmentType == "DISCIPLINE_MENTOR");
+            mentorAssign.EndedAt = DateTime.UtcNow.AddMinutes(-5);
+            mentorAssign.EndReason = "Ended mentor assignment";
+            await db.SaveChangesAsync();
+
+            await using var tx = await db.Database.BeginTransactionAsync();
+            var formerMentorEvalEx = await Assert.ThrowsAsync<ConflictException>(() =>
+                AcademicAssignmentGuard.EnsureEvaluatorAsync(db, seeded.Project.Id, seeded.MktMentorId, "LECTURER", default));
+            Assert.Equal(WorkflowErrorCodes.EvaluatorRoleConflict, formerMentorEvalEx.Code);
+            await tx.RollbackAsync();
+        }
+
+        // Former Mentor also blocked from Gate Reviewer assignment via API -> 409 EVALUATOR_ROLE_CONFLICT
+        using var app = new SecurityFactory(fixture, storage);
+        using var staff = app.CreateAuthenticatedClient(s.StaffId, roles: [AppRoles.DepartmentStaff]);
+        var assignFormerMentorGate = await staff.PostAsJsonAsync("/api/v1/review-gates/assignments",
+            new CreateReviewGateAssignmentRequest(seeded.Project.Id.ToString(), "G1", seeded.MktMentorId, "COMMON", null, null, null));
+        Assert.Equal(HttpStatusCode.Conflict, assignFormerMentorGate.StatusCode);
+        Assert.Contains(WorkflowErrorCodes.EvaluatorRoleConflict, await assignFormerMentorGate.Content.ReadAsStringAsync());
+
+        // 3. Reverse direction (Evaluator/Committee DRAFT -> Mentor): Lecturer2 in DRAFT DefenseCommittee blocked from EnsureSupervisorOrMentorAsync
+        await using (var db = fixture.CreateContext())
+        {
+            var committee = new DefenseCommittee
+            {
+                ProjectId = seeded.Project.Id,
+                Name = "Draft COI Committee",
+                Version = 1,
+                Status = "DRAFT",
+                CreatedBy = s.StaffId,
+                CreatedAt = DateTime.UtcNow,
+                Members = [new DefenseCommitteeMember { UserId = s.Lecturer2Id, MajorId = s.SeMajorId, Role = "MEMBER" }]
+            };
+            db.Set<DefenseCommittee>().Add(committee);
+            await db.SaveChangesAsync();
+
+            await using var tx = await db.Database.BeginTransactionAsync();
+            var reverseEx = await Assert.ThrowsAsync<ConflictException>(() =>
+                AcademicAssignmentGuard.EnsureSupervisorOrMentorAsync(db, seeded.Project.Id, s.Lecturer2ProfileId, default));
+            Assert.Equal(WorkflowErrorCodes.EvaluatorRoleConflict, reverseEx.Code);
+            await tx.RollbackAsync();
+        }
+
+        // 4. Positive: Mentor of project A CAN evaluate unrelated project B (no COI across different projects)
+        var projectB = await SeedInterdisciplinaryScopeAsync(storage);
+        await using (var db = fixture.CreateContext())
+        {
+            await using var tx = await db.Database.BeginTransactionAsync();
+            await AcademicAssignmentGuard.EnsureEvaluatorAsync(db, projectB.Project.Id, seeded.MktMentorId, "LECTURER", default);
+            await tx.RollbackAsync();
+        }
+    }
 }

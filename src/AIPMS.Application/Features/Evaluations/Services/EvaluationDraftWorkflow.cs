@@ -114,7 +114,7 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         if (input.EvaluationType == "SUPERVISOR")
             throw new ConflictException("New SUPERVISOR evaluation assignments are retired; existing assignments may complete under legacy rules.", "SUPERVISOR_EVALUATION_TYPE_RETIRED");
         if (await repository.HasBeenPrimarySupervisorAsync(projectId, input.EvaluatorId, ct))
-            throw new ConflictException("A current or former primary supervisor cannot evaluate the same project.", WorkflowErrorCodes.EvaluatorRoleConflict);
+            throw new ConflictException("A current or former primary supervisor or discipline mentor cannot evaluate the same project (D17).", WorkflowErrorCodes.EvaluatorRoleConflict);
         var period = await Window(project, input.ProjectPeriodId, ct);
         var evaluator = await repository.GetActorAsync(input.EvaluatorId, ct);
         if (evaluator is null || !evaluator.IsLecturer || evaluator.DepartmentId is null

@@ -23,7 +23,9 @@ public sealed class AiAssistantSqlIntegrationTests(SupervisorDatabaseFixture dat
             base.ConfigureWebHost(builder);
             builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:DefaultConnection"] = database.ConnectionString
+                ["ConnectionStrings:DefaultConnection"] = database.ConnectionString,
+                ["AiAssistant:Enabled"] = "true",
+                ["AiAssistant:LegacyProjectAskEnabled"] = "true"
             }));
         }
     }

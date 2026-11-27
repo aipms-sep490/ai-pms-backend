@@ -37,7 +37,7 @@ internal sealed partial class AiSuiteService
                 members,
                 stored.RebalanceRecommendations,
                 includePrivate ? stored.SupervisorVerificationQuestions : [],
-                new AiSnapshotMetaDto(snap.Value.Row.Id, FeatureFairness, snap.Value.Row.Status, snap.Value.Row.ModelVersion, snap.Value.Row.CreatedAt, snap.Value.CreatorName));
+                BuildSnapshotMeta(snap.Value.Row.Id, FeatureFairness, snap.Value.Row.Status, snap.Value.Row.ModelVersion, snap.Value.Row.CreatedAt, snap.Value.CreatorName));
         }
         catch (JsonException) { return null; }
     }
@@ -158,7 +158,7 @@ internal sealed partial class AiSuiteService
             members = rawMembers
         }, ct);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         int balanceScore = 75;
         string headline = $"Phân tích công bằng đóng góp — {project.Title}";
         string execSummary = "Tổng hợp dữ liệu đóng góp đa chiều theo từng thành viên.";
