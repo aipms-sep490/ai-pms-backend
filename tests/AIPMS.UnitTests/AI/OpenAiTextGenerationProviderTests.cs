@@ -45,6 +45,22 @@ public sealed class OpenAiTextGenerationProviderTests
         using var client = new HttpClient(handler);
         Assert.Equal("Hello", await Create(client).GenerateStreamingAsync("System", "Question", [], _ => Task.CompletedTask));
     }
+
+    [Fact]
+    public async Task StructuredReportPromptGetsExpandedTokenBudget()
+    {
+        using var handler = new StubHandler(async (request, ct) =>
+        {
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            Assert.Equal(3000, body.RootElement.GetProperty("max_tokens").GetInt32());
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"{}\"}}]}", Encoding.UTF8, "application/json")
+            };
+        });
+        using var client = new HttpClient(handler);
+        Assert.Equal("{}", await Create(client).GenerateTextAsync("Return JSON with structuredReport", "Question"));
+    }
     [Fact]
     public async Task UsesConfiguredRouterEndpointModelAndBearerToken()
     {

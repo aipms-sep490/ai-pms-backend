@@ -31,6 +31,12 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             var now = clock.GetUtcNow().UtcDateTime;
             await repository.ExpireOverdueAsync(now, token, projectId: projectId);
             await RequireEligibilityAsync(projectId, profileId, now, false, assignmentType == "PRIMARY", majorId, token);
+            if (await repository.HasConflictingRoleAsync(projectId, profileId, assignmentType, token))
+                throw new ConflictException(
+                    assignmentType == "PRIMARY"
+                        ? "Giảng viên này đang là Mentor chuyên ngành hoặc đã có lời mời Mentor chờ phản hồi trong đồ án này, không thể đồng thời mời làm GVHD chính."
+                        : "Giảng viên này đang là GVHD chính hoặc đã có lời mời GVHD chính chờ phản hồi trong đồ án này, không thể đồng thời mời làm Mentor chuyên ngành.",
+                    WorkflowErrorCodes.SupervisorRoleConflict);
             if (await repository.HasPendingAsync(projectId, profileId, token, assignmentType, majorId))
                 throw new ConflictException("A pending request already exists for this project and supervisor.");
             var request = await repository.CreateAsync(projectId, profileId, actor.UserId, message?.Trim(), now, token,
@@ -91,10 +97,17 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
                 await repository.ExpireOverdueAsync(now, token, projectId: request.ProjectId);
                 var project = await RequireEligibilityAsync(request.ProjectId, request.SupervisorProfileId, now,
                     true, request.AssignmentType == "PRIMARY", request.MajorId, token);
+                if (await repository.HasActiveConflictingRoleAssignmentAsync(request.ProjectId, request.SupervisorProfileId, request.AssignmentType, token))
+                    throw new ConflictException(
+                        request.AssignmentType == "PRIMARY"
+                            ? "Bạn đã đảm nhận vai trò Mentor chuyên ngành trong đồ án này nên không thể đồng thời nhận làm GVHD chính."
+                            : "Bạn đã đảm nhận vai trò GVHD chính trong đồ án này nên không thể đồng thời nhận làm Mentor chuyên ngành.",
+                        WorkflowErrorCodes.SupervisorRoleConflict);
                 previousProjectStatus = project.Status;
                 await repository.AssignAndActivateAsync(request, actor.UserId, now, token);
                 foreach (var other in (await repository.GetOtherPendingAsync(request.ProjectId, request.Id, token))
-                    .Where(r => r.AssignmentType == request.AssignmentType && r.MajorId == request.MajorId))
+                    .Where(r => (r.AssignmentType == request.AssignmentType && r.MajorId == request.MajorId)
+                        || (r.SupervisorProfileId == request.SupervisorProfileId && r.AssignmentType != request.AssignmentType)))
                 {
                     var cancelled = await repository.RespondAsync(other.Id, "CANCELLED", null, now, token);
                     await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.SupervisorRequestCancelled,

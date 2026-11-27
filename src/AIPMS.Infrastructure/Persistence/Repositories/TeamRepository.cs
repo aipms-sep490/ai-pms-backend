@@ -75,7 +75,7 @@ internal sealed class TeamRepository(AipmsDbContext context) : ITeamRepository
             .Select(m => new { m.Id, m.DepartmentId }).ToListAsync(ct);
         if (majors.Count != ids.Length || !majors.Any(m => m.DepartmentId == scope.LeadDepartmentId)
             || (scope.ProjectMode == "SINGLE_MAJOR" && majors.SingleOrDefault()?.DepartmentId != scope.LeadDepartmentId))
-            throw new ConflictException("All required majors and the lead department must be active and in the team's organization; the lead department must participate.");
+            throw new ConflictException("All required majors and the lead department must be active and in the team's organization; the lead department must participate.", WorkflowErrorCodes.InvalidAcademicScope);
     }
 
     public async Task SetAcademicScopeAsync(long teamId, TeamAcademicScope scope, Guid? expectedToken, CancellationToken ct)

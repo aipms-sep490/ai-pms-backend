@@ -343,68 +343,177 @@ internal sealed partial class AcademicKnowledgeService(
                     currentUser = new { displayName = actor.FullName },
                     currentTime = new { iso8601 = localTime.ToString("O"), weekday = localTime.DayOfWeek.ToString(), timeZone = "Asia/Ho_Chi_Minh" }
                 });
-                var partial = new StringBuilder();
-                var raw = emit != null && provider is IAiStreamingProvider streaming
-                    ? await streaming.GenerateStreamingAsync(system, prompt, images, async delta => {
-                        partial.Append(delta);
-                        var preview = PartialAnswer(partial.ToString());
-                        if (preview != null) await emit(new("preview", SanitizePersona(preview)));
-                    }, timeout.Token)
-                    : images.Length == 0
-                    ? await provider.GenerateTextAsync(system, prompt, timeout.Token)
-                    : await ((IAiVisionProvider)provider).GenerateWithImagesAsync(system, prompt, images, timeout.Token);
-                var cleanedRaw = AiJsonSanitizer.ExtractJsonObject(raw);
-                if (cleanedRaw.Length == 0 || cleanedRaw.Length > 32000) throw new JsonException();
-                using var parsed = JsonDocument.Parse(cleanedRaw);
-                var result = parsed.RootElement;
-                var generated = result.GetProperty("answer").GetString();
-                var insufficient = result.GetProperty("insufficientEvidence").GetBoolean();
-                var kind = result.TryGetProperty("answerType", out var type) ? type.GetString() : insufficient ? "INSUFFICIENT_EVIDENCE" : "GROUNDED";
-                var ids = result.GetProperty("citationIds").EnumerateArray().Select(x => x.GetString()).ToArray();
                 var officialIds = sources.Select(x => x.id).Concat(projectSources.Select(x => x.id)).ToHashSet(StringComparer.Ordinal);
                 var fileIds = fileSources.Select(x => x.id).ToHashSet(StringComparer.Ordinal);
                 var allowed = officialIds.Concat(fileIds).ToHashSet(StringComparer.Ordinal);
-                if (kind is not ("GENERAL" or "GROUNDED" or "ATTACHMENT" or "INSUFFICIENT_EVIDENCE") || insufficient != (kind == "INSUFFICIENT_EVIDENCE")) throw new JsonException();
-                if (ids.Any(id => id is null || !allowed.Contains(id)) || (kind is "GROUNDED" or "ATTACHMENT" ? ids.Length == 0 : ids.Length != 0)) throw new JsonException();
-                if (kind == "GROUNDED" && !ids.Any(id => officialIds.Contains(id!))) throw new JsonException();
-                if (kind == "ATTACHMENT" && ids.Any(id => !fileIds.Contains(id!))) throw new JsonException();
-                if (request.ToolMode == "REPORT_REVIEW" && kind != "INSUFFICIENT_EVIDENCE"
-                    && (kind != "GROUNDED" || !ids.Any(id => fileIds.Contains(id!)) || !ids.Any(id => officialIds.Contains(id!)))) throw new JsonException();
-                if (string.IsNullOrWhiteSpace(generated) || generated.Length > 6000) throw new JsonException();
-                if (expectedDraftKind != null && result.TryGetProperty("draft", out var action))
-                    draft = AssistantActionDraftParser.Parse(action, expectedDraftKind);
-                if (expectedDraftKind != null && draft is null)
-                    throw new JsonException("The provider did not return the requested editable draft.");
-                if (Regex.Matches(generated, @"\[(?:DOC|PROJECT|FILE)-\d+\]").Any(m => !ids.Contains(m.Value[1..^1]))) throw new JsonException();
-                answer = SanitizePersona(generated);
-                answerType = kind;
-                status = insufficient ? "INSUFFICIENT_EVIDENCE" : "COMPLETED";
-                citations = citations.Where((_, i) => ids.Contains($"DOC-{i + 1}")).ToArray();
-                projectEvidence = projectEvidence.Where((_, i) => ids.Contains($"PROJECT-{i + 1}")).ToArray();
-                selectedAttachments = attachments.Where((_, i) => ids.Contains($"FILE-{i + 1}")).Select(a => new AssistantAttachmentDto(a.Name, a.MediaType)).ToArray();
-                if (kind == "GROUNDED" && projectEvidence.Length > 0 && request.ToolMode is null or "PROGRESS")
-                    structuredReport = AssistantSetupPlanParser.ParseStructuredReport(result, context, projectEvidence, evidenceByCitationId);
-                if (result.TryGetProperty("followUpSuggestions", out var followProp) && followProp.ValueKind == JsonValueKind.Array)
+
+                for (var attempt = 0; attempt < 2; attempt++)
                 {
-                    var parsedFollowUps = followProp.EnumerateArray()
-                        .Where(x => x.ValueKind == JsonValueKind.String)
-                        .Select(x => SanitizePersona(x.GetString() ?? "").Trim())
-                        .Where(x => x.Length is >= 4 and <= 120)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Take(3)
-                        .ToArray();
-                    if (parsedFollowUps.Length > 0) followUpSuggestions = parsedFollowUps;
-                }
-                if (conversation is { Revision: 0 } && result.TryGetProperty("conversationTitle", out var titleProp) && titleProp.ValueKind == JsonValueKind.String)
-                {
-                    var t = SanitizePersona(titleProp.GetString() ?? "").Trim();
-                    if (t.Length >= 3) smartConversationTitle = t.Length > 100 ? t[..100] : t;
+                    var retryableJsonFailure = true;
+                    try
+                    {
+                        var activeSystem = attempt == 0
+                            ? system
+                            : system + " CRITICAL: Return ONLY one complete, compact, valid raw JSON object matching the exact schema with no Markdown fences and no truncation.";
+                        var partial = new StringBuilder();
+                        var raw = attempt == 0 && emit != null && provider is IAiStreamingProvider streaming
+                            ? await streaming.GenerateStreamingAsync(activeSystem, prompt, images, async delta => {
+                                partial.Append(delta);
+                                var preview = PartialAnswer(partial.ToString());
+                                if (preview != null) await emit(new("preview", SanitizePersona(preview)));
+                            }, timeout.Token)
+                            : images.Length == 0
+                            ? await provider.GenerateTextAsync(activeSystem, prompt, timeout.Token)
+                            : await ((IAiVisionProvider)provider).GenerateWithImagesAsync(activeSystem, prompt, images, timeout.Token);
+
+                        var cleanedRaw = AiJsonSanitizer.ExtractJsonObject(raw);
+                        if (cleanedRaw.Length == 0 || cleanedRaw.Length > 48000)
+                            throw new JsonException("Empty or oversized AI JSON output.");
+                        using var parsed = JsonDocument.Parse(cleanedRaw);
+                        var result = parsed.RootElement;
+                        if (result.ValueKind != JsonValueKind.Object)
+                            throw new JsonException("AI response root is not a JSON object.");
+
+                        var generated = result.TryGetProperty("answer", out var ansProp) && ansProp.ValueKind == JsonValueKind.String
+                            ? ansProp.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(generated) || generated.Length > 12000)
+                            throw new JsonException("AI response answer is empty or exceeds max length.");
+
+                        var insufficientExplicit = result.TryGetProperty("insufficientEvidence", out var insProp)
+                            && insProp.ValueKind is JsonValueKind.True or JsonValueKind.False
+                            ? insProp.GetBoolean() : (bool?)null;
+                        var rawKind = result.TryGetProperty("answerType", out var typeProp) && typeProp.ValueKind == JsonValueKind.String
+                            ? typeProp.GetString()?.Trim().ToUpperInvariant() : null;
+                        var rawIds = result.TryGetProperty("citationIds", out var citProp) && citProp.ValueKind == JsonValueKind.Array
+                            ? citProp.EnumerateArray()
+                                .Where(x => x.ValueKind == JsonValueKind.String)
+                                .Select(x => x.GetString()?.Trim())
+                                .Where(x => !string.IsNullOrEmpty(x))
+                                .Select(x => x!)
+                                .ToArray()
+                            : Array.Empty<string>();
+
+                        var inlineIds = Regex.Matches(generated, @"\[(?:DOC|PROJECT|FILE)-\d+\]")
+                            .Select(m => m.Value[1..^1])
+                            .Distinct(StringComparer.Ordinal)
+                            .ToArray();
+                        if (rawIds.Any(id => !allowed.Contains(id)) || inlineIds.Any(id => !allowed.Contains(id)))
+                        {
+                            retryableJsonFailure = false;
+                            throw new JsonException("Model referenced an unknown citation ID.");
+                        }
+
+                        var ids = rawIds.Concat(inlineIds).Distinct(StringComparer.Ordinal).ToArray();
+                        var hasOfficial = ids.Any(officialIds.Contains);
+                        var hasFile = ids.Any(fileIds.Contains);
+
+                        var kind = !string.IsNullOrEmpty(rawKind)
+                            ? rawKind
+                            : (insufficientExplicit == true ? "INSUFFICIENT_EVIDENCE"
+                                : hasOfficial ? "GROUNDED"
+                                : hasFile ? "ATTACHMENT"
+                                : "GENERAL");
+                        if (kind is not ("GENERAL" or "GROUNDED" or "ATTACHMENT" or "INSUFFICIENT_EVIDENCE"))
+                        {
+                            retryableJsonFailure = false;
+                            throw new JsonException($"Unsupported answerType '{kind}'.");
+                        }
+
+                        if (kind == "GROUNDED" && hasFile && !hasOfficial)
+                        {
+                            retryableJsonFailure = false;
+                            throw new JsonException("GROUNDED answer cannot cite only user attachments.");
+                        }
+                        if (request.ToolMode == "REPORT_REVIEW" && kind != "INSUFFICIENT_EVIDENCE"
+                            && (kind != "GROUNDED" || !hasFile || !hasOfficial))
+                        {
+                            retryableJsonFailure = false;
+                            throw new JsonException("REPORT_REVIEW requires both attachment and official rubric citations.");
+                        }
+
+                        var insufficient = insufficientExplicit ?? (kind == "INSUFFICIENT_EVIDENCE");
+                        if (kind == "GENERAL" && ids.Length > 0)
+                        {
+                            kind = hasOfficial ? "GROUNDED" : "ATTACHMENT";
+                            insufficient = false;
+                        }
+                        else if (kind == "ATTACHMENT" && hasOfficial)
+                        {
+                            kind = "GROUNDED";
+                            insufficient = false;
+                        }
+                        else if (kind == "ATTACHMENT" && ids.Length == 0)
+                        {
+                            kind = fileIds.Count > 0 ? "INSUFFICIENT_EVIDENCE" : "GENERAL";
+                            insufficient = kind == "INSUFFICIENT_EVIDENCE";
+                        }
+                        else if (kind == "GROUNDED" && ids.Length == 0)
+                        {
+                            if (insufficientExplicit == true)
+                            {
+                                kind = "INSUFFICIENT_EVIDENCE";
+                                insufficient = true;
+                            }
+                            else if (projectSummaryData is not null)
+                            {
+                                insufficient = false;
+                            }
+                            else
+                            {
+                                kind = officialIds.Count > 0 ? "INSUFFICIENT_EVIDENCE" : "GENERAL";
+                                insufficient = kind == "INSUFFICIENT_EVIDENCE";
+                            }
+                        }
+                        else if (kind == "INSUFFICIENT_EVIDENCE")
+                        {
+                            insufficient = true;
+                        }
+                        else
+                        {
+                            insufficient = false;
+                        }
+
+                        if (expectedDraftKind != null && result.TryGetProperty("draft", out var action))
+                            draft = AssistantActionDraftParser.Parse(action, expectedDraftKind);
+                        if (expectedDraftKind != null && draft is null)
+                            throw new JsonException("The provider did not return the requested editable draft.");
+
+                        answer = SanitizePersona(generated);
+                        answerType = kind;
+                        status = insufficient ? "INSUFFICIENT_EVIDENCE" : "COMPLETED";
+                        citations = citations.Where((_, i) => ids.Contains($"DOC-{i + 1}")).ToArray();
+                        projectEvidence = projectEvidence.Where((_, i) => ids.Contains($"PROJECT-{i + 1}")).ToArray();
+                        selectedAttachments = attachments.Where((_, i) => ids.Contains($"FILE-{i + 1}")).Select(a => new AssistantAttachmentDto(a.Name, a.MediaType)).ToArray();
+                        if (kind == "GROUNDED" && projectEvidence.Length > 0 && request.ToolMode is null or "PROGRESS")
+                            structuredReport = AssistantSetupPlanParser.ParseStructuredReport(result, context, projectEvidence, evidenceByCitationId);
+                        if (result.TryGetProperty("followUpSuggestions", out var followProp) && followProp.ValueKind == JsonValueKind.Array)
+                        {
+                            var parsedFollowUps = followProp.EnumerateArray()
+                                .Where(x => x.ValueKind == JsonValueKind.String)
+                                .Select(x => SanitizePersona(x.GetString() ?? "").Trim())
+                                .Where(x => x.Length is >= 4 and <= 120)
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .Take(3)
+                                .ToArray();
+                            if (parsedFollowUps.Length > 0) followUpSuggestions = parsedFollowUps;
+                        }
+                        if (conversation is { Revision: 0 } && result.TryGetProperty("conversationTitle", out var titleProp) && titleProp.ValueKind == JsonValueKind.String)
+                        {
+                            var t = SanitizePersona(titleProp.GetString() ?? "").Trim();
+                            if (t.Length >= 3) smartConversationTitle = t.Length > 100 ? t[..100] : t;
+                        }
+                        break;
+                    }
+                    catch (JsonException ex) when (attempt == 0 && retryableJsonFailure && !timeout.IsCancellationRequested)
+                    {
+                        logger?.LogWarning("Assistant JSON response invalid on first attempt ({FailureMessage}); retrying once.", ex.Message);
+                    }
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
-                logger?.LogWarning("Assistant generation fallback: {FailureType}; {FailureLocation}", ex.GetType().Name, ex.StackTrace);
+                logger?.LogWarning("Assistant generation fallback: {FailureType} ({FailureMessage}); {FailureLocation}", ex.GetType().Name, ex.Message, ex.StackTrace);
                 if (expectedDraftKind is not null)
                 {
                     // A provider outage should still leave the user with a safe,

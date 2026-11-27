@@ -33,7 +33,7 @@ public sealed class OpenAiTextGenerationProvider(
         if (systemPrompt.Contains("structuredReport", StringComparison.Ordinal)
             || systemPrompt.Contains("MEETING_AI_PULSE", StringComparison.Ordinal)
             || systemPrompt.Contains("MEETING_AI_ASK", StringComparison.Ordinal))
-            return Math.Max(configured, 1800);
+            return Math.Max(configured, 3000);
         return configured;
     }
 
@@ -68,11 +68,11 @@ public sealed class OpenAiTextGenerationProvider(
             if (data == "[DONE]") return output.ToString();
             using var frame = JsonDocument.Parse(data);
             if (!frame.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0) continue;
-            if (choices[0].TryGetProperty("finish_reason", out var reason) && reason.GetString() == "stop") finished = true;
+            if (choices[0].TryGetProperty("finish_reason", out var reason) && reason.GetString() is "stop" or "length") finished = true;
             if (!choices[0].TryGetProperty("delta", out var delta) || !delta.TryGetProperty("content", out var text) || text.ValueKind != JsonValueKind.String) continue;
             var value = text.GetString() ?? "";
             output.Append(value);
-            if (output.Length > 32000) throw new JsonException("Provider output too large.");
+            if (output.Length > 48000) throw new JsonException("Provider output too large.");
             await onDelta(value);
         }
         // OpenAI-compatible routers may close after finish_reason=stop without a [DONE] sentinel.

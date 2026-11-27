@@ -61,6 +61,12 @@ internal sealed class SupervisorReplacementService(AipmsDbContext context, ISupe
                 await AcademicAssignmentGuard.EnsurePrimaryAsync(context, old.ProjectId, supervisorProfileId, token);
             if (!profile.IsAvailable || !project.DepartmentIds.Contains(profile.DepartmentId))
                 throw new ConflictException("The replacement supervisor is unavailable or outside the project scope.");
+            if (await requests.HasActiveConflictingRoleAssignmentAsync(old.ProjectId, supervisorProfileId, old.AssignmentType, token))
+                throw new ConflictException(
+                    old.AssignmentType == "PRIMARY"
+                        ? "Giảng viên thay thế đang đảm nhận vai trò Mentor chuyên ngành trong đồ án này nên không thể đồng thời làm GVHD chính."
+                        : "Giảng viên thay thế đang đảm nhận vai trò GVHD chính trong đồ án này nên không thể đồng thời làm Mentor chuyên ngành.",
+                    WorkflowErrorCodes.SupervisorRoleConflict);
             if (!old.IsPrimary)
             {
                 var major = project.MajorScopes?.SingleOrDefault(m => m.Id == old.MajorId);

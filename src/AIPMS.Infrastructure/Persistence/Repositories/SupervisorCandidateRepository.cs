@@ -68,7 +68,11 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context, Time
                 && p.User.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Lecturer)
                 && !p.SupervisorRequests.Any(r => r.ProjectId == search.ProjectId && r.Status == "PENDING"
                     && (r.ExpiresAt == null || r.ExpiresAt > now)
-                    && r.AssignmentType == search.AssignmentType && r.MajorId == search.MajorId));
+                    && ((r.AssignmentType == search.AssignmentType && r.MajorId == search.MajorId)
+                        || r.AssignmentType != search.AssignmentType))
+                && !p.SupervisorAssignments.Any(a => a.ProjectId == search.ProjectId
+                    && a.EndedAt == null
+                    && a.AssignmentType != search.AssignmentType));
         if (search.ExcludedProfileId.HasValue) profiles = profiles.Where(p => p.Id != search.ExcludedProfileId);
         if (search.ProfileIds is not null) profiles = profiles.Where(p => search.ProfileIds.Contains(p.Id));
         if (search.AssignmentType == "PRIMARY")
