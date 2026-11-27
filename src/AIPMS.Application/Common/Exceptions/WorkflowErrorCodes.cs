@@ -47,6 +47,11 @@ public static class WorkflowErrorCodes
 
     // Core V4.0 Security, Governance & Evaluation Invariants
     public const string EvaluatorRoleConflict = "EVALUATOR_ROLE_CONFLICT";
+    public const string SupervisorRoleConflict = "SUPERVISOR_ROLE_CONFLICT";
+    public const string MemberMajorNotAllowed = "MEMBER_MAJOR_NOT_ALLOWED";
+    public const string ProjectModeNotAllowedByPeriod = "PROJECT_MODE_NOT_ALLOWED_BY_PERIOD";
+    public const string StudentAlreadyInTeam = "STUDENT_ALREADY_IN_TEAM";
+    public const string InvalidAcademicScope = "INVALID_ACADEMIC_SCOPE";
     public const string AssignmentRevoked = "ASSIGNMENT_REVOKED";
     public const string ScopeAccessDenied = "SCOPE_ACCESS_DENIED";
     public const string RegistrationWindowClosed = "REGISTRATION_WINDOW_CLOSED";

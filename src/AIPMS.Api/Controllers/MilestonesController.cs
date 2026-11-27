@@ -38,6 +38,17 @@ public sealed class MilestonesController(ISender sender) : ControllerBase
         CancellationToken cancellationToken) =>
         Ok(await sender.Send(new GetMilestoneProgressQuery(projectId), cancellationToken));
 
+    [HttpGet("project/{projectId}/execution-window")]
+    [ProducesResponseType<ProjectExecutionWindowDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<ActionResult<ProjectExecutionWindowDto>> GetExecutionWindow(
+        long projectId,
+        CancellationToken cancellationToken)
+    {
+        var window = await sender.Send(new GetProjectExecutionWindowQuery(projectId), cancellationToken);
+        return window is null ? NoContent() : Ok(window);
+    }
+
     [HttpPost]
     [ProducesResponseType<MilestoneDto>(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

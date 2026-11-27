@@ -103,13 +103,14 @@ public sealed class TeamWorkflow(
             student.UserId, semesterId, Now, ct);
         if (!qualification.Required || !qualification.Eligible)
             throw new ConflictException(qualification.IssueCode
-                ?? "The student's required project qualification is not verified.");
+                ?? "The student's required project qualification is not verified.",
+                qualification.IssueCode ?? "QUALIFICATION_REQUIRED");
     }
 
     private async Task RequireNoTeamAsync(long semesterId, long userId, CancellationToken ct)
     {
         if (await repository.GetCurrentTeamIdAsync(semesterId, userId, ct) is not null)
-            throw new ConflictException("The student already belongs to an active team in this semester.");
+            throw new ConflictException("The student already belongs to an active team in this semester.", WorkflowErrorCodes.StudentAlreadyInTeam);
     }
 
     private async Task<TeamDto> MapAsync(TeamSnapshot team, CancellationToken ct)
@@ -181,7 +182,7 @@ public sealed class TeamWorkflow(
     private static void RequireMode(TeamRegistrationWindow window, string mode)
     {
         if (!ProjectPeriodGovernancePolicy.Allows(window.AllowedProjectModes, mode))
-            throw new ConflictException("PROJECT_MODE_NOT_ALLOWED_BY_PERIOD");
+            throw new ConflictException("PROJECT_MODE_NOT_ALLOWED_BY_PERIOD", WorkflowErrorCodes.ProjectModeNotAllowedByPeriod);
     }
 
     private async Task SaveScopeAsync(TeamSnapshot team, TeamAcademicScopeRequest request,
@@ -190,7 +191,7 @@ public sealed class TeamWorkflow(
         var scope = request.ToScope();
         RequireMode(window, scope.ProjectMode);
         var errors = HybridTeamRules.EligibilityErrors(team.Members, policy, window.OrganizationId, scope, false);
-        if (errors.Count != 0) throw new ConflictException(string.Join(", ", errors));
+        if (errors.Count != 0) throw new ConflictException(string.Join(", ", errors), errors[0]);
         await repository.ValidateAcademicScopeAsync(scope, window.OrganizationId, ct);
         await repository.SetAcademicScopeAsync(team.Id, scope, request.ConcurrencyToken, ct);
     }
@@ -250,7 +251,7 @@ public sealed class TeamWorkflow(
         {
             var members = team.Members.Any(m => m.UserId == student.UserId) ? team.Members : [.. team.Members, student];
             var errors = HybridTeamRules.EligibilityErrors(members, policy, organizationId, team.AcademicScope, false);
-            if (errors.Count != 0) throw new ConflictException(string.Join(", ", errors));
+            if (errors.Count != 0) throw new ConflictException(string.Join(", ", errors), errors[0]);
             return;
         }
         var leaders = team.Members.Where(m => m.IsLeader).ToArray();

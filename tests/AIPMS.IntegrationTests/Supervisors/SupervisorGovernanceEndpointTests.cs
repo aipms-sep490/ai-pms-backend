@@ -217,15 +217,23 @@ public sealed partial class SupervisorRequestEndpointTests
         var s = await database.SeedAsync(); var m = await MentorProject(s);
         await using (var db = database.CreateContext())
         {
-            db.SupervisorExpertises.Add(new() { SupervisorProfileId = s.ProfileId, ExpertiseName = "SE" });
+            (await db.Users.FindAsync(s.OtherLecturer))!.DepartmentId = s.DepartmentId;
+            await db.SaveChangesAsync();
+        }
+        var secondMentor = await AddProfile(s.OtherLecturer);
+        await using (var db = database.CreateContext())
+        {
+            db.SupervisorExpertises.Add(new() { SupervisorProfileId = secondMentor, ExpertiseName = "SE" });
             await db.SaveChangesAsync();
         }
         using var setup = new SupervisorFactory(database, clock: new Clock());
         using var leader = setup.CreateAuthenticatedClient(m.Project.LeaderId);
+        // Primary supervisor cannot also be invited as discipline mentor on the same project.
+        Assert.Equal(HttpStatusCode.Conflict, (await SendMentor(leader, m.Project.Id, s.ProfileId, m.FirstMajor)).StatusCode);
         var a = await Body<SupervisorRequestDto>(await SendMentor(leader, m.Project.Id, m.Mentor, m.FirstMajor));
-        var b = await Body<SupervisorRequestDto>(await SendMentor(leader, m.Project.Id, s.ProfileId, m.FirstMajor));
+        var b = await Body<SupervisorRequestDto>(await SendMentor(leader, m.Project.Id, secondMentor, m.FirstMajor));
         using var app = new SupervisorFactory(database, saveInterceptor: new LockBarrier(2, "supervisor_profiles"), clock: new Clock());
-        using var first = app.CreateAuthenticatedClient(s.NewLecturer); using var second = app.CreateAuthenticatedClient(s.Lecturer);
+        using var first = app.CreateAuthenticatedClient(s.NewLecturer); using var second = app.CreateAuthenticatedClient(s.OtherLecturer);
         await AssertOneWinner(await Task.WhenAll(Respond(first, a.Id, "accept"), Respond(second, b.Id, "accept")));
         await using var check = database.CreateContext();
         Assert.Equal(1, await check.SupervisorAssignments.CountAsync(x => x.ProjectId == m.Project.Id && x.MajorId == m.FirstMajor && x.EndedAt == null));
@@ -236,24 +244,32 @@ public sealed partial class SupervisorRequestEndpointTests
     public async Task Replacement_of_discipline_mentor_preserves_major_and_primary_and_rechecks_capacity()
     {
         var s = await database.SeedAsync(); var m = await MentorProject(s);
+        await using (var db = database.CreateContext())
+        {
+            (await db.Users.FindAsync(s.OtherLecturer))!.DepartmentId = s.DepartmentId;
+            await db.SaveChangesAsync();
+        }
+        var replacementProfile = await AddProfile(s.OtherLecturer);
         using var app = new SupervisorFactory(database, clock: new Clock());
         using var leader = app.CreateAuthenticatedClient(m.Project.LeaderId);
         using var mentor = app.CreateAuthenticatedClient(s.NewLecturer); using var staff = app.CreateAuthenticatedClient(s.Staff);
         var request = await Body<SupervisorRequestDto>(await SendMentor(leader, m.Project.Id, m.Mentor, m.FirstMajor));
         var accepted = await Body<SupervisorRequestDto>(await Respond(mentor, request.Id, "accept"));
         var url = $"/api/v1/supervisor-assignments/{accepted.AssignmentId}/replace";
-        var input = new { supervisorProfileId = s.ProfileId, reason = "Mentor availability" };
+        // Primary supervisor cannot replace discipline mentor on the same project.
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url, new { supervisorProfileId = s.ProfileId, reason = "Role conflict" })).StatusCode);
+        var input = new { supervisorProfileId = replacementProfile, reason = "Mentor availability" };
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url, input)).StatusCode);
         await using (var db = database.CreateContext())
         {
-            db.SupervisorExpertises.Add(new() { SupervisorProfileId = s.ProfileId, ExpertiseName = "SE" });
-            (await db.SupervisorProfiles.FindAsync(s.ProfileId))!.MaxActiveProjects = 0;
+            db.SupervisorExpertises.Add(new() { SupervisorProfileId = replacementProfile, ExpertiseName = "SE" });
+            (await db.SupervisorProfiles.FindAsync(replacementProfile))!.MaxActiveProjects = 0;
             await db.SaveChangesAsync();
         }
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url, input)).StatusCode);
         await using (var db = database.CreateContext())
         {
-            (await db.SupervisorProfiles.FindAsync(s.ProfileId))!.MaxActiveProjects = 1;
+            (await db.SupervisorProfiles.FindAsync(replacementProfile))!.MaxActiveProjects = 1;
             await db.SaveChangesAsync();
         }
         var replacement = await Body<SupervisorAssignmentDto>(await staff.PostAsJsonAsync(url, input));

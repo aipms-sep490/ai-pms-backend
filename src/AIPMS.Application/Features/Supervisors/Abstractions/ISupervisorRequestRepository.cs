@@ -12,6 +12,8 @@ public interface ISupervisorRequestRepository
     Task<SupervisorRequestModel?> GetAsync(long requestId, CancellationToken ct);
     Task<PagedResult<SupervisorRequestModel>> SearchAsync(SupervisorRequestSearch search, CancellationToken ct);
     Task<bool> HasPendingAsync(long projectId, long profileId, CancellationToken ct, string assignmentType = "PRIMARY", long? majorId = null);
+    Task<bool> HasConflictingRoleAsync(long projectId, long profileId, string assignmentType, CancellationToken ct) => Task.FromResult(false);
+    Task<bool> HasActiveConflictingRoleAssignmentAsync(long projectId, long profileId, string assignmentType, CancellationToken ct) => Task.FromResult(false);
     Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct, long? excludeProjectId = null);
     Task<SupervisorRequestModel> CreateAsync(long projectId, long profileId, long actorId,
         string? message, DateTime now, CancellationToken ct);

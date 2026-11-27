@@ -50,10 +50,23 @@ public sealed class SupervisorRequestHandlerTests
         await Assert.ThrowsAsync<ForbiddenException>(() => handler.Handle(new(10, 5, null), default));
     }
 
-    private static SupervisorRequestWorkflow Workflow(RequestRepository requests, long userId = 20, string role = AppRoles.Lecturer)
+    [Fact]
+    public async Task Accept_rejects_lecturer_already_holding_conflicting_role_on_same_project()
     {
-        var profiles = new ProfileRepository(role);
-        return new(requests, new CandidateRepository(), profiles,
+        var requests = new RequestRepository
+        {
+            Request = new(1, 10, 5, 20, 2, "PENDING", "Invite mentor", null, DateTime.UnixEpoch, null, null, "DISCIPLINE_MENTOR", 7),
+            HasActiveConflictingRole = true,
+        };
+        var handler = new AcceptSupervisorRequestCommandHandler(Workflow(requests, withEligibility: true));
+        var error = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new(1, null), default));
+        Assert.Equal(WorkflowErrorCodes.SupervisorRoleConflict, error.Code);
+    }
+
+    private static SupervisorRequestWorkflow Workflow(RequestRepository requests, long userId = 20, string role = AppRoles.Lecturer, bool withEligibility = false)
+    {
+        var profiles = new ProfileRepository(role, withEligibility);
+        return new(requests, new CandidateRepository(withEligibility), profiles,
             new SupervisorAccessService(new Actor(userId), profiles), new ProjectAccess(), new Audit(), TimeProvider.System,
             new RecordingPublisher(() => Assert.Fail("Replays and rejected operations must not publish notifications.")));
     }
@@ -67,12 +80,14 @@ public sealed class SupervisorRequestHandlerTests
         public IReadOnlyCollection<string> Roles => [AppRoles.Admin];
     }
 
-    private sealed class ProfileRepository(string role) : ISupervisorProfileRepository
+    private sealed class ProfileRepository(string role, bool withEligibility = false) : ISupervisorProfileRepository
     {
         public Task<SupervisorAccount?> GetAccountAsync(long userId, CancellationToken ct) =>
             Task.FromResult<SupervisorAccount?>(new(userId, 1, true, true, [role]));
         public Task<SupervisorProfileModel?> GetAsync(long id, CancellationToken ct,
-            long? authorizedOrganizationId = null, long? authorizedDepartmentId = null) => throw new NotSupportedException();
+            long? authorizedOrganizationId = null, long? authorizedDepartmentId = null) => withEligibility
+                ? Task.FromResult<SupervisorProfileModel?>(new(id, 20, "Lecturer", 1, "SE", "Bio", true, [new("SE", "EXPERT")]))
+                : throw new NotSupportedException();
         public Task<SupervisorProfileModel?> GetByUserAsync(long id, CancellationToken ct) => throw new NotSupportedException();
         public Task<PagedResult<SupervisorProfileModel>> SearchAsync(SupervisorSearch search, CancellationToken ct) => throw new NotSupportedException();
         public Task<SupervisorProfileModel> UpsertAsync(long id, string? bio, bool available, DateTime now, CancellationToken ct) => throw new NotSupportedException();
@@ -80,10 +95,14 @@ public sealed class SupervisorRequestHandlerTests
         public Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken ct) => throw new NotSupportedException();
     }
 
-    private sealed class CandidateRepository : ISupervisorCandidateRepository
+    private sealed class CandidateRepository(bool withEligibility = false) : ISupervisorCandidateRepository
     {
-        public Task<SupervisorCandidateProject?> GetProjectAsync(long id, DateTime now, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlyList<SupervisorSelectionPolicy>> GetSelectionPoliciesAsync(long id, DateTime now, CancellationToken ct, bool execution = false) => throw new NotSupportedException();
+        public Task<SupervisorCandidateProject?> GetProjectAsync(long id, DateTime now, CancellationToken ct) => withEligibility
+            ? Task.FromResult<SupervisorCandidateProject?>(new(id, 1, "DRAFT", true, true, [1], [7], [new(7, 1, "SE", "Software Engineering")], []))
+            : throw new NotSupportedException();
+        public Task<IReadOnlyList<SupervisorSelectionPolicy>> GetSelectionPoliciesAsync(long id, DateTime now, CancellationToken ct, bool execution = false) => withEligibility
+            ? Task.FromResult<IReadOnlyList<SupervisorSelectionPolicy>>([new(1, 5)])
+            : throw new NotSupportedException();
         public Task<PagedResult<SupervisorCandidateModel>> SearchAsync(SupervisorCandidateSearch search, CancellationToken ct) => throw new NotSupportedException();
     }
 
@@ -101,6 +120,7 @@ public sealed class SupervisorRequestHandlerTests
     {
         public SupervisorRequestModel Request { get; set; } = new(1, 10, 5, 20, 2, "ACCEPTED",
             "Original request", "Original response", DateTime.UnixEpoch, DateTime.UnixEpoch, 99);
+        public bool HasActiveConflictingRole { get; set; }
         public int Locks { get; private set; }
         private bool inTransaction;
         public async Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct)
@@ -116,11 +136,12 @@ public sealed class SupervisorRequestHandlerTests
             return Task.CompletedTask;
         }
         public Task<SupervisorRequestModel?> GetAsync(long id, CancellationToken ct) => Task.FromResult<SupervisorRequestModel?>(Request);
-        public Task LockSupervisorAndProjectAsync(long profileId, long projectId, CancellationToken ct) => throw new NotSupportedException();
+        public Task LockSupervisorAndProjectAsync(long profileId, long projectId, CancellationToken ct) => Task.CompletedTask;
         public Task<bool> IsTeamLeaderAsync(long projectId, long userId, CancellationToken ct) => throw new NotSupportedException();
         public Task<PagedResult<SupervisorRequestModel>> SearchAsync(SupervisorRequestSearch search, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> HasPendingAsync(long projectId, long profileId, CancellationToken ct, string assignmentType = "PRIMARY", long? majorId = null) => throw new NotSupportedException();
-        public Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct, long? excludeProjectId = null) => throw new NotSupportedException();
+        public Task<bool> HasActiveConflictingRoleAssignmentAsync(long projectId, long profileId, string assignmentType, CancellationToken ct) => Task.FromResult(HasActiveConflictingRole);
+        public Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct, long? excludeProjectId = null) => Task.FromResult(new SupervisorWorkload(5, 0, 0));
         public Task<SupervisorRequestModel> CreateAsync(long projectId, long profileId, long actorId, string? message, DateTime now, CancellationToken ct) => throw new NotSupportedException();
         public Task<SupervisorRequestModel> CreateAsync(long projectId, long profileId, long actorId, string? message, DateTime now, CancellationToken ct, string assignmentType, long? majorId) => throw new NotSupportedException();
         public Task<SupervisorRequestModel> RespondAsync(long requestId, string status, string? message, DateTime now, CancellationToken ct) => throw new NotSupportedException();

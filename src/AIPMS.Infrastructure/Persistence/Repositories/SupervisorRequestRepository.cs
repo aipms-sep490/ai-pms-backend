@@ -83,6 +83,22 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
             && r.SupervisorProfileId == profileId && r.Status == "PENDING"
             && r.AssignmentType == assignmentType && r.MajorId == majorId, ct);
 
+    public async Task<bool> HasConflictingRoleAsync(long projectId, long profileId, string assignmentType, CancellationToken ct)
+    {
+        if (await HasActiveConflictingRoleAssignmentAsync(projectId, profileId, assignmentType, ct))
+            return true;
+        return await context.SupervisorRequests.AnyAsync(r => r.ProjectId == projectId
+            && r.SupervisorProfileId == profileId
+            && r.Status == "PENDING"
+            && r.AssignmentType != assignmentType, ct);
+    }
+
+    public Task<bool> HasActiveConflictingRoleAssignmentAsync(long projectId, long profileId, string assignmentType, CancellationToken ct) =>
+        context.SupervisorAssignments.AnyAsync(a => a.ProjectId == projectId
+            && a.SupervisorProfileId == profileId
+            && a.EndedAt == null
+            && a.AssignmentType != assignmentType, ct);
+
     public async Task<SupervisorWorkload> GetWorkloadAsync(long profileId, long semesterId, CancellationToken ct, long? excludeProjectId = null) =>
         await context.SupervisorProfiles.AsNoTracking().Where(p => p.Id == profileId)
             .Select(p => new SupervisorWorkload(p.MaxActiveProjects,

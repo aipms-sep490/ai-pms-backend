@@ -145,7 +145,8 @@ public sealed class ContributionRepository(AipmsDbContext context) : IContributi
             .Select(v => new Activity(v.SubmittedBy, "DELIVERABLE_VERSION", v.Id, v.Deliverable.Title, v.SubmittedAt, 1)).ToListAsync(ct));
         // File evidence explains existing work without increasing credit merely by uploading more files.
         activities.AddRange(await context.Files.Where(f =>
-                (f.DeliverableVersion != null && f.DeliverableVersion.Deliverable.ProjectId == projectId)
+                (f.Task != null && f.Task.Milestone.ProjectId == projectId)
+                || (f.DeliverableVersion != null && f.DeliverableVersion.Deliverable.ProjectId == projectId)
                 || (f.ProgressReport != null && f.ProgressReport.ProjectId == projectId && f.ProgressReport.SubmittedAt != null
                     && (f.ProgressReport.Status == "SUBMITTED" || f.ProgressReport.Status == "REVIEWED"))
                 || (f.Meeting != null && f.Meeting.ProjectId == projectId && f.Meeting.Status == "COMPLETED"))

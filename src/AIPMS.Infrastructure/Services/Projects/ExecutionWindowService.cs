@@ -214,14 +214,14 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
             if (startDate.HasValue && (startDate.Value < winStart || startDate.Value > winEnd))
             {
                 throw new ConflictException(
-                    $"Ngày bắt đầu mốc phải nằm trong đợt thực hiện ({winStart:yyyy-MM-dd} - {winEnd:yyyy-MM-dd}).",
+                    $"Ngày bắt đầu mốc phải nằm trong đợt thực hiện ({winStart:dd/MM/yyyy} – {winEnd:dd/MM/yyyy}).",
                     WorkflowErrorCodes.MilestoneOutsideExecutionWindow);
             }
 
             if (dueDate.HasValue && (dueDate.Value < winStart || dueDate.Value > winEnd))
             {
                 throw new ConflictException(
-                    $"Hạn của mốc phải nằm trong đợt thực hiện ({winStart:yyyy-MM-dd} - {winEnd:yyyy-MM-dd}).",
+                    $"Hạn hoàn thành của mốc phải nằm trong đợt thực hiện ({winStart:dd/MM/yyyy} – {winEnd:dd/MM/yyyy}).",
                     WorkflowErrorCodes.MilestoneOutsideExecutionWindow);
             }
         }
