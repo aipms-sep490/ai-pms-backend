@@ -9,23 +9,43 @@ namespace AIPMS.UnitTests.Application;
 public sealed class ProjectFileUploadValidatorTests
 {
     [Fact]
-    public async Task Validates_a_500_MiB_disk_file_without_loading_its_contents_into_an_array()
+    public async Task Validates_a_20_MiB_pdf_on_disk_without_loading_its_contents_into_an_array()
     {
         var path = Path.Combine(Path.GetTempPath(), $"aipms-validator-{Guid.NewGuid():N}");
         await using var disk = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
             81920, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
         await disk.WriteAsync("%PDF-1.7\n"u8.ToArray());
-        disk.SetLength(UploadPolicies.ProjectFileLimit);
+        disk.SetLength(UploadValidator.MaxBytes);
         using var bounded = new BoundedReadStream(disk);
         var result = await ProjectFileUploadValidator.ValidateAsync(bounded, "large.pdf", "application/pdf", disk.Length, default);
-        Assert.Equal(500L * 1024 * 1024, result.Length);
+        Assert.Equal(UploadValidator.MaxBytes, result.Length);
         Assert.Equal(64, result.Sha256.Length);
         Assert.Equal(0, disk.Position);
-        Assert.True(bounded.ReadBytes >= UploadPolicies.ProjectFileLimit);
+        Assert.True(bounded.ReadBytes >= UploadValidator.MaxBytes);
+    }
+
+    [Fact]
+    public void Rejects_pdf_and_docx_above_20_MiB_with_PayloadTooLarge_per_POL06_while_allowing_zip_up_to_500_MiB()
+    {
+        var over20MiB = UploadValidator.MaxBytes + 1;
+        var pdfEx = Assert.Throws<PayloadTooLargeException>(() =>
+            ProjectFileUploadValidator.ValidateMetadata("report.pdf", "application/pdf", over20MiB));
+        Assert.Equal(UploadValidator.MaxBytes, pdfEx.MaxBytes);
+
+        var docxEx = Assert.Throws<PayloadTooLargeException>(() =>
+            ProjectFileUploadValidator.ValidateMetadata("spec.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", over20MiB));
+        Assert.Equal(UploadValidator.MaxBytes, docxEx.MaxBytes);
+
+        // ZIP up to 500 MiB is permitted in metadata validation
+        ProjectFileUploadValidator.ValidateMetadata("source.zip", "application/zip", UploadPolicies.ProjectFileLimit);
+        var zipEx = Assert.Throws<PayloadTooLargeException>(() =>
+            ProjectFileUploadValidator.ValidateMetadata("source.zip", "application/zip", UploadPolicies.ProjectFileLimit + 1));
+        Assert.Equal(UploadPolicies.ProjectFileLimit, zipEx.MaxBytes);
     }
 
     [Theory]
-    [InlineData("file.pdf", "application/pdf", 524288001)]
+    [InlineData("file.zip", "application/zip", 524288001)]
+    [InlineData("file.pdf", "application/pdf", 25 * 1024 * 1024)]
     [InlineData("file.pdf", "application/pdf", 0)]
     [InlineData("../file.pdf", "application/pdf", 100)]
     [InlineData("file.pdf ", "application/pdf", 100)]
@@ -35,8 +55,11 @@ public sealed class ProjectFileUploadValidatorTests
     public void Rejects_oversize_and_invalid_metadata_before_reading_content(string name, string mime, long length)
     {
         Assert.ThrowsAny<Exception>(() => ProjectFileUploadValidator.ValidateMetadata(name, mime, length));
-        if (length > UploadPolicies.ProjectFileLimit)
+        if (name.EndsWith(".zip") && length > UploadPolicies.ProjectFileLimit)
             Assert.Equal(UploadPolicies.ProjectFileLimit,
+                Assert.Throws<PayloadTooLargeException>(() => ProjectFileUploadValidator.ValidateMetadata(name, mime, length)).MaxBytes);
+        if (name.EndsWith(".pdf") && length > UploadValidator.MaxBytes)
+            Assert.Equal(UploadValidator.MaxBytes,
                 Assert.Throws<PayloadTooLargeException>(() => ProjectFileUploadValidator.ValidateMetadata(name, mime, length)).MaxBytes);
     }
 

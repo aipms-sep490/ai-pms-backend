@@ -52,7 +52,8 @@ internal sealed partial class ChatService
         var actions = Array.Empty<ChatAiActionItem>();
         var smartReplies = Array.Empty<string>();
         ChatAiSuggestedMeeting? suggestedMeeting = null;
-        var status = "COMPLETED";
+        var isSimulatedProvider = aiProvider is null || aiProvider.ModelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.OrdinalIgnoreCase);
+        var status = isSimulatedProvider ? "FALLBACK" : "COMPLETED";
 
         try
         {
@@ -199,7 +200,8 @@ internal sealed partial class ChatService
             if (string.IsNullOrWhiteSpace(answer) && suggestions.Length == 0) return FallbackAssist(id, mode);
 
             await RecordChatAiAuditAsync(actor, id, $"CHAT_AI_{mode}", ct);
-            return new(S(id), mode, answer, suggestions, refs, Now, "COMPLETED");
+            var assistStatus = (aiProvider is null || aiProvider.ModelVersion.StartsWith("GROUNDED_LOCAL", StringComparison.OrdinalIgnoreCase)) ? "FALLBACK" : "COMPLETED";
+            return new(S(id), mode, answer, suggestions, refs, Now, assistStatus);
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {

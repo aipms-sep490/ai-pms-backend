@@ -14,6 +14,7 @@ using Xunit;
 
 namespace AIPMS.IntegrationTests;
 
+[Trait("Category", "InMemory")]
 public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<ProjectProgressAnalysisEndpointTests.AnalysisWebApplicationFactory>
 {
     public class AnalysisWebApplicationFactory : AipmsWebApplicationFactory
@@ -196,6 +197,7 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
     }
 }
 
+[Trait("Category", "InMemory")]
 public class TestProjectProgressDataReader : IProjectProgressDataReader
 {
     public Dictionary<long, ProjectProgressFacts> FactsMap { get; } = new();
@@ -207,6 +209,7 @@ public class TestProjectProgressDataReader : IProjectProgressDataReader
         Task.FromResult(FactsMap.GetValueOrDefault(projectId));
 }
 
+[Trait("Category", "InMemory")]
 public class TestProjectAccessService : AIPMS.Application.Abstractions.Security.IProjectAccessService
 {
     public bool CanAccess { get; set; } = true;

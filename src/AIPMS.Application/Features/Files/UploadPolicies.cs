@@ -91,15 +91,23 @@ public static class UploadPolicies
             ParentType: "DELIVERABLE_VERSION",
             MaxBytes: DeliverableVersionLimit,
             MaxBytesLabel: "20 MiB",
-            AllowedMimeTypes: ["application/pdf", "application/zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/x-rar-compressed"],
-            AllowedExtensions: [".pdf", ".zip", ".docx", ".rar"],
+            AllowedMimeTypes: [
+                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "image/png",
+                "image/jpeg",
+                "application/zip"
+            ],
+            AllowedExtensions: [".pdf", ".docx", ".xlsx", ".pptx", ".png", ".jpg", ".jpeg", ".zip"],
             MaxFilesPerRequest: 1,
             RequiresVersionAnchor: true
         ),
         new UploadPolicyDto(
             ParentType: "PROJECT_FILE",
             MaxBytes: ProjectFileLimit,
-            MaxBytesLabel: "500 MiB",
+            MaxBytesLabel: "20 MiB (Tài liệu/Ảnh); 500 MiB (ZIP tải phân đoạn)",
             AllowedMimeTypes: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/zip", "image/png", "image/jpeg"],
             AllowedExtensions: [".pdf", ".docx", ".zip", ".png", ".jpg", ".jpeg"],
             MaxFilesPerRequest: 1,

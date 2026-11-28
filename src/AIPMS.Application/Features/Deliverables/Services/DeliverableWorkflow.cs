@@ -18,9 +18,26 @@ namespace AIPMS.Application.Features.Deliverables.Services;
 
 public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFileStorage storage,
     ICurrentUser currentUser, ISupervisorProfileRepository accounts, IProjectAccessService projectAccess,
-    IAuditTrail audit, TimeProvider clock, ILogger<DeliverableWorkflow> logger, IPublisher publisher)
+    IAuditTrail audit, TimeProvider clock, ILogger<DeliverableWorkflow> logger, IPublisher publisher,
+    IFileSecurityScanner scanner)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
+
+    private async Task ScanOrQuarantineAsync(long actorId, Stream stream, string fileName, string contentType, string flow, CancellationToken ct)
+    {
+        if (stream.CanSeek) stream.Position = 0;
+        var scan = await scanner.ScanAsync(stream, fileName, contentType, ct);
+        if (stream.CanSeek) stream.Position = 0;
+        if (!scan.IsSafe)
+        {
+            await audit.RecordAsync(new AuditEntry(actorId, "FILE_SCAN_QUARANTINED", "FILE", null,
+                new Dictionary<string, object?> { ["flow"] = flow, ["provider"] = scan.Provider, ["reason"] = scan.Details, ["fileName"] = fileName, ["verdict"] = "QUARANTINED" },
+                Outcome: "DENIED"), ct);
+            throw new AIPMS.Domain.Exceptions.DomainException(
+                scan.Details ?? "File failed security scan and was quarantined.",
+                WorkflowErrorCodes.FileQuarantined);
+        }
+    }
     private async Task<SupervisorAccount> ActorAsync(CancellationToken ct)
     {
         if (!currentUser.IsAuthenticated || currentUser.UserId is not long id) throw new UnauthorizedException();
@@ -199,7 +216,9 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
         var item = await GetAsync(id, ct);
         if (!IsStudent(actor, await ProjectAsync(actor, item.ProjectId, ct)))
             throw new ForbiddenException("Only active student team members can submit a deliverable version.");
-        var file = await UploadValidator.ReadAsync(upload, ct);
+        var file = await UploadValidator.ReadAsync(upload, ct, allowArchiveVideoTier: false, allowQuarantineFallback: true);
+        using (var scanStream = new MemoryStream(file.Bytes, writable: false))
+            await ScanOrQuarantineAsync(actor.UserId, scanStream, file.FileName, file.ContentType, "DELIVERABLE_VERSION", ct);
         string? key = null;
         return await repository.InTransactionAsync(async token =>
         {
@@ -315,7 +334,9 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
         var initialProject = await ProjectAsync(actor, parent.ProjectId, ct);
         RequireParentScope(actor, initialProject, parent);
         RequireAttachmentWriter(actor, initialProject, parent);
-        var file = await UploadValidator.ReadAsync(upload, ct);
+        var file = await UploadValidator.ReadAsync(upload, ct, allowArchiveVideoTier: false, allowQuarantineFallback: true);
+        using (var scanStream = new MemoryStream(file.Bytes, writable: false))
+            await ScanOrQuarantineAsync(actor.UserId, scanStream, file.FileName, file.ContentType, "PROJECT_FILE", ct);
         string? key = null;
         return await repository.InTransactionAsync(async token =>
         {
@@ -369,6 +390,7 @@ public sealed class DeliverableWorkflow(IDeliverableRepository repository, IFile
         if (existing is not null) return ConfirmPreparedFile(existing, parent, actor, project, file);
         RequireParentScope(actor, project, parent);
         RequireAttachmentWriter(actor, project, parent);
+        await ScanOrQuarantineAsync(actorId, content, file.FileName, file.ContentType, "PROJECT_FILE_CHUNKED", ct);
 
         // A worker restart may occur after storage completed but before SQL committed. Reuse only
         // an object whose length and checksum match this session; never overwrite uncertain data.

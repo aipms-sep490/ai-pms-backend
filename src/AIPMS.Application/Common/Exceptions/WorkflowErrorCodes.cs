@@ -78,6 +78,10 @@ public static class WorkflowErrorCodes
     public const string CouncilQuorumUnmet = "COUNCIL_QUORUM_UNMET";
     public const string ScheduleConflict = "SCHEDULE_CONFLICT";
     public const string RateLimited = "RATE_LIMITED";
+    public const string FileQuarantined = "FILE_QUARANTINED";
+    public const string AiFeatureDisabled = "AI_FEATURE_DISABLED";
+    public const string AiDailyQuotaExceeded = "AI_DAILY_QUOTA_EXCEEDED";
+    public const string RbacPermissionMatrixReadOnly = "RBAC_PERMISSION_MATRIX_READ_ONLY";
     public const string Unauthorized = "UNAUTHORIZED";
     public const string Forbidden = "FORBIDDEN";
     public const string NotFound = "NOT_FOUND";

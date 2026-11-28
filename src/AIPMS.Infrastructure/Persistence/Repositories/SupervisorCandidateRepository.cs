@@ -75,9 +75,18 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context, Time
                     && a.AssignmentType != search.AssignmentType));
         if (search.ExcludedProfileId.HasValue) profiles = profiles.Where(p => p.Id != search.ExcludedProfileId);
         if (search.ProfileIds is not null) profiles = profiles.Where(p => search.ProfileIds.Contains(p.Id));
-        if (search.AssignmentType == "PRIMARY")
-            profiles = profiles.Where(p => !context.Set<AIPMS.Infrastructure.Persistence.Models.EvaluationAssignment>()
-                .Any(a => a.ProjectId == search.ProjectId && a.EvaluatorId == p.UserId && a.Status == "ACTIVE"));
+        // D17 two-way COI exclusion for both PRIMARY and DISCIPLINE_MENTOR candidates
+        profiles = profiles.Where(p =>
+            !context.Set<AIPMS.Infrastructure.Persistence.Models.EvaluationAssignment>()
+                .Any(a => a.ProjectId == search.ProjectId && a.EvaluatorId == p.UserId && a.Status == "ACTIVE")
+            && !context.GateReviewerAssignments
+                .Any(a => a.GateInstance.ProjectId == search.ProjectId && a.ReviewerId == p.UserId && a.Status != "REVOKED")
+            && !context.Set<AIPMS.Infrastructure.Persistence.Models.DefenseCommitteeMember>()
+                .Any(m => m.UserId == p.UserId && context.Set<AIPMS.Infrastructure.Persistence.Models.DefenseCommittee>()
+                    .Any(c => c.Id == m.CommitteeId && c.ProjectId == search.ProjectId && (c.Status == "CONFIRMED" || c.Status == "DRAFT")))
+            && !context.Set<AIPMS.Infrastructure.Persistence.Models.ResultAppealRequest>()
+                .Any(r => r.ProjectId == search.ProjectId && r.ReviewerId == p.UserId
+                    && (r.Status == "PENDING" || r.Status == "UNDER_REVIEW" || r.Status == "ACCEPTED" || r.Status == "REJECTED")));
         if (!string.IsNullOrWhiteSpace(search.Search))
             profiles = profiles.Where(p => p.User.FullName.Contains(search.Search));
         if (!string.IsNullOrWhiteSpace(search.Expertise))

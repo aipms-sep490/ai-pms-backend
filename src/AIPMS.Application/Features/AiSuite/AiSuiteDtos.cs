@@ -12,7 +12,8 @@ public sealed record AiSnapshotMetaDto(
     string Status,
     string? ModelVersion,
     DateTime GeneratedAt,
-    string? CreatedByName);
+    string? CreatedByName,
+    bool IsSimulatedFallback = false);
 
 // =========================================================================
 // #1 Defense Mock Q&A, Answer Evaluation & Gate Session Script Draft

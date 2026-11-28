@@ -53,7 +53,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         if (await slots.CountAsync(ct) >= component.RequiredEvaluators) return new([], page, pageSize, 0);
         var query = db.Users.AsNoTracking().Where(u => u.Status == "ACTIVE" && u.DepartmentId == department
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive && u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER")
-            && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId && ((a.IsPrimary && a.AssignmentType == "PRIMARY") || a.EndedAt == null) && a.SupervisorProfile.UserId == u.Id)
+            && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.SupervisorProfile.UserId == u.Id)
             && !slots.Any(a => a.EvaluatorId == u.Id));
         if (component.Stage is "COLD" or "DEFENSE")
             query = query.Where(u => db.Set<DefenseCommitteeMember>().Any(m => m.UserId == u.Id

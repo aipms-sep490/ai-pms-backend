@@ -22,7 +22,8 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class ResultAppealService(AipmsDbContext db, IEvaluationDraftRepository transactions,
     ResultRevisionStore revisions, ICurrentUser current, IAuditTrail audit, TimeProvider clock,
-    IOptions<AppealSettings> settings, IDeliverableRepository files, IFileStorage storage, ILogger<ResultAppealService> logger) : IAppealService
+    IOptions<AppealSettings> settings, IDeliverableRepository files, IFileStorage storage,
+    IFileSecurityScanner scanner, ILogger<ResultAppealService> logger) : IAppealService
 {
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
@@ -47,9 +48,8 @@ internal sealed partial class ResultAppealService(AipmsDbContext db, IEvaluation
             throw new ConflictException("Frozen academic scope required.", "ACADEMIC_SCOPE_UNKNOWN");
         var student = await db.Set<StudentResult>().AnyAsync(r => r.ProjectId == projectId && r.StudentId == Actor, ct)
             && await db.UserRoles.AnyAsync(r => r.UserId == Actor && r.Role.Code == "STUDENT", ct);
-        // Extended D17 (Spec V4.0 §7.4): Block both active and former Primary Supervisors from appeal review.
-        var primary = await db.SupervisorAssignments.AnyAsync(a => a.ProjectId == projectId && a.IsPrimary
-            && a.AssignmentType == "PRIMARY" && a.SupervisorProfile.UserId == Actor, ct);
+        // Extended D17 (Spec V4.0 §7.4 / QD-06): Block active and former Primary Supervisors AND Discipline Mentors from appeal review.
+        var primary = await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, projectId, Actor, ct);
         return new(actor, project, AcademicAuthority.IsLead(actor, project), AcademicAuthority.HasScope(actor, project), student, primary);
     }
     private static bool DepartmentAccess(ResultAppealRequest r, Access access) => access.Staff
@@ -57,7 +57,7 @@ internal sealed partial class ResultAppealService(AipmsDbContext db, IEvaluation
     private async Task Reviewer(ResultAppealRequest row, long reviewerId, CancellationToken ct)
     {
         await LoadReviewers(row.ProjectId, [reviewerId], ct);
-        if (!ReviewerEligible(row, reviewerId)) throw new ForbiddenException("Reviewer must be in scope, independent of original scorers and not the Primary.");
+        if (!ReviewerEligible(row, reviewerId)) throw new ForbiddenException("Reviewer must be in scope, independent of original scorers and not an active or former supervisor/mentor.");
     }
     private bool ReviewerEligible(ResultAppealRequest row, long id)
     {
@@ -72,8 +72,7 @@ internal sealed partial class ResultAppealService(AipmsDbContext db, IEvaluation
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive)
             .Select(u => new EvaluationActor(u.Id, u.DepartmentId, false,
                 u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"), u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER"))).ToArrayAsync(ct);
-        var primaryIds = await db.SupervisorAssignments.Where(a => a.ProjectId == projectId && a.IsPrimary
-            && a.AssignmentType == "PRIMARY" && missing.Contains(a.SupervisorProfile.UserId)).Select(a => a.SupervisorProfile.UserId).ToArrayAsync(ct);
+        var primaryIds = await AcademicAssignmentGuard.GetConflictingSupervisorOrMentorUserIdsAsync(db, projectId, missing, ct);
         foreach (var id in missing) reviewerStates[id] = (actors.SingleOrDefault(a => a.Id == id), primaryIds.Contains(id));
     }
     private Task Read(ResultAppealRequest row, Access access, CancellationToken ct)

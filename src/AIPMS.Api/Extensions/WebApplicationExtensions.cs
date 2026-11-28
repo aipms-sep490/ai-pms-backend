@@ -1,5 +1,8 @@
+using System.Text.Json;
 using AIPMS.Api.Configuration;
 using AIPMS.Api.Middleware;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Serilog;
 
 namespace AIPMS.Api.Extensions;
@@ -32,8 +35,40 @@ public static class WebApplicationExtensions
         app.UseMiddleware<AuthRateLimitingKeyMiddleware>();
         app.UseRateLimiter();
         app.UseAuthorization();
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            Predicate = registration => registration.Tags.Contains("ready"),
+            ResultStatusCodes =
+            {
+                [HealthStatus.Healthy] = StatusCodes.Status200OK,
+                [HealthStatus.Degraded] = StatusCodes.Status200OK,
+                [HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable
+            },
+            ResponseWriter = WriteReadinessResponseAsync
+        }).AllowAnonymous();
         app.MapControllers();
 
         return app;
+    }
+
+    private static Task WriteReadinessResponseAsync(HttpContext context, HealthReport report)
+    {
+        context.Response.ContentType = "application/json; charset=utf-8";
+        var checks = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var (name, entry) in report.Entries)
+        {
+            checks[name] = new
+            {
+                status = entry.Status.ToString(),
+                detail = entry.Description ?? entry.Status.ToString().ToLowerInvariant()
+            };
+        }
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            status = report.Status.ToString(),
+            checks
+        });
+        return context.Response.WriteAsync(payload);
     }
 }

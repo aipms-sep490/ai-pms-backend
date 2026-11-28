@@ -78,9 +78,17 @@ internal sealed partial class ProjectChecklistService
         return ToChecklistDto(checklist, gate.Code, checklist.Items, maskEvaluations: false);
     }
 
+    private static IReadOnlyList<ProjectGateChecklistItem> FilterItemsByMajors(
+        IEnumerable<ProjectGateChecklistItem> items,
+        IReadOnlySet<long> allowedMajorIds) =>
+        items.Where(i =>
+            i.TrackScope is "COMMON" or "INTEGRATION"
+            || (i.MajorId.HasValue && allowedMajorIds.Contains(i.MajorId.Value))).ToList();
+
     public async Task<ProjectGateChecklistDto> GetLatestChecklistAsync(long projectId, string gateCode, CancellationToken ct = default)
     {
         var actor = await GetActorAsync(ct);
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: false);
         var normalizedGate = gateCode.Trim().ToUpperInvariant();
         var gate = await db.ProjectGateInstances.AsNoTracking()
             .SingleOrDefaultAsync(g => g.ProjectId == projectId && g.Code == normalizedGate, ct)
@@ -92,30 +100,76 @@ internal sealed partial class ProjectChecklistService
             .FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("ProjectGateChecklist", gateCode);
 
-        var isMember = await db.TeamMembers.AsNoTracking()
-            .AnyAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId && m.UserId == ActorId && m.LeftAt == null, ct);
-        if (isMember && !actor.IsAdmin && !actor.IsStaff)
+        // 1. Admin: full read access (audit/system oversight)
+        if (actor.IsAdmin)
+            return ToChecklistDto(checklist, gate.Code, checklist.Items, maskEvaluations: false);
+
+        // 2. Scoped Department Staff (LeadScope = all items; ParticipatingScope = COMMON/INTEGRATION + own department majors)
+        if (actor.IsStaff)
         {
-            if (checklist.Status != "PUBLISHED")
-                throw new ForbiddenException("Students can only view PUBLISHED project checklists.");
-            return ToChecklistDto(checklist, gate.Code, checklist.Items, maskEvaluations: true);
+            var inScope = actor.DepartmentId.HasValue
+                && (actor.DepartmentId == scope.LeadDepartmentId || scope.DepartmentIds.Contains(actor.DepartmentId.Value));
+            if (inScope)
+            {
+                if (actor.DepartmentId == scope.LeadDepartmentId)
+                    return ToChecklistDto(checklist, gate.Code, checklist.Items, maskEvaluations: false);
+
+                var deptMajors = (await db.Majors.AsNoTracking()
+                    .Where(m => m.DepartmentId == actor.DepartmentId!.Value)
+                    .Select(m => m.Id)
+                    .ToListAsync(ct)).ToHashSet();
+                return ToChecklistDto(checklist, gate.Code, FilterItemsByMajors(checklist.Items, deptMajors), maskEvaluations: false);
+            }
         }
 
-        // Discipline mentor sees ONLY their majorScope + COMMON/INTEGRATION
+        // 3. Active Primary Supervisor (full) or Active Discipline Mentor (COMMON/INTEGRATION + assigned majors)
         var supAssignments = await db.SupervisorAssignments.AsNoTracking()
             .Where(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == ActorId)
             .Select(a => new { a.IsPrimary, a.AssignmentType, a.MajorId })
             .ToListAsync(ct);
-        if (supAssignments.Count > 0 && !supAssignments.Any(a => a.IsPrimary) && !actor.IsAdmin && !actor.IsStaff)
+        if (supAssignments.Any(a => a.IsPrimary && a.AssignmentType == "PRIMARY"))
+            return ToChecklistDto(checklist, gate.Code, checklist.Items, maskEvaluations: false);
+        if (supAssignments.Count > 0)
         {
             var mentorMajors = supAssignments.Where(a => a.MajorId.HasValue).Select(a => a.MajorId!.Value).ToHashSet();
-            var filtered = checklist.Items.Where(i =>
-                i.TrackScope is "COMMON" or "INTEGRATION"
-                || (i.MajorId.HasValue && mentorMajors.Contains(i.MajorId.Value))).ToList();
-            return ToChecklistDto(checklist, gate.Code, filtered, maskEvaluations: false);
+            return ToChecklistDto(checklist, gate.Code, FilterItemsByMajors(checklist.Items, mentorMajors), maskEvaluations: false);
         }
 
-        return ToChecklistDto(checklist, gate.Code, checklist.Items, maskEvaluations: false);
+        // 4. Gate Reviewer on this gate (must be non-REVOKED and within ValidFrom..ValidUntil)
+        var reviewerAssignments = await db.GateReviewerAssignments.AsNoTracking()
+            .Where(a => a.GateInstanceId == gate.Id && a.ReviewerId == ActorId)
+            .Select(a => new { a.Status, a.Scope, a.MajorId, a.ValidFrom, a.ValidUntil })
+            .ToListAsync(ct);
+        if (reviewerAssignments.Count > 0)
+        {
+            var now = Now;
+            var activeReviewerAssignments = reviewerAssignments
+                .Where(a => a.Status != "REVOKED"
+                    && (a.ValidFrom == null || a.ValidFrom <= now)
+                    && (a.ValidUntil == null || now <= a.ValidUntil))
+                .ToList();
+            if (activeReviewerAssignments.Count == 0)
+                throw new ForbiddenException("Your gate reviewer assignment has been revoked or expired.", WorkflowErrorCodes.AssignmentRevoked);
+
+            if (activeReviewerAssignments.Any(a => string.IsNullOrWhiteSpace(a.Scope) || string.Equals(a.Scope, "COMMON", StringComparison.OrdinalIgnoreCase)))
+                return ToChecklistDto(checklist, gate.Code, checklist.Items, maskEvaluations: false);
+
+            var reviewerMajors = activeReviewerAssignments.Where(a => a.MajorId.HasValue).Select(a => a.MajorId!.Value).ToHashSet();
+            return ToChecklistDto(checklist, gate.Code, FilterItemsByMajors(checklist.Items, reviewerMajors), maskEvaluations: false);
+        }
+
+        // 5. Active Team Member: PUBLISHED only, always masked (N6)
+        var isMember = await db.TeamMembers.AsNoTracking()
+            .AnyAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId && m.UserId == ActorId && m.LeftAt == null, ct);
+        if (isMember)
+        {
+            if (checklist.Status != "PUBLISHED")
+                throw new ForbiddenException("Students can only view PUBLISHED project checklists.", WorkflowErrorCodes.ScopeAccessDenied);
+            return ToChecklistDto(checklist, gate.Code, checklist.Items, maskEvaluations: true);
+        }
+
+        // 6. Fail-closed for all unrelated users (prevents IDOR & N6 leakage)
+        throw new ForbiddenException("You do not have permission to view this project checklist.", WorkflowErrorCodes.ScopeAccessDenied);
     }
 
     public async Task<ProjectGateChecklistDto> TailorChecklistAsync(long projectId, long checklistId, TailorProjectChecklistRequest request, CancellationToken ct = default)
@@ -168,10 +222,28 @@ internal sealed partial class ProjectChecklistService
 
     public async Task<ChecklistDiffPreviewDto> GetDiffPreviewAsync(long projectId, long checklistId, CancellationToken ct = default)
     {
+        var actor = await GetActorAsync(ct);
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: false);
+        var isScopedStaff = actor.IsStaff && actor.DepartmentId.HasValue
+            && (actor.DepartmentId == scope.LeadDepartmentId || scope.DepartmentIds.Contains(actor.DepartmentId.Value));
+        if (!actor.IsAdmin && !isScopedStaff)
+            throw new ForbiddenException("Only scoped department staff or admin can preview checklist diffs.", WorkflowErrorCodes.ScopeAccessDenied);
+
         var checklist = await db.ProjectGateChecklists.AsNoTracking().Include(c => c.Items)
             .SingleOrDefaultAsync(c => c.Id == checklistId && c.ProjectId == projectId, ct)
             ?? throw new NotFoundException("ProjectGateChecklist", checklistId);
-        var entries = checklist.Items.OrderBy(i => i.Id).Select(i => new ChecklistDiffEntryDto(
+
+        IEnumerable<ProjectGateChecklistItem> visibleItems = checklist.Items;
+        if (!actor.IsAdmin && actor.DepartmentId != scope.LeadDepartmentId)
+        {
+            var deptMajors = (await db.Majors.AsNoTracking()
+                .Where(m => m.DepartmentId == actor.DepartmentId!.Value)
+                .Select(m => m.Id)
+                .ToListAsync(ct)).ToHashSet();
+            visibleItems = FilterItemsByMajors(checklist.Items, deptMajors);
+        }
+
+        var entries = visibleItems.OrderBy(i => i.Id).Select(i => new ChecklistDiffEntryDto(
             i.ItemCode, i.Section, i.Priority, i.IsApplicable, i.NaReason,
             !string.IsNullOrWhiteSpace(i.TailoredCheckpoints),
             !string.IsNullOrWhiteSpace(i.TailoredEvidence),
@@ -291,15 +363,9 @@ internal sealed partial class ProjectChecklistService
         if (checklist.Status != "PUBLISHED")
             throw new ConflictException("Checklist must be PUBLISHED before independent review scoring.");
 
-        // Enforce D17 COI & mentor column separation
-        var supervisorLinks = await db.SupervisorAssignments.AsNoTracking()
-            .Where(a => a.ProjectId == projectId && a.SupervisorProfile.UserId == ActorId)
-            .Select(a => new { a.IsPrimary, a.AssignmentType, a.EndedAt })
-            .ToListAsync(ct);
-        if (supervisorLinks.Any(a => a.IsPrimary && a.AssignmentType == "PRIMARY"))
-            throw new ConflictException("Primary supervisor (active or historical) cannot score independent GATE_REVIEWER checklist column (D17).", WorkflowErrorCodes.EvaluatorRoleConflict);
-        if (supervisorLinks.Any(a => a.EndedAt == null))
-            throw new ForbiddenException("Discipline mentors cannot write to the independent reviewer checklist column.");
+        // Enforce unified D17 COI (active or former primary supervisor or discipline mentor)
+        if (await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, projectId, ActorId, ct))
+            throw new ConflictException("A current or former primary supervisor or discipline mentor cannot score the independent GATE_REVIEWER checklist column (D17).", WorkflowErrorCodes.EvaluatorRoleConflict);
 
         var now = Now;
         var hasReviewerAssignment = await db.GateReviewerAssignments.AsNoTracking()

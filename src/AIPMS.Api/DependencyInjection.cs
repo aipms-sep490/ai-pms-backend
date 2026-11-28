@@ -405,6 +405,13 @@ public static class DependencyInjection
             });
         });
 
+        services.AddSingleton<AIPMS.Api.Filters.AiDailyQuotaTracker>();
+        services.AddHttpClient(AIPMS.Api.Health.GotenbergReadinessHealthCheck.HttpClientName);
+        services.AddHealthChecks()
+            .AddCheck<AIPMS.Api.Health.SqlReadinessHealthCheck>("sql", tags: ["ready"])
+            .AddCheck<AIPMS.Api.Health.FileStorageReadinessHealthCheck>("storage", tags: ["ready"])
+            .AddCheck<AIPMS.Api.Health.GotenbergReadinessHealthCheck>("gotenberg", tags: ["ready"]);
+
         return services;
     }
 

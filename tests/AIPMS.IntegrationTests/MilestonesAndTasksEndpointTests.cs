@@ -25,6 +25,7 @@ namespace AIPMS.IntegrationTests;
 
 public sealed record UpdateTaskStatusRequest(string NewStatus, string? Reason);
 
+[Trait("Category", "InMemory")]
 public sealed class MilestonesAndTasksEndpointTests : IClassFixture<MilestonesAndTasksEndpointTests.MilestoneWebApplicationFactory>
 {
     public class MilestoneWebApplicationFactory : AipmsWebApplicationFactory
@@ -473,6 +474,7 @@ internal sealed class DenyAllProjectAccessService : IProjectAccessService
 
 // ── Test Double Repositories for Endpoint Testing ─────────────────────────────
 
+[Trait("Category", "InMemory")]
 public class TestMilestoneRepo : IMilestoneRepository
 {
     public List<MilestoneDto> Milestones { get; } = new()
@@ -515,6 +517,7 @@ public class TestMilestoneRepo : IMilestoneRepository
         Task.FromResult<IReadOnlyList<MilestoneProgressDto>>(Array.Empty<MilestoneProgressDto>());
 }
 
+[Trait("Category", "InMemory")]
 public class TestTaskRepo : ITaskRepository
 {
     public List<TaskDto> Tasks { get; } = new()

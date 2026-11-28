@@ -104,7 +104,7 @@ internal sealed partial class AiSuiteService
             meetingSummaries
         }, ct);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         var overallSummary = $"Đã đối chiếu hồ sơ đồ án {project.Code} với {leafCriteria.Count} tiêu chí của Rubric \"{rubric.Name}\".";
         var verificationQuestions = Array.Empty<string>();
         var suggestionMap = new Dictionary<long, RubricCriterionSuggestionDto>();
@@ -178,9 +178,25 @@ internal sealed partial class AiSuiteService
         if (!IsStaffOrAdmin)
             throw new ForbiddenException("Chỉ Cán bộ Khoa hoặc Quản trị viên mới có quyền kiểm tra độ nhất quán điểm hội đồng.");
 
-        var actorName = await db.Users.AsNoTracking().Where(u => u.Id == actor).Select(u => u.FullName).FirstOrDefaultAsync(ct) ?? $"Cán bộ #{actor}";
+        var actorRecord = await db.Users.AsNoTracking()
+            .Where(u => u.Id == actor && u.Status == "ACTIVE")
+            .Select(u => new { u.FullName, u.DepartmentId })
+            .FirstOrDefaultAsync(ct)
+            ?? throw new ForbiddenException("Tài khoản không hoạt động.");
+        var actorName = actorRecord.FullName ?? $"Cán bộ #{actor}";
         var project = await db.Projects.AsNoTracking().SingleOrDefaultAsync(p => p.Id == projectId, ct)
             ?? throw new NotFoundException("Project", projectId);
+
+        if (!IsAdmin)
+        {
+            var scope = await AIPMS.Infrastructure.Services.Projects.ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: false);
+            var inScope = actorRecord.DepartmentId.HasValue
+                && (actorRecord.DepartmentId == scope.LeadDepartmentId || scope.DepartmentIds.Contains(actorRecord.DepartmentId.Value));
+            if (!inScope)
+                throw new ForbiddenException(
+                    "Cán bộ Khoa chỉ được kiểm tra độ nhất quán điểm hội đồng cho đồ án thuộc phạm vi Khoa mình.",
+                    WorkflowErrorCodes.ScopeAccessDenied);
+        }
 
         var evals = await db.Evaluations.AsNoTracking()
             .Include(e => e.Evaluator)
@@ -248,7 +264,7 @@ internal sealed partial class AiSuiteService
             detectedSpreadAlerts = deterministicAlerts
         }, ct);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         var overallStatus = deterministicAlerts.Any(a => a.Severity == "HIGH") ? "HIGH_VARIANCE"
             : deterministicAlerts.Count > 0 ? "REVIEW_RECOMMENDED" : "CONSISTENT";
         var summary = evals.Count == 0
@@ -337,7 +353,7 @@ internal sealed partial class AiSuiteService
             }).ToArray()
         }, ct);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         string appealSummary = $"Tóm tắt đơn khiếu nại #{appealId} của đồ án {project.Code}.";
         string merit = "NEEDS_MANUAL_CHECK";
         string[] claims = [Clip(appeal.Reason, 300)];
@@ -615,7 +631,7 @@ internal sealed partial class AiSuiteService
             }
         }
 
-        var metaStatus = usedAi ? "COMPLETED" : "FALLBACK";
+        var metaStatus = ResolveGenerationStatus(usedAi);
         var snapPayload = new { suggestedName, suggestedThreshold, summary, usedAi, components, warnings };
         var meta = await SaveSnapshotAsync("EVAL_SCHEME_SUGGEST", "PROJECT", projectId, projectId, user.DepartmentId,
             metaStatus, $"Gợi ý Phổ điểm {project.Code}", snapPayload, actor, user.FullName ?? $"User #{actor}", ct);

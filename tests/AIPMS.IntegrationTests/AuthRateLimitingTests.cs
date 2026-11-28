@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AIPMS.IntegrationTests;
 
+[Trait("Category", "InMemory")]
 public sealed class AuthRateLimitingTests : IClassFixture<AuthRateLimitingTests.RateLimitingTestFactory>
 {
     private readonly RateLimitingTestFactory _factory;

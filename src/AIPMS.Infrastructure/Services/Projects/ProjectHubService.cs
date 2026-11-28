@@ -19,19 +19,22 @@ internal sealed partial class ProjectHubService(
     AipmsDbContext db,
     ICurrentUser current,
     IAuditTrail audit,
-    TimeProvider clock) : IProjectHubService
+    TimeProvider clock,
+    IProjectAccessService projectAccess) : IProjectHubService
 {
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
     private sealed record ProjectAccessContext(
         M.Project Project,
+        bool HasBaseAccess,
         bool IsAdmin,
         bool IsScopedStaff,
         bool IsPrimarySupervisor,
         bool IsMentor,
         bool IsTeamMember,
         bool IsTeamLeader,
+        bool IsGateReviewer,
         string? ActorMajorCode,
         string? ActorMajorName);
 
@@ -61,10 +64,12 @@ internal sealed partial class ProjectHubService(
             .SingleOrDefaultAsync(u => u.Id == actorId && u.Status == "ACTIVE", ct)
             ?? throw new ForbiddenException();
 
+        var now = Now;
+        var hasBaseAccess = await projectAccess.CanAccessAsync(actorId, projectId, ct);
         var isAdmin = current.Roles.Contains(AppRoles.Admin);
-        var projectDeptIds = project.ProjectMajors.Select(pm => pm.Major.DepartmentId).Distinct().ToHashSet();
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: false);
         var isScopedStaff = current.Roles.Contains(AppRoles.DepartmentStaff)
-            && user.DepartmentId.HasValue && projectDeptIds.Contains(user.DepartmentId.Value);
+            && user.DepartmentId.HasValue && scope.DepartmentIds.Contains(user.DepartmentId.Value);
 
         var supAssigns = await db.SupervisorAssignments.AsNoTracking()
             .Where(a => a.ProjectId == projectId && a.SupervisorProfile.UserId == actorId && a.EndedAt == null)
@@ -72,15 +77,35 @@ internal sealed partial class ProjectHubService(
         var isPrimary = supAssigns.Any(a => a.IsPrimary || a.AssignmentType == "PRIMARY");
         var isMentor = supAssigns.Length > 0 && !isPrimary;
 
+        var isGateReviewer = await db.GateReviewerAssignments.AsNoTracking()
+            .AnyAsync(a => a.GateInstance.ProjectId == projectId && a.ReviewerId == actorId
+                && a.Status != "REVOKED"
+                && (a.ValidFrom == null || a.ValidFrom <= now)
+                && (a.ValidUntil == null || now <= a.ValidUntil), ct);
+
         var member = project.Team.TeamMembers.FirstOrDefault(m => m.UserId == actorId && m.LeftAt == null);
-        return new(project, isAdmin, isScopedStaff, isPrimary, isMentor, member is not null, member?.IsLeader == true,
-            user.Major?.Code, user.Major?.Name);
+        return new(project, hasBaseAccess, isAdmin, isScopedStaff, isPrimary, isMentor, member is not null, member?.IsLeader == true,
+            isGateReviewer, user.Major?.Code, user.Major?.Name);
     }
 
     private static void RequireProjectMemberOrStaff(ProjectAccessContext ctx)
     {
-        if (!ctx.IsScopedStaff && !ctx.IsPrimarySupervisor && !ctx.IsMentor && !ctx.IsTeamMember)
+        if (!ctx.HasBaseAccess || (!ctx.IsScopedStaff && !ctx.IsPrimarySupervisor && !ctx.IsMentor && !ctx.IsTeamMember))
             throw new ForbiddenException("You do not have access to this project workspace.", WorkflowErrorCodes.ScopeAccessDenied);
+    }
+
+    private static void RequireGateReviewOrProjectAccess(ProjectAccessContext ctx, bool isActiveGateReviewer)
+    {
+        if (isActiveGateReviewer) return;
+        RequireProjectMemberOrStaff(ctx);
+    }
+
+    private static void RequireActiveProject(ProjectAccessContext ctx)
+    {
+        if (!string.Equals(ctx.Project.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+            throw new ConflictException(
+                $"Project must be ACTIVE to perform this action (current status: {ctx.Project.Status}).",
+                WorkflowErrorCodes.ProjectNotActive);
     }
 
     private static void RequireHealthPulseScope(ProjectAccessContext ctx)
@@ -116,6 +141,7 @@ internal sealed partial class ProjectHubService(
     {
         var ctx = await LoadAccessAsync(projectId, ct);
         RequireProjectMemberOrStaff(ctx);
+        RequireActiveProject(ctx);
         var deliverable = await db.Deliverables.SingleOrDefaultAsync(d => d.Id == deliverableId && d.ProjectId == projectId, ct)
             ?? throw new NotFoundException("Deliverable", deliverableId);
 
@@ -194,6 +220,7 @@ internal sealed partial class ProjectHubService(
     {
         var ctx = await LoadAccessAsync(projectId, ct);
         RequireProjectMemberOrStaff(ctx);
+        RequireActiveProject(ctx);
         var type = input.ResourceType?.Trim().ToUpperInvariant() ?? "OTHER";
         if (type is not ("FIGMA" or "DRIVE" or "DOC" or "REPO_LINK" or "OTHER"))
             throw new DomainException("Resource type must be FIGMA, DRIVE, DOC, REPO_LINK, or OTHER.", WorkflowErrorCodes.ValidationFailed);
@@ -218,6 +245,7 @@ internal sealed partial class ProjectHubService(
     {
         var ctx = await LoadAccessAsync(projectId, ct);
         RequireProjectMemberOrStaff(ctx);
+        RequireActiveProject(ctx);
         var item = await db.Set<ProjectPinnedResource>().SingleOrDefaultAsync(r => r.Id == resourceId && r.ProjectId == projectId, ct)
             ?? throw new NotFoundException("ProjectPinnedResource", resourceId);
         db.Set<ProjectPinnedResource>().Remove(item);

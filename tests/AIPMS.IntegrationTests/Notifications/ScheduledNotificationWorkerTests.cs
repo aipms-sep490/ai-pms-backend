@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AIPMS.IntegrationTests.Notifications;
 
+[Trait("Category", "InMemory")]
 public sealed class ScheduledNotificationWorkerTests
 {
     [Fact]

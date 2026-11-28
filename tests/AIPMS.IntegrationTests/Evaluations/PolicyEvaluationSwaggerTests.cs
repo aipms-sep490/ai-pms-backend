@@ -3,6 +3,7 @@ using Swashbuckle.AspNetCore.Swagger;
 
 namespace AIPMS.IntegrationTests.Evaluations;
 
+[Trait("Category", "InMemory")]
 public sealed class PolicyEvaluationSwaggerTests
 {
     [Fact]

@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 
 namespace AIPMS.IntegrationTests;
 
+[Trait("Category", "InMemory")]
 public sealed class TrustedProxyHeadersTests
 {
     [Theory]

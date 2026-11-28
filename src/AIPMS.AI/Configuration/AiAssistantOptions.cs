@@ -5,6 +5,17 @@ public sealed class AiAssistantOptions
     public const string SectionName = "AiAssistant";
 
     public string Provider { get; set; } = "Grounded";
+    public bool Enabled { get; set; } = false;
+    public bool SuiteEnabled { get; set; } = false;
+    public bool MeetingAiEnabled { get; set; } = false;
+    public bool ChatAiEnabled { get; set; } = false;
+    public bool InsightsEnabled { get; set; } = false;
+    public int DailyQuotaPerUser { get; set; } = 100;
+    public bool RubricGradingCopilotEnabled { get; set; } = false;
+    public bool AppealReviewAssistEnabled { get; set; } = false;
+    public bool ContributionFairnessEnabled { get; set; } = false;
+    public bool LegacyProjectAskEnabled { get; set; } = false;
+    public bool SuggestEvaluationSchemeEnabled { get; set; } = false;
     public bool KnowledgeEnabled { get; set; }
     public int TimeoutSeconds { get; set; } = 30;
     public bool SimulateTimeout { get; set; } = false;

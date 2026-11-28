@@ -106,7 +106,7 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db, TimeProvider?
             && a.SupervisorProfile.UserId == userId, ct);
 
     public Task<bool> HasBeenPrimarySupervisorAsync(long projectId, long userId, CancellationToken ct) =>
-        AcademicAssignmentGuard.HasBeenPrimarySupervisorAsync(db, projectId, userId, ct);
+        AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, projectId, userId, ct);
 
     public async Task<PagedResult<EligibleEvaluatorDto>> GetEligibleEvaluatorsAsync(long projectId, long departmentId,
         int page, int pageSize, CancellationToken ct)
@@ -114,8 +114,7 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db, TimeProvider?
         var candidates = db.Users.AsNoTracking().Where(u => u.Status == "ACTIVE" && u.DepartmentId == departmentId
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
             && u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER")
-            && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId
-                && a.IsPrimary && a.AssignmentType == "PRIMARY" && a.SupervisorProfile.UserId == u.Id)
+            && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.SupervisorProfile.UserId == u.Id)
             && !db.Set<EvaluationAssignment>().Any(a => a.ProjectId == projectId && a.EvaluatorId == u.Id
                 && a.EvaluationType == "LECTURER" && a.Status == "ACTIVE"))
             .Select(u => new { u.Id, u.FullName, DepartmentName = u.Department!.Name });

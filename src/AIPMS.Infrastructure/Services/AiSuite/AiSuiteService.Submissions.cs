@@ -237,7 +237,7 @@ internal sealed partial class AiSuiteService
             pdfExcerpts
         }, ct);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         int readiness = missingCount == 0 ? 85 : Math.Max(20, 80 - missingCount * 15);
         string verdict = missingCount == 0 ? "READY" : "BLOCKING_ISSUES";
         string summary = missingCount == 0

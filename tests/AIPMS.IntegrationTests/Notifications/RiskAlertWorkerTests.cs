@@ -17,6 +17,7 @@ using Xunit;
 
 namespace AIPMS.IntegrationTests.Notifications;
 
+[Trait("Category", "InMemory")]
 public sealed class RiskAlertWorkerTests
 {
     private static readonly DateTime FixedNow = new(2026, 10, 25, 10, 0, 0, DateTimeKind.Utc);

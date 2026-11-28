@@ -26,6 +26,7 @@ using Task = System.Threading.Tasks.Task;
 
 namespace AIPMS.IntegrationTests;
 
+[Trait("Category", "InMemory")]
 public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.ProjectWebApplicationFactory>
 {
     public class ProjectWebApplicationFactory : AipmsWebApplicationFactory
@@ -1062,6 +1063,7 @@ public sealed class ProjectEndpointTests : IClassFixture<ProjectEndpointTests.Pr
     }
 }
 
+[Trait("Category", "InMemory")]
 public sealed class StubTopicSelectionGuard : ITopicSelectionGuard
 {
     public Func<long, long, long, CancellationToken, Task>? OnValidate { get; set; }
@@ -1076,12 +1078,14 @@ public sealed class StubTopicSelectionGuard : ITopicSelectionGuard
     }
 }
 
+[Trait("Category", "InMemory")]
 public sealed class NoOpAuditTrail : IAuditTrail
 {
     public Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
 }
 
+[Trait("Category", "InMemory")]
 public sealed class TestAcademicRepository : IAcademicStructureRepository
 {
     public Dictionary<long, AcademicUserScope> Scopes { get; } = new();
@@ -1116,6 +1120,7 @@ public sealed class TestAcademicRepository : IAcademicStructureRepository
     public Task<IReadOnlyList<AcademicHierarchyOrganization>> GetHierarchyAsync(long? organizationId, string? search, bool includeInactive, CancellationToken cancellationToken = default) => throw new NotImplementedException();
 }
 
+[Trait("Category", "InMemory")]
 public sealed class TestProjectRepository : IProjectRepository
 {
     public Task<T> InTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) => action(ct);

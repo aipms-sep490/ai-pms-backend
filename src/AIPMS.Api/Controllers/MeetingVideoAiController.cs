@@ -2,17 +2,21 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Threading;
 using System.Threading.Tasks;
+using AIPMS.Api.Filters;
 using AIPMS.Application.Features.Files;
 using AIPMS.Application.Features.Meetings.Abstractions;
 using AIPMS.Application.Features.Meetings.Video;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AIPMS.Api.Controllers;
 
 [ApiController]
 [Authorize]
+[EnableRateLimiting("ai-assistant")]
+[AiFeatureGate(AiFeatureArea.MeetingAi)]
 [Route("api/v1/meetings/{meetingId:long}/video/ai")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]

@@ -268,7 +268,9 @@ public sealed class UpdateUserAccountCommandHandler(
         if (!string.IsNullOrEmpty(request.ConcurrencyToken)
             && !string.Equals(user.ConcurrencyToken, request.ConcurrencyToken, StringComparison.Ordinal))
         {
-            throw new ConflictException("The user account was modified by another administrator.");
+            throw new ConflictException(
+                "The user account was modified by another administrator.",
+                WorkflowErrorCodes.StaleConcurrencyToken);
         }
 
         var nextFullName = string.IsNullOrWhiteSpace(request.FullName) ? user.FullName : request.FullName.Trim();

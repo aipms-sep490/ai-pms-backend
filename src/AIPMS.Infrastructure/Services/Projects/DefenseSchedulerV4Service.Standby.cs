@@ -100,11 +100,9 @@ internal sealed partial class DefenseSchedulerV4Service
         if (!inPool)
             throw new DomainException("Replacement evaluator is not available in the standby pool for this major.", WorkflowErrorCodes.EvaluatorIneligible);
 
-        // D17 COI check on replacement
-        if (await db.SupervisorAssignments.AsNoTracking().AnyAsync(a => a.ProjectId == session.ProjectId
-            && ((a.IsPrimary && a.AssignmentType == "PRIMARY") || a.EndedAt == null)
-            && a.SupervisorProfile.UserId == input.ReplacementUserId, ct))
-            throw new ConflictException("Replacement evaluator has a supervisor conflict of interest on this project.", WorkflowErrorCodes.EvaluatorRoleConflict);
+        // D17 COI check on replacement (active or former primary supervisor or discipline mentor)
+        if (await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, session.ProjectId, input.ReplacementUserId, ct))
+            throw new ConflictException("Replacement evaluator has a supervisor or mentor conflict of interest on this project (D17).", WorkflowErrorCodes.EvaluatorRoleConflict);
 
         // Check replacement has no overlapping defense session
         var overlapCommittees = await db.Set<DefenseSession>().AsNoTracking()

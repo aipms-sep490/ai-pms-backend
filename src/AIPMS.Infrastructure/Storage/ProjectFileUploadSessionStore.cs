@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.Deliverables.DTOs;
+using AIPMS.Application.Features.Deliverables.Services;
 using AIPMS.Application.Features.Files;
 using AIPMS.Application.Features.Files.Abstractions;
 using Microsoft.Extensions.Configuration;
@@ -100,17 +101,10 @@ internal sealed class ProjectFileUploadSessionStore : IProjectFileUploadSessions
 
     public async Task<ProjectFileUploadSession> CreateAsync(long actorId, CreateProjectFileUploadSession request, CancellationToken ct)
     {
-        if (request.SizeBytes > UploadPolicies.ProjectFileLimit)
-            throw new PayloadTooLargeException(UploadPolicies.ProjectFileLimit, "Tệp vượt giới hạn 500 MiB.");
-        var policy = UploadPolicies.Find("PROJECT_FILE")!;
-        var name = request.FileName?.Trim() ?? "";
-        var extension = Path.GetExtension(name).ToLowerInvariant();
-        var extensionIndex = policy.AllowedExtensions.ToList().IndexOf(extension);
-        if (actorId <= 0 || request.ParentId <= 0 || request.ParentType is not ("TASK" or "REPORT" or "MEETING")
-            || request.SizeBytes <= 0 || request.FileName != name || name.Length is 0 or > 255 || name.EndsWith('.')
-            || name.Any(c => char.IsControl(c) || "<>:\"/\\|?*".Contains(c))
-            || extensionIndex < 0 || !MatchesMime(extension, request.ContentType))
+        if (actorId <= 0 || request.ParentId <= 0 || request.ParentType is not ("TASK" or "REPORT" or "MEETING"))
             throw Invalid("Thông tin tệp hoặc hạng mục không hợp lệ.");
+        ProjectFileUploadValidator.ValidateMetadata(request.FileName ?? "", request.ContentType ?? "", request.SizeBytes);
+        var name = request.FileName!.Trim();
 
         await using var quotaLock = await LockAsync("quota", ".lock", ct);
         var entries = await EntriesAsync(ct);
@@ -129,7 +123,7 @@ internal sealed class ProjectFileUploadSessionStore : IProjectFileUploadSessions
         if (disk.AvailableFreeSpace < 2 * request.SizeBytes + active.Sum(x => 2 * x.TotalBytes - x.NextOffset) + DiskHeadroom)
             throw new ConflictException("Máy chủ chưa đủ dung lượng trống để tiếp nhận tệp này.");
         var entry = new Entry(Guid.NewGuid().ToString("N"), actorId, request.ParentType, request.ParentId,
-            name, request.ContentType, request.SizeBytes, 0, Now.Add(Lifetime));
+            name, request.ContentType!, request.SizeBytes, 0, Now.Add(Lifetime));
         await using (var content = new FileStream(PathFor(entry.SessionId, ".part"), FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
         try { await SaveAsync(entry, ct); }
         catch { System.IO.File.Delete(PathFor(entry.SessionId, ".part")); throw; }
@@ -295,12 +289,14 @@ internal sealed class ProjectFileUploadSessionStore : IProjectFileUploadSessions
         {
             await using var gate = await LockAsync(sessionId, ".lock", CancellationToken.None);
             if ((await ReadAsync(sessionId, CancellationToken.None)).State == "COMPLETED") return;
-            var error = ex is ValidationException
-                ? "Tệp không đúng định dạng hoặc nội dung không hợp lệ. Hãy kiểm tra tệp và tải lại."
-                : ex is ForbiddenException or UnauthorizedException
-                    ? "Bạn không còn quyền đính kèm tệp vào hạng mục này."
-                    : ex is ConflictException ? "Trạng thái hạng mục đã thay đổi. Hãy kiểm tra trước khi thử lưu lại."
-                    : "Chưa thể lưu tệp. Dữ liệu đã tải vẫn được giữ; bạn có thể thử lưu lại.";
+            var error = ex is AIPMS.Domain.Exceptions.DomainException domainEx && domainEx.Code == WorkflowErrorCodes.FileQuarantined
+                ? $"{WorkflowErrorCodes.FileQuarantined}: Tệp không vượt qua bước quét an toàn và đã bị cách ly."
+                : ex is ValidationException
+                    ? "Tệp không đúng định dạng hoặc nội dung không hợp lệ. Hãy kiểm tra tệp và tải lại."
+                    : ex is ForbiddenException or UnauthorizedException
+                        ? "Bạn không còn quyền đính kèm tệp vào hạng mục này."
+                        : ex is ConflictException ? "Trạng thái hạng mục đã thay đổi. Hãy kiểm tra trước khi thử lưu lại."
+                        : "Chưa thể lưu tệp. Dữ liệu đã tải vẫn được giữ; bạn có thể thử lưu lại.";
             await SaveAsync(entry with { State = "FAILED", Error = error }, CancellationToken.None);
         }
     }

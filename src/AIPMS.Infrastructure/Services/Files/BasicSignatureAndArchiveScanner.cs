@@ -17,7 +17,7 @@ namespace AIPMS.Infrastructure.Services.Files;
 public sealed class BasicSignatureAndArchiveScanner : IFileSecurityScanner
 {
     private const long MaxOfficeExpandedBytes = 200L * 1024 * 1024;
-    private const long MaxZipExpandedBytes = 500L * 1024 * 1024;
+    private const long MaxZipExpandedBytes = 2L * 1024 * 1024 * 1024;
     private const int MaxZipEntries = 10_000;
     private const double MaxCompressionRatio = 100.0;
 

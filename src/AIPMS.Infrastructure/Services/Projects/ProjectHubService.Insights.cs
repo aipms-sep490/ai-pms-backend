@@ -81,7 +81,8 @@ internal sealed partial class ProjectHubService
     public async Task<EvidenceRubricLinkDto> LinkEvidenceToRubricAsync(long projectId, LinkEvidenceToRubricRequest input, CancellationToken ct)
     {
         var ctx = await LoadAccessAsync(projectId, ct);
-        RequireProjectMemberOrStaff(ctx);
+        RequireGateReviewOrProjectAccess(ctx, ctx.IsGateReviewer);
+        RequireActiveProject(ctx);
         if (!await db.Set<GateEvidence>().AsNoTracking().AnyAsync(e => e.Id == input.EvidenceId && e.ProjectId == projectId, ct))
             throw new NotFoundException("GateEvidence", input.EvidenceId);
         if (!await db.RubricCriteria.AsNoTracking().AnyAsync(c => c.Id == input.RubricCriterionId, ct))
@@ -108,7 +109,7 @@ internal sealed partial class ProjectHubService
     public async Task<IReadOnlyList<EvidenceRubricLinkDto>> ListEvidenceRubricLinksAsync(long projectId, CancellationToken ct)
     {
         var ctx = await LoadAccessAsync(projectId, ct);
-        RequireProjectMemberOrStaff(ctx);
+        RequireGateReviewOrProjectAccess(ctx, ctx.IsGateReviewer);
         return await db.Set<EvidenceRubricCriterionLink>().AsNoTracking()
             .Where(l => l.ProjectId == projectId)
             .OrderByDescending(l => l.CreatedAt)

@@ -144,8 +144,7 @@ internal sealed class SupervisorRequestRepository(AipmsDbContext context) : ISup
     public async Task<long> AssignAndActivateAsync(SupervisorRequestModel request, long actorId, DateTime now, CancellationToken ct)
     {
         RequireTransaction();
-        if (request.AssignmentType == "PRIMARY")
-            await AcademicAssignmentGuard.EnsurePrimaryAsync(context, request.ProjectId, request.SupervisorProfileId, ct);
+        await AcademicAssignmentGuard.EnsureSupervisorOrMentorAsync(context, request.ProjectId, request.SupervisorProfileId, ct);
         var project = await context.Projects.SingleAsync(p => p.Id == request.ProjectId, ct);
         void Transition(string next)
         {

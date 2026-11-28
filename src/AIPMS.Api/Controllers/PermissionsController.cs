@@ -1,3 +1,4 @@
+using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.AccountSecurity.Commands;
@@ -12,8 +13,16 @@ namespace AIPMS.Api.Controllers;
 [ApiController]
 [Authorize(Policy = AuthorizationPolicies.AccountSecurityManagement)]
 [Route("api/v1/security/permissions")]
-public sealed class PermissionsController(ISender sender) : ControllerBase
+public sealed class PermissionsController(ISender sender, IConfiguration configuration) : ControllerBase
 {
+    private void EnsureRbacMatrixWritable()
+    {
+        if (!bool.TryParse(configuration["Security:RbacMatrixWriteEnabled"], out var enabled) || !enabled)
+            throw new ConflictException(
+                "The permission matrix is read-only. Assign one of the 4 system roles to user accounts instead.",
+                WorkflowErrorCodes.RbacPermissionMatrixReadOnly);
+    }
+
     [HttpGet]
     public async Task<ActionResult<PagedResult<SecurityPermissionDto>>> GetPermissions(
         [FromQuery] string? search,
@@ -38,6 +47,7 @@ public sealed class PermissionsController(ISender sender) : ControllerBase
         CreateSecurityCatalogRequest request,
         CancellationToken cancellationToken)
     {
+        EnsureRbacMatrixWritable();
         var result = await sender.Send(
             new CreatePermissionCommand(request.Code, request.Name, request.Description),
             cancellationToken);
@@ -48,20 +58,24 @@ public sealed class PermissionsController(ISender sender) : ControllerBase
     public async Task<ActionResult<SecurityPermissionDto>> UpdatePermission(
         long permissionId,
         UpdateSecurityCatalogRequest request,
-        CancellationToken cancellationToken) =>
-        Ok(await sender.Send(
+        CancellationToken cancellationToken)
+    {
+        EnsureRbacMatrixWritable();
+        return Ok(await sender.Send(
             new UpdatePermissionCommand(
                 permissionId,
                 request.Code,
                 request.Name,
                 request.Description),
             cancellationToken));
+    }
 
     [HttpDelete("{permissionId:long}")]
     public async Task<IActionResult> DeletePermission(
         long permissionId,
         CancellationToken cancellationToken)
     {
+        EnsureRbacMatrixWritable();
         await sender.Send(new DeletePermissionCommand(permissionId), cancellationToken);
         return NoContent();
     }

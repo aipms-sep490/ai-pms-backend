@@ -86,7 +86,7 @@ internal sealed partial class AiSuiteService
             existingTasks
         }, ct);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         var priority = "MEDIUM";
         var storyPoints = 3;
         var implSummary = $"Gợi ý chia nhỏ tiêu chí thực hiện cho công việc \"{taskTitle}\".";
@@ -194,7 +194,7 @@ internal sealed partial class AiSuiteService
             meetingSummaries = meetings
         }, ct);
 
-        var status = "COMPLETED";
+        var status = ResolveGenerationStatus(true);
         var headline = $"Sprint Retrospective — {sprint.Name}";
         var execSummary = $"Sprint \"{sprint.Name}\" hoàn thành {completedCount}/{tasks.Count} công việc.";
         string[] wentWell = [], needsImprovement = [], bottlenecks = [], nextActions = [];

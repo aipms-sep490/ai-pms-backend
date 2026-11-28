@@ -30,7 +30,19 @@ internal sealed partial class ResultAppealService
     {
         var access = await Scope(projectId, ct); await UploadGuard(await Row(projectId, id, ct), access, token, ct);
         if (content.Length is <= 0 or > 10 * 1024 * 1024) throw Invalid("Appeal evidence is limited to 10 MiB per file.");
-        var upload = await UploadValidator.ReadAsync(content, ct); db.ChangeTracker.Clear(); effective = null;
+        var upload = await UploadValidator.ReadAsync(content, ct, allowArchiveVideoTier: false, allowQuarantineFallback: true);
+        using (var scanStream = new MemoryStream(upload.Bytes, writable: false))
+        {
+            var scan = await scanner.ScanAsync(scanStream, upload.FileName, upload.ContentType, ct);
+            if (!scan.IsSafe)
+            {
+                await audit.RecordAsync(new(Actor, "FILE_SCAN_QUARANTINED", "RESULT_APPEAL", id,
+                    new Dictionary<string, object?> { ["flow"] = "RESULT_APPEAL", ["provider"] = scan.Provider, ["reason"] = scan.Details, ["fileName"] = upload.FileName, ["verdict"] = "QUARANTINED" },
+                    Outcome: "DENIED"), ct);
+                throw new AIPMS.Domain.Exceptions.DomainException(scan.Details ?? "File failed security scan and was quarantined.", WorkflowErrorCodes.FileQuarantined);
+            }
+        }
+        db.ChangeTracker.Clear(); effective = null;
         string? key = null;
         return await files.InTransactionAsync(async transactionCt => {
             await transactions.LockProjectAsync(projectId, transactionCt);
