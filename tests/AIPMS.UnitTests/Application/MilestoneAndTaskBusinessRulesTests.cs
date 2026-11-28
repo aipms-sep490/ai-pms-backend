@@ -216,7 +216,8 @@ public sealed class MilestoneAndTaskBusinessRulesTests
                 startAt: new DateTime(2026, 11, 15, 0, 0, 0, DateTimeKind.Utc),
                 dueAt: new DateTime(2026, 11, 12, 0, 0, 0, DateTimeKind.Utc)));
 
-        Assert.Contains("earlier", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(WorkflowErrorCodes.TaskOutsideMilestone, ex.Code);
+        Assert.Contains("sớm hơn", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

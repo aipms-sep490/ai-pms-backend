@@ -328,8 +328,7 @@ internal sealed partial class AcademicKnowledgeService(
                 "For INSUFFICIENT_EVIDENCE set insufficientEvidence=true and citationIds=[]. For GENERAL set insufficientEvidence=false and citationIds=[].";
             try
             {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue<int?>("AiAssistant:TimeoutSeconds") ?? 40, 1, 90)));
+                var attemptTimeoutSeconds = Math.Clamp(configuration.GetValue<int?>("AiAssistant:TimeoutSeconds") ?? 40, 1, 90);
                 var localTime = clock.GetUtcNow().ToOffset(TimeSpan.FromHours(7));
                 var academicSetupContext = await BuildAcademicSetupContextAsync(actor.DepartmentId, request.ProjectPeriodId, request.ToolMode, ct);
                 var prompt = JsonSerializer.Serialize(new
@@ -350,6 +349,8 @@ internal sealed partial class AcademicKnowledgeService(
                 for (var attempt = 0; attempt < 2; attempt++)
                 {
                     var retryableJsonFailure = true;
+                    using var attemptTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    attemptTimeout.CancelAfter(TimeSpan.FromSeconds(attemptTimeoutSeconds));
                     try
                     {
                         var activeSystem = attempt == 0
@@ -361,10 +362,10 @@ internal sealed partial class AcademicKnowledgeService(
                                 partial.Append(delta);
                                 var preview = PartialAnswer(partial.ToString());
                                 if (preview != null) await emit(new("preview", SanitizePersona(preview)));
-                            }, timeout.Token)
+                            }, attemptTimeout.Token)
                             : images.Length == 0
-                            ? await provider.GenerateTextAsync(activeSystem, prompt, timeout.Token)
-                            : await ((IAiVisionProvider)provider).GenerateWithImagesAsync(activeSystem, prompt, images, timeout.Token);
+                            ? await provider.GenerateTextAsync(activeSystem, prompt, attemptTimeout.Token)
+                            : await ((IAiVisionProvider)provider).GenerateWithImagesAsync(activeSystem, prompt, images, attemptTimeout.Token);
 
                         var cleanedRaw = AiJsonSanitizer.ExtractJsonObject(raw);
                         if (cleanedRaw.Length == 0 || cleanedRaw.Length > 48000)
@@ -504,7 +505,7 @@ internal sealed partial class AcademicKnowledgeService(
                         }
                         break;
                     }
-                    catch (JsonException ex) when (attempt == 0 && retryableJsonFailure && !timeout.IsCancellationRequested)
+                    catch (JsonException ex) when (attempt == 0 && retryableJsonFailure && !ct.IsCancellationRequested)
                     {
                         logger?.LogWarning("Assistant JSON response invalid on first attempt ({FailureMessage}); retrying once.", ex.Message);
                     }
