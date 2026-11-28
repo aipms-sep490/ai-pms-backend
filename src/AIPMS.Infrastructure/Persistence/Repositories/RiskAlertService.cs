@@ -163,6 +163,31 @@ internal sealed class RiskAlertService(
         }
 
         await db.SaveChangesAsync(ct);
+
+        // TK-W4-08: Enqueue SMTP email delivery only for critical/RED (HIGH) risk alerts, never spamming MEDIUM/YELLOW alerts.
+        if (pulse.Status is "RED" or "CRITICAL" || riskLevel is "HIGH" or "CRITICAL")
+        {
+            var recipientIds = occurrence.Notification.NotificationRecipients.Select(r => r.Id).Where(id => id > 0).ToArray();
+            if (recipientIds.Length > 0)
+            {
+                var existingEmails = await db.Set<NotificationEmailDelivery>()
+                    .Where(d => recipientIds.Contains(d.NotificationRecipientId))
+                    .Select(d => d.NotificationRecipientId)
+                    .ToListAsync(ct);
+                var missingEmails = recipientIds.Where(id => !existingEmails.Contains(id))
+                    .Select(id => new NotificationEmailDelivery
+                    {
+                        NotificationRecipientId = id,
+                        NextAttemptAt = nowUtc
+                    }).ToArray();
+                if (missingEmails.Length > 0)
+                {
+                    db.Set<NotificationEmailDelivery>().AddRange(missingEmails);
+                    await db.SaveChangesAsync(ct);
+                }
+            }
+        }
+
         await transaction.CommitAsync(ct);
     }
 

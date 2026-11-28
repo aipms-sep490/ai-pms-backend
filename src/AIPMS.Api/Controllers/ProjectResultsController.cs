@@ -1,3 +1,4 @@
+using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Results.Commands;
 using AIPMS.Application.Features.Results.DTOs;
 using AIPMS.Application.Features.Results.Queries;
@@ -42,4 +43,20 @@ public sealed class ProjectResultsController(ISender sender) : ControllerBase
     [ProducesResponseType<ProjectResultDto>(200)]
     public async Task<ActionResult<ProjectResultDto>> Get(long projectId, CancellationToken ct) =>
         Ok(await sender.Send(new GetProjectResultQuery(projectId), ct));
+
+    [Authorize(Roles = AppRoles.DepartmentStaff)]
+    [HttpGet("/api/v1/departments/me/results/export")]
+    [ProducesResponseType(typeof(FileContentResult), 200)]
+    public async Task<IActionResult> ExportDepartmentResults(
+        [FromQuery] long? semesterId = null,
+        [FromQuery] long? majorId = null,
+        [FromQuery] string format = "xlsx",
+        [FromQuery] string? search = null,
+        CancellationToken ct = default)
+    {
+        var file = await sender.Send(new ExportDepartmentResultsReconciliationQuery(semesterId, majorId, format, search), ct);
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return File(file.Content, file.ContentType, file.FileName);
+    }
 }

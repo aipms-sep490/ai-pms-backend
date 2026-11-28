@@ -33,14 +33,18 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
     private long Actor => current.UserId ?? throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
-    private async Task NotifyGateChanged(long projectId, long gateId, string gateCode, string eventName, CancellationToken ct)
+    private async Task NotifyGateChanged(long projectId, long gateId, string gateCode, string eventName, CancellationToken ct,
+        bool enqueueEmail = false, bool includeDepartmentStaff = false)
     {
-        var recipients = await db.Users.AsNoTracking()
+        var recipientsQuery = db.Users.AsNoTracking()
             .Where(u => u.Status == "ACTIVE" && u.Id != Actor &&
                 (u.TeamMembers.Any(m => m.Team.Project != null && m.Team.Project.Id == projectId && m.LeftAt == null) ||
                  db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == u.Id) ||
-                 db.GateReviewerAssignments.Any(a => a.GateInstanceId == gateId && a.ReviewerId == u.Id && a.Status != "REVOKED")))
-            .Select(u => u.Id).Distinct().ToArrayAsync(ct);
+                 db.GateReviewerAssignments.Any(a => a.GateInstanceId == gateId && a.ReviewerId == u.Id && a.Status != "REVOKED") ||
+                 (includeDepartmentStaff
+                    && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF")
+                    && db.ProjectMajors.Any(pm => pm.ProjectId == projectId && pm.Major.IsActive && pm.Major.DepartmentId == u.DepartmentId))));
+        var recipients = await recipientsQuery.Select(u => u.Id).Distinct().ToArrayAsync(ct);
         if (recipients.Length == 0) return;
         var project = await db.Projects.AsNoTracking().Where(p => p.Id == projectId)
             .Select(p => new { p.Code, p.Title }).FirstOrDefaultAsync(ct);
@@ -56,7 +60,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         var actorSuffix = string.IsNullOrWhiteSpace(actorName) ? "" : $" (Thực hiện bởi {actorName})";
         var content = $"{prefix}{eventName}{actorSuffix}";
         var now = Now;
-        db.Notifications.Add(new AIPMS.Infrastructure.Persistence.Generated.Models.Notification
+        var notification = new AIPMS.Infrastructure.Persistence.Generated.Models.Notification
         {
             CreatedBy = Actor,
             NotificationType = "REVIEW_GATE_UPDATED",
@@ -68,10 +72,20 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             UpdatedAt = now,
             NotificationRecipients = recipients.Select(id => new AIPMS.Infrastructure.Persistence.Generated.Models.NotificationRecipient
             {
-                UserId = id, CreatedAt = now, UpdatedAt = now
+                UserId = id, CreatedAt = now, UpdatedAt = now, DeliveredAt = now
             }).ToArray()
-        });
+        };
+        db.Notifications.Add(notification);
         await db.SaveChangesAsync(ct);
+        if (enqueueEmail)
+        {
+            db.AddRange(notification.NotificationRecipients.Select(r => new AIPMS.Infrastructure.Persistence.Models.NotificationEmailDelivery
+            {
+                NotificationRecipientId = r.Id,
+                NextAttemptAt = now
+            }));
+            await db.SaveChangesAsync(ct);
+        }
     }
 
     private static string GateStatusLabel(string status) => status switch
@@ -884,7 +898,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         row.GateInstance.Status = input.Decision == "REVISION_REQUIRED" || hasScopeVeto ? "REVISION_REQUIRED" : gatePassed ? "PASSED" : "IN_REVIEW";
         row.GateInstance.ReviewEligibility = row.GateInstance.Status == "REVISION_REQUIRED" ? "BLOCKED" : "READY";
         await db.SaveChangesAsync(token);
-        await NotifyGateChanged(row.GateInstance.ProjectId, row.GateInstance.Id, row.GateInstance.Code, $"Quyết định kiểm duyệt cổng {row.GateInstance.Code}: {GateStatusLabel(input.Decision)}.", token);
+        await NotifyGateChanged(row.GateInstance.ProjectId, row.GateInstance.Id, row.GateInstance.Code, $"Quyết định kiểm duyệt cổng {row.GateInstance.Code}: {GateStatusLabel(input.Decision)}.", token, enqueueEmail: true, includeDepartmentStaff: true);
         if (gatePassed) await OpenNextGate(row.GateInstance, token);
         await audit.RecordAsync(new(Actor, "REVIEW_GATE_DECISION_RECORDED", "REVIEW_GATE_ASSIGNMENT", row.Id, new Dictionary<string, object?> { ["decision"] = input.Decision }), token);
         var project = await db.Projects.AsNoTracking().SingleAsync(x => x.Id == row.GateInstance.ProjectId, token);
@@ -979,7 +993,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             db, Actor, "REVIEW_GATE_ASSIGNED",
             $"Bạn được phân công phản biện cổng {gate.Code} ({project.Code})",
             $"Bạn được Khoa phân công thẩm định cổng {gate.Code} cho đồ án {project.Code} - {project.Title} (Phạm vi: {input.Scope}).",
-            "REVIEW_GATE_ASSIGNMENT", row.Id, [reviewer.Id], Now, enqueueEmail: false, token);
+            "REVIEW_GATE_ASSIGNMENT", row.Id, [reviewer.Id], Now, enqueueEmail: true, token);
         await audit.RecordAsync(new(Actor, "REVIEW_GATE_ASSIGNMENT_CREATED", "REVIEW_GATE_ASSIGNMENT", row.Id, new Dictionary<string, object?> { ["projectId"] = projectId, ["gateCode"] = gate.Code, ["reviewerId"] = reviewer.Id, ["scope"] = input.Scope }), token);
         return AssignmentDto(row, project, await LoadSubmitterNamesAsync([gate], token));
     }, ct);
@@ -1002,7 +1016,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             db, Actor, "REVIEW_GATE_REVOKED",
             $"Phân công phản biện cổng {row.GateInstance.Code} ({project.Code}) đã bị thu hồi",
             $"Phân công thẩm định cổng {row.GateInstance.Code} cho đồ án {project.Code} đã được thu hồi. Lý do: {row.RevocationReason}",
-            "REVIEW_GATE_ASSIGNMENT", row.Id, [row.ReviewerId], Now, enqueueEmail: false, token);
+            "REVIEW_GATE_ASSIGNMENT", row.Id, [row.ReviewerId], Now, enqueueEmail: true, token);
         await audit.RecordAsync(new(Actor, "REVIEW_GATE_ASSIGNMENT_REVOKED", "REVIEW_GATE_ASSIGNMENT", row.Id,
             new Dictionary<string, object?> { ["projectId"] = row.GateInstance.ProjectId, ["reason"] = row.RevocationReason }), token);
         return AssignmentDto(row, project, await LoadSubmitterNamesAsync([row.GateInstance], token));

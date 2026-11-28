@@ -12,13 +12,24 @@ public sealed class ResultCorrectionBundle
     public Guid ConcurrencyToken { get; set; } = Guid.NewGuid();
     public long? PublishedBy { get; set; }
     public DateTime? PublishedAt { get; set; }
+    public string? AbsenceOverrideJson { get; set; }
     public ICollection<ResultScoreAmendment> Amendments { get; set; } = [];
+    public ICollection<ResultGateScoreAmendment> GateAmendments { get; set; } = [];
 }
 public sealed class ResultScoreAmendment
 {
     public long BundleId { get; set; }
     public long EvaluationId { get; set; }
     public long CriterionId { get; set; }
+    public decimal Score { get; set; }
+    public string Reason { get; set; } = "";
+}
+public sealed class ResultGateScoreAmendment
+{
+    public long Id { get; set; }
+    public long BundleId { get; set; }
+    public long GateScoreId { get; set; }
+    public int GateNumber { get; set; }
     public decimal Score { get; set; }
     public string Reason { get; set; } = "";
 }

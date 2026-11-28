@@ -217,6 +217,13 @@ internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraf
                                 ["newStatus"] = "ACTIVE",
                                 ["source"] = "WORKING_AGREEMENT_ACCEPTED"
                             }), ct);
+                        var activatedStudents = await V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(db, projectId, ct);
+                        var activatedSupervisors = await V4WorkflowNotificationHelper.GetActiveSupervisorAndMentorIdsAsync(db, projectId, primaryOnly: false, ct);
+                        await V4WorkflowNotificationHelper.EmitAsync(
+                            db, Actor, "PROJECT_ACTIVATED",
+                            $"Đồ án {project.Code} đã chính thức kích hoạt",
+                            $"Đồ án {project.Code} - {project.Title} đã hoàn tất cam kết nhóm và chuyển sang trạng thái ACTIVE.",
+                            "PROJECT", projectId, activatedStudents.Concat(activatedSupervisors), now, enqueueEmail: true, ct);
                     }
                 }
             }

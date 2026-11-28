@@ -120,6 +120,19 @@ internal sealed partial class ChatService(AipmsDbContext db, ChatAccessService a
                 Event(c, actor, "ConversationChanged", "CHAT_CREATED");
                 await db.SaveChangesAsync(ct);
             }
+            else if (kind == "DIRECT" && c.Status == "READ_ONLY" && await access.Contacts(actor).ContainsAsync(target, ct) && await access.Active(target, ct))
+            {
+                // TK-W4-06: Reopen archived DIRECT conversation if the two users now share a new active TEAM/PROJECT scope.
+                c.Status = "OPEN";
+                c.UpdatedAt = Now;
+                c.Version++;
+                var activeIntervals = await db.Set<ChatMembershipInterval>()
+                    .Where(m => m.ConversationId == c.Id && m.LeftAt == null && m.Retained).ToListAsync(ct);
+                foreach (var m in activeIntervals) m.Retained = false;
+                await Sync(c, ct);
+                Event(c, actor, "ConversationChanged", "CHAT_REOPENED");
+                await db.SaveChangesAsync(ct);
+            }
             else if (!await access.CanAccessAsync(actor, c.Id, ct)) throw Hidden();
             id = c.Id;
             await tx.CommitAsync(ct);

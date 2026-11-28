@@ -268,13 +268,20 @@ public sealed class UpdateUserAccountCommandHandler(
     IUserAccountRepository userRepository,
     AccountSecurityAccessService accessService,
     IAuditTrail auditTrail,
-    TimeProvider timeProvider) : IRequestHandler<UpdateUserAccountCommand, UserAccountDto>
+    TimeProvider timeProvider,
+    Microsoft.Extensions.Options.IOptions<AIPMS.Application.Common.Options.ExecutionConcurrencySettings>? concurrencyOptions = null) : IRequestHandler<UpdateUserAccountCommand, UserAccountDto>
 {
     public async Task<UserAccountDto> Handle(
         UpdateUserAccountCommand request,
         CancellationToken cancellationToken)
     {
         accessService.EnsureAdministrator();
+        if (concurrencyOptions?.Value.RequireTokens == true && string.IsNullOrWhiteSpace(request.ConcurrencyToken))
+        {
+            throw new ConflictException(
+                "A current concurrencyToken is required. Reload before saving.",
+                WorkflowErrorCodes.StaleConcurrencyToken);
+        }
         var user = await userRepository.GetUserAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("User", request.UserId);
 

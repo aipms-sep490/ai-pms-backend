@@ -7,6 +7,7 @@ using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Security;
+using AIPMS.Domain.Exceptions;
 using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.AccountSecurity.Abstractions;
 using AIPMS.Application.Features.Projects.Services;
@@ -23,7 +24,8 @@ public sealed class ArchiveProjectCommandHandler(
     IAcademicStructureRepository academicRepository,
     ICurrentUser currentUser,
     IAuditTrail auditTrail,
-    IUserAccountRepository users) : IRequestHandler<ArchiveProjectCommand, ProjectDto>
+    IUserAccountRepository users,
+    TimeProvider? timeProvider = null) : IRequestHandler<ArchiveProjectCommand, ProjectDto>
 {
     public Task<ProjectDto> Handle(ArchiveProjectCommand request, CancellationToken ct) => repository.InTransactionAsync(async cancellationToken =>
     {
@@ -44,19 +46,33 @@ public sealed class ArchiveProjectCommandHandler(
                 departmentId = id;
         }
         var departmentIds = await repository.GetProjectMajorDepartmentIdsAsync(request.ProjectId, cancellationToken);
+        var leadDepartmentId = await repository.GetLeadDepartmentIdAsync(request.ProjectId, cancellationToken);
         if (!isStaff)
             throw new ForbiddenException(
                 isAdmin
                     ? "Platform administrators without DEPARTMENT_STAFF role cannot archive academic projects."
                     : "Only department staff within the project's academic scope can archive projects.",
                 isAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.Forbidden);
-        if (!ProjectArchivePolicy.HasScope(false, isStaff, departmentId, departmentIds)
+        if (!ProjectArchivePolicy.HasLeadScope(isStaff, departmentId, leadDepartmentId, departmentIds)
             || !await repository.CanUserViewProjectAsync(request.ProjectId, actorId, false, departmentId, cancellationToken))
-            throw new ForbiddenException("You can only archive projects within your academic department scope.");
+            throw new ForbiddenException("Only lead department staff can archive projects within their academic scope.", WorkflowErrorCodes.ScopeAccessDenied);
         if (!ProjectArchivePolicy.HasState(project.Status))
-            throw new ConflictException("Only a COMPLETED project can be archived.", WorkflowErrorCodes.ArchiveNotAllowed);
-        if (await repository.HasOpenAppealsAsync(request.ProjectId, cancellationToken))
-            throw new ConflictException("Cannot archive a project while open result appeals or correction requests exist.", WorkflowErrorCodes.ArchiveNotAllowed);
+            throw new ConflictException(
+                "Only a COMPLETED project can be archived.",
+                WorkflowErrorCodes.ArchiveNotAllowed,
+                new ProblemMetadata(BlockingRequirements: [new BlockingRequirement("PROJECT_NOT_COMPLETED", "Đồ án phải ở trạng thái Đã hoàn thành (COMPLETED) trước khi lưu trữ.")]));
+
+        var utcNow = (timeProvider ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+        var blockers = (await repository.GetArchiveBlockersAsync(request.ProjectId, utcNow, cancellationToken)).ToList();
+        if (blockers.All(b => b.Code != "OPEN_APPEALS_EXIST") && await repository.HasOpenAppealsAsync(request.ProjectId, cancellationToken))
+            blockers.Add(new BlockingRequirement("OPEN_APPEALS_EXIST", "Vẫn còn đơn phúc khảo hoặc đính chính đang chờ xử lý."));
+
+        if (blockers.Count > 0)
+            throw new ConflictException(
+                "Cannot archive project until all student results are published and all appeal windows/requests are closed.",
+                WorkflowErrorCodes.ArchiveNotAllowed,
+                new ProblemMetadata(BlockingRequirements: blockers));
+
         var updated = await repository.UpdateStatusAsync(request.ProjectId, request.ConcurrencyToken,
             project.Status, "ARCHIVED", actorId, request.Reason?.Trim(), cancellationToken);
         await auditTrail.RecordAsync(new AuditEntry(actorId, "PROJECT_ARCHIVED", "PROJECT", updated.Id,

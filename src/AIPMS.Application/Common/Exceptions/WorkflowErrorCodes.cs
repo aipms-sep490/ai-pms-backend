@@ -118,6 +118,9 @@ public static class WorkflowErrorCodes
     public const string DefenseRoomCapacity = "DEFENSE_ROOM_CAPACITY";
     public const string DefenseAlreadyScheduled = "DEFENSE_ALREADY_SCHEDULED";
     public const string ChangeRequestWindowExpired = "CHANGE_REQUEST_WINDOW_EXPIRED";
+    public const string AppealProcess20NoExternalReviewer = "APPEAL_PROCESS_20_NO_EXTERNAL_REVIEWER";
+    public const string DefenseAbsenceNotFound = "DEFENSE_ABSENCE_NOT_FOUND";
+    public const string ProjectArchived = "PROJECT_ARCHIVED";
     public const string FeatureDisabled = "FEATURE_DISABLED";
     public const string InterdisciplinaryDefenseCommonBelowFloor = "INTERDISCIPLINARY_DEFENSE_COMMON_BELOW_FLOOR";
     public const string Unauthorized = "UNAUTHORIZED";

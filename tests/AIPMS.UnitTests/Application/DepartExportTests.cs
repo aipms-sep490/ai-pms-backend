@@ -45,13 +45,24 @@ public sealed class DepartExportTests
     {
         var rows = Rows(120);
         rows[0] = (rows[0].Project with { Title = "=HYPERLINK(\"https://example.test\")" }, rows[0].Analysis);
-        using var zip = new ZipArchive(new MemoryStream(DashboardSpreadsheetWriter.Write(rows)));
+        var bytes = DashboardSpreadsheetWriter.Write(rows, new DateTime(2026, 10, 8, 1, 2, 3, DateTimeKind.Utc));
+        using var zip = new ZipArchive(new MemoryStream(bytes));
         using var sheetStream = zip.GetEntry("xl/worksheets/sheet1.xml")!.Open();
         var sheet = XDocument.Load(sheetStream);
         XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
         Assert.Equal(121, sheet.Descendants(ns + "row").Count());
+        var headerRow = sheet.Descendants(ns + "row").First();
+        var headers = headerRow.Descendants(ns + "t").Select(t => t.Value).ToArray();
+        Assert.Equal(
+            [
+                "projectId", "code", "title", "status", "semesterId", "majorCodes", "supervisor",
+                "riskLevel", "riskScore", "progressPercentage", "totalTasks", "doneTasks",
+                "blockedTasks", "overdueTasks", "generatedAtUtc"
+            ],
+            headers);
         Assert.Empty(sheet.Descendants(ns + "f"));
         Assert.Contains(sheet.Descendants(ns + "t"), t => t.Value.Contains("<test> & research"));
         Assert.Contains(sheet.Descendants(ns + "t"), t => t.Value.Contains("HYPERLINK"));
+        Assert.Contains(sheet.Descendants(ns + "t"), t => t.Value == "2026-10-08T01:02:03.0000000Z");
     }
 }

@@ -45,6 +45,12 @@ public sealed class ResultAppealsController(IAppealService appeals) : Controller
     public Task<AppealPreviewDto> Preview(long projectId, long id, CancellationToken ct) => appeals.Preview(projectId, id, ct);
     [HttpPost("correction-requests/{id:long}/decision")]
     public Task<CorrectionRequestDto> Decide(long projectId, long id, AppealDecisionRequest input, CancellationToken ct) => appeals.Decide(projectId, id, input, ct);
+    [HttpGet("correction-requests/{id:long}/eligible-reviewers")]
+    public Task<IReadOnlyList<EligibleAppealReviewerDto>> EligibleReviewers(long projectId, long id, CancellationToken ct) =>
+        appeals.GetEligibleReviewers(projectId, id, ct);
+    [HttpPut("correction-requests/{id:long}/supervisor-errata")]
+    public Task<CorrectionRequestDto> SupervisorErrata(long projectId, long id, SupervisorErrataResponseRequest input, CancellationToken ct) =>
+        appeals.SubmitSupervisorErrata(projectId, id, input, ct);
     [HttpPost("correction-requests/{id:long}/withdraw")]
     public Task<CorrectionRequestDto> Withdraw(long projectId, long id, WithdrawAppealRequest input, CancellationToken ct) => appeals.Withdraw(projectId, id, input, ct);
     [HttpGet("correction-requests/{id:long}/history")]

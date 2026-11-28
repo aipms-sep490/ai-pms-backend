@@ -13,7 +13,7 @@ public sealed record NotificationEmailDelivery(
 
 public interface INotificationEmailQueue
 {
-    Task<NotificationEmailDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct, string? notificationType = null);
+    Task<NotificationEmailDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct, string? notificationType = null, string? excludeNotificationType = null);
     Task MarkSentAsync(long recipientId, DateTime nowUtc, CancellationToken ct, int? expectedAttempt = null);
     Task MarkFailedAsync(long recipientId, DateTime nextAttemptAtUtc, string error, bool permanent, CancellationToken ct, int? expectedAttempt = null);
 }

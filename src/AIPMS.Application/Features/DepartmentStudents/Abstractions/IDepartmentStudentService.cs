@@ -46,4 +46,8 @@ public interface IDepartmentStudentService
     Task<RosterFile> ExportAdminUserAccountsAsync(
         AdminUserAccountExportQuery query,
         CancellationToken ct = default);
+
+    Task<RosterFile> ExportEmergencyContactsAsync(
+        DepartmentStudentQuery query,
+        CancellationToken ct = default);
 }

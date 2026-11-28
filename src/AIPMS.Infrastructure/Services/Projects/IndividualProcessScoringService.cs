@@ -17,7 +17,8 @@ internal sealed class IndividualProcessScoringService(
     IEvaluationDraftRepository transactions,
     ICurrentUser current,
     IAuditTrail audit,
-    TimeProvider clock) : IIndividualProcessScoringService
+    TimeProvider clock,
+    Microsoft.Extensions.Options.IOptions<AIPMS.Application.Common.Options.ExecutionConcurrencySettings>? concurrencyOptions = null) : IIndividualProcessScoringService
 {
     private long Actor => current.IsAuthenticated && current.UserId.HasValue
         ? current.UserId.Value
@@ -198,6 +199,8 @@ internal sealed class IndividualProcessScoringService(
             {
                 if (existing.Status == "FINALIZED")
                     throw new ConflictException("Finalized individual process scores are immutable.", WorkflowErrorCodes.ImmutableVersion);
+                if (concurrencyOptions?.Value.RequireTokens == true && string.IsNullOrWhiteSpace(input.ConcurrencyToken))
+                    throw new ConflictException("A current concurrencyToken is required. Reload before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);
                 if (!string.IsNullOrWhiteSpace(input.ConcurrencyToken)
                     && (!Guid.TryParse(input.ConcurrencyToken, out var parsed) || parsed != existing.ConcurrencyToken))
                     throw new ConflictException("Individual process score has changed. Reload before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);
@@ -318,6 +321,8 @@ internal sealed class IndividualProcessScoringService(
             {
                 if (existing.Status == "FINALIZED")
                     throw new ConflictException("Cannot add mentor reference notes after the primary supervisor has finalized this gate score.", WorkflowErrorCodes.ImmutableVersion);
+                if (concurrencyOptions?.Value.RequireTokens == true && string.IsNullOrWhiteSpace(input.ConcurrencyToken))
+                    throw new ConflictException("A current concurrencyToken is required. Reload before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);
                 if (!string.IsNullOrWhiteSpace(input.ConcurrencyToken)
                     && (!Guid.TryParse(input.ConcurrencyToken, out var parsed) || parsed != existing.ConcurrencyToken))
                     throw new ConflictException("Individual process score has changed. Reload before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);

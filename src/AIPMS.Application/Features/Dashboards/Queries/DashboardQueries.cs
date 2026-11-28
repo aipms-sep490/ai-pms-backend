@@ -128,15 +128,31 @@ internal static class DashboardCsvWriter
 
 internal static class DashboardSpreadsheetWriter
 {
-    public static byte[] Write(IEnumerable<(DashboardProjectFacts Project, ProjectProgressAnalysisDto Analysis)> rows)
+    public static byte[] Write(IEnumerable<(DashboardProjectFacts Project, ProjectProgressAnalysisDto Analysis)> rows, DateTime? now = null)
     {
-        var values = rows.Select(x => new[] { x.Project.Id.ToString(CultureInfo.InvariantCulture), x.Project.Code,
-            x.Project.Title, x.Project.Status, x.Project.SemesterId.ToString(CultureInfo.InvariantCulture),
-            x.Analysis.RiskLevel, x.Analysis.ProgressSummary.ProgressPercentage.ToString(CultureInfo.InvariantCulture),
-            x.Analysis.ProgressSummary.TotalTasks.ToString(CultureInfo.InvariantCulture),
-            x.Analysis.ProgressSummary.DoneTasks.ToString(CultureInfo.InvariantCulture),
-            x.Analysis.ProgressSummary.OverdueTasks.ToString(CultureInfo.InvariantCulture) }).ToArray();
-        var headers = new[] { "projectId", "code", "title", "status", "semesterId", "riskLevel", "progressPercentage", "totalTasks", "doneTasks", "overdueTasks" };
+        var generatedAt = (now ?? DateTime.UtcNow).ToString("O", CultureInfo.InvariantCulture);
+        var values = rows
+            .OrderByDescending(x => x.Project.CreatedAt)
+            .ThenByDescending(x => x.Project.Id)
+            .Select(x => new[]
+            {
+                x.Project.Id.ToString(CultureInfo.InvariantCulture),
+                x.Project.Code,
+                x.Project.Title,
+                x.Project.Status,
+                x.Project.SemesterId.ToString(CultureInfo.InvariantCulture),
+                string.Join(";", (x.Project.Majors ?? []).Select(m => m.Code)),
+                x.Project.Supervisor?.Name ?? "",
+                x.Analysis.RiskLevel,
+                x.Analysis.RiskScore?.ToString(CultureInfo.InvariantCulture) ?? "",
+                x.Analysis.ProgressSummary.ProgressPercentage.ToString(CultureInfo.InvariantCulture),
+                x.Analysis.ProgressSummary.TotalTasks.ToString(CultureInfo.InvariantCulture),
+                x.Analysis.ProgressSummary.DoneTasks.ToString(CultureInfo.InvariantCulture),
+                x.Analysis.ProgressSummary.BlockedTasks.ToString(CultureInfo.InvariantCulture),
+                x.Analysis.ProgressSummary.OverdueTasks.ToString(CultureInfo.InvariantCulture),
+                generatedAt
+            }).ToArray();
+        var headers = new[] { "projectId", "code", "title", "status", "semesterId", "majorCodes", "supervisor", "riskLevel", "riskScore", "progressPercentage", "totalTasks", "doneTasks", "blockedTasks", "overdueTasks", "generatedAtUtc" };
         using var output = new MemoryStream();
         using (var zip = new ZipArchive(output, ZipArchiveMode.Create, true))
         {
@@ -306,7 +322,7 @@ public sealed class ExportPortfolioDashboardQueryHandler(IDashboardRepository re
             var analyzed = facts.Projects.Select(p => (Project: p, Analysis: DashboardMapping.AnalyzeWithHealthPulse(p, analysis, now.UtcDateTime, token))).ToArray();
             var (content, extension, contentType) = format switch
             {
-                "xlsx" => (DashboardSpreadsheetWriter.Write(analyzed), "xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                "xlsx" => (DashboardSpreadsheetWriter.Write(analyzed, now.UtcDateTime), "xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
                 "pdf" => (DashboardPdfWriter.Write(analyzed), "pdf", "application/pdf"),
                 _ => (DashboardCsvWriter.Write(analyzed, now.UtcDateTime), "csv", "text/csv; charset=utf-8")
             };

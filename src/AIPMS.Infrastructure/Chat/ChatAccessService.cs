@@ -12,8 +12,19 @@ namespace AIPMS.Infrastructure.Chat;
 internal sealed class ChatAccessService(AipmsDbContext db, TimeProvider clock) : IChatAccessService
 {
     internal IQueryable<ChatScopeMember> LiveScopes => db.Set<ChatScopeMember>().Where(s =>
-        s.Kind == "TEAM" ? db.Teams.Any(t => t.Id == s.ScopeId && t.Status != "DISBANDED" && t.Status != "ARCHIVED" && t.Status != "CLOSED")
+        s.Kind == "TEAM" ? db.Teams.Any(t => t.Id == s.ScopeId && t.Status != "DISBANDED" && t.Status != "ARCHIVED" && t.Status != "CLOSED"
+            && !db.Projects.Any(p => p.TeamId == t.Id && (p.Status == "ARCHIVED" || p.Status == "CANCELLED")))
         : db.Projects.Any(p => p.Id == s.ScopeId && p.Status != "COMPLETED" && p.Status != "ARCHIVED" && p.Status != "CANCELLED"));
+
+    // TK-W4-06: Preserve DIRECT conversation access while a shared project is COMPLETED (e.g. appeals phase before ARCHIVED).
+    internal IQueryable<ChatScopeMember> DirectReadableScopes => db.Set<ChatScopeMember>().Where(s =>
+        s.Kind == "TEAM" ? db.Teams.Any(t => t.Id == s.ScopeId && t.Status != "DISBANDED" && t.Status != "ARCHIVED" && t.Status != "CLOSED"
+            && !db.Projects.Any(p => p.TeamId == t.Id && (p.Status == "ARCHIVED" || p.Status == "CANCELLED")))
+        : db.Projects.Any(p => p.Id == s.ScopeId && p.Status != "ARCHIVED" && p.Status != "CANCELLED"));
+
+    internal IQueryable<long> DirectReadableContacts(long actor) => from a in DirectReadableScopes where a.UserId == actor
+        join b in DirectReadableScopes on new { a.Kind, a.ScopeId } equals new { b.Kind, b.ScopeId }
+        where b.UserId != actor select b.UserId;
 
     internal IQueryable<long> Contacts(long actor) => from a in LiveScopes where a.UserId == actor
         join b in LiveScopes on new { a.Kind, a.ScopeId } equals new { b.Kind, b.ScopeId }
@@ -25,7 +36,7 @@ internal sealed class ChatAccessService(AipmsDbContext db, TimeProvider clock) :
 
     internal IQueryable<ChatConversation> Allowed(long actor) => db.Set<ChatConversation>().Where(c =>
         c.Status == "READ_ONLY" ? db.Set<ChatMembershipInterval>().Any(m => m.ConversationId == c.Id && m.UserId == actor && m.LeftAt == null && m.Retained)
-        : c.Kind == "DIRECT" ? (c.FirstUserId == actor || c.SecondUserId == actor) && Contacts(actor).Contains(c.FirstUserId == actor ? c.SecondUserId!.Value : c.FirstUserId!.Value)
+        : c.Kind == "DIRECT" ? (c.FirstUserId == actor || c.SecondUserId == actor) && DirectReadableContacts(actor).Contains(c.FirstUserId == actor ? c.SecondUserId!.Value : c.FirstUserId!.Value)
         : LiveScopes.Any(s => s.UserId == actor && s.Kind == c.Kind && s.ScopeId == (c.Kind == "TEAM" ? c.TeamId : c.ProjectId)));
 
     public async Task<bool> CanAccessAsync(long userId, long conversationId, CancellationToken ct) =>
@@ -37,8 +48,8 @@ internal sealed class ChatAccessService(AipmsDbContext db, TimeProvider clock) :
             .ToDictionaryAsync(m => m.UserId, m => m.SourceKey, ct);
         if (c.Kind == "DIRECT")
         {
-            var sources = await (from a in LiveScopes where a.UserId == c.FirstUserId
-                join b in LiveScopes on new { a.Kind, a.ScopeId } equals new { b.Kind, b.ScopeId }
+            var sources = await (from a in DirectReadableScopes where a.UserId == c.FirstUserId
+                join b in DirectReadableScopes on new { a.Kind, a.ScopeId } equals new { b.Kind, b.ScopeId }
                 where b.UserId == c.SecondUserId select a.SourceKey + "/" + b.SourceKey).Distinct().ToListAsync(ct);
             if (sources.Count == 0) return [];
             var key = Hash(sources);

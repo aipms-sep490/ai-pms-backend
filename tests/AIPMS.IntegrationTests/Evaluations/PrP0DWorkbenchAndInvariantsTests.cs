@@ -278,8 +278,13 @@ public sealed class PrP0DWorkbenchAndInvariantsTests(EvaluationDraftDatabaseFixt
         Assert.False(checklist.CanSubmit);
         Assert.Contains(WorkflowErrorCodes.Gate3NotPassed, checklist.Blockers);
 
-        var submitGate3Blocked = await leader.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/final-submission",
+        var legacyBlocked = await leader.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/final-submission",
             new SubmitFinalSubmissionRequest(Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N")));
+        Assert.Equal(HttpStatusCode.Conflict, legacyBlocked.StatusCode);
+        Assert.Equal(WorkflowErrorCodes.LegacyOneStepFinalLockDisabled, await ReadProblemCode(legacyBlocked));
+
+        var submitGate3Blocked = await leader.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/final-submission/request-lock",
+            new { });
         Assert.Equal(HttpStatusCode.Conflict, submitGate3Blocked.StatusCode);
         Assert.Equal(WorkflowErrorCodes.Gate3NotPassed, await ReadProblemCode(submitGate3Blocked));
 

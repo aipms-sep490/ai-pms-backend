@@ -43,12 +43,17 @@ public static class DependencyInjection
         services.AddOptions<DualDeptSlaSettings>()
             .BindConfiguration(DualDeptSlaSettings.SectionName)
             .ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<AIPMS.Application.Common.Options.DepartmentDigestSettings>()
+            .BindConfiguration(AIPMS.Application.Common.Options.DepartmentDigestSettings.SectionName);
+        services.AddOptions<AIPMS.Application.Common.Options.ExecutionConcurrencySettings>()
+            .BindConfiguration(AIPMS.Application.Common.Options.ExecutionConcurrencySettings.SectionName);
         services.AddOptions<AIPMS.Application.Common.Options.FinalSubmissionSettings>()
             .BindConfiguration(AIPMS.Application.Common.Options.FinalSubmissionSettings.SectionName);
         services.AddHostedService<Services.MeetingReminderWorker>();
         services.AddHostedService<Services.ScheduledNotificationWorker>();
         services.AddHostedService<Services.RiskAlertWorker>();
         services.AddHostedService<Services.DualDeptSlaWorker>();
+        services.AddHostedService<Services.DepartmentDailyDigestWorker>();
         services.AddHostedService<Services.NotificationEmailWorker>();
         services.AddHostedService<Services.PasswordRecoveryWorker>();
         services.AddHostedService<Services.GoogleChallengeCleanupWorker>();

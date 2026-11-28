@@ -28,6 +28,8 @@ public sealed class ResultAppealRequest
     public long PolicyId { get; set; }
     public long? WindowId { get; set; }
     public string Source { get; set; } = "STUDENT_APPEAL";
+    public string AppealKind { get; set; } = "INDEPENDENT_80";
+    public string? ComponentIdsJson { get; set; }
     public long TargetKey { get; set; }
     public long? StudentId { get; set; }
     public int ResultVersion { get; set; }
@@ -44,6 +46,9 @@ public sealed class ResultAppealRequest
     public long? ReviewerId { get; set; }
     public string? Proposal { get; set; }
     public string? ReviewReason { get; set; }
+    public string? SupervisorNote { get; set; }
+    public long? SupervisorRespondedBy { get; set; }
+    public DateTime? SupervisorRespondedAt { get; set; }
     public long? BundleId { get; set; }
     public long? DecidedBy { get; set; }
     public DateTime? DecidedAt { get; set; }

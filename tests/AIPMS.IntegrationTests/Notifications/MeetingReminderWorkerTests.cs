@@ -68,7 +68,7 @@ public sealed class MeetingReminderWorkerTests
             if (meetingId == 1) throw new InvalidOperationException("Injected per-meeting failure");
             return Task.CompletedTask;
         }
-        public Task<NotificationEmailDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct, string? notificationType = null)
+        public Task<NotificationEmailDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct, string? notificationType = null, string? excludeNotificationType = null)
         {
             Assert.Equal(IMeetingReminderService.NotificationType, notificationType);
             if (state.Queue.TryDequeue(out var item)) return Task.FromResult<NotificationEmailDelivery?>(item);

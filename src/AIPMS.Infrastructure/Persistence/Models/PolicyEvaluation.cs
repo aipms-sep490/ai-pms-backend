@@ -109,4 +109,8 @@ public sealed class StudentDefenseAbsence
     public string Reason { get; set; } = "";
     public string? MinutesReference { get; set; }
     public DateTime RecordedAt { get; set; }
+    public long? RevokedBy { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public string? RevokedReason { get; set; }
+    public long? RevokedByAppealId { get; set; }
 }

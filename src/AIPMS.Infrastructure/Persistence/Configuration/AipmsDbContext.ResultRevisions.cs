@@ -17,6 +17,7 @@ public partial class AipmsDbContext
             e.HasOne<M.User>().WithMany().HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<M.User>().WithMany().HasForeignKey(x => x.PublishedBy).OnDelete(DeleteBehavior.NoAction);
             e.HasMany(x => x.Amendments).WithOne().HasForeignKey(x => x.BundleId).OnDelete(DeleteBehavior.NoAction);
+            e.HasMany(x => x.GateAmendments).WithOne().HasForeignKey(x => x.BundleId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<ResultScoreAmendment>(e => {
             e.ToTable("result_score_amendments"); e.HasKey(x => new { x.BundleId, x.EvaluationId, x.CriterionId });
@@ -24,8 +25,14 @@ public partial class AipmsDbContext
             e.HasOne<M.Evaluation>().WithMany().HasForeignKey(x => x.EvaluationId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<M.RubricCriterion>().WithMany().HasForeignKey(x => x.CriterionId).OnDelete(DeleteBehavior.NoAction);
         });
+        b.Entity<ResultGateScoreAmendment>(e => {
+            e.ToTable("result_gate_score_amendments"); e.HasKey(x => x.Id);
+            e.Property(x => x.Score).HasPrecision(5, 2); e.Property(x => x.Reason).HasMaxLength(2000);
+            e.HasIndex(x => new { x.BundleId, x.GateScoreId }).IsUnique();
+            e.HasOne<GateIndividualProcessScore>().WithMany().HasForeignKey(x => x.GateScoreId).OnDelete(DeleteBehavior.NoAction);
+        });
         b.Entity<ResultRevision>(e => {
-            e.ToTable("result_revisions"); e.HasKey(x => x.Id);
+            e.ToTable("result_revisions", t => t.UseSqlOutputClause(false)); e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.ProjectId, x.TargetKey, x.Version }).IsUnique();
             e.HasIndex(x => new { x.BundleId, x.TargetKey }).IsUnique();
             e.HasOne<ResultCorrectionBundle>().WithMany().HasForeignKey(x => x.BundleId).OnDelete(DeleteBehavior.NoAction);
@@ -34,7 +41,7 @@ public partial class AipmsDbContext
             e.HasOne<M.User>().WithMany().HasForeignKey(x => x.PublishedBy).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<ResultRevision>().WithMany().HasForeignKey(x => x.PreviousRevisionId).OnDelete(DeleteBehavior.NoAction);
         });
-        foreach (var type in new[] { typeof(ResultCorrectionBundle), typeof(ResultScoreAmendment), typeof(ResultRevision) })
+        foreach (var type in new[] { typeof(ResultCorrectionBundle), typeof(ResultScoreAmendment), typeof(ResultGateScoreAmendment), typeof(ResultRevision) })
             foreach (var p in b.Entity(type).Metadata.GetProperties())
             {
                 p.SetColumnName(System.Text.RegularExpressions.Regex.Replace(p.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());

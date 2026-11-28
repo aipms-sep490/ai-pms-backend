@@ -90,26 +90,41 @@ internal sealed partial class ResultAppealService
         using var root = JsonDocument.Parse(row.FrozenInputs);
         var packageId = root.RootElement.GetProperty("PackageId").GetInt64();
         string Url(long fileId) => $"/api/v1/projects/{row.ProjectId}/result/correction-requests/{row.Id}/evidence/{fileId}";
-        if (frozen.Component.Stage == "COLD")
+        var collected = new List<EvidenceFile>();
+
+        if (frozen.Components.Any(c => c.Stage == "COLD"))
         {
             var data = await ColdEvaluationBinding.Load(db, row.ProjectId, ct);
-            var binding = ColdEvaluationBinding.Capture(data, row.Scope, row.MajorId, row.Scope == "INDIVIDUAL" ? row.StudentId : null);
-            if (frozen.Evaluations.Any(e => e.Finalization?.Evidence.ColdPackageId != binding.PackageId
-                || e.Finalization.Evidence.ColdEvidenceHash != binding.Hash
-                || !(e.Finalization.Evidence.ColdSubmissionIds ?? []).SequenceEqual(binding.SubmissionIds))) throw new ConflictException("Locked COLD evidence differs from the result snapshot.");
-            return data.Submissions.Where(s => binding.SubmissionIds.Contains(s.Id)).SelectMany(s => s.Files.Select(f =>
-                new EvidenceFile(new(f.FileId, f.FileName, f.ContentType, f.SizeBytes, f.Sha256, Url(f.FileId)), f.StorageKey))).ToArray();
+            var coldComponents = frozen.Components.Where(c => c.Stage == "COLD").ToArray();
+            var coldEvals = frozen.Evaluations.Where(e => e.Finalization?.Evidence.Stage == "COLD").ToArray();
+            foreach (var comp in coldComponents)
+            {
+                var binding = ColdEvaluationBinding.Capture(data, comp.Scope, comp.MajorId, comp.Scope == "INDIVIDUAL" ? row.StudentId : null);
+                if (coldEvals.Any(e => e.Finalization?.Evidence.ColdPackageId != binding.PackageId
+                    || e.Finalization.Evidence.ColdEvidenceHash != binding.Hash
+                    || !(e.Finalization.Evidence.ColdSubmissionIds ?? []).SequenceEqual(binding.SubmissionIds)))
+                    throw new ConflictException("Locked COLD evidence differs from the result snapshot.");
+                collected.AddRange(data.Submissions.Where(s => binding.SubmissionIds.Contains(s.Id)).SelectMany(s => s.Files.Select(f =>
+                    new EvidenceFile(new(f.FileId, f.FileName, f.ContentType, f.SizeBytes, f.Sha256, Url(f.FileId)), f.StorageKey))));
+            }
         }
-        var final = await db.Set<FinalSubmission>().AsNoTracking().Include(f => f.Items)
-            .SingleOrDefaultAsync(f => f.ProjectId == row.ProjectId && f.Id == packageId, ct) ?? throw new ConflictException("Exact locked final package missing.");
-        var versions = frozen.Evaluations.SelectMany(e => e.Finalization!.Evidence.DeliverableVersionIds).Distinct().ToHashSet();
-        return final.Items.Where(i => versions.Contains(i.DeliverableVersionId)).SelectMany(i =>
-            (JsonSerializer.Deserialize<FinalSnapshotFile[]>(i.FilesJson) ?? []).Where(f => f.Metadata.ParentId == i.DeliverableVersionId
-                && f.Metadata.ParentType is "VERSION" or "DELIVERABLE_VERSION"
-                && (row.Scope == "COMMON" || f.EvidenceScope is "MAJOR_SPECIFIC" or "INDIVIDUAL" && f.TargetMajorId == row.MajorId
-                    && (row.Scope != "INDIVIDUAL" || f.EvidenceScope == "INDIVIDUAL" && f.TargetStudentId == row.StudentId)))
-            .Select(f => new EvidenceFile(new(f.Metadata.Id, f.Metadata.FileName, f.Metadata.ContentType, f.Metadata.SizeBytes,
-                f.Metadata.Sha256, Url(f.Metadata.Id)), f.StorageKey))).ToArray();
+
+        if (frozen.Components.Any(c => c.Stage != "COLD"))
+        {
+            var final = await db.Set<FinalSubmission>().AsNoTracking().Include(f => f.Items)
+                .SingleOrDefaultAsync(f => f.ProjectId == row.ProjectId && f.Id == packageId, ct) ?? throw new ConflictException("Exact locked final package missing.");
+            var versions = frozen.Evaluations.Where(e => e.Finalization?.Evidence.Stage != "COLD")
+                .SelectMany(e => e.Finalization!.Evidence.DeliverableVersionIds).Distinct().ToHashSet();
+            collected.AddRange(final.Items.Where(i => versions.Contains(i.DeliverableVersionId)).SelectMany(i =>
+                (JsonSerializer.Deserialize<FinalSnapshotFile[]>(i.FilesJson) ?? []).Where(f => f.Metadata.ParentId == i.DeliverableVersionId
+                    && f.Metadata.ParentType is "VERSION" or "DELIVERABLE_VERSION"
+                    && (row.Scope == "COMMON" || f.EvidenceScope is "MAJOR_SPECIFIC" or "INDIVIDUAL" && f.TargetMajorId == row.MajorId
+                        && (row.Scope != "INDIVIDUAL" || f.EvidenceScope == "INDIVIDUAL" && f.TargetStudentId == row.StudentId)))
+                .Select(f => new EvidenceFile(new(f.Metadata.Id, f.Metadata.FileName, f.Metadata.ContentType, f.Metadata.SizeBytes,
+                    f.Metadata.Sha256, Url(f.Metadata.Id)), f.StorageKey))));
+        }
+
+        return collected.DistinctBy(x => x.Dto.FileId).ToArray();
     }
     public async Task<IReadOnlyList<AppealFileDto>> Evidence(long projectId, long id, CancellationToken ct)
     {

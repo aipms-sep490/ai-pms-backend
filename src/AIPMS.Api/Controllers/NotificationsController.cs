@@ -1,4 +1,5 @@
 using AIPMS.Application.Common.Models;
+using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Notifications.Commands;
 using AIPMS.Application.Features.Notifications.DTOs;
 using AIPMS.Application.Features.Notifications.Queries;
@@ -48,4 +49,16 @@ public sealed class NotificationsController(ISender sender) : ControllerBase
         await sender.Send(new MarkAllNotificationsReadCommand(), ct);
         return NoContent();
     }
+
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.DepartmentStaff}")]
+    [HttpGet("email-deliveries/summary")]
+    [ProducesResponseType<EmailDeliverySummaryDto>(200)]
+    public async Task<ActionResult<EmailDeliverySummaryDto>> EmailDeliverySummary(CancellationToken ct) =>
+        Ok(await sender.Send(new GetEmailDeliverySummaryQuery(), ct));
+
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.DepartmentStaff}")]
+    [HttpPost("email-deliveries/retry-failed")]
+    [ProducesResponseType<RetryFailedEmailsResultDto>(200)]
+    public async Task<ActionResult<RetryFailedEmailsResultDto>> RetryFailedEmailDeliveries(CancellationToken ct) =>
+        Ok(await sender.Send(new RetryFailedEmailDeliveriesCommand(), ct));
 }

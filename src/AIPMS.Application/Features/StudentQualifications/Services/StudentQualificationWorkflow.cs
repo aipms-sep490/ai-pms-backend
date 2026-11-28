@@ -22,7 +22,8 @@ public sealed class StudentQualificationWorkflow(
     ICurrentUser currentUser,
     IAuditTrail audit,
     TimeProvider clock,
-    IFileStorage storage, IFileSecurityScanner scanner, ILogger<StudentQualificationWorkflow> logger)
+    IFileStorage storage, IFileSecurityScanner scanner, ILogger<StudentQualificationWorkflow> logger,
+    Microsoft.Extensions.Options.IOptions<AIPMS.Application.Common.Options.ExecutionConcurrencySettings>? concurrencyOptions = null)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -288,6 +289,10 @@ public sealed class StudentQualificationWorkflow(
                 throw new ForbiddenException("Department staff can only verify students in their assigned department.");
             if (current.VerificationStatus != StudentQualificationStatuses.PendingVerification)
                 throw new ConflictException("Only a pending qualification can be verified or rejected.");
+            if (concurrencyOptions?.Value.RequireTokens == true && !expectedConcurrencyToken.HasValue)
+                throw new ConflictException(
+                    "A current concurrencyToken is required. Reload before deciding.",
+                    WorkflowErrorCodes.StaleConcurrencyToken);
             var expected = expectedConcurrencyToken ?? current.ConcurrencyToken;
             if (expected != current.ConcurrencyToken)
                 throw new ConflictException(

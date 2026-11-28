@@ -4,6 +4,20 @@ using ClosedXML.Excel;
 
 namespace AIPMS.Infrastructure.Services.DepartmentStudents;
 
+internal sealed record EmergencyContactExportRow(
+    string? StudentCode,
+    string FullName,
+    string Email,
+    string? Phone,
+    string? ClassCode,
+    string? MajorName,
+    string? TeamCode,
+    string? ProjectCode,
+    string? ProjectStatus,
+    string? SupervisorName,
+    string? SupervisorEmail,
+    string? SupervisorPhone);
+
 internal sealed record AdminUserAccountExportRow(
     string? Code,
     string FullName,
@@ -95,6 +109,47 @@ internal static class DepartmentStudentWorkbook
                 r.AccountStatus,
                 r.AcademicProfileStatus,
                 r.LastLoginAt?.ToString("yyyy-MM-dd HH:mm") ?? ""
+            ];
+            WriteSafeRow(sheet, rowNum, i + 1, values, widths);
+        }
+
+        FinalizeSheet(sheet, headers.Length, rows.Count);
+        using var stream = new MemoryStream();
+        book.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    public static byte[] CreateEmergencyContactsWorkbook(IReadOnlyList<EmergencyContactExportRow> rows)
+    {
+        using var book = new XLWorkbook();
+        var sheet = book.AddWorksheet("Lien he khan cap");
+        string[] headers =
+        [
+            "STT", "MSSV", "Họ và tên", "Email SV", "SĐT SV", "Lớp",
+            "Chuyên ngành", "Mã nhóm", "Mã đồ án", "Trạng thái ĐA",
+            "GVHD Chính", "Email GVHD", "SĐT GVHD"
+        ];
+        double[] widths = [7, 16, 28, 32, 16, 14, 24, 16, 16, 18, 28, 32, 16];
+        SetupHeader(sheet, headers, widths);
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var r = rows[i];
+            var rowNum = i + 2;
+            string[] values =
+            [
+                r.StudentCode ?? "",
+                r.FullName,
+                r.Email,
+                r.Phone ?? "",
+                r.ClassCode ?? "",
+                r.MajorName ?? "",
+                r.TeamCode ?? "",
+                r.ProjectCode ?? "",
+                r.ProjectStatus ?? "",
+                r.SupervisorName ?? "",
+                r.SupervisorEmail ?? "",
+                r.SupervisorPhone ?? ""
             ];
             WriteSafeRow(sheet, rowNum, i + 1, values, widths);
         }

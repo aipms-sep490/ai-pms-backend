@@ -250,12 +250,34 @@ public sealed class ProjectsController(ISender sender) : ControllerBase
 
     [HttpPost("{id:long}/archive")]
     [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ProjectDto>> Archive(
         long id,
         [FromBody] ArchiveProjectRequest request,
         CancellationToken cancellationToken) =>
         Ok(await sender.Send(new ArchiveProjectCommand(id, request.ConcurrencyToken, request.Reason), cancellationToken));
+
+    [HttpPost("{id:long}/unarchive")]
+    [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ProjectDto>> Unarchive(
+        long id,
+        [FromBody] UnarchiveProjectRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new UnarchiveProjectCommand(id, request.ConcurrencyToken, request.Reason), cancellationToken));
+
+    [HttpGet("{id:long}/archive-dossier")]
+    [ProducesResponseType<ProjectArchiveDossierDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ProjectArchiveDossierDto>> ArchiveDossier(
+        long id,
+        CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new GetProjectArchiveDossierQuery(id), cancellationToken));
 
     [HttpGet("{id}/history")]
     [ProducesResponseType<IReadOnlyList<ProjectStatusHistoryDto>>(StatusCodes.Status200OK)]

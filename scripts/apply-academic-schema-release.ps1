@@ -36,7 +36,19 @@ $scripts = @(
     '20261130_decision_supersede_and_task_taxonomy.sql',
     '20261202_optional_defense_room_scheduler_v4.sql',
     '20261203_all_in_one_hub_core.sql',
-    '20261204_student_class_and_specializations.sql'
+    '20261204_student_class_and_specializations.sql',
+    '20261127_mark_industry_tables_deprecated.sql',
+    '20261205_user_must_change_password.sql',
+    '20261206_rubric_single_staff_and_dual_dept_approval.sql',
+    '20261207_team_leader_change_staff_and_cancel.sql',
+    '20261208_topic_max_teams_and_metadata.sql',
+    '20261209_proposal_pol02_consolidated_and_override.sql',
+    '20261210_review_gate_per_assignment_verification.sql',
+    '20261211_pol03_individual_process_relax_and_mentor_note.sql',
+    '20261212_allow_force_lock_after_deadline_and_final_reopen.sql',
+    '20261215_appeal_scope_qd04_and_withdrawn_sync.sql',
+    '20261216_chat_direct_archive_readonly.sql',
+    '20261217_immutable_score_table_triggers.sql'
 )
 
 $neutral = [System.Data.Common.DbConnectionStringBuilder]::new()

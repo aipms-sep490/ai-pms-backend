@@ -30,7 +30,7 @@ public partial class AipmsDbContext
         });
         modelBuilder.Entity<ProjectResult>(e =>
         {
-            e.ToTable("project_results"); e.HasKey(x => x.Id);
+            e.ToTable("project_results", t => t.UseSqlOutputClause(false)); e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasColumnName("id");
             e.Property(x => x.ProjectId).HasColumnName("project_id");
             e.Property(x => x.FinalSubmissionId).HasColumnName("final_submission_id");

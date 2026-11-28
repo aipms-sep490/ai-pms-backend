@@ -26,12 +26,14 @@ public partial class AipmsDbContext
         b.Entity<ResultAppealRequest>(e => {
             e.ToTable("result_appeal_requests"); e.HasKey(x => x.Id);
             e.Property(x => x.Source).HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.AppealKind).HasMaxLength(30).IsUnicode(false);
             e.Property(x => x.Scope).HasMaxLength(30).IsUnicode(false);
             e.Property(x => x.Status).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.Proposal).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.BaseStamp).HasMaxLength(64).IsFixedLength().IsUnicode(false);
             e.Property(x => x.Reason).HasMaxLength(2000);
             e.Property(x => x.ReviewReason).HasMaxLength(2000);
+            e.Property(x => x.SupervisorNote).HasMaxLength(2000);
             e.Property(x => x.DecisionReason).HasMaxLength(2000);
             e.Property(x => x.ConcurrencyToken).IsConcurrencyToken();
             e.HasOne<M.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
@@ -40,6 +42,7 @@ public partial class AipmsDbContext
             e.HasOne<M.User>().WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<M.User>().WithMany().HasForeignKey(x => x.RequestedBy).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<M.User>().WithMany().HasForeignKey(x => x.ReviewerId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<M.User>().WithMany().HasForeignKey(x => x.SupervisorRespondedBy).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<M.User>().WithMany().HasForeignKey(x => x.DecidedBy).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<M.Department>().WithMany().HasForeignKey(x => x.ResponsibleDepartmentId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<M.Major>().WithMany().HasForeignKey(x => x.MajorId).OnDelete(DeleteBehavior.NoAction);
