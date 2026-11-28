@@ -93,7 +93,10 @@ internal sealed class FinalSubmissionDraftRepository(AipmsDbContext db) : IFinal
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
     private static FinalDraftRecord Map(FinalSubmissionDraft row) => new(row.Id, row.ProjectId, row.ProjectPeriodId,
         row.Notes, row.CreatedBy, row.UpdatedBy, Utc(row.CreatedAt), Utc(row.UpdatedAt), row.ConcurrencyToken.ToString("N"),
-        row.Items.OrderBy(i => i.DeliverableVersionId).Select(i => i.DeliverableVersionId).ToArray());
+        row.Items.OrderBy(i => i.DeliverableVersionId).Select(i => i.DeliverableVersionId).ToArray(),
+        row.LockWorkflowStatus, row.LockRequestedBy,
+        row.LockRequestedAt.HasValue ? Utc(row.LockRequestedAt.Value) : null,
+        row.LockedBySupervisorId, row.ForceLockedBy, row.ForceLockReason);
 
     public async Task<FinalDraftRecord?> GetAsync(long projectId, CancellationToken ct)
     {

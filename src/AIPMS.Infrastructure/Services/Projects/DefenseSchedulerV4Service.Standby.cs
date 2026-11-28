@@ -94,11 +94,31 @@ internal sealed partial class DefenseSchedulerV4Service
         if (committee.Members.Any(m => m.UserId == input.ReplacementUserId))
             throw new ConflictException("Replacement evaluator is already on this defense committee.", WorkflowErrorCodes.ScheduleConflict);
 
-        // Verify replacement is in available standby pool for the same major
-        var inPool = await db.Set<DefenseStandbyPoolEntry>().AsNoTracking()
-            .AnyAsync(p => p.UserId == input.ReplacementUserId && p.MajorId == replaced.MajorId && p.IsAvailable, ct);
+        // Verify replacement is in available standby pool for this evaluation period and major
+        var semesterId = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == session.ProjectId)
+            .Select(p => p.Team.AcademicSemesterId)
+            .SingleAsync(ct);
+        var evalPeriodId = await db.ProjectPeriods.AsNoTracking()
+            .Where(p => p.AcademicSemesterId == semesterId && p.PeriodType == "EVALUATION")
+            .OrderByDescending(p => p.EnableDefenseRoomScheduling)
+            .ThenByDescending(p => p.Status == "ACTIVE")
+            .ThenByDescending(p => p.Id)
+            .Select(p => (long?)p.Id)
+            .FirstOrDefaultAsync(ct)
+            ?? await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
+                .Where(s => s.ProjectId == session.ProjectId)
+                .OrderByDescending(s => s.Id)
+                .Select(s => (long?)s.ProjectPeriodId)
+                .FirstOrDefaultAsync(ct);
+
+        var inPool = evalPeriodId.HasValue && await db.Set<DefenseStandbyPoolEntry>().AsNoTracking()
+            .AnyAsync(p => p.ProjectPeriodId == evalPeriodId.Value
+                && p.UserId == input.ReplacementUserId
+                && p.MajorId == replaced.MajorId
+                && p.IsAvailable, ct);
         if (!inPool)
-            throw new DomainException("Replacement evaluator is not available in the standby pool for this major.", WorkflowErrorCodes.EvaluatorIneligible);
+            throw new DomainException("Replacement evaluator is not available in the standby pool for this period and major.", WorkflowErrorCodes.EvaluatorIneligible);
 
         // D17 COI check on replacement (active or former primary supervisor or discipline mentor)
         if (await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, session.ProjectId, input.ReplacementUserId, ct))

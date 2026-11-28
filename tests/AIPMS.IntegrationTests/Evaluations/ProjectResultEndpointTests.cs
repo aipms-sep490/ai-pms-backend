@@ -99,8 +99,9 @@ public sealed partial class EvaluationDraftEndpointTests
         secondDraft = await Body<EvaluationDraftDto>(await secondLecturer.PutAsJsonAsync(DraftUrl(secondDraft.Id) + "/draft",
             new SaveEvaluationDraftRequest(secondDraft.ConcurrencyToken, null, [new(s.Criteria[0], 5, null), new(s.Criteria[1], 10, null)])));
         await Body<EvaluationDraftDto>(await Finalize(lecturer, draft));
-        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"/api/v1/evaluation-assignments/{second.Id}/revoke",
-            new RevokeEvaluatorRequest(second.ConcurrencyToken, "Cannot remove required score"))).StatusCode);
+        // TK-W3-07: finalized assignment cannot be revoked (409), whereas unfinalized assignments can be replaced independently.
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"/api/v1/evaluation-assignments/{first.Id}/revoke",
+            new RevokeEvaluatorRequest(first.ConcurrencyToken, "Cannot remove finalized required score"))).StatusCode);
         Assert.False((await ResultPreview(staff, s.ProjectId)).CanPublish);
         await Body<EvaluationDraftDto>(await Finalize(secondLecturer, secondDraft));
         var preview = await ResultPreview(staff, s.ProjectId);

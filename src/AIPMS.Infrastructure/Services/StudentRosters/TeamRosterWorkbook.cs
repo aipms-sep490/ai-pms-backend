@@ -5,21 +5,31 @@ namespace AIPMS.Infrastructure.Services.StudentRosters;
 
 internal sealed record TeamRosterRow(long TeamId, string TeamCode, long UserId, bool IsLeader,
     string? StudentCode, string FullName, string? Phone, string Email, string? CurriculumCode,
-    string? ClassCode = null, string? SpecializationName = null);
+    string? ClassCode = null, string? SpecializationName = null,
+    string? DepartmentName = null, string? MajorName = null);
 
 internal static class TeamRosterWorkbook
 {
     public static byte[] Create(IReadOnlyList<TeamRosterRow> rows)
     {
+        var includeDeptMajor = rows.Any(r => !string.IsNullOrEmpty(r.DepartmentName) || !string.IsNullOrEmpty(r.MajorName));
         var includeExtra = rows.Any(r => !string.IsNullOrEmpty(r.ClassCode) || !string.IsNullOrEmpty(r.SpecializationName));
         using var book = new XLWorkbook();
         var sheet = book.AddWorksheet("Danh sach nhom");
-        string[] headers = includeExtra
-            ? ["STT", "Mã nhóm", "MSSV", "Họ và tên", "Trưởng nhóm/Thành viên", "SĐT", "Email", "Khung", "Lớp", "Chuyên ngành hẹp"]
-            : ["STT", "Mã nhóm", "MSSV", "Họ và tên", "Trưởng nhóm/Thành viên", "SĐT", "Email", "Khung"];
-        double[] widths = includeExtra
-            ? [7, 16, 18, 32, 25, 19, 42, 30, 14, 24]
-            : [7, 16, 18, 32, 25, 19, 42, 30];
+        var headerList = new List<string> { "STT", "Mã nhóm", "MSSV", "Họ và tên", "Trưởng nhóm/Thành viên", "SĐT", "Email", "Khung" };
+        var widthList = new List<double> { 7, 16, 18, 32, 25, 19, 42, 30 };
+        if (includeExtra)
+        {
+            headerList.AddRange(["Lớp", "Chuyên ngành hẹp"]);
+            widthList.AddRange([14, 24]);
+        }
+        if (includeDeptMajor)
+        {
+            headerList.AddRange(["Khoa", "Ngành"]);
+            widthList.AddRange([22, 24]);
+        }
+        var headers = headerList.ToArray();
+        var widths = widthList.ToArray();
         var colCount = headers.Length;
         for (var c = 1; c <= colCount; c++)
         {
@@ -49,12 +59,14 @@ internal static class TeamRosterWorkbook
                 sheet.Range(rowNumber, 1, rowNumber, colCount).Style.Fill.BackgroundColor =
                     XLColor.FromHtml(groupNumber % 2 == 0 ? "#E2EBFA" : "#FFFFFF");
                 sheet.Cell(rowNumber, 1).Value = rowNumber - 1;
-                string[] values = includeExtra
-                    ? [row.TeamCode, row.StudentCode ?? "", row.FullName,
-                        row.IsLeader ? "Trưởng nhóm" : "Thành viên", row.Phone ?? "", row.Email, row.CurriculumCode ?? "",
-                        row.ClassCode ?? "", row.SpecializationName ?? ""]
-                    : [row.TeamCode, row.StudentCode ?? "", row.FullName,
-                        row.IsLeader ? "Trưởng nhóm" : "Thành viên", row.Phone ?? "", row.Email, row.CurriculumCode ?? ""];
+                var valueList = new List<string>
+                {
+                    row.TeamCode, row.StudentCode ?? "", row.FullName,
+                    row.IsLeader ? "Trưởng nhóm" : "Thành viên", row.Phone ?? "", row.Email, row.CurriculumCode ?? ""
+                };
+                if (includeExtra) valueList.AddRange([row.ClassCode ?? "", row.SpecializationName ?? ""]);
+                if (includeDeptMajor) valueList.AddRange([row.DepartmentName ?? "", row.MajorName ?? ""]);
+                var values = valueList.ToArray();
                 // Estimate wrapped lines without depending on OS fonts in the Linux container.
                 var lines = values.Select((value, i) => value.Split('\n').Sum(line =>
                     Math.Max(1, (int)Math.Ceiling(line.Length / (widths[i + 1] * 0.75))))).Max();

@@ -30,12 +30,68 @@ internal sealed class FinalSubmissionRepository(AipmsDbContext db) : IFinalSubmi
                 && ((u.UserRoleUsers.Any(r => r.Role.Code == "STUDENT") && p.Team.TeamMembers.Any(m => m.UserId == actorId && m.LeftAt == null))
                     || (u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER")
                         && p.ProjectMajors.Any(m => m.Major.DepartmentId == u.DepartmentId && m.Major.IsActive)
-                        && (db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.IsPrimary && a.EndedAt == null
-                                && a.SupervisorProfile.UserId == actorId)
+                        && (db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.EndedAt == null
+                                && a.SupervisorProfile.UserId == actorId
+                                && (a.IsPrimary || a.AssignmentType == "DISCIPLINE_MENTOR"))
                             || db.Set<EvaluationAssignment>().Any(a => a.ProjectId == projectId && a.EvaluatorId == actorId
-                                && a.DepartmentId == u.DepartmentId && a.Status == "ACTIVE" && a.Scope == "COMMON"
+                                && a.DepartmentId == u.DepartmentId && a.Status == "ACTIVE"
+                                && a.Scope != "UNKNOWN"
                                 && (a.EvaluationType != "SUPERVISOR" || db.SupervisorAssignments.Any(s => s.ProjectId == projectId
                                     && s.IsPrimary && s.EndedAt == null && s.SupervisorProfile.UserId == actorId))))))), ct);
+    }
+
+    public async Task<FinalReadScope> GetReadScopeAsync(long projectId, long actorId, CancellationToken ct)
+    {
+        if (await CanManageAsync(projectId, actorId, ct))
+            return new FinalReadScope(true, new HashSet<long>(), new HashSet<long>(), true);
+
+        var isStudentMember = await db.TeamMembers.AsNoTracking()
+            .AnyAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId && m.UserId == actorId && m.LeftAt == null, ct);
+        if (isStudentMember)
+            return new FinalReadScope(true, new HashSet<long>(), new HashSet<long>(), true);
+
+        var supAssignments = await db.SupervisorAssignments.AsNoTracking()
+            .Where(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == actorId)
+            .Select(a => new { a.IsPrimary, a.AssignmentType, a.MajorId })
+            .ToListAsync(ct);
+        if (supAssignments.Any(a => a.IsPrimary))
+            return new FinalReadScope(true, new HashSet<long>(), new HashSet<long>(), true);
+
+        var evalAssignments = await db.Set<EvaluationAssignment>().AsNoTracking()
+            .Where(a => a.ProjectId == projectId && a.EvaluatorId == actorId && a.Status == "ACTIVE" && a.Scope != "UNKNOWN")
+            .Select(a => new { a.Scope, a.MajorId, a.StudentId })
+            .ToListAsync(ct);
+        if (evalAssignments.Any(a => a.Scope == "COMMON"))
+            return new FinalReadScope(true, new HashSet<long>(), new HashSet<long>(), true);
+
+        var allowedMajors = new HashSet<long>();
+        var allowedStudents = new HashSet<long>();
+        var hasMentorOrMajorEval = false;
+
+        foreach (var m in supAssignments.Where(a => a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId.HasValue))
+        {
+            allowedMajors.Add(m.MajorId!.Value);
+            hasMentorOrMajorEval = true;
+        }
+        foreach (var e in evalAssignments)
+        {
+            if (e.Scope == "MAJOR_SPECIFIC" && e.MajorId.HasValue)
+            {
+                allowedMajors.Add(e.MajorId.Value);
+                hasMentorOrMajorEval = true;
+            }
+            else if (e.Scope == "INDIVIDUAL" && e.StudentId.HasValue)
+            {
+                allowedStudents.Add(e.StudentId.Value);
+                if (e.MajorId.HasValue) allowedMajors.Add(e.MajorId.Value);
+            }
+        }
+
+        // If actor has both mentor/major-eval and individual-eval, clear student restriction so major scope works cleanly
+        if (hasMentorOrMajorEval && allowedStudents.Count > 0)
+            allowedStudents.Clear();
+
+        return new FinalReadScope(false, allowedMajors, allowedStudents, IncludeCommon: allowedMajors.Count > 0 || allowedStudents.Count > 0);
     }
 
     public async Task<FinalRequirementsRecord?> RequirementsAsync(long projectId, CancellationToken ct)

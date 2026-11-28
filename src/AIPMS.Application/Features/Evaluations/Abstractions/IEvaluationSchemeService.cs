@@ -9,12 +9,15 @@ public interface IEvaluationSchemeService
     Task<AIPMS.Application.Common.Models.PagedResult<EligibleEvaluatorDto>> CandidatesAsync(long projectId, long periodId,
         long componentId, string? scope, long? majorId, long? studentId, int page, int pageSize, CancellationToken ct);
     Task<EvaluationSchemeDto> SaveAsync(long? id, SaveEvaluationSchemeRequest input, CancellationToken ct);
+    Task<BulkApplyEvaluationSchemeResultDto> BulkApplyByTrackAsync(BulkApplyEvaluationSchemeRequest input, CancellationToken ct);
     Task<EvaluationSchemeDto> UpdateComponentAsync(long schemeId, long componentId, UpdateSchemeComponentRequest input, CancellationToken ct);
     Task<EvaluationSchemeDto> GetAsync(long id, CancellationToken ct);
     Task<IReadOnlyList<EvaluationSchemeDto>> ListAsync(long projectId, CancellationToken ct);
     Task<EvaluationSchemeDto> PublishAsync(long id, string token, CancellationToken ct);
     Task<EvaluationSchemeDto> VersionAsync(long id, string token, CancellationToken ct);
     Task DeleteAsync(long id, string token, CancellationToken ct);
+    Task EnsureCommitteeMemberForReplacementAsync(long projectId, long replacementEvaluatorId, string scope, long? majorId, CancellationToken ct) =>
+        Task.CompletedTask;
     Task<ScopedAssignmentContext> ResolveAssignmentAsync(long projectId, AssignEvaluatorRequest input, CancellationToken ct);
     Task EnsureWritableAsync(EvaluationAssignmentRecord assignment, CancellationToken ct);
     Task<EvaluationEvidenceRecord> BindEvidenceAsync(EvaluationAssignmentRecord assignment, EvaluationEvidenceRecord finalEvidence, CancellationToken ct);
@@ -24,4 +27,5 @@ public interface IEvaluationSchemeService
     Task<BatchPublishResultDto> PublishBatchAsync(long projectId, string token, CancellationToken ct);
     Task<StudentDefenseAbsenceDto> RecordDefenseAbsenceAsync(long projectId, long studentId, RecordDefenseAbsenceRequest input, CancellationToken ct);
     Task<StudentResultDto> GetStudentAsync(long projectId, long studentId, CancellationToken ct);
+    Task<IReadOnlyList<StudentResultDto>> ListPublishedStudentsAsync(long projectId, CancellationToken ct);
 }

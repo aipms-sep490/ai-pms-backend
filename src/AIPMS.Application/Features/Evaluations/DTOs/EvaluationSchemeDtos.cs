@@ -47,3 +47,29 @@ public sealed record ResultBreakdownDto(string? SchemeName, int? SchemeVersion, 
     EvaluationFormulaDto? Formula = null,
     string? OutcomeDetail = null,
     IReadOnlyList<ResultFeedbackItemDto>? PublishedFeedback = null);
+
+public sealed record BulkApplyEvaluationSchemeRequest(
+    long ProjectPeriodId,
+    string TrackCode,
+    string? Name = null,
+    decimal? PassThreshold = null,
+    SchemePolicyInput? Policy = null,
+    IReadOnlyList<SchemeComponentInput>? Components = null,
+    long? SourceBlueprintId = null,
+    long? SourceSchemeId = null,
+    bool UsePublishedBlueprint = false,
+    bool AutoPublish = false);
+
+public sealed record BulkApplyProjectOutcomeDto(
+    long ProjectId,
+    string ProjectCode,
+    string Status,
+    long? SchemeId = null,
+    string? Reason = null);
+
+public sealed record BulkApplyEvaluationSchemeResultDto(
+    int AppliedCount,
+    int SkippedCount,
+    int FailedCount,
+    IReadOnlyList<long> AppliedProjectIds,
+    IReadOnlyList<BulkApplyProjectOutcomeDto> Outcomes);

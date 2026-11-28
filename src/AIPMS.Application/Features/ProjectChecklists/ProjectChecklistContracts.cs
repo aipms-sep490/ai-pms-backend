@@ -145,13 +145,24 @@ public sealed record PreDefenseLockStatusDto(
     string? ForceLockReason,
     string? ColdManifestSha256,
     long? FinalSubmissionId,
-    long? ColdPackageId);
+    long? ColdPackageId,
+    string? DraftConcurrencyToken = null,
+    IReadOnlyList<string>? Blockers = null);
+
+public sealed record RequestFinalLockRequest(string? ConcurrencyToken = null);
 
 public sealed record SupervisorFinalLockDecisionRequest(
     string Decision, // LOCK | RETURN_TO_OPEN
-    string? Notes = null);
+    string? Notes = null,
+    string? ConcurrencyToken = null);
 
-public sealed record ForceLockFinalRequest(string Reason);
+public sealed record ForceLockFinalRequest(
+    string Reason,
+    string? ConcurrencyToken = null);
+
+public sealed record ReopenFinalLockRequest(
+    string Reason,
+    string? ConcurrencyToken = null);
 
 public sealed record WithdrawRosterMemberRequest(long StudentUserId, string Reason);
 

@@ -14,6 +14,7 @@ using AIPMS.Application.Features.ProjectChecklists.Abstractions;
 using AIPMS.Domain.Exceptions;
 using AIPMS.Domain.Teams;
 using AIPMS.Infrastructure.Persistence.Generated;
+using AIPMS.Infrastructure.Persistence.Mappers;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
@@ -132,7 +133,121 @@ internal sealed partial class ProjectChecklistService
         return new WithdrawRosterMemberResultDto(projectId, request.StudentUserId, gateReqs.Count, coldItems.Count, now);
     }
 
-    public async Task<PreDefenseLockStatusDto> RequestFinalLockAsync(long projectId, CancellationToken ct = default)
+    private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    private static void ValidateOptionalToken(Guid expected, string? supplied)
+    {
+        if (string.IsNullOrWhiteSpace(supplied)) return;
+        if (!Guid.TryParse(supplied, out var parsed) || parsed != expected)
+            throw new ConflictException("Final lock draft changed concurrently. Reload before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);
+    }
+
+    private async Task<List<string>> ComputePreDefenseBlockersAsync(long projectId, FinalSubmissionDraft? draft, CancellationToken ct)
+    {
+        var blockers = new List<string>();
+        var project = await db.Projects.AsNoTracking().SingleOrDefaultAsync(p => p.Id == projectId, ct);
+        if (project is null) return blockers;
+        if (project.Status != "ACTIVE") blockers.Add(WorkflowErrorCodes.ProjectNotActive);
+
+        var unpassedBlocking = await db.ProjectGateInstances.AsNoTracking()
+            .AnyAsync(g => g.ProjectId == projectId && (g.Code == "G3" || g.Code == "R3" || g.BlocksDefense) && g.Status != "PASSED", ct);
+        if (unpassedBlocking) blockers.Add(WorkflowErrorCodes.Gate3NotPassed);
+
+        var requirements = await db.Set<FinalSubmissionRequirements>().AsNoTracking()
+            .Include(r => r.Items)
+            .SingleOrDefaultAsync(r => r.ProjectId == projectId, ct);
+        if (requirements is not null && requirements.Items.Count > 0)
+        {
+            var draftVersionIds = draft?.Items.Select(i => i.DeliverableVersionId).ToArray() ?? [];
+            if (draftVersionIds.Length == 0)
+            {
+                blockers.Add("EMPTY_PACKAGE");
+            }
+            else
+            {
+                var versions = await db.DeliverableVersions.AsNoTracking()
+                    .Include(v => v.Files)
+                    .Where(v => draftVersionIds.Contains(v.Id) && v.Deliverable.ProjectId == projectId)
+                    .ToListAsync(ct);
+                var eligibleByDeliverable = versions
+                    .Where(v => v.Status is "SUBMITTED" or "ACCEPTED" && v.Files.Count > 0)
+                    .Select(v => v.DeliverableId)
+                    .ToHashSet();
+                foreach (var req in requirements.Items)
+                {
+                    if (!eligibleByDeliverable.Contains(req.DeliverableId))
+                        blockers.Add($"REQUIRED_DELIVERABLE_MISSING:{req.DeliverableId}");
+                }
+            }
+        }
+
+        var coldPkg = await db.Set<ColdPackage>().AsNoTracking().SingleOrDefaultAsync(c => c.ProjectId == projectId, ct);
+        if (coldPkg is not null && coldPkg.Status == "OPEN")
+        {
+            var requiredColdItems = await db.Set<ColdChecklistItem>().AsNoTracking()
+                .Where(i => i.PackageId == coldPkg.Id && i.Required && (i.WaivedStatus == null || i.WaivedStatus != "WAIVED_WITHDRAWN"))
+                .ToListAsync(ct);
+            if (requiredColdItems.Count > 0)
+            {
+                var itemIds = requiredColdItems.Select(i => i.Id).ToArray();
+                var latestSubs = await db.Set<ColdSubmission>().AsNoTracking()
+                    .Include(s => s.Files)
+                    .Where(s => itemIds.Contains(s.ChecklistItemId)
+                        && !db.Set<ColdSubmission>().Any(newer => newer.ChecklistItemId == s.ChecklistItemId && newer.Version > s.Version))
+                    .ToDictionaryAsync(s => s.ChecklistItemId, ct);
+                foreach (var ci in requiredColdItems)
+                {
+                    if (!latestSubs.TryGetValue(ci.Id, out var sub) || sub.Status != "SUBMITTED" || sub.Files.Count == 0)
+                        blockers.Add($"COLD_REPORT_REQUIRED:{ci.Id}");
+                }
+            }
+        }
+
+        return blockers;
+    }
+
+    public async Task<PreDefenseLockStatusDto> GetPreDefenseLockStatusAsync(long projectId, CancellationToken ct = default)
+    {
+        var actor = await GetActorAsync(ct);
+        var project = await db.Projects.AsNoTracking()
+            .Include(p => p.Team).ThenInclude(t => t.TeamMembers)
+            .Include(p => p.ProjectMajors).ThenInclude(pm => pm.Major)
+            .SingleOrDefaultAsync(p => p.Id == projectId, ct)
+            ?? throw new NotFoundException("Project", projectId);
+
+        var isMember = project.Team.TeamMembers.Any(m => m.UserId == ActorId && m.LeftAt == null);
+        var isSupOrMentor = await db.SupervisorAssignments.AsNoTracking()
+            .AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == ActorId, ct);
+        var isDeptStaff = actor.IsStaff && actor.DepartmentId.HasValue
+            && project.ProjectMajors.Any(pm => pm.Major.DepartmentId == actor.DepartmentId.Value);
+        if (!actor.IsAdmin && !isMember && !isSupOrMentor && !isDeptStaff)
+            throw new ForbiddenException("You do not have access to this project's pre-defense lock status.");
+
+        var draft = await db.Set<FinalSubmissionDraft>().AsNoTracking().Include(d => d.Items)
+            .SingleOrDefaultAsync(d => d.ProjectId == projectId, ct);
+        var finalSub = await db.Set<FinalSubmission>().AsNoTracking().SingleOrDefaultAsync(s => s.ProjectId == projectId, ct);
+        var coldPkg = await db.Set<ColdPackage>().AsNoTracking().SingleOrDefaultAsync(c => c.ProjectId == projectId, ct);
+
+        var status = finalSub is not null ? "LOCKED" : (draft?.LockWorkflowStatus ?? "OPEN");
+        var blockers = finalSub is not null ? new List<string>() : await ComputePreDefenseBlockersAsync(projectId, draft, ct);
+
+        return new PreDefenseLockStatusDto(
+            projectId,
+            project.Status,
+            status,
+            draft?.LockRequestedBy,
+            draft?.LockRequestedAt.HasValue == true ? Utc(draft.LockRequestedAt.Value) : null,
+            finalSub?.LockedBySupervisorId ?? draft?.LockedBySupervisorId,
+            finalSub?.ForceLockedBy ?? draft?.ForceLockedBy,
+            finalSub?.ForceLockReason ?? draft?.ForceLockReason,
+            finalSub?.ColdManifestSha256,
+            finalSub?.Id,
+            coldPkg?.Id,
+            draft?.ConcurrencyToken.ToString("N"),
+            blockers);
+    }
+
+    public async Task<PreDefenseLockStatusDto> RequestFinalLockAsync(long projectId, string? concurrencyToken = null, CancellationToken ct = default)
     {
         var project = await db.Projects.Include(p => p.Team).ThenInclude(t => t.TeamMembers)
             .SingleOrDefaultAsync(p => p.Id == projectId, ct) ?? throw new NotFoundException("Project", projectId);
@@ -146,11 +261,21 @@ internal sealed partial class ProjectChecklistService
 
         // Enforce Gate 3 PASSED (and all blocksDefense gates PASSED)
         var unpassedBlocking = await db.ProjectGateInstances.AsNoTracking()
-            .AnyAsync(g => g.ProjectId == projectId && (g.Code == "G3" || g.BlocksDefense) && g.Status != "PASSED", ct);
+            .AnyAsync(g => g.ProjectId == projectId && (g.Code == "G3" || g.Code == "R3" || g.BlocksDefense) && g.Status != "PASSED", ct);
         if (unpassedBlocking)
             throw new ConflictException("Gate 3 (and all defense-blocking gates) must be PASSED before requesting Final lock.", WorkflowErrorCodes.Gate3NotPassed);
 
-        var draft = await db.Set<FinalSubmissionDraft>().SingleOrDefaultAsync(d => d.ProjectId == projectId, ct);
+        var draft = await db.Set<FinalSubmissionDraft>().Include(d => d.Items)
+            .SingleOrDefaultAsync(d => d.ProjectId == projectId, ct);
+        if (draft is not null)
+            ValidateOptionalToken(draft.ConcurrencyToken, concurrencyToken);
+
+        var blockers = await ComputePreDefenseBlockersAsync(projectId, draft, ct);
+        if (blockers.Any(b => b.StartsWith("COLD_REPORT_REQUIRED:", StringComparison.Ordinal)))
+            throw new ConflictException("All required Cold reports must be SUBMITTED before requesting Final lock: " + string.Join(", ", blockers), WorkflowErrorCodes.ColdPackageIncomplete);
+        if (blockers.Any(b => b == "EMPTY_PACKAGE" || b.StartsWith("REQUIRED_DELIVERABLE_MISSING:", StringComparison.Ordinal)))
+            throw new ConflictException("Final submission draft does not satisfy configured required deliverables: " + string.Join(", ", blockers), WorkflowErrorCodes.FinalPackageRequired);
+
         var now = Now;
         if (draft is null)
         {
@@ -171,7 +296,7 @@ internal sealed partial class ProjectChecklistService
             db.Set<FinalSubmissionDraft>().Add(draft);
         }
 
-        if (draft.LockWorkflowStatus == "LOCKED")
+        if (draft.LockWorkflowStatus == "LOCKED" || await db.Set<FinalSubmission>().AsNoTracking().AnyAsync(s => s.ProjectId == projectId, ct))
             throw new ConflictException("Final submission package is already LOCKED.");
 
         draft.LockWorkflowStatus = "PENDING_SUPERVISOR_LOCK";
@@ -192,8 +317,10 @@ internal sealed partial class ProjectChecklistService
             "Trưởng nhóm đã hoàn tất hồ sơ Tiền-Defense và gửi yêu cầu GVHD Chính kiểm tra, ký khóa (Bước 2).",
             "PROJECT", projectId, primarySupervisors, now, enqueueEmail: true, ct);
 
+        var coldPkgId = await db.Set<ColdPackage>().AsNoTracking().Where(c => c.ProjectId == projectId).Select(c => (long?)c.Id).SingleOrDefaultAsync(ct);
         return new PreDefenseLockStatusDto(projectId, project.Status, draft.LockWorkflowStatus,
-            draft.LockRequestedBy, draft.LockRequestedAt, draft.LockedBySupervisorId, draft.ForceLockedBy, draft.ForceLockReason, null, null, null);
+            draft.LockRequestedBy, draft.LockRequestedAt, draft.LockedBySupervisorId, draft.ForceLockedBy, draft.ForceLockReason, null, null, coldPkgId,
+            draft.ConcurrencyToken.ToString("N"), []);
     }
 
     public async Task<PreDefenseLockStatusDto> SupervisorDecideFinalLockAsync(long projectId, SupervisorFinalLockDecisionRequest request, CancellationToken ct = default)
@@ -211,29 +338,37 @@ internal sealed partial class ProjectChecklistService
             .SingleOrDefaultAsync(d => d.ProjectId == projectId, ct)
             ?? throw new NotFoundException("FinalSubmissionDraft", projectId);
 
+        ValidateOptionalToken(draft.ConcurrencyToken, request.ConcurrencyToken);
+
         if (draft.LockWorkflowStatus != "PENDING_SUPERVISOR_LOCK")
             throw new ConflictException("Final submission draft must be in PENDING_SUPERVISOR_LOCK status.");
 
         if (decision == "RETURN_TO_OPEN")
         {
+            if (string.IsNullOrWhiteSpace(request.Notes))
+                throw new DomainException("Notes/reason is required when returning the Final Submission package to OPEN.", WorkflowErrorCodes.ReasonRequired);
+
             draft.LockWorkflowStatus = "OPEN";
             draft.UpdatedBy = ActorId;
             draft.UpdatedAt = Now;
             draft.ConcurrencyToken = Guid.NewGuid();
             await db.SaveChangesAsync(ct);
 
+            await auditTrail.RecordAsync(new AuditEntry(ActorId, "FINAL_LOCK_RETURNED", "PROJECT", projectId,
+                new Dictionary<string, object?> { ["draftId"] = draft.Id, ["notes"] = request.Notes.Trim() }), ct);
+
             var studentIds = await V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(db, projectId, ct);
             await V4WorkflowNotificationHelper.EmitAsync(
                 db, ActorId, "FINAL_LOCK_RETURNED",
                 $"GVHD Chính đã mở lại hồ sơ Tiền-Defense để chỉnh sửa (Đồ án #{projectId})",
-                string.IsNullOrWhiteSpace(request.Notes)
-                    ? "GVHD Chính yêu cầu nhóm rà soát và bổ sung lại hồ sơ Tiền-Defense trước khi gửi duyệt khóa lại."
-                    : $"GVHD Chính trả lại hồ sơ Tiền-Defense: {request.Notes.Trim()}",
+                $"GVHD Chính trả lại hồ sơ Tiền-Defense: {request.Notes.Trim()}",
                 "PROJECT", projectId, studentIds, Now, enqueueEmail: true, ct);
 
             var proj = await db.Projects.AsNoTracking().SingleAsync(p => p.Id == projectId, ct);
+            var coldPkgId = await db.Set<ColdPackage>().AsNoTracking().Where(c => c.ProjectId == projectId).Select(c => (long?)c.Id).SingleOrDefaultAsync(ct);
             return new PreDefenseLockStatusDto(projectId, proj.Status, draft.LockWorkflowStatus,
-                draft.LockRequestedBy, draft.LockRequestedAt, null, null, null, null, null, null);
+                draft.LockRequestedBy, draft.LockRequestedAt, null, null, null, null, null, coldPkgId,
+                draft.ConcurrencyToken.ToString("N"), []);
         }
 
         return await CommitUnifiedFinalAndColdLockAsync(projectId, draft, lockedBySupervisorId: ActorId, forceLockedBy: null, forceReason: null, ct);
@@ -242,17 +377,30 @@ internal sealed partial class ProjectChecklistService
     public async Task<PreDefenseLockStatusDto> ForceLockFinalAsync(long projectId, ForceLockFinalRequest request, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Reason))
-            throw new DomainException("Force-lock requires an explicit audit reason.", "REASON_REQUIRED");
+            throw new DomainException("Force-lock requires an explicit audit reason.", WorkflowErrorCodes.ReasonRequired);
 
         var actor = await GetActorAsync(ct);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
-        if (!actor.IsAdmin && !(actor.IsStaff && actor.DepartmentId == scope.LeadDepartmentId))
-            throw new ForbiddenException("Only LeadScope department staff or admin can force-lock a Final Submission.");
+        if (actor.IsAdmin && !actor.IsStaff)
+            throw new ForbiddenException("System Administrators cannot force-lock academic submissions; only LeadScope Department Staff may force-lock.", WorkflowErrorCodes.AdminNotAcademicAuthority);
+        if (!(actor.IsStaff && actor.DepartmentId == scope.LeadDepartmentId))
+            throw new ForbiddenException("Only LeadScope department staff can force-lock a Final Submission.", WorkflowErrorCodes.ScopeAccessDenied);
+
+        var project = await db.Projects.Include(p => p.Team).SingleOrDefaultAsync(p => p.Id == projectId, ct)
+            ?? throw new NotFoundException("Project", projectId);
+        if (project.Status != "ACTIVE")
+            throw new ConflictException("Project must be ACTIVE before force-locking final submission.", WorkflowErrorCodes.ProjectNotActive);
+
+        var unpassedBlocking = await db.ProjectGateInstances.AsNoTracking()
+            .AnyAsync(g => g.ProjectId == projectId && (g.Code == "G3" || g.Code == "R3" || g.BlocksDefense) && g.Status != "PASSED", ct);
+        if (unpassedBlocking)
+            throw new ConflictException("Gate 3 (and all defense-blocking gates) must be PASSED before force-locking Final submission.", WorkflowErrorCodes.Gate3NotPassed);
 
         var draft = await db.Set<FinalSubmissionDraft>().Include(d => d.Items)
             .SingleOrDefaultAsync(d => d.ProjectId == projectId, ct);
-        var project = await db.Projects.Include(p => p.Team).SingleOrDefaultAsync(p => p.Id == projectId, ct)
-            ?? throw new NotFoundException("Project", projectId);
+        if (draft is not null)
+            ValidateOptionalToken(draft.ConcurrencyToken, request.ConcurrencyToken);
+
         var now = Now;
         if (draft is null)
         {
@@ -285,7 +433,14 @@ internal sealed partial class ProjectChecklistService
         string? forceReason,
         CancellationToken ct)
     {
+        var ownsTx = db.Database.CurrentTransaction is null;
+        await using var tx = ownsTx ? await db.Database.BeginTransactionAsync(ct) : null;
+
+        await db.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.projects WITH (XLOCK, HOLDLOCK) WHERE id = {projectId}").ToListAsync(ct);
+
         var project = await db.Projects.SingleAsync(p => p.Id == projectId, ct);
+        if (project.Status != "ACTIVE")
+            throw new ConflictException("Project must be ACTIVE to lock Final Submission.", WorkflowErrorCodes.ProjectNotActive);
         var now = Now;
 
         // Compute deterministic unified Cold + Final SHA-256 manifest
@@ -295,21 +450,82 @@ internal sealed partial class ProjectChecklistService
             : await db.Set<ColdSubmissionFile>().AsNoTracking()
                 .Where(f => db.Set<ColdSubmission>().Any(s => s.Id == f.SubmissionId && db.Set<ColdChecklistItem>().Any(i => i.Id == s.ChecklistItemId && i.PackageId == coldPkg.Id)))
                 .OrderBy(f => f.FileId).Select(f => $"{f.FileId}:{f.Sha256}").ToListAsync(ct);
-        var draftVersionIds = draft.Items.OrderBy(i => i.DeliverableVersionId).Select(i => i.DeliverableVersionId.ToString()).ToList();
+        var draftVersionIds = draft.Items.OrderBy(i => i.DeliverableVersionId).Select(i => i.DeliverableVersionId).ToArray();
         var manifestInput = $"PROJECT:{projectId}|DRAFT:{string.Join(",", draftVersionIds)}|COLD:{string.Join(",", coldFiles)}";
         var manifestSha = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(manifestInput))).ToLowerInvariant();
 
-        // Freeze ColdPackage if present & still OPEN
+        // Freeze ColdPackage AND latest ColdSubmissions for all non-waived items
         if (coldPkg is not null && coldPkg.Status == "OPEN")
         {
             coldPkg.Status = "LOCKED";
             coldPkg.LockedBy = ActorId;
             coldPkg.LockedAt = now;
             coldPkg.ConcurrencyToken = Guid.NewGuid();
+
+            var nonWaivedItemIds = await db.Set<ColdChecklistItem>().AsNoTracking()
+                .Where(i => i.PackageId == coldPkg.Id && (i.WaivedStatus == null || i.WaivedStatus != "WAIVED_WITHDRAWN"))
+                .Select(i => i.Id).ToArrayAsync(ct);
+            if (nonWaivedItemIds.Length > 0)
+            {
+                var latestColdSubs = await db.Set<ColdSubmission>()
+                    .Where(s => nonWaivedItemIds.Contains(s.ChecklistItemId)
+                        && !db.Set<ColdSubmission>().Any(newer => newer.ChecklistItemId == s.ChecklistItemId && newer.Version > s.Version))
+                    .ToListAsync(ct);
+                foreach (var cs in latestColdSubs)
+                {
+                    if (cs.Status == "SUBMITTED")
+                    {
+                        cs.Status = "LOCKED";
+                        cs.LockedAt = now;
+                        cs.ConcurrencyToken = Guid.NewGuid();
+                    }
+                }
+            }
+        }
+
+        // Build complete FinalSubmissionItem snapshot rows from draft.Items (unified manifest parity with legacy 1-step)
+        var reqRecord = await db.Set<FinalSubmissionRequirements>().AsNoTracking()
+            .Include(r => r.Items)
+            .SingleOrDefaultAsync(r => r.ProjectId == projectId, ct);
+        var requiredDeliverableIds = reqRecord?.Items.Select(i => i.DeliverableId).ToHashSet() ?? new HashSet<long>();
+        var snapshotItems = new List<FinalSubmissionItem>();
+        if (draftVersionIds.Length > 0)
+        {
+            var versions = await db.DeliverableVersions.AsNoTracking()
+                .Include(v => v.Deliverable)
+                .Include(v => v.Files)
+                .Where(v => draftVersionIds.Contains(v.Id) && v.Deliverable.ProjectId == projectId)
+                .OrderBy(v => v.Id)
+                .ToListAsync(ct);
+            var uploaderIds = versions.SelectMany(v => v.Files).Select(f => f.UploadedBy).Distinct().ToArray();
+            var uploaderNames = uploaderIds.Length == 0
+                ? new Dictionary<long, string>()
+                : await db.Users.AsNoTracking().Where(u => uploaderIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+
+            foreach (var v in versions)
+            {
+                var snapFiles = v.Files.OrderBy(f => f.Id).Select(f => new AIPMS.Application.Features.FinalSubmissions.Models.FinalSnapshotFile(
+                    f.ToDto(uploaderNames.GetValueOrDefault(f.UploadedBy)) with { CreatedAt = Utc(f.CreatedAt) },
+                    f.StoragePath,
+                    v.Deliverable.EvidenceScope,
+                    v.Deliverable.TargetMajorId,
+                    v.Deliverable.TargetStudentId)).ToArray();
+
+                snapshotItems.Add(new FinalSubmissionItem
+                {
+                    DeliverableVersionId = v.Id,
+                    DeliverableId = v.DeliverableId,
+                    Title = v.Deliverable.Title,
+                    VersionNumber = v.VersionNumber,
+                    StatusAtSubmission = v.Status is "ACCEPTED" ? "ACCEPTED" : "SUBMITTED",
+                    WasRequired = requiredDeliverableIds.Contains(v.DeliverableId),
+                    FilesJson = JsonSerializer.Serialize(snapFiles)
+                });
+            }
         }
 
         // Create or update FinalSubmission snapshot
-        var existingSub = await db.Set<FinalSubmission>().SingleOrDefaultAsync(s => s.ProjectId == projectId, ct);
+        var existingSub = await db.Set<FinalSubmission>().Include(s => s.Items).SingleOrDefaultAsync(s => s.ProjectId == projectId, ct);
         if (existingSub is null)
         {
             var period = await db.ProjectPeriods.AsNoTracking().SingleAsync(p => p.Id == draft.ProjectPeriodId, ct);
@@ -322,11 +538,12 @@ internal sealed partial class ProjectChecklistService
                 Deadline = period.EndAt,
                 Notes = draft.Notes,
                 DraftConcurrencyToken = draft.ConcurrencyToken,
-                RequirementsConcurrencyToken = Guid.NewGuid(),
+                RequirementsConcurrencyToken = reqRecord?.ConcurrencyToken ?? Guid.NewGuid(),
                 LockedBySupervisorId = lockedBySupervisorId,
                 ForceLockedBy = forceLockedBy,
                 ForceLockReason = forceReason,
-                ColdManifestSha256 = manifestSha
+                ColdManifestSha256 = manifestSha,
+                Items = snapshotItems
             };
             db.Set<FinalSubmission>().Add(existingSub);
         }
@@ -336,6 +553,10 @@ internal sealed partial class ProjectChecklistService
             existingSub.ForceLockedBy = forceLockedBy ?? existingSub.ForceLockedBy;
             existingSub.ForceLockReason = forceReason ?? existingSub.ForceLockReason;
             existingSub.ColdManifestSha256 = manifestSha;
+            if (existingSub.Items.Count == 0 && snapshotItems.Count > 0)
+            {
+                foreach (var si in snapshotItems) existingSub.Items.Add(si);
+            }
         }
 
         draft.LockWorkflowStatus = "LOCKED";
@@ -346,34 +567,157 @@ internal sealed partial class ProjectChecklistService
         draft.UpdatedAt = now;
         draft.ConcurrencyToken = Guid.NewGuid();
 
-        // Transition project to FINAL_SUBMISSION (independent of any DefenseSession!)
-        if (project.Status == "ACTIVE")
+        // Transition project to FINAL_SUBMISSION + record ProjectStatusHistory (independent of DefenseSession!)
+        project.Status = "FINAL_SUBMISSION";
+        project.UpdatedAt = now;
+        db.ProjectStatusHistories.Add(new M.ProjectStatusHistory
         {
-            project.Status = "FINAL_SUBMISSION";
-            project.UpdatedAt = now;
-        }
+            ProjectId = projectId,
+            OldStatus = "ACTIVE",
+            NewStatus = "FINAL_SUBMISSION",
+            ChangedBy = ActorId,
+            ChangedAt = now,
+            Reason = forceLockedBy.HasValue
+                ? $"Final package force-locked by Lead Department: {forceReason}"
+                : "Final package signed and locked by Primary Supervisor (2-step Pre-Defense lock)"
+        });
 
         await db.SaveChangesAsync(ct);
+        await PolicyVersions.CaptureAsync(db, draft.ProjectPeriodId, "FINAL_SUBMISSION", existingSub.Id, now, ct);
+
         await auditTrail.RecordAsync(new AuditEntry(ActorId,
             forceLockedBy.HasValue ? "FINAL_SUBMISSION_FORCE_LOCKED" : "FINAL_SUBMISSION_SUPERVISOR_LOCKED",
             "FINAL_SUBMISSION", existingSub.Id,
-            new Dictionary<string, object?> { ["projectId"] = projectId, ["coldManifestSha256"] = manifestSha, ["forceReason"] = forceReason }), ct);
+            new Dictionary<string, object?> { ["projectId"] = projectId, ["coldManifestSha256"] = manifestSha, ["itemCount"] = existingSub.Items.Count, ["forceReason"] = forceReason }), ct);
 
         var studentIds = await V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(db, projectId, ct);
         var lockScope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: false);
         var leadStaffIds = lockScope.LeadDepartmentId.HasValue
             ? await V4WorkflowNotificationHelper.GetDepartmentStaffIdsAsync(db, lockScope.LeadDepartmentId.Value, ct)
             : [];
+        var primarySupIds = await V4WorkflowNotificationHelper.GetActiveSupervisorAndMentorIdsAsync(db, projectId, primaryOnly: true, ct);
         await V4WorkflowNotificationHelper.EmitAsync(
             db, ActorId, "FINAL_SUBMISSION_LOCKED",
             $"Hồ sơ bàn giao cuối kỳ đã được khóa (Đồ án #{projectId})",
             forceLockedBy.HasValue
                 ? $"Khoa đã thực hiện khóa cưỡng chế gói bàn giao cuối kỳ & hồ sơ chấm nguội. Lý do: {forceReason}"
                 : "GVHD Chính đã ký khóa gói bàn giao cuối kỳ & hồ sơ chấm nguội (Bước 2). Đồ án đã sẵn sàng chấm điểm.",
-            "PROJECT", projectId, studentIds.Concat(leadStaffIds), now, enqueueEmail: true, ct);
+            "PROJECT", projectId, studentIds.Concat(leadStaffIds).Concat(primarySupIds), now, enqueueEmail: true, ct);
+
+        if (tx is not null) await tx.CommitAsync(ct);
 
         return new PreDefenseLockStatusDto(projectId, project.Status, draft.LockWorkflowStatus,
             draft.LockRequestedBy, draft.LockRequestedAt, draft.LockedBySupervisorId, draft.ForceLockedBy, draft.ForceLockReason,
-            manifestSha, existingSub.Id, coldPkg?.Id);
+            manifestSha, existingSub.Id, coldPkg?.Id, draft.ConcurrencyToken.ToString("N"), []);
+    }
+
+    public async Task<PreDefenseLockStatusDto> ReopenFinalLockAsync(long projectId, ReopenFinalLockRequest request, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 10)
+            throw new DomainException("Reopening a locked Final Submission requires an audit reason of at least 10 characters.", WorkflowErrorCodes.ReasonRequired);
+
+        var actor = await GetActorAsync(ct);
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
+        if (actor.IsAdmin && !actor.IsStaff)
+            throw new ForbiddenException("System Administrators cannot reopen academic final submissions; only LeadScope Department Staff may reopen.", WorkflowErrorCodes.AdminNotAcademicAuthority);
+        if (!(actor.IsStaff && actor.DepartmentId == scope.LeadDepartmentId))
+            throw new ForbiddenException("Only LeadScope department staff can reopen a locked Final Submission.", WorkflowErrorCodes.ScopeAccessDenied);
+
+        var ownsTx = db.Database.CurrentTransaction is null;
+        await using var tx = ownsTx ? await db.Database.BeginTransactionAsync(ct) : null;
+
+        await db.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.projects WITH (XLOCK, HOLDLOCK) WHERE id = {projectId}").ToListAsync(ct);
+
+        var project = await db.Projects.SingleOrDefaultAsync(p => p.Id == projectId, ct)
+            ?? throw new NotFoundException("Project", projectId);
+        if (project.Status != "FINAL_SUBMISSION")
+            throw new ConflictException("Only projects in FINAL_SUBMISSION status can reopen the final lock.");
+
+        var finalSub = await db.Set<FinalSubmission>().Include(s => s.Items)
+            .SingleOrDefaultAsync(s => s.ProjectId == projectId, ct)
+            ?? throw new NotFoundException("FinalSubmission", projectId);
+
+        var draft = await db.Set<FinalSubmissionDraft>().SingleOrDefaultAsync(d => d.ProjectId == projectId, ct);
+        if (draft is not null)
+            ValidateOptionalToken(draft.ConcurrencyToken, request.ConcurrencyToken);
+
+        // Guard: Block reopen if ANY evaluation, active assignment, or result already exists
+        var hasEvalStarted = await db.Set<EvaluationAssignment>().AsNoTracking()
+                .AnyAsync(a => a.ProjectId == projectId && a.Status != "REVOKED", ct)
+            || await db.Evaluations.AsNoTracking().AnyAsync(e => e.ProjectId == projectId, ct)
+            || await db.Set<ProjectResult>().AsNoTracking().AnyAsync(r => r.ProjectId == projectId, ct)
+            || await db.Set<StudentResult>().AsNoTracking().AnyAsync(r => r.ProjectId == projectId, ct);
+        if (hasEvalStarted)
+            throw new ConflictException(
+                "Cannot reopen Final Submission because evaluator assignments, evaluations, or results already exist for this project.",
+                WorkflowErrorCodes.EvaluationAlreadyStarted);
+
+        var now = Now;
+        var reason = request.Reason.Trim();
+
+        // Remove locked snapshot rows & reopen ColdPackage/ColdSubmissions + Draft + Project ACTIVE
+        if (finalSub.Items.Count > 0)
+            db.Set<FinalSubmissionItem>().RemoveRange(finalSub.Items);
+        db.Set<FinalSubmission>().Remove(finalSub);
+
+        var coldPkg = await db.Set<ColdPackage>().SingleOrDefaultAsync(c => c.ProjectId == projectId, ct);
+        if (coldPkg is not null && coldPkg.Status == "LOCKED")
+        {
+            coldPkg.Status = "OPEN";
+            coldPkg.LockedBy = null;
+            coldPkg.LockedAt = null;
+            coldPkg.ConcurrencyToken = Guid.NewGuid();
+
+            var lockedSubs = await db.Set<ColdSubmission>()
+                .Where(s => s.Status == "LOCKED" && db.Set<ColdChecklistItem>().Any(i => i.Id == s.ChecklistItemId && i.PackageId == coldPkg.Id))
+                .ToListAsync(ct);
+            foreach (var ls in lockedSubs)
+            {
+                ls.Status = "SUBMITTED";
+                ls.LockedAt = null;
+                ls.ConcurrencyToken = Guid.NewGuid();
+            }
+        }
+
+        if (draft is not null)
+        {
+            draft.LockWorkflowStatus = "OPEN";
+            draft.LockedBySupervisorId = null;
+            draft.ForceLockedBy = null;
+            draft.ForceLockReason = null;
+            draft.UpdatedBy = ActorId;
+            draft.UpdatedAt = now;
+            draft.ConcurrencyToken = Guid.NewGuid();
+        }
+
+        project.Status = "ACTIVE";
+        project.UpdatedAt = now;
+        db.ProjectStatusHistories.Add(new M.ProjectStatusHistory
+        {
+            ProjectId = projectId,
+            OldStatus = "FINAL_SUBMISSION",
+            NewStatus = "ACTIVE",
+            ChangedBy = ActorId,
+            ChangedAt = now,
+            Reason = $"Final submission reopened by Lead Department: {reason}"
+        });
+
+        await db.SaveChangesAsync(ct);
+        await auditTrail.RecordAsync(new AuditEntry(ActorId, "FINAL_SUBMISSION_REOPENED", "PROJECT", projectId,
+            new Dictionary<string, object?> { ["previousFinalSubmissionId"] = finalSub.Id, ["reason"] = reason }), ct);
+
+        var studentIds = await V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(db, projectId, ct);
+        var primarySupIds = await V4WorkflowNotificationHelper.GetActiveSupervisorAndMentorIdsAsync(db, projectId, primaryOnly: true, ct);
+        await V4WorkflowNotificationHelper.EmitAsync(
+            db, ActorId, "FINAL_SUBMISSION_REOPENED",
+            $"Khoa đã mở lại hồ sơ bàn giao cuối kỳ (Đồ án #{projectId})",
+            $"Khoa chủ trì đã mở khóa lại hồ sơ bàn giao cuối kỳ để bổ sung trước khi bắt đầu chấm điểm. Lý do: {reason}",
+            "PROJECT", projectId, studentIds.Concat(primarySupIds), now, enqueueEmail: true, ct);
+
+        if (tx is not null) await tx.CommitAsync(ct);
+
+        return new PreDefenseLockStatusDto(projectId, project.Status, "OPEN",
+            draft?.LockRequestedBy, draft?.LockRequestedAt, null, null, null, null, null, coldPkg?.Id,
+            draft?.ConcurrencyToken.ToString("N"), []);
     }
 }

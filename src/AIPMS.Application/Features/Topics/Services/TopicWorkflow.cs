@@ -101,6 +101,17 @@ public sealed class TopicWorkflow(ITopicRepository repository, ITeamFormationPol
         if (actor.OrganizationId is not long organizationId)
             return new TopicSimilarityResultDto(null, []);
 
+        if (!actor.IsAdmin && !actor.HasActiveScope && !actor.HasEligibleStudentProfile)
+            throw new ForbiddenException("An active academic scope is required to check topic similarity.", WorkflowErrorCodes.ScopeAccessDenied);
+
+        if (leadDepartmentId.HasValue)
+        {
+            if (!await repository.IsActiveDepartmentAsync(leadDepartmentId.Value, organizationId, ct))
+                throw new ForbiddenException("Target department is outside your active organization scope.", WorkflowErrorCodes.ScopeAccessDenied);
+            if (!actor.IsAdmin && actor.DepartmentId.HasValue && actor.DepartmentId.Value != leadDepartmentId.Value)
+                throw new ForbiddenException("Cannot query topic similarity for another department outside your scope.", WorkflowErrorCodes.ScopeAccessDenied);
+        }
+
         var effectiveDepartmentId = leadDepartmentId ?? actor.DepartmentId;
         var keywordList = string.IsNullOrWhiteSpace(keywords)
             ? []
@@ -145,8 +156,15 @@ public sealed class TopicWorkflow(ITopicRepository repository, ITeamFormationPol
         if (publish)
         {
             var period = await ValidateScope(topic.ProjectPeriodId, topic.LeadDepartmentId, Content(topic), true, ct);
+            var requirementMajors = await repository.GetMajorsAsync(
+                topic.Requirements.Select(r => r.MajorId).Distinct().ToArray(), ct);
+            var departmentIds = requirementMajors
+                .Select(m => m.DepartmentId)
+                .Append(topic.LeadDepartmentId)
+                .Distinct()
+                .ToArray();
             similarity = await repository.CheckSimilarityAsync(period.OrganizationId, topic.LeadDepartmentId,
-                topic.Title, topic.Keywords, topic.Domain, 3, topic.Id, null, ct);
+                topic.Title, topic.Keywords, topic.Domain, 3, topic.Id, null, ct, departmentIds);
             if (similarity.ExactMatch is not null)
                 throw new DomainException("Topic title duplicates an existing topic or approved project in the last 3 periods.", "DUPLICATE_TOPIC_TITLE");
         }

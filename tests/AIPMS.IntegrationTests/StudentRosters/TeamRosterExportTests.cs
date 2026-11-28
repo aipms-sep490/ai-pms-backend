@@ -35,14 +35,38 @@ public sealed class TeamRosterExportTests(TeamDatabaseFixture database) : IClass
         return teams.Select(t => t.Id).ToArray();
     }
 
+    private async Task<long> SeedStaff(TeamScenario s)
+    {
+        await using var db = database.CreateContext();
+        var departmentId = (await db.Majors.SingleAsync(m => m.Id == s.SeMajorId)).DepartmentId;
+        var role = await db.Roles.SingleOrDefaultAsync(r => r.Code == "DEPARTMENT_STAFF");
+        role ??= new Role { Code = "DEPARTMENT_STAFF", Name = "Department Staff", IsSystemRole = true };
+        var staff = new User
+        {
+            Email = $"staff-{Guid.NewGuid():N}@example.test",
+            FullName = "Department Staff",
+            PasswordHash = "unused",
+            Status = "ACTIVE",
+            DepartmentId = departmentId,
+            UserRoleUsers = [new() { Role = role }]
+        };
+        db.Users.Add(staff);
+        await db.SaveChangesAsync();
+        return staff.Id;
+    }
+
     [Fact]
     public async Task Export_filters_current_members_orders_leader_first_and_audits()
     {
         var s = await database.SeedAsync();
         var admin = await CurriculumImportTests.SeedAdmin(database, s);
+        var staff = await SeedStaff(s);
         var teams = await SeedTeams(s);
         using var app = new TeamTestFactory(database, s);
-        using var client = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        // TK-W3-04: System Administrator is blocked from exporting academic team rosters (403).
+        using var adminClient = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}&format=xlsx")).StatusCode);
+        using var client = app.CreateAuthenticatedClient(staff, roles: ["DEPARTMENT_STAFF"]);
         var response = await client.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}&format=xlsx");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", response.Content.Headers.ContentType!.MediaType);
@@ -57,12 +81,15 @@ public sealed class TeamRosterExportTests(TeamDatabaseFixture database) : IClass
         Assert.Equal($"00{s.Students[3]:D4}", sheet.Cell("C3").GetString());
         Assert.Equal($"00{s.Students[1]:D4}", sheet.Cell("C4").GetString());
         Assert.Equal("0900000004", sheet.Cell("F2").GetString());
+        Assert.Equal("Khoa", sheet.Cell("I1").GetString());
+        Assert.Equal("Ngành", sheet.Cell("J1").GetString());
         Assert.All(sheet.CellsUsed(), c => Assert.False(c.HasFormula));
         await using var db = database.CreateContext();
-        Assert.True(await db.AuditLogs.AnyAsync(a => a.ActorUserId == admin && a.Action == "TEAM_ROSTER_EXPORTED"));
+        Assert.True(await db.AuditLogs.AnyAsync(a => a.ActorUserId == staff && a.Action == "TEAM_ROSTER_EXPORTED"));
         var filtered = await client.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}&majorId={s.IsMajorId}&teamId={teams[1]}");
         using var filteredBook = new XLWorkbook(new MemoryStream(await filtered.Content.ReadAsByteArrayAsync()));
-        Assert.Equal(2, filteredBook.Worksheet(1).LastRowUsed()!.RowNumber());
+        // TK-W3-04: Filtering at team level returns all active members of the matching team (students[3] SE + students[4] IS).
+        Assert.Equal(3, filteredBook.Worksheet(1).LastRowUsed()!.RowNumber());
         Assert.Equal($"00{s.Students[4]:D4}", filteredBook.Worksheet(1).Cell("C2").GetString());
         var samplePath = Environment.GetEnvironmentVariable("AIPMS_ROSTER_SAMPLE_PATH");
         if (!string.IsNullOrEmpty(samplePath)) await System.IO.File.WriteAllBytesAsync(samplePath, bytes);
@@ -74,22 +101,25 @@ public sealed class TeamRosterExportTests(TeamDatabaseFixture database) : IClass
         var s = await database.SeedAsync();
         var other = await database.SeedAsync();
         var admin = await CurriculumImportTests.SeedAdmin(database, s);
+        var staff = await SeedStaff(s);
         var teams = await SeedTeams(other);
         using var app = new TeamTestFactory(database, s);
-        using var client = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        using var client = app.CreateAuthenticatedClient(staff, roles: ["DEPARTMENT_STAFF"]);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/v1/teams/export")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}&format=csv")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}&teamId={teams[0]}")).StatusCode);
         await using var db = database.CreateContext();
         var department = (await db.Majors.FindAsync(s.SeMajorId))!.DepartmentId;
-        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}&departmentId={department}&majorId={other.SeMajorId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}&departmentId={department}&majorId={other.SeMajorId}")).StatusCode);
+        using var adminClient = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}")).StatusCode);
         using var student = app.CreateAuthenticatedClient(s.Students[0]);
         Assert.Equal(HttpStatusCode.Forbidden, (await student.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}")).StatusCode);
-        using var spoofed = app.CreateAuthenticatedClient(s.Students[0], roles: ["ADMIN"]);
+        using var spoofed = app.CreateAuthenticatedClient(s.Students[0], roles: ["DEPARTMENT_STAFF"]);
         Assert.Equal(HttpStatusCode.Forbidden, (await spoofed.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}")).StatusCode);
         using var anonymous = app.CreateClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}")).StatusCode);
-        var user = await db.Users.FindAsync(admin);
+        var user = await db.Users.FindAsync(staff);
         user!.Status = "INACTIVE";
         await db.SaveChangesAsync();
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}")).StatusCode);
@@ -99,24 +129,25 @@ public sealed class TeamRosterExportTests(TeamDatabaseFixture database) : IClass
     public async Task Export_rejects_10001_rows_but_allows_exactly_10000()
     {
         var s = await database.SeedAsync();
-        var admin = await CurriculumImportTests.SeedAdmin(database, s);
+        var staff = await SeedStaff(s);
         await using var db = database.CreateContext();
+        var departmentId = (await db.Majors.SingleAsync(m => m.Id == s.SeMajorId)).DepartmentId;
         var team = new Team { AcademicSemesterId = s.SemesterId, Code = "LIMIT", Name = "Limit test", Status = "FORMING", CreatedBy = s.Students[0] };
         db.Teams.Add(team);
         await db.SaveChangesAsync();
         var suffix = $"limit-{Guid.NewGuid():N}";
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             DECLARE @inserted TABLE (id BIGINT);
-            INSERT INTO dbo.users(email,full_name,password_hash,status)
+            INSERT INTO dbo.users(email,full_name,password_hash,status,department_id)
             OUTPUT inserted.id INTO @inserted
             SELECT TOP (10001) CONCAT({suffix},'-',ROW_NUMBER() OVER(ORDER BY a.object_id,b.object_id),'@example.test'),
-                N'Limit fixture','unused','ACTIVE'
+                N'Limit fixture','unused','ACTIVE',{departmentId}
             FROM sys.all_objects a CROSS JOIN sys.all_objects b;
             INSERT INTO dbo.team_members(team_id,academic_semester_id,user_id,is_leader)
             SELECT {team.Id},{s.SemesterId},id,0 FROM @inserted;
             """);
         using var app = new TeamTestFactory(database, s);
-        using var client = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        using var client = app.CreateAuthenticatedClient(staff, roles: ["DEPARTMENT_STAFF"]);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, (await client.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}")).StatusCode);
         await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE TOP (1) dbo.team_members SET left_at=SYSUTCDATETIME() WHERE team_id={team.Id}");
         var response = await client.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}");
@@ -129,9 +160,9 @@ public sealed class TeamRosterExportTests(TeamDatabaseFixture database) : IClass
     public async Task Audit_failure_prevents_download_and_routes_appear_in_openapi()
     {
         var s = await database.SeedAsync();
-        var admin = await CurriculumImportTests.SeedAdmin(database, s);
+        var staff = await SeedStaff(s);
         using var app = new TeamTestFactory(database, s, failAuditAction: "TEAM_ROSTER_EXPORTED");
-        using var client = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        using var client = app.CreateAuthenticatedClient(staff, roles: ["DEPARTMENT_STAFF"]);
         var response = await client.GetAsync($"/api/v1/teams/export?semesterId={s.SemesterId}");
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         var swagger = await client.GetAsync("/swagger/v1/swagger.json");

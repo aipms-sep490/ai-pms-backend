@@ -57,7 +57,8 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var department = await db.Rubrics.Where(r => r.Id == rubricId).Select(r => r.DepartmentId!.Value).SingleAsync(ct);
         var slots = db.Set<EvaluationAssignment>().Where(a => a.ComponentId == componentId && a.StudentId == studentId && a.Status == "ACTIVE");
         if (await slots.CountAsync(ct) >= component.RequiredEvaluators) return new([], page, pageSize, 0);
-        var query = db.Users.AsNoTracking().Where(u => u.Status == "ACTIVE" && u.DepartmentId == department
+        var allowedDeptIds = component.Scope == "COMMON" ? project.DepartmentIds.ToArray() : new[] { department };
+        var query = db.Users.AsNoTracking().Where(u => u.Status == "ACTIVE" && u.DepartmentId != null && allowedDeptIds.Contains(u.DepartmentId.Value)
             && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive && u.UserRoleUsers.Any(r => r.Role.Code == "LECTURER")
             && !db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.SupervisorProfile.UserId == u.Id)
             && !slots.Any(a => a.EvaluatorId == u.Id));
@@ -72,8 +73,8 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         }
         var count = await query.LongCountAsync(ct);
         var users = await query.OrderBy(u => u.FullName).ThenBy(u => u.Id).Skip((page-1)*pageSize).Take(pageSize)
-            .Select(u => new { u.Id, u.FullName, DepartmentName = u.Department!.Name }).ToListAsync(ct);
-        return new(users.Select(u => new EligibleEvaluatorDto(u.Id, u.FullName, department, u.DepartmentName,
+            .Select(u => new { u.Id, u.FullName, DepartmentId = u.DepartmentId!.Value, DepartmentName = u.Department!.Name }).ToListAsync(ct);
+        return new(users.Select(u => new EligibleEvaluatorDto(u.Id, u.FullName, u.DepartmentId, u.DepartmentName,
             ["LECTURER", "COMMITTEE"])).ToArray(), page, pageSize, count);
     }
     private long Actor => current.UserId ?? throw new UnauthorizedException();
@@ -323,7 +324,10 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var old = await db.Set<EvaluationScheme>().SingleOrDefaultAsync(x => x.ProjectId == row.ProjectId && x.Status == "PUBLISHED", ct);
         if (old is not null)
         {
-            if (await db.Set<EvaluationAssignment>().AnyAsync(a => a.ProjectId == row.ProjectId && a.ComponentId != null, ct))
+            var hasActiveOrEvaluated = await db.Set<EvaluationAssignment>().AnyAsync(a => a.ProjectId == row.ProjectId
+                && a.ComponentId != null
+                && (a.Status == "ACTIVE" || db.Set<EvaluationDraftState>().Any(s => s.AssignmentId == a.Id)), ct);
+            if (hasActiveOrEvaluated)
                 throw new ConflictException("A project already using a scheme cannot replace its scoring history.");
             old.Status = "RETIRED"; await db.SaveChangesAsync(ct);
         }
@@ -357,6 +361,179 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         foreach (var c in row.Components) await ComponentAuthority(c.RubricId, row.ProjectId, ct, scope: c.Scope, stage: c.Stage, majorId: c.MajorId);
         db.Remove(row); await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_DELETED", "EVALUATION_SCHEME", id, Map(row), ct); return true;
     }, ct);
+    public async Task EnsureCommitteeMemberForReplacementAsync(long projectId, long replacementEvaluatorId, string scope, long? majorId, CancellationToken ct)
+    {
+        var committee = await db.Set<DefenseCommittee>()
+            .Include(c => c.Members)
+            .SingleOrDefaultAsync(c => c.ProjectId == projectId && c.Status == "CONFIRMED", ct)
+            ?? throw new ConflictException("A confirmed defense committee is required.", WorkflowErrorCodes.DefenseCommitteeRequired);
+
+        var targetMajorId = majorId;
+        if (!targetMajorId.HasValue)
+        {
+            var evaluatorDeptId = await db.Users.AsNoTracking()
+                .Where(u => u.Id == replacementEvaluatorId)
+                .Select(u => u.DepartmentId)
+                .SingleOrDefaultAsync(ct);
+            targetMajorId = await db.ProjectMajors.AsNoTracking()
+                .Where(pm => pm.ProjectId == projectId && (!evaluatorDeptId.HasValue || pm.Major.DepartmentId == evaluatorDeptId.Value))
+                .Select(pm => (long?)pm.MajorId)
+                .FirstOrDefaultAsync(ct)
+                ?? await db.ProjectMajors.AsNoTracking()
+                    .Where(pm => pm.ProjectId == projectId)
+                    .Select(pm => (long?)pm.MajorId)
+                    .FirstOrDefaultAsync(ct);
+        }
+
+        if (!targetMajorId.HasValue)
+            throw new ConflictException("Project major could not be resolved for committee member replacement.");
+
+        var alreadyOnCommittee = committee.Members.Any(m => m.UserId == replacementEvaluatorId
+            && (scope == "COMMON" || m.MajorId == targetMajorId.Value));
+        if (!alreadyOnCommittee)
+        {
+            committee.Members.Add(new DefenseCommitteeMember
+            {
+                CommitteeId = committee.Id,
+                UserId = replacementEvaluatorId,
+                MajorId = targetMajorId.Value,
+                Role = "MEMBER"
+            });
+            committee.ConcurrencyToken = Guid.NewGuid();
+            await db.SaveChangesAsync(ct);
+        }
+    }
+
+    public async Task<BulkApplyEvaluationSchemeResultDto> BulkApplyByTrackAsync(BulkApplyEvaluationSchemeRequest input, CancellationToken ct)
+    {
+        var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
+        if (actor.IsAdmin || !actor.IsStaff || !actor.DepartmentId.HasValue)
+            throw new ForbiddenException("Only active Lead Department Staff can bulk-apply evaluation schemes by track.", WorkflowErrorCodes.AdminNotAcademicAuthority);
+        if (string.IsNullOrWhiteSpace(input.TrackCode))
+            throw new ValidationException(new Dictionary<string, string[]> { ["trackCode"] = ["TrackCode is required."] });
+
+        var track = input.TrackCode.Trim().ToUpperInvariant();
+        var period = await db.ProjectPeriods.AsNoTracking()
+            .Where(p => p.Id == input.ProjectPeriodId)
+            .Select(p => new { p.Id, p.AcademicSemesterId, p.PeriodType, p.Status })
+            .SingleOrDefaultAsync(ct)
+            ?? throw new NotFoundException("ProjectPeriod", input.ProjectPeriodId);
+        if (!string.Equals(period.PeriodType, "EVALUATION", StringComparison.OrdinalIgnoreCase))
+            throw new ConflictException("Bulk evaluation scheme application requires an EVALUATION project period.");
+
+        string? resolvedName = input.Name;
+        decimal? resolvedPass = input.PassThreshold;
+        SchemePolicyInput? resolvedPolicy = input.Policy;
+        IReadOnlyList<SchemeComponentInput>? resolvedComponents = input.Components;
+
+        if (input.SourceBlueprintId.HasValue || (input.UsePublishedBlueprint && (resolvedComponents is null || resolvedComponents.Count == 0)))
+        {
+            var bpQuery = db.Set<AcademicBlueprint>().AsNoTracking()
+                .Where(b => b.AcademicSemesterId == period.AcademicSemesterId
+                    && b.TrackCode == track
+                    && b.LeadDepartmentId == actor.DepartmentId.Value
+                    && b.Status == "PUBLISHED");
+            var blueprint = input.SourceBlueprintId.HasValue
+                ? await bpQuery.SingleOrDefaultAsync(b => b.Id == input.SourceBlueprintId.Value, ct)
+                : await bpQuery.OrderByDescending(b => b.Version).FirstOrDefaultAsync(ct);
+            if (blueprint is null)
+                throw new NotFoundException("AcademicBlueprint", input.SourceBlueprintId ?? 0);
+            var cfg = JsonSerializer.Deserialize<AIPMS.Application.Features.AcademicBlueprints.AcademicBlueprintConfig>(blueprint.ConfigJson);
+            if (cfg?.EvaluationSchemeTemplate is not null)
+            {
+                resolvedName ??= cfg.EvaluationSchemeTemplate.Name;
+                resolvedPass ??= cfg.EvaluationSchemeTemplate.PassThreshold;
+                resolvedPolicy ??= cfg.EvaluationSchemeTemplate.Policy;
+                if (resolvedComponents is null || resolvedComponents.Count == 0)
+                    resolvedComponents = cfg.EvaluationSchemeTemplate.Components;
+            }
+        }
+        else if (input.SourceSchemeId.HasValue && (resolvedComponents is null || resolvedComponents.Count == 0))
+        {
+            var src = await db.Set<EvaluationScheme>().AsNoTracking()
+                .Include(s => s.Components)
+                .SingleOrDefaultAsync(s => s.Id == input.SourceSchemeId.Value, ct)
+                ?? throw new NotFoundException("EvaluationScheme", input.SourceSchemeId.Value);
+            var srcProject = await evaluations.GetProjectAsync(src.ProjectId, ct);
+            if (srcProject is null || !AcademicAuthority.IsLead(actor, srcProject))
+                throw new ForbiddenException("Source scheme must belong to a project led by your department.");
+            resolvedName ??= src.Name;
+            resolvedPass ??= src.PassThreshold;
+            resolvedPolicy ??= Policy(src);
+            resolvedComponents = src.Components.OrderBy(c => c.Id).Select(c => new SchemeComponentInput(
+                c.Name, c.Scope, c.MajorId, c.RubricId, c.ProjectWeightPercent, c.StudentWeightPercent,
+                c.RequiredEvaluators, Weights(c), c.Stage ?? "DEFENSE", c.TargetScope, c.IsIntegration)).ToArray();
+        }
+
+        if (string.IsNullOrWhiteSpace(resolvedName) || resolvedComponents is null || resolvedComponents.Count == 0)
+            throw new ValidationException(new Dictionary<string, string[]> { ["components"] = ["Scheme name and components (or a published blueprint/source scheme template) are required."] });
+
+        var effectivePass = resolvedPass ?? 5.00m;
+        var candidateProjects = await db.Projects.AsNoTracking()
+            .Where(p => p.Team.AcademicSemesterId == period.AcademicSemesterId
+                && p.TrackCode == track
+                && p.Status == "FINAL_SUBMISSION"
+                && db.Set<ProjectRegistrationSnapshot>().Any(s => s.ProjectId == p.Id && s.LeadDepartmentId == actor.DepartmentId.Value))
+            .OrderBy(p => p.Id)
+            .Select(p => new { p.Id, p.Code })
+            .ToArrayAsync(ct);
+
+        var appliedIds = new List<long>();
+        var outcomes = new List<BulkApplyProjectOutcomeDto>();
+
+        foreach (var proj in candidateProjects)
+        {
+            if (await db.Set<EvaluationScheme>().AsNoTracking().AnyAsync(s => s.ProjectId == proj.Id && s.Status == "PUBLISHED", ct))
+            {
+                outcomes.Add(new BulkApplyProjectOutcomeDto(proj.Id, proj.Code, "SKIPPED", null, "ALREADY_HAS_PUBLISHED_SCHEME"));
+                continue;
+            }
+            if (!await evaluations.HasLockedSubmissionAsync(proj.Id, ct))
+            {
+                outcomes.Add(new BulkApplyProjectOutcomeDto(proj.Id, proj.Code, "SKIPPED", null, "LOCKED_PACKAGE_REQUIRED"));
+                continue;
+            }
+
+            try
+            {
+                var saveReq = new SaveEvaluationSchemeRequest(
+                    proj.Id,
+                    input.ProjectPeriodId,
+                    resolvedName,
+                    effectivePass,
+                    resolvedComponents,
+                    null,
+                    resolvedPolicy);
+                var saved = await SaveAsync(null, saveReq, ct);
+                if (input.AutoPublish)
+                    saved = await PublishAsync(saved.Id, saved.ConcurrencyToken, ct);
+                appliedIds.Add(proj.Id);
+                outcomes.Add(new BulkApplyProjectOutcomeDto(proj.Id, proj.Code, "APPLIED", saved.Id, null));
+            }
+            catch (Exception ex) when (ex is ConflictException or ValidationException or AIPMS.Domain.Exceptions.DomainException or ForbiddenException or NotFoundException)
+            {
+                outcomes.Add(new BulkApplyProjectOutcomeDto(proj.Id, proj.Code, "FAILED", null, ex.Message));
+            }
+        }
+
+        await Audit("EVALUATION_SCHEME_BULK_APPLIED", "PROJECT_PERIOD", input.ProjectPeriodId, new
+        {
+            TrackCode = track,
+            input.AutoPublish,
+            AppliedCount = appliedIds.Count,
+            SkippedCount = outcomes.Count(o => o.Status == "SKIPPED"),
+            FailedCount = outcomes.Count(o => o.Status == "FAILED"),
+            AppliedProjectIds = appliedIds
+        }, ct);
+
+        return new BulkApplyEvaluationSchemeResultDto(
+            appliedIds.Count,
+            outcomes.Count(o => o.Status == "SKIPPED"),
+            outcomes.Count(o => o.Status == "FAILED"),
+            appliedIds,
+            outcomes);
+    }
+
     public async Task<ScopedAssignmentContext> ResolveAssignmentAsync(long projectId, AssignEvaluatorRequest input, CancellationToken ct)
     {
         if (db.Database.CurrentTransaction is null) throw new InvalidOperationException("Assignment scope needs the project transaction.");

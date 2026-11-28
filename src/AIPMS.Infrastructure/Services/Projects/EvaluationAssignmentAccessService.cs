@@ -69,7 +69,10 @@ internal sealed class EvaluationAssignmentAccessService(
         if (component is null || scheme is null || scheme.Status != "PUBLISHED" || scheme.ProjectId != row.ProjectId
             || scheme.ProjectPeriodId != row.ProjectPeriodId || scheme.PolicyVersionId != row.PolicyVersionId
             || component.Stage != row.Stage || component.Scope != row.Scope || component.MajorId != row.MajorId || component.RubricId != row.RubricId
-            || !await db.Rubrics.AnyAsync(r => r.Id == component.RubricId && r.DepartmentId == row.DepartmentId, ct)
+            || (row.Scope == "COMMON"
+                ? !await db.Rubrics.AnyAsync(r => r.Id == component.RubricId && r.DepartmentId != null
+                    && db.ProjectMajors.Any(pm => pm.ProjectId == row.ProjectId && pm.Major.DepartmentId == r.DepartmentId), ct)
+                : !await db.Rubrics.AnyAsync(r => r.Id == component.RubricId && r.DepartmentId == row.DepartmentId, ct))
             || row.Scope == "COMMON" && (row.MajorId is not null || row.StudentId is not null)
             || row.Scope == "MAJOR_SPECIFIC" && (row.MajorId is null || row.StudentId is not null)
             || row.Scope == "INDIVIDUAL" && (row.StudentId is null || row.MajorId is null
@@ -303,10 +306,10 @@ internal sealed class EvaluationAssignmentAccessService(
                 scopedItems = rawItems;
                 break;
             case "MAJOR_SPECIFIC" when row.MajorId.HasValue && row.MajorId.Value > 0:
-                scopedItems = rawItems.Where(i => i.Dto.MajorId == row.MajorId.Value).ToList();
+                scopedItems = rawItems.Where(i => (i.Dto.MajorId == null && i.Dto.StudentId == null) || i.Dto.MajorId == row.MajorId.Value).ToList();
                 break;
             case "INDIVIDUAL" when row.StudentId.HasValue && row.StudentId.Value > 0:
-                scopedItems = rawItems.Where(i => i.Dto.StudentId == row.StudentId.Value && i.Dto.MajorId == row.MajorId).ToList();
+                scopedItems = rawItems.Where(i => (i.Dto.MajorId == null && i.Dto.StudentId == null) || (i.Dto.StudentId == row.StudentId.Value && i.Dto.MajorId == row.MajorId)).ToList();
                 break;
             default:
                 scopedItems = [];
@@ -526,7 +529,25 @@ internal sealed class EvaluationAssignmentAccessService(
             .Select(ToSummary)
             .ToArray();
 
+        var publishedSchemeGovernance = await db.Set<EvaluationScheme>().AsNoTracking()
+            .Where(s => s.ProjectId == projectId && s.Status == "PUBLISHED")
+            .OrderByDescending(s => s.Version)
+            .Select(s => s.GovernanceJson)
+            .FirstOrDefaultAsync(ct);
+        string? calculationFormula = null;
+        decimal failingThreshold = 4.00m;
+        if (!string.IsNullOrWhiteSpace(publishedSchemeGovernance))
+        {
+            try
+            {
+                var schemePolicy = JsonSerializer.Deserialize<SchemePolicyInput>(publishedSchemeGovernance);
+                calculationFormula = schemePolicy?.Formula;
+                failingThreshold = VersionedResultCalculator.EffectiveFailingFloor(schemePolicy) ?? 4.00m;
+            }
+            catch (JsonException) { }
+        }
+
         return new ProjectScoringWorkbenchDto(
-            project.Id, project.Title, project.Status, 4.00m, roster, projectLevelAssignments);
+            project.Id, project.Title, project.Status, failingThreshold, roster, projectLevelAssignments, calculationFormula);
     }
 }

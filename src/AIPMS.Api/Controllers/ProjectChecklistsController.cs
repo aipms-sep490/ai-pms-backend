@@ -87,10 +87,17 @@ public sealed class ProjectChecklistsController(IProjectChecklistService service
         CancellationToken ct) =>
         Ok(await service.WithdrawRosterMemberAsync(projectId, request, ct));
 
-    // 2-Step Final Lock + Lead Force-Lock (Unified Final + Cold SHA-256 Manifest)
+    // 2-Step Final Lock + Lead Force-Lock + Reopen (Unified Final + Cold SHA-256 Manifest)
+    [HttpGet("api/v1/projects/{projectId:long}/final-submission/lock-status")]
+    public async Task<ActionResult<PreDefenseLockStatusDto>> GetFinalLockStatus(long projectId, CancellationToken ct) =>
+        Ok(await service.GetPreDefenseLockStatusAsync(projectId, ct));
+
     [HttpPost("api/v1/projects/{projectId:long}/final-submission/request-lock")]
-    public async Task<ActionResult<PreDefenseLockStatusDto>> RequestFinalLock(long projectId, CancellationToken ct) =>
-        Ok(await service.RequestFinalLockAsync(projectId, ct));
+    public async Task<ActionResult<PreDefenseLockStatusDto>> RequestFinalLock(
+        long projectId,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] RequestFinalLockRequest? request = null,
+        CancellationToken ct = default) =>
+        Ok(await service.RequestFinalLockAsync(projectId, request?.ConcurrencyToken, ct));
 
     [HttpPost("api/v1/projects/{projectId:long}/final-submission/supervisor-lock")]
     public async Task<ActionResult<PreDefenseLockStatusDto>> SupervisorLock(
@@ -105,4 +112,11 @@ public sealed class ProjectChecklistsController(IProjectChecklistService service
         [FromBody] ForceLockFinalRequest request,
         CancellationToken ct) =>
         Ok(await service.ForceLockFinalAsync(projectId, request, ct));
+
+    [HttpPost("api/v1/projects/{projectId:long}/final-submission/reopen")]
+    public async Task<ActionResult<PreDefenseLockStatusDto>> ReopenFinalLock(
+        long projectId,
+        [FromBody] ReopenFinalLockRequest request,
+        CancellationToken ct) =>
+        Ok(await service.ReopenFinalLockAsync(projectId, request, ct));
 }

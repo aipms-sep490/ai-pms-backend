@@ -3,6 +3,7 @@ using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Abstractions.Storage;
 using AIPMS.Application.Common.Exceptions;
+using AIPMS.Application.Common.Options;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.Deliverables.DTOs;
 using AIPMS.Application.Features.FinalSubmissions.Abstractions;
@@ -11,12 +12,13 @@ using AIPMS.Application.Features.FinalSubmissions.Models;
 using AIPMS.Application.Features.Notifications.Events;
 using AIPMS.Application.Features.Supervisors.Abstractions;
 using MediatR;
+using Microsoft.Extensions.Options;
 
 namespace AIPMS.Application.Features.FinalSubmissions.Services;
 
 public sealed class FinalSubmissionWorkflow(IFinalSubmissionRepository repository, IFinalSubmissionDraftRepository drafts,
     ISupervisorProfileRepository accounts, ICurrentUser currentUser, IFileStorage storage, IAuditTrail audit,
-    IPublisher publisher, TimeProvider clock)
+    IPublisher publisher, TimeProvider clock, IOptions<FinalSubmissionSettings>? finalSettings = null)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
     private long ActorId => currentUser.IsAuthenticated && currentUser.UserId is long id ? id : throw new UnauthorizedException();
@@ -146,6 +148,10 @@ public sealed class FinalSubmissionWorkflow(IFinalSubmissionRepository repositor
 
     public Task<FinalSubmissionDto> Submit(long projectId, SubmitFinalSubmissionRequest input, CancellationToken ct) => drafts.InTransactionAsync(async () =>
     {
+        if (!(finalSettings?.Value.AllowLegacyOneStepLock ?? false))
+            throw new ConflictException(
+                "Legacy one-step final submission lock is disabled. Use the 2-step Pre-Defense lock workflow (request-lock -> supervisor-lock).",
+                WorkflowErrorCodes.LegacyOneStepFinalLockDisabled);
         var actor = ActorId;
         await drafts.LockProjectAsync(projectId, ct);
         var project = await Project(projectId, actor, true, ct);
@@ -180,21 +186,61 @@ public sealed class FinalSubmissionWorkflow(IFinalSubmissionRepository repositor
         return saved.ToDto();
     }, ct);
 
-    private async Task<FinalSubmissionRecord> Read(long projectId, CancellationToken ct)
+    private async Task<(FinalSubmissionRecord Snapshot, FinalReadScope Scope)> Read(long projectId, CancellationToken ct)
     {
-        await Project(projectId, ActorId, false, ct);
-        return await repository.GetAsync(projectId, ct) ?? throw new NotFoundException("FinalSubmission", projectId);
+        var actor = ActorId;
+        await Project(projectId, actor, false, ct);
+        var snapshot = await repository.GetAsync(projectId, ct) ?? throw new NotFoundException("FinalSubmission", projectId);
+        var scope = await repository.GetReadScopeAsync(projectId, actor, ct);
+        return (snapshot, scope);
     }
 
-    public Task<FinalSubmissionDto> Get(long projectId, CancellationToken ct) => drafts.InTransactionAsync(async () => (await Read(projectId, ct)).ToDto(), ct);
+    private static bool FileVisibleInScope(FinalSnapshotFile file, FinalReadScope scope)
+    {
+        if (scope.FullAccess) return true;
+        var evScope = file.EvidenceScope?.Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(evScope) || evScope is "COMMON" or "INTEGRATION" || (file.TargetMajorId is null && file.TargetStudentId is null))
+            return scope.IncludeCommon;
+        if (evScope == "MAJOR_SPECIFIC")
+            return file.TargetMajorId.HasValue && scope.AllowedMajorIds.Contains(file.TargetMajorId.Value);
+        if (evScope == "INDIVIDUAL")
+        {
+            if (file.TargetStudentId.HasValue && scope.AllowedStudentIds.Contains(file.TargetStudentId.Value))
+                return !file.TargetMajorId.HasValue || scope.AllowedMajorIds.Count == 0 || scope.AllowedMajorIds.Contains(file.TargetMajorId.Value);
+            // Discipline Mentor (no specific student filter, only major filter) sees students within their assigned major
+            if (scope.AllowedStudentIds.Count == 0 && file.TargetMajorId.HasValue && scope.AllowedMajorIds.Contains(file.TargetMajorId.Value))
+                return true;
+            return false;
+        }
+        return false;
+    }
+
+    private static FinalSubmissionRecord ApplyReadScope(FinalSubmissionRecord snapshot, FinalReadScope scope)
+    {
+        if (scope.FullAccess) return snapshot;
+        var filteredItems = snapshot.Items
+            .Select(item => item with { Files = item.Files.Where(f => FileVisibleInScope(f, scope)).ToArray() })
+            .Where(item => item.Files.Count > 0)
+            .ToArray();
+        return snapshot with { Items = filteredItems };
+    }
+
+    public Task<FinalSubmissionDto> Get(long projectId, CancellationToken ct) => drafts.InTransactionAsync(async () =>
+    {
+        var (snapshot, scope) = await Read(projectId, ct);
+        return ApplyReadScope(snapshot, scope).ToDto();
+    }, ct);
 
     public async Task<FileDownload> Download(long projectId, long fileId, CancellationToken ct)
     {
         var file = await drafts.InTransactionAsync(async () =>
         {
-            var snapshot = await Read(projectId, ct);
-            return snapshot.Items.SelectMany(i => i.Files).SingleOrDefault(f => f.Metadata.Id == fileId)
+            var (snapshot, scope) = await Read(projectId, ct);
+            var matched = snapshot.Items.SelectMany(i => i.Files).SingleOrDefault(f => f.Metadata.Id == fileId)
                 ?? throw new NotFoundException("Final submission file", fileId);
+            if (!FileVisibleInScope(matched, scope))
+                throw new ForbiddenException("This final submission file is outside your assigned academic/evaluation scope.", WorkflowErrorCodes.ScopeAccessDenied);
+            return matched;
         }, ct);
         try { return new(await storage.OpenReadAsync(file.StorageKey, ct), file.Metadata.ContentType, file.Metadata.FileName); }
         catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException)

@@ -43,6 +43,23 @@ public sealed class RevokeEvaluatorCommandValidator : AbstractValidator<RevokeEv
         RuleFor(r => r.Input).NotNull().SetValidator(new RevokeEvaluatorRequestValidator());
     }
 }
+public sealed class ReplaceEvaluatorRequestValidator : AbstractValidator<ReplaceEvaluatorRequest>
+{
+    public ReplaceEvaluatorRequestValidator()
+    {
+        RuleFor(r => r.ReplacementEvaluatorId).GreaterThan(0);
+        RuleFor(r => r.ConcurrencyToken).Must(t => Guid.TryParse(t, out _));
+        RuleFor(r => r.Reason).NotEmpty().MaximumLength(1000);
+    }
+}
+public sealed class ReplaceEvaluatorCommandValidator : AbstractValidator<ReplaceEvaluatorCommand>
+{
+    public ReplaceEvaluatorCommandValidator()
+    {
+        RuleFor(r => r.Id).GreaterThan(0);
+        RuleFor(r => r.Input).NotNull().SetValidator(new ReplaceEvaluatorRequestValidator());
+    }
+}
 public sealed class EvaluationScoreInputValidator : AbstractValidator<EvaluationScoreInput>
 {
     public EvaluationScoreInputValidator()

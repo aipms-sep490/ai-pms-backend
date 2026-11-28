@@ -37,7 +37,7 @@ internal sealed class SupervisorRecommendationService(AipmsDbContext db, Supervi
         IReadOnlyList<long> MentorMajors);
     private async Task<RecommendationAccess> Authorize(long projectId, CancellationToken ct)
     {
-        if (!settings.Value.Enabled) throw new NotFoundException("SupervisorRecommendationsFeature", projectId);
+        if (!settings.Value.Enabled) throw new NotFoundException("SupervisorRecommendationsFeature", projectId, WorkflowErrorCodes.FeatureDisabled);
         await policy.Read(projectId, ct);
         var actor = await access.EnsureCanReadAsync(ct);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: true);

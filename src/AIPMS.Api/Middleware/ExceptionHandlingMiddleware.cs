@@ -183,6 +183,7 @@ public sealed class ExceptionHandlingMiddleware(
         ForbiddenException forbidden => (forbidden.Code, forbidden.Metadata),
         ServiceUnavailableException unavailable => (unavailable.Code, unavailable.Metadata),
         DomainException domain => (domain.Code, domain.Metadata),
+        NotFoundException notFound => (notFound.ErrorCode, null),
         _ => (null, null)
     };
 

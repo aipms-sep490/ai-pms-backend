@@ -6,6 +6,7 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.AcademicTracking;
 using AIPMS.Application.Features.AcademicTracking.Abstractions;
 using AIPMS.Application.Features.Semesters;
+using AIPMS.Domain.Exceptions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
@@ -86,38 +87,59 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
     {
         var department = await LeadDepartment(projectId, ct);
         if (!await db.Users.AsNoTracking().AnyAsync(u => u.Id == Actor && u.Status == "ACTIVE"
-            && (u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN")
-                || u.DepartmentId == department && u.Department != null && u.Department.IsActive
-                    && u.Department.Organization.IsActive
-                    && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF")), ct))
-            throw new ForbiddenException("Only Admin or academic staff of the lead department may decide this request.");
+            && u.DepartmentId == department && u.Department != null && u.Department.IsActive
+            && u.Department.Organization.IsActive
+            && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"), ct))
+            throw new ForbiddenException("Only active academic staff of the lead department may decide this defense schedule change request.", WorkflowErrorCodes.ScopeAccessDenied);
     }
-    private async Task ValidateTimeAndRoom(DefenseSession session, long roomId, DateTimeOffset start,
+    private async Task<(bool IsInterdisciplinary, int DurationMinutes)> ValidateTimeAndRoom(DefenseSession session, long roomId, DateTimeOffset start,
         DateTimeOffset end, CancellationToken ct)
     {
         var local = start.ToOffset(VietnamOffset);
         var date = DateOnly.FromDateTime(local.Date);
         if (start.UtcDateTime <= Now || end <= start || date.DayOfWeek == DayOfWeek.Sunday)
             throw Invalid("A future non-Sunday office slot is required.");
-        var validSlot = Enumerable.Range(1, 6).Any(number => {
-            var slot = DefenseSchedulingRules.Slot(date, number);
-            return start == slot.Start && end == slot.End;
-        });
-        if (!validSlot) throw Invalid("The desired session must match one of the six office slots.");
+        var projectMeta = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == session.ProjectId)
+            .Select(p => new
+            {
+                p.TrackCode,
+                SemesterId = p.Team.AcademicSemesterId,
+                MajorCount = p.ProjectMajors.Count,
+                GroupSize = p.Team.TeamMembers.Count(m => m.LeftAt == null)
+            })
+            .SingleAsync(ct);
+        var isInterdisciplinary = string.Equals(projectMeta.TrackCode, "IT_MKT", StringComparison.OrdinalIgnoreCase)
+            || projectMeta.MajorCount > 1;
+        var matchedSlot = DefenseSchedulingRules.AllSlotsV4(date, isInterdisciplinary)
+            .FirstOrDefault(slot => start == slot.Start && end == slot.End);
+        if (matchedSlot.SlotNumber == 0)
+            throw Invalid(isInterdisciplinary
+                ? "The desired session must match one of the six 60-minute POL-06 interdisciplinary defense slots."
+                : "The desired session must match one of the eight 45-minute POL-06 single-major defense slots.");
         await OfflineGateEligibility.RequirePreviousGateAndWindow(db, session.ProjectId, 4, start, end, ct);
+        var evalPeriod = await db.ProjectPeriods.AsNoTracking()
+            .Where(p => p.AcademicSemesterId == projectMeta.SemesterId && p.PeriodType == "EVALUATION")
+            .OrderByDescending(p => p.EnableDefenseRoomScheduling)
+            .ThenByDescending(p => p.Status == "ACTIVE")
+            .ThenByDescending(p => p.Id)
+            .FirstOrDefaultAsync(ct);
+        if (evalPeriod is not null && !DefenseSchedulingRules.MeetsColdBuffer(start.ToUniversalTime(), evalPeriod.ColdWindowEndAt, evalPeriod.DefenseBufferHours))
+            throw new ConflictException($"Defense start must be at least {evalPeriod.DefenseBufferHours} hours after the Cold evaluation window closes.", WorkflowErrorCodes.ColdWindowNotCompleted);
         var periodId = await Period(session.ProjectId, ct);
-        var calendar = await db.Set<ProjectPeriodCalendar>().AsNoTracking().SingleOrDefaultAsync(c => c.ProjectPeriodId == periodId, ct);
+        var calendar = (evalPeriod is not null
+                ? await db.Set<ProjectPeriodCalendar>().AsNoTracking().SingleOrDefaultAsync(c => c.ProjectPeriodId == evalPeriod.Id, ct)
+                : null)
+            ?? await db.Set<ProjectPeriodCalendar>().AsNoTracking().SingleOrDefaultAsync(c => c.ProjectPeriodId == periodId, ct);
         if (calendar is not null && !WorkingDayMath.IsWorkingDay(date, calendar.WorkingDaysOfWeek,
             JsonSerializer.Deserialize<PeriodHoliday[]>(calendar.HolidaysJson) ?? []))
-            throw new ConflictException("The desired date is a configured non-working day.", "DEFENSE_NON_WORKING_DAY");
+            throw new ConflictException("The desired date is a configured non-working day.", WorkflowErrorCodes.DefenseNonWorkingDay);
         var room = await db.Set<Room>().AsNoTracking().SingleOrDefaultAsync(r => r.Id == roomId && r.Status == "ACTIVE", ct)
             ?? throw new ConflictException("The desired room is unavailable.", "DEFENSE_ROOM_UNAVAILABLE");
-        var groupSize = await db.Projects.AsNoTracking().Where(p => p.Id == session.ProjectId)
-            .Select(p => p.Team.TeamMembers.Count(m => m.LeftAt == null)).SingleAsync(ct);
         var members = await db.Set<DefenseCommitteeMember>().AsNoTracking().Where(m => m.CommitteeId == session.CommitteeId)
             .Select(m => m.UserId).Distinct().ToArrayAsync(ct);
-        if (room.Capacity < groupSize + members.Length + 5)
-            throw new ConflictException("The room has insufficient capacity.", "DEFENSE_ROOM_CAPACITY");
+        if (room.Capacity < projectMeta.GroupSize + members.Length)
+            throw new ConflictException("The room has insufficient capacity.", WorkflowErrorCodes.DefenseRoomCapacity);
         var startUtc = start.UtcDateTime; var endUtc = end.UtcDateTime;
         var overlapping = await db.Set<DefenseSession>().AsNoTracking().Where(s => s.Id != session.Id && s.Status == "SCHEDULED"
             && s.StartAt < endUtc && s.EndAt > startUtc).ToArrayAsync(ct);
@@ -137,6 +159,7 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
         if (await db.Set<DefenseCommitteeMember>().AsNoTracking().AnyAsync(m => committeeIds.Contains(m.CommitteeId)
             && members.Contains(m.UserId), ct))
             throw new ConflictException("A committee member has another defense in this slot.", "DEFENSE_LECTURER_CONFLICT");
+        return (isInterdisciplinary, matchedSlot.DurationMinutes);
     }
 
     public async Task<DefenseChangeRequestDto> Create(long sessionId, CreateDefenseChangeRequest input, CancellationToken ct)
@@ -149,6 +172,8 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
             throw new ForbiddenException("Only the assigned chair or secretary may request a schedule change.");
         if (session.Status != "SCHEDULED" || session.RoomId is null || session.EndAt <= Now)
             throw new ConflictException("Only a future cataloged defense can be changed.", "DEFENSE_SESSION_INACTIVE");
+        if (DateTime.SpecifyKind(session.StartAt, DateTimeKind.Utc) - Now < TimeSpan.FromHours(24))
+            throw new DomainException("Defense schedule changes require at least 24 hours advance notice.", WorkflowErrorCodes.ChangeRequestWindowExpired);
         if (input.ReasonCategory is not ("ROOM_FACILITY_ISSUE" or "SCHEDULE_CLASH" or "SPECIAL_REQUIREMENT" or "OTHER")
             || string.IsNullOrWhiteSpace(input.ReasonDetails) || input.ReasonDetails.Length > 2000
             || input.EvidenceFileUrl?.Length > 500
@@ -185,10 +210,12 @@ internal sealed class DefenseChangeRequestService(AipmsDbContext db, ICurrentUse
             if (session.Status != "SCHEDULED" || session.RoomId != row.CurrentRoomId
                 || Utc(session.StartAt) != row.CurrentStartAt || Utc(session.EndAt) != row.CurrentEndAt)
                 throw new ConflictException("The original defense changed; submit a new request.", "DEFENSE_SESSION_STALE");
-            await ValidateTimeAndRoom(session, row.DesiredRoomId, row.DesiredStartAt, row.DesiredEndAt, ct);
+            var (_, durationMinutes) = await ValidateTimeAndRoom(session, row.DesiredRoomId, row.DesiredStartAt, row.DesiredEndAt, ct);
             var room = await db.Set<Room>().AsNoTracking().SingleAsync(r => r.Id == row.DesiredRoomId, ct);
             session.RoomId = room.Id; session.Room = room.Code;
             session.StartAt = row.DesiredStartAt.UtcDateTime; session.EndAt = row.DesiredEndAt.UtcDateTime;
+            session.SchedulePolicyVersion = DefenseSchedulingRules.V4PolicyVersion;
+            session.SlotDurationMinutes = durationMinutes;
             session.ConcurrencyToken = Guid.NewGuid();
         }
         row.Status = input.Decision; row.ReviewerId = Actor; row.ReviewNote = input.ReviewNote?.Trim();

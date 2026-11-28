@@ -42,7 +42,7 @@ public sealed partial class EvaluationDraftEndpointTests
     }
 
     [Fact]
-    public async Task D17_mentor_can_evaluate_but_has_no_project_structure_authority()
+    public async Task D17_QD06_mentor_is_blocked_from_evaluating_and_has_no_project_structure_authority()
     {
         var s = await database.Seed();
         using var app = new EvaluationFactory(database);
@@ -53,8 +53,11 @@ public sealed partial class EvaluationDraftEndpointTests
         row.IsPrimary = false; row.AssignmentType = "DISCIPLINE_MENTOR"; row.MajorId = major;
         row.SupervisorProfileId = s.Scope.Users.ProfileId;
         await db.SaveChangesAsync();
-        var assigned = await Assign(staff, s);
-        Assert.Equal(s.Scope.Users.Lecturer, assigned.EvaluatorId);
+        // QD-06: Active or ended Discipline Mentor is blocked from evaluating the same project (409 EVALUATOR_ROLE_CONFLICT).
+        var input = await ScopedRequest(staff, s, s.Scope.Users.Lecturer);
+        var blocked = await staff.PostAsJsonAsync(AssignUrl(s.ProjectId), input);
+        Assert.Equal(HttpStatusCode.Conflict, blocked.StatusCode);
+        Assert.Contains("EVALUATOR_ROLE_CONFLICT", await blocked.Content.ReadAsStringAsync());
         Assert.False(await AIPMS.Infrastructure.Services.Projects.ProjectExecutionAuthority.IsManagerAsync(
             db, s.ProjectId, s.Scope.Users.Lecturer, default));
     }

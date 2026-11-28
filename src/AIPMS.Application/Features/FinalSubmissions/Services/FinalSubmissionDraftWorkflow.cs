@@ -68,6 +68,8 @@ public sealed class FinalSubmissionDraftWorkflow(IFinalSubmissionDraftRepository
         if (!project.IsLeader) throw new ForbiddenException("Only the current student leader can prepare the final package.");
         if (await submissions.GetAsync(projectId, ct) is not null) throw new ConflictException("The final package is already locked.");
         var before = await repository.GetAsync(projectId, ct);
+        if (before is not null && string.Equals(before.LockWorkflowStatus, "PENDING_SUPERVISOR_LOCK", StringComparison.OrdinalIgnoreCase))
+            throw new ConflictException("The final submission draft is awaiting supervisor lock approval and cannot be edited.", WorkflowErrorCodes.FinalLockPending);
         if (expectedToken is null && before is not null) throw new ConflictException("A final-submission draft already exists for this project.");
         if (expectedToken is not null)
         {
@@ -105,6 +107,8 @@ public sealed class FinalSubmissionDraftWorkflow(IFinalSubmissionDraftRepository
         var blockers = (await FinalSubmissionRules.Blockers(repository, project, period, now, ct)).ToList();
         var locked = await submissions.GetAsync(project.Id, ct) is not null;
         if (locked) blockers.Add("ALREADY_SUBMITTED");
+        if (string.Equals(draft.LockWorkflowStatus, "PENDING_SUPERVISOR_LOCK", StringComparison.OrdinalIgnoreCase))
+            blockers.Add(WorkflowErrorCodes.FinalLockPending);
         return draft.ToDto(period, blockers, versions) with { IsLocked = locked, Status = locked ? "LOCKED" : "DRAFT" };
     }
 }

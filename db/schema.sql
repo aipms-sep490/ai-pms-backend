@@ -5406,3 +5406,28 @@ BEGIN
             CHECK (status <> 'FINALIZED' OR (score IS NOT NULL AND supervisor_assignment_id IS NOT NULL));
 END;
 GO
+
+-- Wave 3 (TK-W3-01): Allow Force-Lock after deadline while preserving strict deadline check for normal locks
+IF OBJECT_ID(N'dbo.final_submissions', N'U') IS NOT NULL
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'dbo.final_submissions')
+          AND name = N'ck_final_submissions_deadline'
+    )
+        ALTER TABLE dbo.final_submissions DROP CONSTRAINT ck_final_submissions_deadline;
+END;
+GO
+
+IF OBJECT_ID(N'dbo.final_submissions', N'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'dbo.final_submissions')
+          AND name = N'ck_final_submissions_deadline'
+    )
+        ALTER TABLE dbo.final_submissions
+            ADD CONSTRAINT ck_final_submissions_deadline
+            CHECK (submitted_at < deadline OR force_locked_by IS NOT NULL);
+END;
+GO

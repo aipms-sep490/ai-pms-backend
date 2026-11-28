@@ -15,6 +15,11 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(422)]
 public sealed class DefenseSchedulerV4Controller(IDefenseSchedulerV4Service service) : ControllerBase
 {
+    [HttpGet("api/v1/academic/project-periods/{periodId:long}/defense-room-scheduling")]
+    [ProducesResponseType<PeriodDefenseRoomSchedulingDto>(200)]
+    public Task<PeriodDefenseRoomSchedulingDto> GetPeriodSchedulingConfig(long periodId, CancellationToken ct) =>
+        service.GetPeriodSchedulingConfigAsync(periodId, ct);
+
     [HttpPatch("api/v1/academic/project-periods/{periodId:long}/defense-room-scheduling")]
     [ProducesResponseType<PeriodDefenseRoomSchedulingDto>(200)]
     public Task<PeriodDefenseRoomSchedulingDto> UpdatePeriodSchedulingConfig(

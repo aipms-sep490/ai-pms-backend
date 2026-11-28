@@ -54,6 +54,9 @@ internal static class NotificationDtoMapper
             "EVALUATOR_ASSIGNED" => "notification.evaluator.assigned",
             "COLD_EVALUATOR_ASSIGNED" => "notification.cold.evaluator.assigned",
             "FINAL_SUBMISSION_LOCKED" => "notification.finalSubmission.locked",
+            "FINAL_LOCK_REQUESTED" => "notification.finalSubmission.lockRequested",
+            "FINAL_LOCK_RETURNED" => "notification.finalSubmission.lockReturned",
+            "FINAL_SUBMISSION_REOPENED" => "notification.finalSubmission.reopened",
 
             "APPEAL_REQUESTED" => "notification.appeal.requested",
             "APPEAL_REVIEWER_ASSIGNED" => "notification.appeal.reviewerAssigned",

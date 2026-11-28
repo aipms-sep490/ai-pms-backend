@@ -20,7 +20,9 @@ public sealed record FinalSubmissionDraftDto(long Id, long ProjectId, long Proje
     string Status, bool IsLocked, string? Notes, long CreatedBy, long UpdatedBy,
     DateTime CreatedAt, DateTime UpdatedAt, string ConcurrencyToken,
     FinalSubmissionPeriodDto? Period, bool CanEdit, IReadOnlyList<string> EditBlockers,
-    IReadOnlyList<FinalSubmissionDraftItemDto> Items);
+    IReadOnlyList<FinalSubmissionDraftItemDto> Items,
+    string LockWorkflowStatus = "OPEN", long? LockRequestedBy = null, DateTime? LockRequestedAt = null,
+    long? LockedBySupervisorId = null, long? ForceLockedBy = null, string? ForceLockReason = null);
 
 public static class FinalSubmissionDraftMapper
 {
@@ -31,5 +33,7 @@ public static class FinalSubmissionDraftMapper
             period is null ? null : new(period.Id, period.Name, period.StartAt, period.EndAt),
             blockers.Count == 0, blockers, versions.OrderBy(v => v.DeliverableId).ThenBy(v => v.Id)
                 .Select(v => new FinalSubmissionDraftItemDto(v.Id, v.DeliverableId, v.Title, v.VersionNumber,
-                    v.Status, v.FilesValid && v.Status is "SUBMITTED" or "ACCEPTED", v.Files)).ToArray());
+                    v.Status, v.FilesValid && v.Status is "SUBMITTED" or "ACCEPTED", v.Files)).ToArray(),
+            draft.LockWorkflowStatus, draft.LockRequestedBy, draft.LockRequestedAt,
+            draft.LockedBySupervisorId, draft.ForceLockedBy, draft.ForceLockReason);
 }

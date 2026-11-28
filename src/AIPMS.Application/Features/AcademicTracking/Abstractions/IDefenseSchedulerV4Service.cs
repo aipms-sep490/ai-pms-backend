@@ -2,6 +2,7 @@ namespace AIPMS.Application.Features.AcademicTracking.Abstractions;
 
 public interface IDefenseSchedulerV4Service
 {
+    Task<PeriodDefenseRoomSchedulingDto> GetPeriodSchedulingConfigAsync(long periodId, CancellationToken ct);
     Task<PeriodDefenseRoomSchedulingDto> UpdatePeriodSchedulingConfigAsync(long periodId, UpdatePeriodDefenseRoomSchedulingRequest input, CancellationToken ct);
     Task<DefenseTechCheckDto> RecordTechCheckAsync(RecordDefenseTechCheckRequest input, CancellationToken ct);
     Task<DefenseSessionV4Dto> ScheduleSessionV4Async(ScheduleDefenseV4Request input, CancellationToken ct);

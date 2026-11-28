@@ -84,8 +84,11 @@ public sealed partial class FinalSubmissionEndpointTests
         Assert.Equal(major, file.MajorId);
         Assert.Equal(input.TargetStudentId, file.StudentId);
         Assert.Equal("Exact locked evidence", await (await evaluator.GetAsync(file.DownloadUrl)).Content.ReadAsStringAsync());
-        Assert.Equal(HttpStatusCode.Forbidden, (await evaluator.GetAsync(Route(s.ProjectId))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await evaluator.GetAsync(Route(s.ProjectId) + $"/files/{file.FileId}/download")).StatusCode);
+        // TK-W3-03: Scoped evaluator can read filtered in-scope final submission items and download in-scope files; outsider is 403.
+        var scopedPackage = await Body<FinalSubmissionDto>(await evaluator.GetAsync(Route(s.ProjectId)));
+        Assert.Single(scopedPackage.Items);
+        Assert.Equal("Exact locked evidence", await (await evaluator.GetAsync(Route(s.ProjectId) + $"/files/{file.FileId}/download")).Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(Route(s.ProjectId))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(file.DownloadUrl)).StatusCode);
         await using (var db = database.CreateContext())
         {

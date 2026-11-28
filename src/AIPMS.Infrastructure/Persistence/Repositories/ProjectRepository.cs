@@ -1124,6 +1124,19 @@ public sealed partial class ProjectRepository(
                 .Select(tm => tm.User.DepartmentId)
                 .FirstOrDefaultAsync(cancellationToken);
 
+        var deptIds = new HashSet<long>();
+        if (leadDeptId.HasValue) deptIds.Add(leadDeptId.Value);
+        if (scope?.Requirements is { Count: > 0 } reqs)
+        {
+            var reqMajorIds = reqs.Select(r => r.MajorId).Distinct().ToArray();
+            var reqDeptIds = await context.Majors.AsNoTracking()
+                .Where(m => reqMajorIds.Contains(m.Id))
+                .Select(m => m.DepartmentId)
+                .Distinct()
+                .ToArrayAsync(cancellationToken);
+            foreach (var d in reqDeptIds) deptIds.Add(d);
+        }
+
         return await new TopicRepository(context).CheckSimilarityAsync(
             teamInfo.OrganizationId,
             leadDeptId,
@@ -1133,7 +1146,8 @@ public sealed partial class ProjectRepository(
             3,
             null,
             excludeProjectId,
-            cancellationToken);
+            cancellationToken,
+            deptIds);
     }
 
     public Task<bool> HasOpenAppealsAsync(long projectId, CancellationToken cancellationToken) =>

@@ -73,6 +73,11 @@ public static class VersionedResultCalculator
             var individualWeight = components.Where(c => c.Scope == "INDIVIDUAL").Sum(c => c.StudentWeightPercent);
             if (coldWeight != 30m || defenseWeight != 50m || individualWeight != 20m)
                 throw Invalid("POL_SINGLE_30_50_20 requires student weights of 30% COLD, 50% DEFENSE, and 20% INDIVIDUAL.");
+            var coldProject = components.Where(c => c.Stage == "COLD" && c.Scope != "INDIVIDUAL").Sum(c => c.ProjectWeightPercent);
+            var defenseProject = components.Where(c => c.Stage == "DEFENSE" && c.Scope != "INDIVIDUAL").Sum(c => c.ProjectWeightPercent);
+            var individualProject = components.Where(c => c.Scope == "INDIVIDUAL").Sum(c => c.ProjectWeightPercent);
+            if (coldProject != 37.5m || defenseProject != 62.5m || individualProject != 0m)
+                throw Invalid("POL_SINGLE_30_50_20 requires project weights of 37.5% COLD, 62.5% DEFENSE, and 0% INDIVIDUAL.");
         }
         if (policy.Formula == "POL_INTER_40_40_20")
         {
@@ -84,14 +89,23 @@ public static class VersionedResultCalculator
                 throw Invalid("POL_INTER_40_40_20 requires COMMON student weights summing to 40%.");
             var commonCold = commonComponents.Where(c => c.Stage == "COLD").Sum(c => c.StudentWeightPercent);
             var commonDefense = commonComponents.Where(c => c.Stage == "DEFENSE").Sum(c => c.StudentWeightPercent);
-            if (commonCold > 0 && commonDefense > 0 && (commonCold != 12m || commonDefense != 28m))
+            if (commonCold != 12m || commonDefense != 28m)
                 throw Invalid("POL_INTER_40_40_20 COMMON split must be 12% COLD (30% of 40%) and 28% DEFENSE (70% of 40%).");
+            if (!commonComponents.Any(c => c.IsIntegration))
+                throw Invalid("POL_INTER_40_40_20 requires at least one COMMON component marked with IsIntegration = true (POL-05).");
+            var commonColdProject = commonComponents.Where(c => c.Stage == "COLD").Sum(c => c.ProjectWeightPercent);
+            var commonDefenseProject = commonComponents.Where(c => c.Stage == "DEFENSE").Sum(c => c.ProjectWeightPercent);
+            var majorProjectSum = components.Where(c => c.Scope == "MAJOR_SPECIFIC").Sum(c => c.ProjectWeightPercent);
+            var indivProjectSum = components.Where(c => c.Scope == "INDIVIDUAL").Sum(c => c.ProjectWeightPercent);
+            if (commonColdProject != 15m || commonDefenseProject != 35m || majorProjectSum != 50m || indivProjectSum != 0m)
+                throw Invalid("POL_INTER_40_40_20 requires project weights of 15% COMMON COLD, 35% COMMON DEFENSE, 50% MAJOR_SPECIFIC total, and 0% INDIVIDUAL.");
             foreach (var major in majors)
             {
                 var majorWeight = components.Where(c => c.Scope == "MAJOR_SPECIFIC" && c.MajorId == major).Sum(c => c.StudentWeightPercent);
+                var majorProject = components.Where(c => c.Scope == "MAJOR_SPECIFIC" && c.MajorId == major).Sum(c => c.ProjectWeightPercent);
                 var indivWeight = components.Where(c => c.Scope == "INDIVIDUAL" && c.MajorId == major).Sum(c => c.StudentWeightPercent);
-                if (majorWeight != 40m || indivWeight != 20m)
-                    throw Invalid($"POL_INTER_40_40_20 requires 40% MAJOR_SPECIFIC and 20% INDIVIDUAL student weight for major {major}.");
+                if (majorWeight != 40m || majorProject <= 0m || indivWeight != 20m)
+                    throw Invalid($"POL_INTER_40_40_20 requires 40% MAJOR_SPECIFIC (project weight > 0%) and 20% INDIVIDUAL student weight for major {major}.");
             }
         }
     }

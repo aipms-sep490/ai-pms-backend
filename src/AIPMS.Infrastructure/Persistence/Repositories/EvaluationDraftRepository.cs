@@ -157,12 +157,19 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db, TimeProvider?
         var schemeIsDemo = policy?.IsDemo ?? (scheme is not null ? true : (bool?)null);
         var schemeApprovalStatus = policy?.ApprovalStatus ?? (scheme is not null ? "DEMO" : null);
 
+        var hasFinalized = await (from s in db.Set<EvaluationDraftState>().AsNoTracking()
+                                  join e in db.Evaluations.AsNoTracking() on s.EvaluationId equals e.Id
+                                  where s.AssignmentId == id && (e.Status != "DRAFT"
+                                      || db.Set<EvaluationFinalization>().Any(f => f.EvaluationId == e.Id))
+                                  select s.AssignmentId).AnyAsync(ct);
+
         return Map(row.Assignment, row.DueAt) with
         {
             Stage = stage,
             ComponentStudentWeightPercent = componentStudentWeightPercent,
             SchemeApprovalStatus = schemeApprovalStatus,
-            SchemeIsDemo = schemeIsDemo
+            SchemeIsDemo = schemeIsDemo,
+            HasFinalizedEvaluation = hasFinalized
         };
     }
 
@@ -238,6 +245,14 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db, TimeProvider?
         var rubrics = await db.Rubrics.Where(r => rubricIds.Contains(r.Id)).Select(r => new { r.Id, r.Name }).ToDictionaryAsync(r => r.Id, r => r.Name, ct);
         var majors = await db.Majors.Where(m => majorIds.Contains(m.Id)).Select(m => new { m.Id, m.Name }).ToDictionaryAsync(m => m.Id, m => m.Name, ct);
         var students = await db.Users.Where(u => studentIds.Contains(u.Id)).Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName, ct);
+        var assignmentIds = rows.Select(a => a.Id).ToArray();
+        var finalizedAssignmentIds = assignmentIds.Length == 0
+            ? new HashSet<long>()
+            : (await (from s in db.Set<EvaluationDraftState>().AsNoTracking()
+                      join e in db.Evaluations.AsNoTracking() on s.EvaluationId equals e.Id
+                      where assignmentIds.Contains(s.AssignmentId) && (e.Status != "DRAFT"
+                          || db.Set<EvaluationFinalization>().Any(f => f.EvaluationId == e.Id))
+                      select s.AssignmentId).Distinct().ToArrayAsync(ct)).ToHashSet();
         var dueAt = await db.ProjectPeriods.AsNoTracking().Where(p => periodIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => (DateTime?)p.EndAt, ct);
         return new(rows.Select(a => {
             var comp = a.ComponentId.HasValue && components.TryGetValue(a.ComponentId.Value, out var c) ? c : null;
@@ -248,7 +263,8 @@ internal sealed class EvaluationDraftRepository(AipmsDbContext db, TimeProvider?
                 MajorName = majors.GetValueOrDefault(a.MajorId ?? 0),
                 StudentName = students.GetValueOrDefault(a.StudentId ?? 0),
                 Stage = a.Stage ?? comp?.Stage,
-                ComponentStudentWeightPercent = comp?.StudentWeightPercent
+                ComponentStudentWeightPercent = comp?.StudentWeightPercent,
+                HasFinalizedEvaluation = finalizedAssignmentIds.Contains(a.Id)
             };
         }).ToArray(), page, pageSize, total);
     }

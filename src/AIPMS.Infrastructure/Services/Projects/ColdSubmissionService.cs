@@ -111,22 +111,30 @@ internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluati
             $"/api/v1/cold-submissions/{row.Id}/files/{f.FileId}/download")).ToArray());
     private static DateTime? Utc(DateTime? date) => date.HasValue ? DateTime.SpecifyKind(date.Value, DateTimeKind.Utc) : null;
 
-    private async Task TemplateScope(long? majorId, long periodId, CancellationToken ct)
+    private async Task TemplateScope(long? majorId, long periodId, CancellationToken ct, bool write = false)
     {
         var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
-        if (!actor.IsStaff) throw new ForbiddenException();
+        if (!actor.IsStaff || !actor.DepartmentId.HasValue) throw new ForbiddenException();
+        var staffOrgId = await db.Departments.AsNoTracking()
+            .Where(d => d.Id == actor.DepartmentId.Value && d.IsActive && d.Organization.IsActive)
+            .Select(d => (long?)d.OrganizationId)
+            .SingleOrDefaultAsync(ct)
+            ?? throw new ForbiddenException();
         if (majorId.HasValue)
         {
-            if (!await db.Majors.AnyAsync(m => m.Id == majorId.Value && m.IsActive && m.DepartmentId == actor.DepartmentId
+            var validMajor = await db.Majors.AsNoTracking().AnyAsync(m => m.Id == majorId.Value && m.IsActive
                 && m.Department.IsActive && m.Department.Organization.IsActive
-                && db.ProjectPeriods.Any(p => p.Id == periodId && p.AcademicSemester.OrganizationId == m.Department.OrganizationId
-                    && (p.PeriodType == "EVALUATION" || p.PeriodType == "FINAL_SUBMISSION")), ct)) throw new ForbiddenException();
+                && m.Department.OrganizationId == staffOrgId
+                && (!write || m.DepartmentId == actor.DepartmentId.Value)
+                && db.ProjectPeriods.Any(p => p.Id == periodId && p.AcademicSemester.OrganizationId == staffOrgId
+                    && (p.PeriodType == "EVALUATION" || p.PeriodType == "FINAL_SUBMISSION")), ct);
+            if (!validMajor) throw new ForbiddenException();
         }
         else
         {
-            if (!await db.ProjectPeriods.AnyAsync(p => p.Id == periodId
+            if (!await db.ProjectPeriods.AsNoTracking().AnyAsync(p => p.Id == periodId
                 && (p.PeriodType == "EVALUATION" || p.PeriodType == "FINAL_SUBMISSION")
-                && db.Departments.Any(d => d.Id == actor.DepartmentId && d.IsActive && d.OrganizationId == p.AcademicSemester.OrganizationId && d.Organization.IsActive), ct))
+                && p.AcademicSemester.OrganizationId == staffOrgId, ct))
                 throw new ForbiddenException();
         }
     }
@@ -152,7 +160,7 @@ internal sealed partial class ColdSubmissionService(AipmsDbContext db, IEvaluati
             throw Invalid("Invalid template scope. Must be COMMON, MAJOR_SPECIFIC, or null.");
         }
 
-        await TemplateScope(input.MajorId, input.ProjectPeriodId, ct);
+        await TemplateScope(input.MajorId, input.ProjectPeriodId, ct, write: true);
         await db.Database.SqlQuery<long>($"SELECT id AS Value FROM dbo.project_periods WITH (UPDLOCK,HOLDLOCK) WHERE id={input.ProjectPeriodId}").ToListAsync(ct);
         if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Trim().Length > 200 || input.Reports is null || input.Reports.Count is < 1 or > 30
             || input.Reports.Any(r => r is null || string.IsNullOrWhiteSpace(r.Code) || r.Code.Length > 80

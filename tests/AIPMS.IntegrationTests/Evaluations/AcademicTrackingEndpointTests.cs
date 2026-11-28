@@ -84,7 +84,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         var request = new OverrideReviewGateRequest("PASSED", reason, gate.ConcurrencyToken.ToString("N"));
         Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync(url, request)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync(url, request)).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await staff.PostAsJsonAsync(url, request with { Reason = "too short" })).StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await staff.PostAsJsonAsync(url, request with { Reason = "too short" })).StatusCode);
         var result = await Body<OverrideReviewGateDto>(await staff.PostAsJsonAsync(url, request));
         Assert.Equal("OVERRIDE", result.DecisionSource); Assert.Equal("PASSED", result.Status);
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(url, request)).StatusCode);
@@ -130,8 +130,9 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             start, end, null, null, [], [new GateAgendaStage("Questions", 30, "PENDING")],
             [], [], "Initial agenda", "PENDING", null, null, null);
         Assert.Equal(HttpStatusCode.Forbidden, (await student.PutAsJsonAsync(url, input)).StatusCode);
+        // TK-W2-12: Gates 1-3 allow OFFLINE mode, so test invalid OFFLINE payload without a valid room instead.
         Assert.Equal(HttpStatusCode.BadRequest, (await chair.PutAsJsonAsync(url,
-            input with { Mode = "OFFLINE", RoomId = 1, LiveKitRoomName = null })).StatusCode);
+            input with { Mode = "OFFLINE", RoomId = null, LiveKitRoomName = null })).StatusCode);
         var saved = await Body<GateSessionScriptDto>(await chair.PutAsJsonAsync(url, input));
         Assert.Equal("ONLINE", saved.Mode); Assert.Single(saved.AgendaStages);
         Assert.Equal(HttpStatusCode.Conflict, (await chair.PutAsJsonAsync(url, input)).StatusCode);
@@ -343,6 +344,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         long roomId;
         await using (var db = database.CreateContext())
         {
+            (await db.ProjectPeriods.SingleAsync(p => p.Id == x.S.PeriodId)).EnableDefenseRoomScheduling = true;
             var room = new Room { Code = "AUTO-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
                 Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
             var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Auto committee",
@@ -391,12 +393,13 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         long roomId;
         await using (var db = database.CreateContext())
         {
+            (await db.ProjectPeriods.SingleAsync(p => p.Id == x.S.PeriodId)).EnableDefenseRoomScheduling = true;
             var room = new Room { Code = "GATE-BOOK-" + Guid.NewGuid().ToString("N")[..8],
                 Building = "Test", Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
             var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Defense committee",
                 Status = "CONFIRMED", CreatedBy = x.S.Scope.Users.Staff, CreatedAt = Now,
                 Members = [new DefenseCommitteeMember { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
-            var slot = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1);
+            var slot = DefenseSchedulingRules.SlotV4(new DateOnly(2026, 9, 14), 1, false);
             db.AddRange(room, committee); await db.SaveChangesAsync(); roomId = room.Id;
             db.GateReviewerAssignments.Add(new GateReviewerAssignment { GateInstanceId = gate.Id,
                 ReviewerId = x.S.Scope.Users.NewLecturer, Scope = "COMMON", CreatedAt = Now });
@@ -411,7 +414,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             new AutoSchedulePreviewRequest(new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 14), [roomId])));
         Assert.Equal(2, Assert.Single(preview.Allocations).SlotNumber);
         var available = await Body<RoomDto[]>(await admin.GetAsync(
-            $"/api/v1/project-periods/{x.S.PeriodId}/rooms/availability?date=2026-09-14&startAt=08:00&endAt=09:15"));
+            $"/api/v1/project-periods/{x.S.PeriodId}/rooms/availability?date=2026-09-14&startAt=08:00&endAt=08:45"));
         Assert.DoesNotContain(available, room => room.Id == roomId);
     }
 
@@ -424,6 +427,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         long roomId;
         await using (var db = database.CreateContext())
         {
+            (await db.ProjectPeriods.SingleAsync(p => p.Id == x.S.PeriodId)).EnableDefenseRoomScheduling = true;
             var room = new Room { Code = "ELIG-" + Guid.NewGuid().ToString("N")[..8], Building = "Test",
                 Floor = 2, Capacity = 40, CreatedAt = Now, UpdatedAt = Now };
             var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Defense",
@@ -442,7 +446,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
             var r3 = await db.ProjectGateInstances.SingleAsync(g => g.ProjectId == x.S.ProjectId && g.Sequence == 3);
             r3.Status = "PASSED"; r3.ConcurrencyToken = Guid.NewGuid();
             var r4 = await db.ProjectGateInstances.SingleAsync(g => g.ProjectId == x.S.ProjectId && g.Sequence == 4);
-            r4.WindowEnd = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1).End.UtcDateTime;
+            r4.WindowEnd = DefenseSchedulingRules.SlotV4(new DateOnly(2026, 9, 14), 1, false).End.UtcDateTime;
             r4.ConcurrencyToken = Guid.NewGuid(); await db.SaveChangesAsync();
         }
         var limited = await Body<AutoSchedulePreviewDto>(await admin.PostAsJsonAsync(url, input));
@@ -560,7 +564,7 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         using var staff = app.CreateAuthenticatedClient(x.S.Scope.Users.Staff);
         using var admin = app.CreateAuthenticatedClient(x.S.Scope.Users.Admin);
         using var student = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
-        var slot = DefenseSchedulingRules.Slot(new DateOnly(2026, 9, 14), 1);
+        var slot = DefenseSchedulingRules.SlotV4(new DateOnly(2026, 9, 14), 1, false);
         long sessionId, desiredRoomId, smallRoomId, committeeId; string committeeToken;
         await using (var db = database.CreateContext())
         {
@@ -620,10 +624,14 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
         Assert.Contains(adminList, r => r.Id == withdrawn.Id);
         var third = await Body<DefenseChangeRequestDto>(await chair.PostAsJsonAsync(url,
             request with { DesiredRoomId = pending.CurrentRoomId }));
-        var adminApproved = await Body<DefenseChangeRequestDto>(await admin.PostAsJsonAsync(
+        // TK-W3-10: ADMIN has no academic authority over defense schedule changes (403); Lead Staff decides.
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.PostAsJsonAsync(
             $"/api/v1/defense-sessions/change-requests/{third.Id}/decision",
-            new DecideDefenseChangeRequest("APPROVED", "Admin restored the original room", third.ConcurrencyToken)));
-        Assert.Equal("APPROVED", adminApproved.Status);
+            new DecideDefenseChangeRequest("APPROVED", "Admin attempt should be blocked", third.ConcurrencyToken))).StatusCode);
+        var restored = await Body<DefenseChangeRequestDto>(await staff.PostAsJsonAsync(
+            $"/api/v1/defense-sessions/change-requests/{third.Id}/decision",
+            new DecideDefenseChangeRequest("APPROVED", "Lead staff restored the original room", third.ConcurrencyToken)));
+        Assert.Equal("APPROVED", restored.Status);
         var pendingList = await Body<DefenseChangeRequestDto[]>(await staff.GetAsync(
             $"/api/v1/project-periods/{x.S.PeriodId}/defense-sessions/change-requests?status=PENDING"));
         Assert.DoesNotContain(pendingList, r => r.Id == withdrawn.Id);
@@ -923,7 +931,10 @@ public sealed class AcademicTrackingEndpointTests(EvaluationDraftDatabaseFixture
                 MajorId = x.Major, SubmittedBy = x.S.Scope.Users.Student, SubmittedAt = Now, VerificationStatus = "PENDING" };
             db.Add(evidence); await db.SaveChangesAsync(); evidenceId = evidence.Id;
         }
-        Assert.Equal(HttpStatusCode.NotFound, (await primary.GetAsync(Evidence(evidenceId) + "/review-target")).StatusCode);
+        // Wave 2 auto-resolves the latest deliverable version when sourceVersionId is omitted; invalid versionId still returns 404.
+        var autoTarget = await Body<EvidenceReviewTarget>(await primary.GetAsync(Evidence(evidenceId) + "/review-target"));
+        Assert.NotNull(autoTarget.SourceVersion);
+        Assert.Equal(HttpStatusCode.NotFound, (await primary.GetAsync(Evidence(evidenceId) + "/review-target?sourceVersionId=999999999")).StatusCode);
         var target = await Body<EvidenceReviewTarget>(await primary.GetAsync(Evidence(evidenceId) + $"/review-target?sourceVersionId={firstId}"));
         var review = await Body<EvidenceReviewDto>(await primary.PostAsJsonAsync(Evidence(evidenceId) + "/reviews", Review(target)));
         Assert.Equal(firstId, review.SourceVersionId);
