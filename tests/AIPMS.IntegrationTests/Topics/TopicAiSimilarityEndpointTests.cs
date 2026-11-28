@@ -178,7 +178,11 @@ public sealed class TopicAiSimilarityEndpointTests(TopicDatabaseFixture database
         {
             base.ConfigureWebHost(builder);
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
-                { ["ConnectionStrings:DefaultConnection"] = database.ConnectionString }));
+            {
+                ["ConnectionStrings:DefaultConnection"] = database.ConnectionString,
+                ["AiAssistant:Enabled"] = "true",
+                ["AiAssistant:TopicSimilarityEnabled"] = "true"
+            }));
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IAiTextGenerationProvider>(); services.AddSingleton(provider);

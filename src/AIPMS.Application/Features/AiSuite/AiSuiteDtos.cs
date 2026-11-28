@@ -19,7 +19,7 @@ public sealed record AiSnapshotMetaDto(
 // #1 Defense Mock Q&A, Answer Evaluation & Gate Session Script Draft
 // =========================================================================
 public sealed record DefenseMockRequest(
-    string? RoleFocus = null, // ALL | CHAIR | REVIEWER | SECRETARY | INDUSTRY
+    string? RoleFocus = null, // ALL | CHAIR | REVIEWER | SECRETARY
     int QuestionCount = 6,
     string? FocusTopic = null);
 
@@ -126,7 +126,7 @@ public sealed record MemberFairnessMetricDto(
     double SpeechSharePercent,
     decimal? AverageWeeklyScore,
     double? AveragePeerRating,
-    string Signal, // BALANCED | OVERLOADED_BURNOUT | LOW_ENGAGEMENT_RISK | PEER_MISMATCH
+    string Signal, // BALANCED | OVERLOADED_BURNOUT | LOW_ENGAGEMENT_RISK
     string Assessment,
     IReadOnlyList<string> EvidenceBullets);
 
@@ -164,7 +164,8 @@ public sealed record RubricGradingCopilotDto(
     IReadOnlyList<RubricCriterionSuggestionDto> Criteria,
     IReadOnlyList<string> VerificationQuestions,
     string Disclaimer,
-    AiSnapshotMetaDto Meta);
+    AiSnapshotMetaDto Meta,
+    bool AntiAnchoringEnforced = true);
 
 public sealed record ScoreCalibrationAlertDto(
     string Severity, // HIGH | MEDIUM | LOW
@@ -355,7 +356,8 @@ public sealed record EvaluationSchemeSuggestComponentDto(
     decimal ProjectWeightPercent,
     decimal StudentWeightPercent,
     int RequiredEvaluators,
-    string Rationale);
+    string Rationale,
+    bool IsIntegration = false);
 
 public sealed record EvaluationSchemeSuggestDto(
     long ProjectId,
@@ -365,4 +367,7 @@ public sealed record EvaluationSchemeSuggestDto(
     bool UsedAi,
     IReadOnlyList<EvaluationSchemeSuggestComponentDto> Components,
     IReadOnlyList<string> Warnings,
-    AiSnapshotMetaDto Meta);
+    AiSnapshotMetaDto Meta,
+    string? CalculationVersion = null,
+    decimal? FailingComponentFloor = null,
+    string? TrackCode = null);

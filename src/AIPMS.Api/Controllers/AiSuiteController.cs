@@ -79,6 +79,7 @@ public sealed class AiSuiteController(IAiSuiteService suite) : ControllerBase
         suite.GenerateRubricGradingCopilotAsync(assignmentId, ct);
 
     [HttpPost("projects/{projectId:long}/results/calibration-check")]
+    [AiFeatureGate(AiFeatureArea.ScoreCalibration)]
     [ProducesResponseType<ScoreCalibrationDto>(StatusCodes.Status200OK)]
     public Task<ScoreCalibrationDto> CheckScoreCalibration(long projectId, CancellationToken ct) =>
         suite.CheckScoreCalibrationAsync(projectId, ct);

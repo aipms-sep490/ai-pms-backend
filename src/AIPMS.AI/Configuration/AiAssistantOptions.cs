@@ -16,7 +16,13 @@ public sealed class AiAssistantOptions
     public bool ContributionFairnessEnabled { get; set; } = false;
     public bool LegacyProjectAskEnabled { get; set; } = false;
     public bool SuggestEvaluationSchemeEnabled { get; set; } = false;
-    public bool KnowledgeEnabled { get; set; }
+    public bool ScoreCalibrationEnabled { get; set; } = false;
+    public bool KnowledgeEnabled { get; set; } = false;
+    public bool DeliverableReviewEnabled { get; set; } = false;
+    public bool ProgressRiskEnabled { get; set; } = false;
+    public bool TopicSimilarityEnabled { get; set; } = false;
+    public bool PreSemesterAiEnabled { get; set; } = false;
+    public bool WorkflowAssistanceEnabled { get; set; } = false;
     public int TimeoutSeconds { get; set; } = 30;
     public bool SimulateTimeout { get; set; } = false;
     public bool SimulateFailure { get; set; } = false;

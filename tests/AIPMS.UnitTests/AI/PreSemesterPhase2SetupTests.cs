@@ -152,7 +152,7 @@ public sealed class PreSemesterPhase2SetupTests
         var key = Guid.NewGuid();
         var req = new ApplyReviewGateSetupRequest(key, 12, 1000, "GATE_SE_2026", "Cổng SE 2026", "SINGLE_MAJOR", "SE",
         [
-            new("G1", 1, "Cổng 1", "Chốt đặc tả", 40m, "2026-09-10", "2026-09-20", true, true, false, "SUPERVISOR", "COMMON",
+            new("G1", 1, "Cổng 1", "Chốt đặc tả", 40m, "2026-09-10", "2026-09-20", true, true, false, "COUNCIL", "COMMON",
                 [new("G1_SRS", "SRS", null, "FILE", "COMMON", null, "HUMAN", true)]),
             new("G2", 2, "Cổng 2", "Bảo vệ", 60m, "2026-10-10", "2026-11-10", true, false, true, "COUNCIL", "COMMON",
                 [new("G2_FINAL", "Báo cáo cuối kỳ", null, "FILE", "COMMON", null, "HUMAN", true)])
@@ -165,6 +165,33 @@ public sealed class PreSemesterPhase2SetupTests
 
         // DEPARTMENT_STAFF (user 1) succeeds and replays idempotently
         var staffSvc = new ProjectAiSetupService(db, new TestUser(1, ["DEPARTMENT_STAFF"]), new AllowGuard(), new StubTopicSender(), audit, clock, fakeGates, new FakeColdService());
+
+        // V4.0 QĐ-09: SUPERVISOR cannot be gate reviewer policy
+        var badReviewerReq = req with
+        {
+            IdempotencyKey = Guid.NewGuid(),
+            Gates =
+            [
+                req.Gates[0] with { ReviewerPolicy = "SUPERVISOR" },
+                req.Gates[1]
+            ]
+        };
+        await Assert.ThrowsAsync<ArgumentException>(() => staffSvc.ApplyReviewGateSetupAsync(badReviewerReq, Ct));
+
+        // V4.0: Fixed G1-G3 maximum (4 gates rejected)
+        var fourGatesReq = req with
+        {
+            IdempotencyKey = Guid.NewGuid(),
+            Gates =
+            [
+                req.Gates[0] with { Weight = 20m },
+                req.Gates[1] with { Code = "G2", Sequence = 2, Weight = 25m, BlocksDefense = false },
+                req.Gates[1] with { Code = "G3", Sequence = 3, Weight = 30m, BlocksDefense = false },
+                req.Gates[1] with { Code = "G4", Sequence = 4, Weight = 25m, BlocksDefense = true }
+            ]
+        };
+        await Assert.ThrowsAsync<ArgumentException>(() => staffSvc.ApplyReviewGateSetupAsync(fourGatesReq, Ct));
+
         var first = await staffSvc.ApplyReviewGateSetupAsync(req, Ct);
         Assert.False(first.Replay);
         Assert.Equal("DRAFT", first.Status);

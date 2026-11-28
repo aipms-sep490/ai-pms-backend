@@ -35,6 +35,7 @@ public sealed class TopicsController(ISender sender) : ControllerBase
 
     [HttpPost("ai-similarity-check")]
     [Authorize(Roles = "STUDENT")]
+    [AIPMS.Api.Filters.AiFeatureGate(AIPMS.Api.Filters.AiFeatureArea.TopicSimilarity)]
     [EnableRateLimiting("ai-assistant")]
     [ProducesResponseType<TopicAiSimilarityResultDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

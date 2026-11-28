@@ -63,7 +63,10 @@ public sealed class AcademicProfileEndpointTests(SupervisorDatabaseFixture datab
         Assert.Equal(HttpStatusCode.BadRequest, (await staff.GetAsync("/api/v1/academic/profile-verifications?pageSize=101")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await staff.PostAsJsonAsync($"/api/v1/users/{s.Student}/academic-profile/reject", new { reason = " " })).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await staff.PostAsJsonAsync($"/api/v1/users/{s.Student}/academic-profile/reject", new { reason = new string('x', 2001) })).StatusCode);
-        Assert.True((await admin.PostAsync($"/api/v1/users/{s.Student}/academic-profile/verify", null)).IsSuccessStatusCode);
+        var adminVerify = await admin.PostAsync($"/api/v1/users/{s.Student}/academic-profile/verify", null);
+        Assert.Equal(HttpStatusCode.Forbidden, adminVerify.StatusCode);
+        Assert.Contains("ADMIN_NOT_ACADEMIC_AUTHORITY", await adminVerify.Content.ReadAsStringAsync());
+        Assert.True((await staff.PostAsync($"/api/v1/users/{s.Student}/academic-profile/verify", null)).IsSuccessStatusCode);
     }
 
     [Theory]
@@ -89,8 +92,10 @@ public sealed class AcademicProfileEndpointTests(SupervisorDatabaseFixture datab
             await db.SaveChangesAsync();
         }
         using var app = new SupervisorFactory(database);
-        using var admin = app.CreateAuthenticatedClient(s.Admin, roles: AppRoles.Admin);
-        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsync($"/api/v1/users/{s.Student}/academic-profile/verify", null)).StatusCode);
+        var reviewerId = invalid == "mismatch" ? s.OutsideStaff : s.Staff;
+        using var staff = app.CreateAuthenticatedClient(reviewerId, roles: AppRoles.DepartmentStaff);
+        var expectedStatus = invalid is "department" or "organization" ? HttpStatusCode.Forbidden : HttpStatusCode.Conflict;
+        Assert.Equal(expectedStatus, (await staff.PostAsync($"/api/v1/users/{s.Student}/academic-profile/verify", null)).StatusCode);
     }
 
     [Fact]
@@ -98,8 +103,8 @@ public sealed class AcademicProfileEndpointTests(SupervisorDatabaseFixture datab
     {
         var s = await SeedAsync();
         using var app = new SupervisorFactory(database, failAudit: true);
-        using var admin = app.CreateAuthenticatedClient(s.Admin, roles: AppRoles.Admin);
-        Assert.Equal(HttpStatusCode.InternalServerError, (await admin.PostAsync($"/api/v1/users/{s.Student}/academic-profile/verify", null)).StatusCode);
+        using var staff = app.CreateAuthenticatedClient(s.Staff, roles: AppRoles.DepartmentStaff);
+        Assert.Equal(HttpStatusCode.InternalServerError, (await staff.PostAsync($"/api/v1/users/{s.Student}/academic-profile/verify", null)).StatusCode);
         await using var db = database.CreateContext();
         Assert.Equal("PENDING", (await db.Users.FindAsync(s.Student))!.AcademicProfileStatus);
         Assert.False(await db.AcademicProfileVerifications.AnyAsync(p => p.UserId == s.Student));

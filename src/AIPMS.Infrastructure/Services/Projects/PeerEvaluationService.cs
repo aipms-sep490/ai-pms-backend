@@ -28,7 +28,7 @@ internal sealed class PeerEvaluationService(AipmsDbContext db, IEvaluationDraftR
     { if (!Guid.TryParse(value, out var parsed) || parsed != expected) throw new ConflictException("Reload the changed peer version.", "PEER_STALE"); }
     private async Task<Access> Scope(long projectId, CancellationToken ct)
     {
-        if (!settings.Value.Enabled) throw new NotFoundException("PeerEvaluationFeature", projectId);
+        if (!settings.Value.Enabled) throw new NotFoundException("PeerEvaluationFeature", projectId, WorkflowErrorCodes.FeatureDisabled);
         var actor = await transactions.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
         var project = await transactions.GetProjectAsync(projectId, ct) ?? throw new NotFoundException("Project", projectId);
         var student = await db.TeamMembers.AnyAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId

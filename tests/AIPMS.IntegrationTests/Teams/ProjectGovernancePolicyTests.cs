@@ -92,12 +92,16 @@ public sealed partial class InterdisciplinaryWorkflowTests
         }
         using var later = new TeamTestFactory(database, s.Team, customizeServices: services =>
             services.AddSingleton<TimeProvider>(new PolicySuccessorClock()));
-        using var manager = later.CreateAuthenticatedClient(adminId, roles: ["ADMIN"]);
+        using var pureAdmin = later.CreateAuthenticatedClient(adminId, roles: ["ADMIN"]);
+        using var manager = later.CreateAuthenticatedClient(s.LeadStaff, roles: ["DEPARTMENT_STAFF"]);
         var policyUrl = $"/api/v1/project-periods/{s.Team.PeriodId}";
         var current = await Body<PeriodPolicyDto>(await manager.GetAsync(policyUrl + "/effective-policy"));
         var request = new UpdatePeriodPolicyRequest(current.Version, "SUCCESSOR", current.Policy with {
             AllowedProjectModes = "SINGLE_MAJOR,INTERDISCIPLINARY", AllowedProposalSources = "STUDENT_PROPOSAL" },
             new(TeamDatabaseFixture.Now.AddSeconds(1)), new(current.EffectiveTo, TimeSpan.Zero));
+        var adminPut = await pureAdmin.PutAsJsonAsync(policyUrl + "/policy", request);
+        Assert.Equal(HttpStatusCode.Forbidden, adminPut.StatusCode);
+        Assert.Contains("ADMIN_NOT_ACADEMIC_AUTHORITY", await adminPut.Content.ReadAsStringAsync());
         var successor = await Body<PeriodPolicyDto>(await manager.PutAsJsonAsync(policyUrl + "/policy", request));
         await Body<PeriodPolicyDto>(await manager.PutAsJsonAsync(policyUrl + "/policy", request with {
             ExpectedVersion = successor.Version, Operation = "PUBLISH", ConcurrencyToken = successor.ConcurrencyToken }));

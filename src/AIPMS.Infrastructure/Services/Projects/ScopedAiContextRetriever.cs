@@ -203,10 +203,10 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
             evidence.Add(new("TASK", t.Id, t.Title, t.DueAt, $"/api/v1/tasks/{t.TaskId}", string.Join(" | ", parts)));
         }
 
-        // 3. Deliverables & Latest Versions & Supervisor Feedbacks (strictly scoped)
+        // 3. Deliverables & Latest Versions & Supervisor Feedbacks (strictly scoped; COMMON + INTEGRATION visible to mentors)
         var deliverablesQuery = db.Deliverables.AsNoTracking().Where(d => d.ProjectId == projectId &&
             (scope.Whole || (d.TargetMajorId != null && scope.Majors.Contains(d.TargetMajorId.Value))
-                || ((d.EvidenceScope == "COMMON" || d.EvidenceScope == null) && d.TargetMajorId == null && d.TargetStudentId == null)) &&
+                || ((d.EvidenceScope == "COMMON" || d.EvidenceScope == "INTEGRATION" || d.EvidenceScope == null) && d.TargetMajorId == null && d.TargetStudentId == null)) &&
             (!isStudentMember || ((d.TargetStudentId == null || d.TargetStudentId == scope.Actor)
                 && (d.TargetMajorId == null || actorMajorId == d.TargetMajorId))));
         var rawDeliverables = await deliverablesQuery
@@ -260,7 +260,7 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
         {
             var rawCold = await db.Set<ColdChecklistItem>().AsNoTracking()
                 .Where(c => c.PackageId == coldPackage.Id
-                    && (scope.Whole || c.Scope == "COMMON" || (c.MajorId != null && scope.Majors.Contains(c.MajorId.Value)))
+                    && (scope.Whole || c.Scope == "COMMON" || c.Scope == "INTEGRATION" || (c.MajorId != null && scope.Majors.Contains(c.MajorId.Value)))
                     && (!isStudentMember || ((c.StudentId == null || c.StudentId == scope.Actor) && (c.MajorId == null || actorMajorId == c.MajorId))))
                 .OrderBy(c => c.Id).Take(25).ToArrayAsync(ct);
             var coldIds = rawCold.Select(c => c.Id).ToArray();
@@ -296,15 +296,17 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
         var gateItems = new List<ReviewGateEvidenceItem>();
         foreach (var g in rawGates)
         {
+            var gateFeedbackVisible = scope.IsStaff || g.Status is "PASSED" or "REVISION_REQUIRED" or "FAILED" or "OVERRIDDEN_PASSED" or "OVERRIDDEN_FAILED";
             var visibleReqs = g.Requirements
-                .Where(r => (scope.Whole || r.Scope == "COMMON" || (r.MajorId != null && scope.Majors.Contains(r.MajorId.Value)))
+                .Where(r => (scope.Whole || r.Scope == "COMMON" || r.Scope == "INTEGRATION" || (r.MajorId != null && scope.Majors.Contains(r.MajorId.Value)))
                     && (!isStudentMember || ((r.TargetStudentId == null || r.TargetStudentId == scope.Actor) && (r.MajorId == null || actorMajorId == r.MajorId))))
                 .OrderBy(r => r.Id)
                 .Select(r =>
                 {
                     var latestEv = r.Evidence.OrderByDescending(e => e.Version).ThenByDescending(e => e.Id).FirstOrDefault();
+                    var safeFeedback = gateFeedbackVisible ? Text(r.ReviewerFeedback, 220) : "";
                     return new ReviewGateRequirementEvidenceItem(r.Id, r.Code, Text(r.Title, 180), r.Type, r.Scope,
-                        r.Required, r.VerificationStatus, latestEv?.ArtifactName, Text(r.ReviewerFeedback, 220));
+                        r.Required, r.VerificationStatus, latestEv?.ArtifactName, safeFeedback);
                 }).ToArray();
             if (visibleReqs.Length == 0 && !scope.Whole) continue;
             var gateDto = new ReviewGateEvidenceItem($"GATE-{g.Code}", g.Code, Text(g.Title, 180), g.Status,
@@ -345,8 +347,8 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
                 .Select(m => new
                 {
                     m.Id, m.Title, m.Status, m.DueDate, m.SortOrder, m.Description,
-                    Total = m.Tasks.Count,
-                    Done = m.Tasks.Count(t => t.Status == "DONE" || t.Status == "COMPLETED")
+                    Total = m.Tasks.Count(t => t.DeletedAt == null && t.Status != "CANCELLED"),
+                    Done = m.Tasks.Count(t => t.DeletedAt == null && (t.Status == "DONE" || t.Status == "COMPLETED"))
                 }).ToArrayAsync(ct);
             foreach (var m in ms)
             {
@@ -399,6 +401,21 @@ internal sealed class ScopedAiContextRetriever(AipmsDbContext db, AiActorScope a
                 var spDesc = $"Sprint ({sp.Status}) | Thời gian: {sp.StartAt:dd/MM/yyyy} – {sp.EndAt:dd/MM/yyyy}";
                 evidence.Add(new("SPRINT", $"SPRINT-{sp.Id}", Text(sp.Name, 160), $"{sp.StartAt:yyyy-MM-dd}/{sp.EndAt:yyyy-MM-dd}", $"/api/v1/projects/{projectId}/sprints", spDesc));
             }
+        }
+
+        // V4.0 QD-01: Frozen Academic Blueprint Snapshot (if applied to project)
+        var blueprintSnapshot = await db.Set<ProjectBlueprintSnapshot>().AsNoTracking()
+            .Where(b => b.ProjectId == projectId)
+            .OrderByDescending(b => b.Id)
+            .Select(b => new { b.BlueprintId, b.BlueprintVersion, b.AppliedAt, b.SnapshotJson })
+            .FirstOrDefaultAsync(ct);
+        if (blueprintSnapshot is not null)
+        {
+            evidence.Add(new("BLUEPRINT", $"BP-{blueprintSnapshot.BlueprintId}",
+                $"Academic Blueprint v{blueprintSnapshot.BlueprintVersion}",
+                blueprintSnapshot.AppliedAt.ToString("O"),
+                $"/api/v1/projects/{projectId}",
+                $"Cấu hình Blueprint áp dụng (QĐ-01): {Text(blueprintSnapshot.SnapshotJson, 300)}"));
         }
 
         var allGateReqs = gateItems.SelectMany(g => g.Requirements).ToArray();

@@ -105,6 +105,26 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
     private async Task RequireStaff(CancellationToken ct)
     { if (!await IsStaff(ct)) throw new ForbiddenException("Academic staff access is required."); }
 
+    private async Task RequireDepartmentStaff(CancellationToken ct)
+    {
+        var actor = await db.Users.AsNoTracking()
+            .Where(u => u.Id == Actor && u.Status == "ACTIVE")
+            .Select(u => new
+            {
+                IsAdmin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"),
+                IsStaff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF")
+            })
+            .SingleOrDefaultAsync(ct) ?? throw new ForbiddenException("An active account is required.");
+        if (!actor.IsStaff)
+        {
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot mutate review gate assignments or decisions."
+                    : "Academic department staff access is required.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
+    }
+
     private async Task<UserModel> RequireTemplateStaffUser(CancellationToken ct)
     {
         var user = await db.Users.AsNoTracking()
@@ -907,7 +927,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
 
     public Task<AssignedReviewItemDto> Assign(CreateReviewGateAssignmentRequest input, CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
-        await RequireStaff(token);
+        await RequireDepartmentStaff(token);
         if (!long.TryParse(input.ProjectId, out var projectId) || projectId <= 0 || input.ReviewerId <= 0 || string.IsNullOrWhiteSpace(input.GateCode))
             throw new ValidationException(new Dictionary<string, string[]> { ["assignment"] = ["Project, gate and reviewer are required."] });
         await AcademicAssignmentGuard.LockProjectAsync(db, projectId, token);
@@ -1000,7 +1020,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
 
     public Task<AssignedReviewItemDto> Revoke(long assignmentId, RevokeReviewGateAssignmentRequest input, CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
-        await RequireStaff(token);
+        await RequireDepartmentStaff(token);
         if (string.IsNullOrWhiteSpace(input.Reason))
             throw new ValidationException(new Dictionary<string, string[]> { ["reason"] = ["A revocation reason is required."] });
         var row = await db.GateReviewerAssignments.Include(x => x.GateInstance).ThenInclude(x => x.Requirements).ThenInclude(x => x.Evidence)
@@ -1244,9 +1264,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
 
     public Task<ProjectReviewMatrixRowDto> UpdateDecision(long projectId, string gateCode, UpdateReviewGateDecisionRequest input, CancellationToken ct) => transactions.InTransactionAsync<ProjectReviewMatrixRowDto>(async token =>
     {
-        if (!await db.Users.AnyAsync(u => u.Id == Actor && u.Status == "ACTIVE"
-            && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"), token))
-            throw new ForbiddenException("Academic staff authority is required for a gate decision.");
+        await RequireDepartmentStaff(token);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, token, true); await RequireProjectRead(projectId, scope, token);
         if (input.NewStatus is not ("PASSED" or "REVISION_REQUIRED" or "IN_REVIEW")) throw new ValidationException(new Dictionary<string, string[]> { ["newStatus"] = ["Unsupported gate status."] });
         var gate = await db.ProjectGateInstances.Include(x => x.Requirements).SingleOrDefaultAsync(x => x.ProjectId == projectId && x.Code == gateCode, token) ?? throw new NotFoundException("ProjectGate", 0);
@@ -1258,7 +1276,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
 
     public Task<ProjectReviewMatrixRowDto> UpdateScope(long projectId, string scopeCode, UpdateReviewGateScopeRequest input, CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
-        await RequireStaff(token);
+        await RequireDepartmentStaff(token);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, token, true); await RequireProjectRead(projectId, scope, token);
         if (scope.MajorIds.Count < 2) throw new ValidationException(new Dictionary<string, string[]> { ["scope"] = ["Scope decisions require an interdisciplinary project."] });
         if (input.NewStatus is not ("PASSED" or "REVISION_REQUIRED" or "IN_REVIEW")) throw new ValidationException(new Dictionary<string, string[]> { ["newStatus"] = ["Unsupported scope status."] });
@@ -1622,13 +1640,13 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
     }
 
     private Task<bool> HasReviewerPermission(CancellationToken ct) => db.Users.AnyAsync(x => x.Id == Actor && x.Status == "ACTIVE" &&
-        x.UserRoleUsers.Any(r => r.Role.Code == "ADMIN" || r.Role.Code == "DEPARTMENT_STAFF" || r.Role.Code == "LECTURER"), ct);
+        x.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF" || r.Role.Code == "LECTURER"), ct);
     private static bool Covers(GateReviewerAssignment assignment, ProjectGateRequirement requirement) =>
         CoversRequirement(assignment, requirement);
 
     private async Task RequireScopeMutationAuthority(ProjectAcademicScope scope, string normalizedScope, CancellationToken ct)
     {
-        if (await IsAdmin(ct)) return;
+        await RequireDepartmentStaff(ct);
         var actorDepartment = await db.Users.Where(x => x.Id == Actor).Select(x => x.DepartmentId).SingleOrDefaultAsync(ct);
         if (!actorDepartment.HasValue) throw new ForbiddenException("The account has no academic department scope.");
         if (normalizedScope == "COMMON")
@@ -1643,7 +1661,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
 
     private async Task RequireGateMutationAuthority(ProjectAcademicScope scope, ProjectGateInstance gate, CancellationToken ct)
     {
-        if (await IsAdmin(ct)) return;
+        await RequireDepartmentStaff(ct);
         var scopedMajors = gate.Requirements.Where(x => x.Scope == "MAJOR_SPECIFIC" && x.MajorId.HasValue).Select(x => x.MajorId!.Value).Distinct().ToArray();
         if (scopedMajors.Length > 0)
         {

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.AiSuite;
 using AIPMS.Infrastructure.Persistence.Models;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Services.AiSuite;
@@ -39,17 +40,23 @@ internal sealed partial class AiSuiteService
     public async Task<DefenseMockDto> GenerateDefenseMockAsync(long projectId, DefenseMockRequest request, CancellationToken ct)
     {
         if (aiProvider is null) throw new ServiceUnavailableException("Dịch vụ AI hiện chưa sẵn sàng.", "AI_UNAVAILABLE");
-        var (project, actor, actorName) = await RequireProjectAccessAsync(projectId, ct);
+        var (project, actor, actorName, scope) = await RequireProjectAccessAsync(projectId, ct);
         var count = Math.Clamp(request.QuestionCount, 3, 12);
         var roleFocus = string.IsNullOrWhiteSpace(request.RoleFocus) ? "ALL" : request.RoleFocus.Trim().ToUpperInvariant();
+        if (roleFocus is not ("ALL" or "CHAIR" or "REVIEWER" or "SECRETARY")) roleFocus = "ALL";
 
-        var members = await db.TeamMembers.AsNoTracking()
-            .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
+        var membersQuery = db.TeamMembers.AsNoTracking()
+            .Where(m => m.TeamId == project.TeamId && m.LeftAt == null);
+        if (!scope.IsFullProjectAccess)
+        {
+            var allowed = scope.AllowedMajorIds.ToArray();
+            membersQuery = membersQuery.Where(m => m.User.MajorId.HasValue && allowed.Contains(m.User.MajorId.Value));
+        }
+        var members = await membersQuery
             .Select(m => new { m.UserId, Name = m.User.FullName, Role = m.IsLeader ? "Trưởng nhóm" : "Thành viên", Major = m.User.Major != null ? m.User.Major.Name : null })
             .ToListAsync(ct);
 
-        var deliverables = await db.Deliverables.AsNoTracking()
-            .Where(d => d.Milestone != null && d.Milestone.ProjectId == projectId)
+        var deliverables = await ScopedDeliverablesQuery(projectId, scope)
             .OrderByDescending(d => d.UpdatedAt)
             .Take(12)
             .Select(d => new { d.Title, d.Status, d.Description })
@@ -75,8 +82,8 @@ internal sealed partial class AiSuiteService
             .Select(f => Clip(f.FeedbackText, 300))
             .ToListAsync(ct);
 
-        var overdueTasks = await db.Tasks.AsNoTracking()
-            .Where(t => t.Milestone.ProjectId == projectId && t.Status != "DONE" && t.Status != "CANCELLED")
+        var overdueTasks = await ScopedTasksQuery(projectId, scope)
+            .Where(t => t.Status != "DONE")
             .OrderBy(t => t.DueAt ?? DateTime.MaxValue)
             .Take(12)
             .Select(t => new { t.Title, t.Status, t.Priority })
@@ -90,10 +97,10 @@ internal sealed partial class AiSuiteService
             .ToListAsync(ct);
 
         var systemPrompt = AiSuiteIdentity + " " +
-            $"[AI_SUITE_DEFENSE_MOCK] Đóng vai Hội đồng Bảo vệ Đồ án Tốt nghiệp (gồm Chủ tịch CHAIR, Phản biện REVIEWER, Thư ký SECRETARY, Chuyên gia INDUSTRY). " +
+            $"[AI_SUITE_DEFENSE_MOCK] Đóng vai Hội đồng Bảo vệ Đồ án Tốt nghiệp (gồm Chủ tịch CHAIR, Phản biện REVIEWER, Thư ký SECRETARY — không dùng vai trò INDUSTRY). " +
             $"Sinh đúng {count} câu hỏi phản biện sắc bén, thực tế (trọng tâm vai trò: {roleFocus}) dựa trên hồ sơ đồ án thực tế để sinh viên luyện bảo vệ. " +
             "Trả ONLY raw JSON (không bọc code fence): " +
-            "{\"headline\":string,\"readinessAssessment\":string,\"weakSpots\":string[],\"questions\":[{\"id\":string,\"committeeRole\":\"CHAIR\"|\"REVIEWER\"|\"SECRETARY\"|\"INDUSTRY\",\"difficulty\":\"EASY\"|\"MEDIUM\"|\"HARD\",\"category\":string,\"question\":string,\"whyAsked\":string,\"suggestedAnswerOutline\":string,\"keyPointsToMention\":string[],\"targetStudentName\":string|null}]}. " +
+            "{\"headline\":string,\"readinessAssessment\":string,\"weakSpots\":string[],\"questions\":[{\"id\":string,\"committeeRole\":\"CHAIR\"|\"REVIEWER\"|\"SECRETARY\",\"difficulty\":\"EASY\"|\"MEDIUM\"|\"HARD\",\"category\":string,\"question\":string,\"whyAsked\":string,\"suggestedAnswerOutline\":string,\"keyPointsToMention\":string[],\"targetStudentName\":string|null}]}. " +
             "Chỉ điền targetStudentName bằng tên thật xuất hiện trong members hoặc null.";
 
         var payload = new
@@ -133,7 +140,7 @@ internal sealed partial class AiSuiteService
                     var rawTarget = ReadNullableString(q, "targetStudentName", 160);
                     var target = rawTarget is not null && allowedNames.Contains(rawTarget) ? rawTarget : null;
                     var role = ReadString(q, "committeeRole", "REVIEWER", 20).ToUpperInvariant();
-                    if (role is not ("CHAIR" or "REVIEWER" or "SECRETARY" or "INDUSTRY")) role = "REVIEWER";
+                    if (role is not ("CHAIR" or "REVIEWER" or "SECRETARY")) role = "REVIEWER";
                     var diff = ReadString(q, "difficulty", "MEDIUM", 12).ToUpperInvariant();
                     if (diff is not ("EASY" or "MEDIUM" or "HARD")) diff = "MEDIUM";
                     questions.Add(new DefenseMockQuestionDto(
@@ -176,11 +183,14 @@ internal sealed partial class AiSuiteService
         if (question.Length is < 5 or > 1000) throw Invalid("Câu hỏi phản biện không hợp lệ.");
         if (answer.Length is < 5 or > 4000) throw Invalid("Câu trả lời luyện tập phải từ 5 đến 4000 ký tự.");
 
-        var (project, actor, actorName) = await RequireProjectAccessAsync(projectId, ct);
+        var (project, actor, actorName, _) = await RequireProjectAccessAsync(projectId, ct);
+
+        var committeeRole = (request.CommitteeRole ?? "REVIEWER").Trim().ToUpperInvariant();
+        if (committeeRole is not ("CHAIR" or "REVIEWER" or "SECRETARY")) committeeRole = "REVIEWER";
 
         var systemPrompt = AiSuiteIdentity + " " +
-            "[AI_SUITE_DEFENSE_EVAL] Đóng vai Giám khảo Hội đồng Bảo vệ chấm thử câu trả lời của sinh viên (có thể được nhập tay hoặc nhận diện từ giọng nói Web Speech). " +
-            "Chấm công tâm trên thang 0..10, chỉ rõ điểm mạnh, ý còn thiếu, đưa ra mẫu câu trả lời thuyết phục hơn và 1 câu hỏi xoáy tiếp nối (followUpProbe). " +
+            "[AI_SUITE_DEFENSE_EVAL] Đóng vai Giám khảo Hội đồng Bảo vệ chấm thử câu trả lời luyện tập của sinh viên (có thể được nhập tay hoặc nhận diện từ giọng nói Web Speech). " +
+            "Chấm công tâm trên thang 0..10 (chỉ mang tính luyện tập cá nhân, không phải điểm hội đồng chính thức), chỉ rõ điểm mạnh, ý còn thiếu, đưa ra mẫu câu trả lời thuyết phục hơn và 1 câu hỏi xoáy tiếp nối (followUpProbe). " +
             "Trả ONLY raw JSON (không bọc code fence): " +
             "{\"score\":number,\"verdict\":\"STRONG\"|\"ADEQUATE\"|\"NEEDS_IMPROVEMENT\",\"feedback\":string,\"strengths\":string[],\"missingPoints\":string[],\"improvedAnswerSample\":string,\"followUpProbe\":string|null}.";
 
@@ -189,7 +199,7 @@ internal sealed partial class AiSuiteService
             projectCode = project.Code,
             projectTitle = project.Title,
             projectDescription = Clip(project.Description, 800),
-            committeeRole = request.CommitteeRole ?? "REVIEWER",
+            committeeRole,
             question,
             suggestedOutline = Clip(request.SuggestedOutline, 600),
             studentAnswer = answer
@@ -227,6 +237,8 @@ internal sealed partial class AiSuiteService
     {
         if (aiProvider is null) throw new ServiceUnavailableException("Dịch vụ AI hiện chưa sẵn sàng.", "AI_UNAVAILABLE");
         var actor = RequireActor();
+        EnsureNotPureAdmin("Quản trị viên không có thẩm quyền tạo kịch bản hội đồng cổng kiểm duyệt.");
+
         var gate = await db.ProjectGateInstances.AsNoTracking()
             .Include(g => g.Project)
             .Include(g => g.Requirements)
@@ -251,10 +263,29 @@ internal sealed partial class AiSuiteService
 
         if (gate is null) throw new NotFoundException("ProjectGateInstance", gateInstanceId);
 
-        var isAssignedReviewer = gate.Assignments.Any(a => a.ReviewerId == actor);
+        var nowUtc = Now;
+        var myAssignments = gate.Assignments.Where(a => a.ReviewerId == actor).ToList();
+        var hasActiveReviewerAssignment = myAssignments.Any(a =>
+            !string.Equals(a.Status, "REVOKED", StringComparison.OrdinalIgnoreCase)
+            && !a.RevokedAt.HasValue
+            && (!a.ValidFrom.HasValue || nowUtc >= a.ValidFrom.Value)
+            && (!a.ValidUntil.HasValue || nowUtc <= a.ValidUntil.Value));
+        var hasOnlyRevokedOrExpired = myAssignments.Count > 0 && !hasActiveReviewerAssignment;
+
+        if (hasActiveReviewerAssignment && await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, gate.ProjectId, actor, ct))
+        {
+            throw new ConflictException(
+                "Giảng viên hướng dẫn hoặc mentor chuyên ngành không thể giữ vai trò phản biện cổng cho đồ án này (D17).",
+                WorkflowErrorCodes.EvaluatorRoleConflict);
+        }
+
         var isSupervisorOrStaff = await IsSupervisorOrStaffForProjectAsync(gate.ProjectId, actor, ct);
-        if (!isAssignedReviewer && !isSupervisorOrStaff)
-            throw new ForbiddenException("Chỉ thành viên hội đồng, GVHD hoặc Cán bộ Khoa mới có quyền tạo kịch bản hỏi đáp cổng.");
+        if (!hasActiveReviewerAssignment && !isSupervisorOrStaff)
+        {
+            if (hasOnlyRevokedOrExpired)
+                throw new ForbiddenException("Phân công phản biện cổng của bạn đã bị thu hồi hoặc hết hiệu lực.", WorkflowErrorCodes.AssignmentRevoked);
+            throw new ForbiddenException("Chỉ thành viên hội đồng đang hoạt động, GVHD chính hoặc Cán bộ Khoa mới có quyền tạo kịch bản hỏi đáp cổng.");
+        }
 
         var actorName = await db.Users.AsNoTracking().Where(u => u.Id == actor).Select(u => u.FullName).FirstOrDefaultAsync(ct) ?? $"Người dùng #{actor}";
         var members = await db.TeamMembers.AsNoTracking()
@@ -263,11 +294,13 @@ internal sealed partial class AiSuiteService
             .ToListAsync(ct);
 
         var openTasks = await db.Tasks.AsNoTracking()
-            .Where(t => t.Milestone.ProjectId == gate.ProjectId && t.Status != "DONE" && t.Status != "CANCELLED")
+            .Where(t => t.DeletedAt == null && t.Milestone.ProjectId == gate.ProjectId && t.Status != "DONE" && t.Status != "CANCELLED")
             .OrderBy(t => t.DueAt ?? DateTime.MaxValue)
             .Take(15)
-            .Select(t => new { t.Title, t.Status, t.Priority, IsOverdue = t.DueAt.HasValue && t.DueAt.Value < Now })
+            .Select(t => new { t.Title, t.Status, t.Priority, IsOverdue = t.DueAt.HasValue && t.DueAt.Value < nowUtc })
             .ToListAsync(ct);
+
+        var canSeeUnpublishedFeedback = hasActiveReviewerAssignment || IsGateDecided(gate.Status);
 
         var systemPrompt = AiSuiteIdentity + " " +
             "[AI_SUITE_GATE_SCRIPT] Soạn kịch bản hỏi đáp phiên kiểm duyệt/bảo vệ (GateSessionScript) cho Hội đồng dựa trên hồ sơ cổng thực tế. " +
@@ -283,7 +316,14 @@ internal sealed partial class AiSuiteService
             projectTitle = gate.Project.Title,
             focusNote = Clip(request.FocusNote, 400),
             members,
-            requirements = gate.Requirements.Select(r => new { r.Code, r.Title, r.Required, r.VerificationStatus, r.ReviewerFeedback }).ToArray(),
+            requirements = gate.Requirements.Select(r => new
+            {
+                r.Code,
+                r.Title,
+                r.Required,
+                r.VerificationStatus,
+                ReviewerFeedback = canSeeUnpublishedFeedback ? r.ReviewerFeedback : null
+            }).ToArray(),
             openTasks
         }, ct);
 

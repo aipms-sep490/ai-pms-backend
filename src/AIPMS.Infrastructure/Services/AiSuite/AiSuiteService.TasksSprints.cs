@@ -16,17 +16,19 @@ internal sealed partial class AiSuiteService
     public async Task<TaskBreakdownDto> BreakdownTaskAsync(long projectId, TaskBreakdownRequest request, CancellationToken ct)
     {
         if (aiProvider is null) throw new ServiceUnavailableException("Dịch vụ AI hiện chưa sẵn sàng.", "AI_UNAVAILABLE");
-        var (project, actor, actorName) = await RequireProjectAccessAsync(projectId, ct);
+        var (project, actor, actorName, scope) = await RequireProjectAccessAsync(projectId, ct);
 
         string taskTitle = (request.Title ?? string.Empty).Trim();
         string taskDescription = (request.Description ?? string.Empty).Trim();
         long scopeId = projectId;
         string scopeType = "PROJECT";
 
+        var scopedTasks = ScopedTasksQuery(projectId, scope);
+
         if (request.TaskId is long taskId && taskId > 0)
         {
-            var existingTask = await db.Tasks.AsNoTracking()
-                .SingleOrDefaultAsync(t => t.Id == taskId && t.Milestone.ProjectId == projectId, ct)
+            var existingTask = await scopedTasks
+                .SingleOrDefaultAsync(t => t.Id == taskId, ct)
                 ?? throw new NotFoundException("Task", taskId);
             if (string.IsNullOrWhiteSpace(taskTitle)) taskTitle = existingTask.Title;
             if (string.IsNullOrWhiteSpace(taskDescription)) taskDescription = existingTask.Description ?? string.Empty;
@@ -37,8 +39,14 @@ internal sealed partial class AiSuiteService
         if (taskTitle.Length is < 3 or > 500)
             throw Invalid("Cần nhập tên công việc từ 3 đến 500 ký tự để AI chia nhỏ tiêu chí.");
 
-        var members = await db.TeamMembers.AsNoTracking()
-            .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
+        var membersQuery = db.TeamMembers.AsNoTracking()
+            .Where(m => m.TeamId == project.TeamId && m.LeftAt == null);
+        if (!scope.IsFullProjectAccess)
+        {
+            var allowed = scope.AllowedMajorIds.ToArray();
+            membersQuery = membersQuery.Where(m => m.User.MajorId.HasValue && allowed.Contains(m.User.MajorId.Value));
+        }
+        var members = await membersQuery
             .Select(m => new
             {
                 m.UserId,
@@ -49,13 +57,12 @@ internal sealed partial class AiSuiteService
             .ToListAsync(ct);
 
         var openCounts = await db.TaskAssignees.AsNoTracking()
-            .Where(ta => ta.Task.Milestone.ProjectId == projectId && ta.Task.Status != "DONE" && ta.Task.Status != "CANCELLED")
+            .Where(ta => ta.Task.DeletedAt == null && ta.Task.Milestone.ProjectId == projectId && ta.Task.Status != "DONE" && ta.Task.Status != "CANCELLED")
             .GroupBy(ta => ta.UserId)
             .Select(g => new { UserId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.UserId, x => x.Count, ct);
 
-        var existingTasks = await db.Tasks.AsNoTracking()
-            .Where(t => t.Milestone.ProjectId == projectId && t.Status != "CANCELLED")
+        var existingTasks = await scopedTasks
             .OrderByDescending(t => t.UpdatedAt)
             .Take(20)
             .Select(t => new { t.Id, t.Title, t.Status, t.Priority })
@@ -143,14 +150,14 @@ internal sealed partial class AiSuiteService
     public async Task<SprintRetroDto> GenerateSprintRetroAsync(long projectId, long sprintId, CancellationToken ct)
     {
         if (aiProvider is null) throw new ServiceUnavailableException("Dịch vụ AI hiện chưa sẵn sàng.", "AI_UNAVAILABLE");
-        var (project, actor, actorName) = await RequireProjectAccessAsync(projectId, ct);
+        var (project, actor, actorName, scope) = await RequireProjectAccessAsync(projectId, ct);
 
         var sprint = await db.Set<Sprint>().AsNoTracking()
             .SingleOrDefaultAsync(s => s.Id == sprintId && s.ProjectId == projectId, ct)
             ?? throw new NotFoundException("Sprint", sprintId);
 
-        var tasks = await db.Tasks.AsNoTracking()
-            .Where(t => t.Milestone.ProjectId == projectId && t.SprintId == sprintId && t.Status != "CANCELLED")
+        var tasks = await ScopedTasksQuery(projectId, scope)
+            .Where(t => t.SprintId == sprintId)
             .Select(t => new
             {
                 t.Id,

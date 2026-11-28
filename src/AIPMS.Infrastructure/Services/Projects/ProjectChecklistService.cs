@@ -133,8 +133,14 @@ internal sealed partial class ProjectChecklistService(
     public async Task<MasterChecklistTemplateDto> CreateTemplateAsync(CreateMasterChecklistTemplateRequest request, CancellationToken ct = default)
     {
         var actor = await GetActorAsync(ct);
-        if (!actor.IsAdmin && !(actor.IsStaff && actor.DepartmentId == request.LeadDepartmentId))
-            throw new ForbiddenException("Only lead department staff or admin can author master checklist templates.");
+        if (!actor.IsStaff)
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot author master checklist templates."
+                    : "Only lead department staff can author master checklist templates.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.ScopeAccessDenied);
+        if (actor.DepartmentId != request.LeadDepartmentId)
+            throw new ForbiddenException("Only lead department staff can author master checklist templates.", WorkflowErrorCodes.ScopeAccessDenied);
 
         var track = AcademicTrackCodes.Normalize(request.TrackCode)
             ?? throw new DomainException("TrackCode must be IT_ONLY, MKT_ONLY, or IT_MKT.", "INVALID_TRACK_CODE");
@@ -171,8 +177,14 @@ internal sealed partial class ProjectChecklistService(
         var actor = await GetActorAsync(ct);
         var tpl = await db.ReviewGateChecklistTemplates.SingleOrDefaultAsync(t => t.Id == templateId, ct)
             ?? throw new NotFoundException("ReviewGateChecklistTemplate", templateId);
-        if (!actor.IsAdmin && !(actor.IsStaff && actor.DepartmentId == tpl.LeadDepartmentId))
-            throw new ForbiddenException();
+        if (!actor.IsStaff)
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot publish master checklist templates."
+                    : "Only lead department staff can publish master checklist templates.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.ScopeAccessDenied);
+        if (actor.DepartmentId != tpl.LeadDepartmentId)
+            throw new ForbiddenException("Only lead department staff can publish master checklist templates.", WorkflowErrorCodes.ScopeAccessDenied);
         if (tpl.Status == "PUBLISHED") return ToTemplateDto(tpl);
         if (tpl.Status == "RETIRED")
             throw new ConflictException("Retired checklist template is immutable.", WorkflowErrorCodes.ImmutableVersion);

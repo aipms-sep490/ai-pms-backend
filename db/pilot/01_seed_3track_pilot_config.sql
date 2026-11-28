@@ -152,7 +152,7 @@ IF NOT EXISTS (SELECT 1 FROM dbo.period_policy_versions WHERE project_period_id 
 BEGIN
     INSERT dbo.period_policy_versions(project_period_id, version, status, effective_from, effective_to, snapshot_json, concurrency_token, created_by, created_at)
     VALUES (
-        @regPeriodId, 1, N'LOCKED', '2026-09-07T00:00:00', '2026-12-25T23:59:59',
+        @regPeriodId, 1, N'LOCKED', '2026-09-07T00:00:00', '2026-09-18T23:59:59',
         N'{"AllowedProjectModes":"SINGLE_MAJOR,INTERDISCIPLINARY","AllowedProposalSources":"PUBLISHED_TOPIC,STUDENT_PROPOSAL","MinTeamSize":3,"MaxTeamSize":5,"MinDistinctMajors":1,"MaxProjectsPerSupervisor":5,"RequireWorkingAgreement":false,"SupervisorInvitationExpiryDays":7,"MaxPendingSupervisorRequestsPerSlot":2}',
         NEWID(), @actorId, SYSUTCDATETIME()
     );
@@ -193,18 +193,20 @@ DECLARE @rubItMktId bigint = (SELECT id FROM dbo.rubrics WHERE code = N'PILOT-RU
 
 MERGE dbo.rubric_criteria AS t
 USING (VALUES
-    (@rubItId, @critTechId, 60.00, 10.00, 1, 1),
-    (@rubItId, @critIndId, 40.00, 10.00, 2, 1),
-    (@rubMktId, @critMktId, 60.00, 10.00, 1, 1),
-    (@rubMktId, @critIndId, 40.00, 10.00, 2, 1),
-    (@rubItMktId, @critTechId, 40.00, 10.00, 1, 1),
-    (@rubItMktId, @critMktId, 40.00, 10.00, 2, 1),
-    (@rubItMktId, @critIntId, 20.00, 10.00, 3, 1)
-) AS s(rubric_id, criterion_id, weight_percent, max_score, sort_order, is_required)
+    (@rubItId, @critTechId, 60.00, 10.00, 1, 1, 0),
+    (@rubItId, @critIndId, 40.00, 10.00, 2, 1, 0),
+    (@rubMktId, @critMktId, 60.00, 10.00, 1, 1, 0),
+    (@rubMktId, @critIndId, 40.00, 10.00, 2, 1, 0),
+    (@rubItMktId, @critTechId, 40.00, 10.00, 1, 1, 0),
+    (@rubItMktId, @critMktId, 40.00, 10.00, 2, 1, 0),
+    (@rubItMktId, @critIntId, 20.00, 10.00, 3, 1, 1)
+) AS s(rubric_id, criterion_id, weight_percent, max_score, sort_order, is_required, is_integration)
 ON t.rubric_id = s.rubric_id AND t.criterion_id = s.criterion_id
+WHEN MATCHED AND t.is_integration <> s.is_integration THEN
+    UPDATE SET is_integration = s.is_integration
 WHEN NOT MATCHED THEN
-    INSERT (rubric_id, criterion_id, weight_percent, max_score, sort_order, is_required)
-    VALUES (s.rubric_id, s.criterion_id, s.weight_percent, s.max_score, s.sort_order, s.is_required);
+    INSERT (rubric_id, criterion_id, weight_percent, max_score, sort_order, is_required, is_integration)
+    VALUES (s.rubric_id, s.criterion_id, s.weight_percent, s.max_score, s.sort_order, s.is_required, s.is_integration);
 
 -- 4 Descriptive Quality Levels for every pilot rubric criterion
 MERGE dbo.rubric_criterion_levels AS t

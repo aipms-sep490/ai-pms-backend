@@ -43,6 +43,7 @@ public sealed class PreSemesterSetupController(IPreSemesterSetupService service)
         service.ApplyRolloverAsync(request, ct);
 
     [HttpPost("ai-diff-check")]
+    [AIPMS.Api.Filters.AiFeatureGate(AIPMS.Api.Filters.AiFeatureArea.PreSemesterAi)]
     [EnableRateLimiting("ai-assistant")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]

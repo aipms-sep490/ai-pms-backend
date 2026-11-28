@@ -141,10 +141,22 @@ internal sealed partial class AcademicKnowledgeService(
         if (request.ToolMode is not (null or "PROGRESS" or "REPORT_REVIEW" or "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP" or "MILESTONE_TEMPLATE_SETUP")) throw new ArgumentException("Invalid assistant tool.");
         if (request.ToolMode is "PROGRESS" or "REPORT_REVIEW" or "PROJECT_SETUP" && (request.ProjectId is null || scope == "ACADEMIC"))
             throw new ArgumentException("Mở trợ lý trong đồ án để dùng chức năng này.");
-        if (request.ToolMode is "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP" && !await db.UserRoles.AnyAsync(r => r.UserId == actor.Id && (r.Role.Code == AppRoles.Admin || r.Role.Code == AppRoles.DepartmentStaff), ct))
-            throw new ForbiddenException("Chỉ cán bộ khoa hoặc quản trị viên được yêu cầu trợ lý soạn nháp cấu hình đầu kỳ.");
-        if (request.ToolMode == "MILESTONE_TEMPLATE_SETUP" && !await db.UserRoles.AnyAsync(r => r.UserId == actor.Id && r.Role.Code == AppRoles.DepartmentStaff, ct))
-            throw new ForbiddenException("Chỉ Cán bộ bộ môn / Khoa (DEPARTMENT_STAFF) mới được dùng trợ lý soạn nháp Mẫu mốc đồ án.");
+        if (request.ToolMode is "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP" or "MILESTONE_TEMPLATE_SETUP")
+        {
+            var actorRoles = await db.UserRoles.AsNoTracking()
+                .Where(r => r.UserId == actor.Id)
+                .Select(r => r.Role.Code)
+                .ToArrayAsync(ct);
+            if (!actorRoles.Contains(AppRoles.DepartmentStaff))
+            {
+                var isPureAdmin = actorRoles.Contains(AppRoles.Admin);
+                throw new ForbiddenException(
+                    isPureAdmin
+                        ? "Quản trị viên không có vai trò Cán bộ bộ môn (DEPARTMENT_STAFF) nên không được dùng trợ lý soạn nháp cấu hình học thuật đầu kỳ."
+                        : "Chỉ Cán bộ bộ môn / Khoa (DEPARTMENT_STAFF) mới được dùng trợ lý soạn nháp cấu hình đầu kỳ.",
+                    isPureAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+            }
+        }
         if (request.ToolMode == "REPORT_REVIEW" && (files.Count == 0 || request.RubricId is null))
             throw new ArgumentException("Chọn rubric đã công bố và đính kèm báo cáo cần nhận xét.");
         if (request.RubricId != null && request.ToolMode != "REPORT_REVIEW") throw new ArgumentException("Rubric chỉ dùng trong chế độ nhận xét báo cáo.");
@@ -276,18 +288,19 @@ internal sealed partial class AcademicKnowledgeService(
                 "toolMode PROJECT_SETUP: design a tailored setup plan matching the project's actual title, domain, majors, members and existing milestones in projectOverview (reuse existingMilestoneId when fitting and avoid duplicating existing tasks/deliverables). " +
                 "Return draft:{kind:\"PROJECT_SETUP\",title:\"...\",description:\"...\",setupPlan:{summary:\"...\",milestones:[{tempKey:\"M1\",existingMilestoneId:null,title:\"...\",description:\"...\",startDate:\"yyyy-MM-dd\",dueDate:\"yyyy-MM-dd\"}],deliverables:[{tempKey:\"D1\",title:\"...\",description:\"...\",deliverableType:\"REPORT|DOCUMENT|SOURCE_CODE|DESIGN|SLIDE|OTHER\",milestoneRef:\"M1\",evidenceScope:\"COMMON|MAJOR_SPECIFIC\",targetMajorName:null,dueAt:null,acceptanceCriteria:[\"...\"]}],tasks:[{tempKey:\"T1\",title:\"...\",description:\"...\",priority:\"LOW|MEDIUM|HIGH|CRITICAL\",milestoneRef:\"M1\",dueAt:null,assigneeNames:[],primaryMajorName:null,acceptanceCriteria:[\"...\"],dependsOnRefs:[]}],warnings:[]}}. " +
                 "Every proposed deliverable and task should include 2-4 concrete, verifiable acceptanceCriteria tailored to the project. Only copy exact member/major names from projectOverview; leave ambiguous assignees empty. Use ISO8601 +07:00 for dueAt when dates are requested. Ensure dependsOnRefs is acyclic. Never claim data is already saved; the user will review and click Apply. " +
-                "toolMode RUBRIC_SETUP: design an editable draft grading rubric tailored to the user's request. Return draft:{kind:\"RUBRIC_SETUP\",title:\"...\",description:\"...\",rubricSetup:{code:\"RUBRIC_...\",name:\"...\",description:\"...\",projectMode:\"SINGLE_MAJOR|INTERDISCIPLINARY\",evaluationStage:\"ON_GOING|COLD|DEFENSE\",evaluationScope:\"COMMON|MAJOR_SPECIFIC|INDIVIDUAL\",majorName:null,criteria:[{tempKey:\"C1\",parentTempKey:null,criterionCode:\"C1\",name:\"...\",description:\"...\",weightPercent:30,maxScore:10,isRequired:true,learningOutcome:\"...\",evidenceGuidance:\"...\",levels:[{levelOrder:1,label:\"Xuất sắc\",descriptor:\"...\",scoreFrom:8.5,scoreTo:10}]}],warnings:[]}}. " +
-                "Root criteria weightPercent MUST sum to exactly 100. If a criterion has children, its children's weightPercent MUST sum to 100. Include 3-4 clear scoring levels per leaf criterion. Mark draft as needing human approval/publishing. " +
-                "toolMode REVIEW_GATE_SETUP: design an editable draft Review Gate template (G1..Gn) from attached syllabus/schedule or prompt, aligned with academicSetupContext.targetPeriod dates and availableMajors. " +
-                "Return draft:{kind:\"REVIEW_GATE_SETUP\",title:\"...\",description:\"...\",reviewGateSetup:{code:\"GATE_...\",name:\"...\",mode:\"SINGLE_MAJOR|INTERDISCIPLINARY\",majorCode:null,summary:\"...\",gates:[{code:\"G1\",sequence:1,title:\"...\",objective:\"...\",weight:30,startDate:\"yyyy-MM-dd\",endDate:\"yyyy-MM-dd\",required:true,blockNextGate:true,blocksDefense:false,reviewerPolicy:\"SUPERVISOR|LECTURER|COUNCIL|DEPARTMENT_STAFF\",reviewScope:\"COMMON|MAJOR_SPECIFIC|HYBRID\",requirements:[{code:\"G1_SRS\",title:\"...\",description:\"...\",type:\"FILE|EXTERNAL_LINK|TEXT|ARTIFACT\",scope:\"COMMON|MAJOR_SPECIFIC\",majorName:null,verification:\"HUMAN|AUTO\",required:true}]}],warnings:[]}}. " +
-                "Gate weights MUST sum to exactly 100 (or all null). Keep gate startDate/endDate inside targetPeriod when supplied. Every gate MUST have >= 1 requirement. Only copy exact major names/codes from academicSetupContext.availableMajors. " +
-                "toolMode TOPIC_BATCH_SETUP: extract or draft up to 25 capstone topics from attached DOCX/PDF/XLSX files or prompt. " +
-                "Return draft:{kind:\"TOPIC_BATCH_SETUP\",title:\"...\",description:\"...\",topicBatchSetup:{summary:\"...\",topics:[{tempKey:\"TOP_1\",code:\"TOPIC_01\",title:\"...\",description:\"...\",problemStatement:\"...\",objectives:\"...\",expectedOutput:\"...\",domain:\"...\",technologies:[\"...\"],keywords:[\"...\"],projectMode:\"SINGLE_MAJOR|INTERDISCIPLINARY\",primaryMajorId:null,primaryMajorName:null,requirements:[{majorId:null,majorName:null,minMembers:3,maxMembers:5,responsibility:\"...\"}]}],warnings:[]}}. " +
+                "toolMode RUBRIC_SETUP: design an editable draft grading rubric tailored to the user's request (V4.0 QD-07: single-major rubrics are published by 1 department staff, interdisciplinary rubrics require dual-department approval; mark integration criteria with isIntegration=true and targetScope=\"COMMON|MAJOR_SPECIFIC|INTEGRATION|INDIVIDUAL\"). Return draft:{kind:\"RUBRIC_SETUP\",title:\"...\",description:\"...\",rubricSetup:{code:\"RUBRIC_...\",name:\"...\",description:\"...\",projectMode:\"SINGLE_MAJOR|INTERDISCIPLINARY\",evaluationStage:\"ON_GOING|COLD|DEFENSE\",evaluationScope:\"COMMON|MAJOR_SPECIFIC|INDIVIDUAL\",majorName:null,criteria:[{tempKey:\"C1\",parentTempKey:null,criterionCode:\"C1\",name:\"...\",description:\"...\",weightPercent:30,maxScore:10,isRequired:true,isIntegration:false,targetScope:\"COMMON\",learningOutcome:\"...\",evidenceGuidance:\"...\",levels:[{levelOrder:1,label:\"Xuất sắc\",descriptor:\"...\",scoreFrom:8.5,scoreTo:10}]}],warnings:[]}}. " +
+                "Root criteria weightPercent MUST sum to exactly 100. If a criterion has children, its children's weightPercent MUST sum to 100. Include 4 clear scoring levels per leaf criterion. Mark draft as needing human approval/publishing. " +
+                "toolMode REVIEW_GATE_SETUP: design an editable draft Review Gate template strictly fixed at 3 gates (G1, G2, G3; default POL-03 weights 20/35/45 = 100%) from attached syllabus/schedule or prompt, aligned with academicSetupContext.targetPeriod, publishedBlueprints (QD-01) and availableMajors. " +
+                "QD-09: NEVER use reviewerPolicy=\"SUPERVISOR\" (independent 2-reviewer panel per gate: use COUNCIL, ASSIGNED_REVIEWER, LECTURER or DEPARTMENT_STAFF). Support scope=\"COMMON|MAJOR_SPECIFIC|INTEGRATION\" (include INT-* integration artifact for IT_MKT) and targetCardinality=\"PROJECT|TEAM|EACH_STUDENT\". " +
+                "Return draft:{kind:\"REVIEW_GATE_SETUP\",title:\"...\",description:\"...\",reviewGateSetup:{code:\"GATE_...\",name:\"...\",mode:\"SINGLE_MAJOR|INTERDISCIPLINARY\",majorCode:null,summary:\"...\",gates:[{code:\"G1\",sequence:1,title:\"...\",objective:\"...\",weight:20,startDate:\"yyyy-MM-dd\",endDate:\"yyyy-MM-dd\",required:true,blockNextGate:true,blocksDefense:false,reviewerPolicy:\"COUNCIL\",reviewScope:\"COMMON|MAJOR_SPECIFIC|HYBRID\",requirements:[{code:\"G1_SRS\",title:\"...\",description:\"...\",type:\"FILE|EXTERNAL_LINK|TEXT|ARTIFACT\",scope:\"COMMON|MAJOR_SPECIFIC|INTEGRATION\",majorName:null,targetCardinality:\"TEAM|EACH_STUDENT|PROJECT\",verification:\"HUMAN|AUTO\",required:true}]}],warnings:[]}}. " +
+                "Gate count MUST be <= 3 (G1–G3) and weights MUST sum to exactly 100 (or all null). Keep gate startDate/endDate inside targetPeriod when supplied. Every gate MUST have >= 1 requirement. Only copy exact major names/codes from academicSetupContext.availableMajors. " +
+                "toolMode TOPIC_BATCH_SETUP: extract or draft up to 25 capstone topics from attached DOCX/PDF/XLSX files or prompt, tagging each with V4.0 trackCode (\"IT_ONLY\"|\"MKT_ONLY\"|\"IT_MKT\", POL-04/POL-05) and maxTeams (1-10, default 1). " +
+                "Return draft:{kind:\"TOPIC_BATCH_SETUP\",title:\"...\",description:\"...\",topicBatchSetup:{summary:\"...\",topics:[{tempKey:\"TOP_1\",code:\"TOPIC_01\",title:\"...\",description:\"...\",problemStatement:\"...\",objectives:\"...\",expectedOutput:\"...\",domain:\"...\",technologies:[\"...\"],keywords:[\"...\"],projectMode:\"SINGLE_MAJOR|INTERDISCIPLINARY\",trackCode:\"IT_ONLY|MKT_ONLY|IT_MKT\",maxTeams:1,primaryMajorId:null,primaryMajorName:null,requirements:[{majorId:null,majorName:null,minMembers:3,maxMembers:5,responsibility:\"...\"}]}],warnings:[]}}. " +
                 "Ensure every topic has concrete problemStatement, objectives, expectedOutput, domain, technologies, keywords and realistic requirements. Only copy real majorId/majorName from academicSetupContext.availableMajors; never invent IDs. " +
-                "toolMode COLD_TEMPLATE_SETUP: design an editable Cold Report Template tailored to the requested discipline/major or attached syllabus. " +
+                "toolMode COLD_TEMPLATE_SETUP: design an editable Cold Report Template tailored to the requested track (IT_ONLY/MKT_ONLY/IT_MKT, POL-04/POL-05) or attached syllabus (include integration report for IT_MKT). " +
                 "Return draft:{kind:\"COLD_TEMPLATE_SETUP\",title:\"...\",description:\"...\",coldTemplateSetup:{name:\"...\",scope:\"COMMON|MAJOR_SPECIFIC\",majorName:null,summary:\"...\",reports:[{code:\"UPPER_SNAKE_CODE\",name:\"...\",required:true}],warnings:[]}}. " +
                 "Every report code MUST use ASCII UPPER_SNAKE_CASE (A-Z, 0-9, _ only, <= 60 chars), distinct, with >= 1 required=true report. " +
-                "toolMode MILESTONE_TEMPLATE_SETUP: design a reusable Milestone Template for a university capstone semester (typical 12-15 weeks = 84-105 days) from attached syllabus or prompt. " +
+                "toolMode MILESTONE_TEMPLATE_SETUP: design a reusable Milestone Template for a university capstone semester (typical 12-15 weeks = 84-105 days) from attached syllabus or prompt for Department Staff review. " +
                 "Return draft:{kind:\"MILESTONE_TEMPLATE_SETUP\",title:\"...\",description:\"...\",milestoneTemplateSetup:{name:\"...\",description:\"...\",summary:\"...\",items:[{title:\"...\",description:\"...\",startOffsetDays:0,dueOffsetDays:21,sortOrder:0}],warnings:[]}}. " +
                 "Ensure startOffsetDays >= 0, dueOffsetDays >= startOffsetDays, ascending milestones matching semester length. " +
                 "For these document tools mark all unprovided dates, people and decisions [Cần bổ sung]; separate proposals from supplied facts. " +
@@ -585,7 +598,7 @@ internal sealed partial class AcademicKnowledgeService(
             answerType == "ATTACHMENT" ? "Dựa trên tệp bạn gửi; chưa được xác minh là tài liệu học vụ chính thức." :
             status == "INSUFFICIENT_EVIDENCE" ? "Không đủ căn cứ cho câu hỏi này; không suy đoán thông tin còn thiếu." : null;
         if (request.ToolMode == "REPORT_REVIEW") limitation = "Nhận xét tham khảo theo rubric đã chọn; không phải điểm số hoặc kết luận chấm chính thức. " + limitation;
-        if (request.ToolMode is "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP") limitation = "Bản nháp do AI hỗ trợ. Kiểm tra và chỉnh sửa trước khi xác nhận áp dụng vào hệ thống. " + limitation;
+        if (request.ToolMode is "WEEKLY_REPORT" or "MEETING_MINUTES" or "WORK_PLAN" or "PROJECT_SETUP" or "RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP" or "MILESTONE_TEMPLATE_SETUP") limitation = "Bản nháp do AI hỗ trợ. Kiểm tra và chỉnh sửa trước khi xác nhận áp dụng vào hệ thống. " + limitation;
         followUpSuggestions ??= BuildDefaultFollowUps(request.ToolMode, answerType, request.ProjectId.HasValue, draft?.Kind);
         var response = new AcademicAssistantResponseDto(answer, answerType, citations, projectEvidence,
             status == "INSUFFICIENT_EVIDENCE", limitation, status, completed, Attachments: selectedAttachments,
@@ -717,14 +730,24 @@ internal sealed partial class AcademicKnowledgeService(
     private async Task<long> RequireManagerAsync(CancellationToken ct)
     {
         var actor = await ActiveUserAsync(ct);
-        if (!await db.UserRoles.AnyAsync(r => r.UserId == actor.Id && (r.Role.Code == AppRoles.Admin || r.Role.Code == AppRoles.DepartmentStaff), ct))
-            throw new ForbiddenException("Only Admin or department staff can manage documents.");
+        var roles = await db.UserRoles.AsNoTracking()
+            .Where(r => r.UserId == actor.Id)
+            .Select(r => r.Role.Code)
+            .ToArrayAsync(ct);
+        if (!roles.Contains(AppRoles.DepartmentStaff))
+        {
+            var isPureAdmin = roles.Contains(AppRoles.Admin);
+            throw new ForbiddenException(
+                isPureAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot manage academic knowledge documents."
+                    : "Only department staff can manage academic knowledge documents.",
+                isPureAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
         return actor.Id;
     }
     private async Task<long?> ManagedDepartmentAsync(CancellationToken ct)
     {
         await RequireManagerAsync(ct);
-        if (await db.UserRoles.AnyAsync(r => r.UserId == current.UserId && r.Role.Code == AppRoles.Admin, ct)) return null;
         return await db.Users.Where(u => u.Id == current.UserId).Select(u => u.DepartmentId).SingleAsync(ct)
             ?? throw new ForbiddenException("Department staff must have a department.");
     }

@@ -35,7 +35,7 @@ internal sealed class PeriodPolicyService(AipmsDbContext db, ICurrentUser curren
 
     public async Task<IReadOnlyList<PeriodPolicyDto>> HistoryAsync(long periodId, CancellationToken ct)
     {
-        await Authorize(periodId, ct);
+        await Authorize(periodId, false, ct);
         var rows = await db.Set<PeriodPolicyVersion>().AsNoTracking()
             .Where(p => p.ProjectPeriodId == periodId)
             .OrderByDescending(p => p.Version)
@@ -49,7 +49,7 @@ internal sealed class PeriodPolicyService(AipmsDbContext db, ICurrentUser curren
         return [BuildVirtualPolicy(period)];
     }
 
-    private async Task Authorize(long periodId, CancellationToken ct)
+    private async Task Authorize(long periodId, bool write, CancellationToken ct)
     {
         var actor = await transactions.GetActorAsync(current.UserId ?? throw new UnauthorizedException(), ct)
             ?? throw new ForbiddenException();
@@ -63,9 +63,15 @@ internal sealed class PeriodPolicyService(AipmsDbContext db, ICurrentUser curren
             .SingleOrDefaultAsync(ct)
             ?? throw new NotFoundException("ProjectPeriod", periodId);
 
-        if (actor.IsAdmin) return;
+        if (!write && actor.IsAdmin) return;
         if (!actor.IsStaff || !actor.DepartmentId.HasValue)
-            throw new ForbiddenException();
+        {
+            throw new ForbiddenException(
+                write && actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot modify academic period policies."
+                    : "Active department staff authority is required.",
+                write && actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
 
         var staffInSameOrg = await db.Departments.AsNoTracking()
             .AnyAsync(d => d.Id == actor.DepartmentId.Value && d.IsActive && d.OrganizationId == periodScope.OrganizationId && d.Organization.IsActive, ct);
@@ -78,7 +84,7 @@ internal sealed class PeriodPolicyService(AipmsDbContext db, ICurrentUser curren
 
     public async Task<PeriodPolicyDto> GetAsync(long periodId, DateTimeOffset? asOf, CancellationToken ct)
     {
-        await Authorize(periodId, ct);
+        await Authorize(periodId, false, ct);
         var instant = asOf?.UtcDateTime ?? clock.GetUtcNow().UtcDateTime;
         var hasVersions = await db.Set<PeriodPolicyVersion>().AsNoTracking()
             .AnyAsync(p => p.ProjectPeriodId == periodId, ct);
@@ -101,7 +107,7 @@ internal sealed class PeriodPolicyService(AipmsDbContext db, ICurrentUser curren
 
     public Task<PeriodPolicyDto> PutAsync(long periodId, UpdatePeriodPolicyRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
-        await Authorize(periodId, ct);
+        await Authorize(periodId, true, ct);
         var now = clock.GetUtcNow().UtcDateTime;
         var existing = await PolicyVersions.EnsureAsync(db, periodId, now, ct);
         var period = await db.ProjectPeriods.SingleAsync(p => p.Id == periodId, ct);

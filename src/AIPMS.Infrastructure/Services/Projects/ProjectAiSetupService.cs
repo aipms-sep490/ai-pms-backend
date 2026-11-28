@@ -59,9 +59,9 @@ internal sealed partial class ProjectAiSetupService(
         var isLeader = await db.TeamMembers.AsNoTracking()
             .AnyAsync(m => m.TeamId == project.TeamId && m.UserId == actorId && m.IsLeader && m.LeftAt == null, ct);
         var isSupervisor = await db.SupervisorAssignments.AsNoTracking()
-            .AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == actorId, ct);
+            .AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null && a.AssignmentType == "PRIMARY" && a.IsPrimary && a.SupervisorProfile.UserId == actorId, ct);
         if (!isLeader && !isSupervisor)
-            throw new ForbiddenException("Chỉ trưởng nhóm hoặc giảng viên hướng dẫn được tự động thiết lập mốc, tiêu chí và công việc cho đồ án.");
+            throw new ForbiddenException("Chỉ trưởng nhóm hoặc giảng viên hướng dẫn chính (PRIMARY) được tự động thiết lập mốc, tiêu chí và công việc cho đồ án.");
 
         ValidateNoDependencyCycles(tasks);
 
@@ -76,9 +76,23 @@ internal sealed partial class ProjectAiSetupService(
             var existingMilestones = await db.Milestones.AsNoTracking()
                 .Where(m => m.ProjectId == projectId)
                 .OrderBy(m => m.SortOrder).ThenBy(m => m.Id)
-                .Select(m => new { m.Id, m.Title, m.SortOrder })
+                .Select(m => new { m.Id, m.Title, m.SortOrder, m.StartDate, m.DueDate })
                 .ToListAsync(ct);
             var nextSort = existingMilestones.Count == 0 ? 1 : existingMilestones.Max(m => m.SortOrder) + 1;
+
+            var semesterId = await db.Teams.AsNoTracking()
+                .Where(t => t.Id == project.TeamId)
+                .Select(t => (long?)t.AcademicSemesterId)
+                .SingleOrDefaultAsync(ct);
+            var execWindow = semesterId.HasValue
+                ? await db.ProjectPeriods.AsNoTracking()
+                    .Where(p => p.AcademicSemesterId == semesterId.Value && p.PeriodType == "EXECUTION" && p.Status != "CANCELLED")
+                    .OrderByDescending(p => p.Status == "ACTIVE").ThenByDescending(p => p.Id)
+                    .Select(p => new { p.StartAt, p.EndAt })
+                    .FirstOrDefaultAsync(ct)
+                : null;
+            DateOnly? execStart = execWindow is null ? null : DateOnly.FromDateTime(execWindow.StartAt);
+            DateOnly? execEnd = execWindow is null ? null : DateOnly.FromDateTime(execWindow.EndAt);
 
             var teamMembers = await db.TeamMembers.AsNoTracking()
                 .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
@@ -120,6 +134,14 @@ internal sealed partial class ProjectAiSetupService(
                 DateOnly? due = ParseDay(ms.DueDate);
                 if (start.HasValue && due.HasValue && due < start)
                     throw new ArgumentException($"Mốc \"{title}\" có hạn chót trước ngày bắt đầu.");
+                if (execStart.HasValue && execEnd.HasValue)
+                {
+                    if ((start.HasValue && (start.Value < execStart.Value || start.Value > execEnd.Value))
+                        || (due.HasValue && (due.Value < execStart.Value || due.Value > execEnd.Value)))
+                    {
+                        throw new ArgumentException($"Mốc \"{title}\" nằm ngoài khung thời gian giai đoạn Thực hiện ({execStart:yyyy-MM-dd} – {execEnd:yyyy-MM-dd}).");
+                    }
+                }
 
                 var row = new M.Milestone
                 {
@@ -137,7 +159,7 @@ internal sealed partial class ProjectAiSetupService(
                 };
                 db.Milestones.Add(row);
                 await db.SaveChangesAsync(ct);
-                existingMilestones.Add(new { row.Id, row.Title, row.SortOrder });
+                existingMilestones.Add(new { row.Id, row.Title, row.SortOrder, row.StartDate, row.DueDate });
                 if (!string.IsNullOrEmpty(key)) milestoneMap[key] = row.Id;
                 createdItems.Add(new(key, row.Id, row.Title, "MILESTONE"));
                 milestonesCreated++;
@@ -167,8 +189,8 @@ internal sealed partial class ProjectAiSetupService(
                     throw new ArgumentException("Tên hạng mục tài liệu không hợp lệ (1–255 ký tự).");
 
                 var msId = ResolveMilestoneId(del.MilestoneRef);
-                var scope = string.Equals(del.EvidenceScope, "MAJOR_SPECIFIC", StringComparison.OrdinalIgnoreCase)
-                    ? "MAJOR_SPECIFIC" : "COMMON";
+                var rawScope = del.EvidenceScope?.Trim().ToUpperInvariant();
+                var scope = rawScope is "MAJOR_SPECIFIC" or "INTEGRATION" ? rawScope : "COMMON";
                 long? targetMajorId = null;
                 if (scope == "MAJOR_SPECIFIC" && !string.IsNullOrWhiteSpace(del.TargetMajorName))
                 {
@@ -227,6 +249,17 @@ internal sealed partial class ProjectAiSetupService(
 
                 var msId = ResolveMilestoneId(task.MilestoneRef)
                     ?? throw new ArgumentException("Cần có ít nhất một mốc tiến độ trong đồ án để tạo công việc.");
+                var targetMs = existingMilestones.FirstOrDefault(m => m.Id == msId);
+                if (task.DueAt.HasValue)
+                {
+                    var taskDueDay = DateOnly.FromDateTime(task.DueAt.Value.ToOffset(TimeSpan.FromHours(7)).DateTime);
+                    if (execStart.HasValue && execEnd.HasValue && (taskDueDay < execStart.Value || taskDueDay > execEnd.Value))
+                        throw new ArgumentException($"Công việc \"{title}\" có hạn chót ({taskDueDay:yyyy-MM-dd}) nằm ngoài giai đoạn Thực hiện ({execStart:yyyy-MM-dd} – {execEnd:yyyy-MM-dd}).");
+                    if (targetMs?.StartDate is DateOnly msStart && taskDueDay < msStart)
+                        throw new ArgumentException($"Công việc \"{title}\" có hạn chót ({taskDueDay:yyyy-MM-dd}) sớm hơn ngày bắt đầu mốc \"{targetMs.Title}\" ({msStart:yyyy-MM-dd}).");
+                    if (targetMs?.DueDate is DateOnly msDue && taskDueDay > msDue)
+                        throw new ArgumentException($"Công việc \"{title}\" có hạn chót ({taskDueDay:yyyy-MM-dd}) vượt quá hạn chót mốc \"{targetMs.Title}\" ({msDue:yyyy-MM-dd}).");
+                }
                 var priority = task.Priority?.Trim().ToUpperInvariant();
                 if (priority is not ("LOW" or "MEDIUM" or "HIGH" or "CRITICAL")) priority = "MEDIUM";
 
@@ -488,6 +521,8 @@ internal sealed partial class ProjectAiSetupService(
             {
                 LearningOutcome = node.LearningOutcome?.Trim(),
                 EvidenceGuidance = node.EvidenceGuidance?.Trim(),
+                TargetScope = string.IsNullOrWhiteSpace(node.TargetScope) ? null : node.TargetScope.Trim().ToUpperInvariant(),
+                IsIntegration = node.IsIntegration,
                 Levels = levels,
                 Children = kids
             };

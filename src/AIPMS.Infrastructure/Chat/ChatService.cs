@@ -11,6 +11,7 @@ using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Task = System.Threading.Tasks.Task;
 
@@ -20,7 +21,8 @@ internal sealed partial class ChatService(AipmsDbContext db, ChatAccessService a
     TimeProvider clock, IChatWakeSignal wake, IChatCredentialGuard? credentials = null,
     AIPMS.Application.Abstractions.Storage.IFileStorage? storage = null,
     AIPMS.Application.Features.AiAssistant.Abstractions.IAiTextGenerationProvider? aiProvider = null,
-    AIPMS.Application.Abstractions.Security.IFileSecurityScanner? scanner = null) : IChatService
+    AIPMS.Application.Abstractions.Security.IFileSecurityScanner? scanner = null,
+    ILogger<ChatService>? logger = null) : IChatService
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
     private static string S(long n) => n.ToString(CultureInfo.InvariantCulture);

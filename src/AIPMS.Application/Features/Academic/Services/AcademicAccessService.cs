@@ -53,6 +53,29 @@ public sealed class AcademicAccessService(
         }
     }
 
+    public async Task EnsureDepartmentStaffInDepartmentAsync(
+        long departmentId,
+        CancellationToken cancellationToken)
+    {
+        EnsureAuthenticated();
+
+        if (!HasRole(AppRoles.DepartmentStaff))
+        {
+            throw new ForbiddenException(
+                HasRole(AppRoles.Admin)
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot verify or reject student academic profiles."
+                    : "An active department staff account is required.",
+                HasRole(AppRoles.Admin) ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
+
+        var scope = await GetDepartmentStaffScopeAsync(cancellationToken);
+        if (scope.DepartmentId != departmentId)
+        {
+            throw new ForbiddenException(
+                "Department staff can only manage their assigned department.");
+        }
+    }
+
     public async Task<long?> GetManagedDepartmentIdAsync(CancellationToken cancellationToken)
     {
         EnsureAuthenticated();

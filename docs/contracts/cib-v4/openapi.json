@@ -18431,7 +18431,7 @@
         "tags": [
           "DefenseSchedulerV4"
         ],
-        "description": "ADMIN_ONLY. Department staff may read academic structure but cannot mutate semesters, project periods or qualification policy.",
+        "description": "ADMIN_ONLY. Platform administrators manage semester skeletons, period creation/status and defense room scheduling toggle; department staff manage period date extensions, policies and calendars.",
         "parameters": [
           {
             "name": "periodId",
@@ -41556,7 +41556,7 @@
         "tags": [
           "PolicyEvaluation"
         ],
-        "description": "Cross-department project publication requires ADMIN. Staff may publish a student result only in their frozen department scope. Project preview reports publication blockers; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
+        "description": "Lead department staff only (platform ADMIN is forbidden with ADMIN_NOT_ACADEMIC_AUTHORITY). Project preview reports publication blockers and QD-05 warnings; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
         "parameters": [
           {
             "name": "projectId",
@@ -41706,7 +41706,7 @@
         "tags": [
           "PolicyEvaluation"
         ],
-        "description": "Cross-department project publication requires ADMIN. Staff may publish a student result only in their frozen department scope. Project preview reports publication blockers; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
+        "description": "Lead department staff only (platform ADMIN is forbidden with ADMIN_NOT_ACADEMIC_AUTHORITY). Project preview reports publication blockers and QD-05 warnings; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
         "parameters": [
           {
             "name": "projectId",
@@ -41873,7 +41873,7 @@
         "tags": [
           "PolicyEvaluation"
         ],
-        "description": "Cross-department project publication requires ADMIN. Staff may publish a student result only in their frozen department scope. Project preview reports publication blockers; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
+        "description": "Lead department staff only (platform ADMIN is forbidden with ADMIN_NOT_ACADEMIC_AUTHORITY). Project preview reports publication blockers and QD-05 warnings; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
         "parameters": [
           {
             "name": "projectId",
@@ -49729,7 +49729,7 @@
         "tags": [
           "ProjectPeriods"
         ],
-        "description": "ADMIN_ONLY. Department staff may read academic structure but cannot mutate semesters, project periods or qualification policy.",
+        "description": "ADMIN_ONLY. Platform administrators manage semester skeletons, period creation/status and defense room scheduling toggle; department staff manage period date extensions, policies and calendars.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -49896,7 +49896,6 @@
         "tags": [
           "ProjectPeriods"
         ],
-        "description": "ADMIN_ONLY. Department staff may read academic structure but cannot mutate semesters, project periods or qualification policy.",
         "parameters": [
           {
             "name": "periodId",
@@ -50016,7 +50015,7 @@
         "tags": [
           "ProjectPeriods"
         ],
-        "description": "ADMIN_ONLY. Department staff may read academic structure but cannot mutate semesters, project periods or qualification policy.",
+        "description": "ADMIN_ONLY. Platform administrators manage semester skeletons, period creation/status and defense room scheduling toggle; department staff manage period date extensions, policies and calendars.",
         "parameters": [
           {
             "name": "periodId",
@@ -50591,7 +50590,7 @@
         "tags": [
           "ProjectResults"
         ],
-        "description": "Cross-department project publication requires ADMIN. Staff may publish a student result only in their frozen department scope. Project preview reports publication blockers; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
+        "description": "Lead department staff only (platform ADMIN is forbidden with ADMIN_NOT_ACADEMIC_AUTHORITY). Project preview reports publication blockers and QD-05 warnings; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
         "parameters": [
           {
             "name": "projectId",
@@ -50732,7 +50731,7 @@
         "tags": [
           "ProjectResults"
         ],
-        "description": "Cross-department project publication requires ADMIN. Staff may publish a student result only in their frozen department scope. Project preview reports publication blockers; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
+        "description": "Lead department staff only (platform ADMIN is forbidden with ADMIN_NOT_ACADEMIC_AUTHORITY). Project preview reports publication blockers and QD-05 warnings; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
         "parameters": [
           {
             "name": "projectId",
@@ -50890,7 +50889,7 @@
         "tags": [
           "ProjectResults"
         ],
-        "description": "Cross-department project publication requires ADMIN. Staff may publish a student result only in their frozen department scope. Project preview reports publication blockers; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
+        "description": "Lead department staff only (platform ADMIN is forbidden with ADMIN_NOT_ACADEMIC_AUTHORITY). Project preview reports publication blockers and QD-05 warnings; mutation rechecks the same inputs and confirmation token. Unknown legacy scope is read-only.",
         "parameters": [
           {
             "name": "projectId",
@@ -62019,7 +62018,7 @@
         "tags": [
           "Semesters"
         ],
-        "description": "ADMIN_ONLY. Department staff may read academic structure but cannot mutate semesters, project periods or qualification policy.",
+        "description": "ADMIN_ONLY. Platform administrators manage semester skeletons, period creation/status and defense room scheduling toggle; department staff manage period date extensions, policies and calendars.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -62166,7 +62165,7 @@
         "tags": [
           "Semesters"
         ],
-        "description": "ADMIN_ONLY. Department staff may read academic structure but cannot mutate semesters, project periods or qualification policy.",
+        "description": "ADMIN_ONLY. Platform administrators manage semester skeletons, period creation/status and defense room scheduling toggle; department staff manage period date extensions, policies and calendars.",
         "parameters": [
           {
             "name": "semesterId",
@@ -62286,7 +62285,7 @@
         "tags": [
           "Semesters"
         ],
-        "description": "ADMIN_ONLY. Department staff may read academic structure but cannot mutate semesters, project periods or qualification policy.",
+        "description": "ADMIN_ONLY. Platform administrators manage semester skeletons, period creation/status and defense room scheduling toggle; department staff manage period date extensions, policies and calendars.",
         "parameters": [
           {
             "name": "semesterId",
@@ -66168,7 +66167,6 @@
         "tags": [
           "StudentQualifications"
         ],
-        "description": "ADMIN_ONLY. Department staff may read academic structure but cannot mutate semesters, project periods or qualification policy.",
         "parameters": [
           {
             "name": "projectPeriodId",
@@ -67113,7 +67111,7 @@
         "tags": [
           "SupervisorAssignments"
         ],
-        "description": "Only ACTIVE projects allow ending an unended assignment. Owner lecturer, platform Admin or the assignment\u0027s responsible department may end it. COMPLETED/ARCHIVED projects are read-only. Replacement is separately restricted to the responsible department.",
+        "description": "Only ACTIVE projects allow ending an unended non-primary assignment. Owner lecturer or responsible department staff may end it; primary supervisors on ACTIVE projects require atomic replacement (/replace, QD-08). COMPLETED/ARCHIVED projects are read-only.",
         "parameters": [
           {
             "name": "assignmentId",
@@ -80025,6 +80023,10 @@
           },
           "required": {
             "type": "boolean"
+          },
+          "targetCardinality": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -80117,6 +80119,13 @@
             "items": {
               "$ref": "#/components/schemas/AssistantRubricLevelDraftDto"
             },
+            "nullable": true
+          },
+          "isIntegration": {
+            "type": "boolean"
+          },
+          "targetScope": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -80510,6 +80519,14 @@
             "type": "number",
             "format": "double",
             "nullable": true
+          },
+          "trackCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "maxTeams": {
+            "type": "integer",
+            "format": "int32"
           }
         },
         "additionalProperties": false
@@ -87066,6 +87083,9 @@
           "rationale": {
             "type": "string",
             "nullable": true
+          },
+          "isIntegration": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -87108,6 +87128,19 @@
           },
           "meta": {
             "$ref": "#/components/schemas/AiSnapshotMetaDto"
+          },
+          "calculationVersion": {
+            "type": "string",
+            "nullable": true
+          },
+          "failingComponentFloor": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "trackCode": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -98538,6 +98571,9 @@
           },
           "meta": {
             "$ref": "#/components/schemas/AiSnapshotMetaDto"
+          },
+          "antiAnchoringEnforced": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false

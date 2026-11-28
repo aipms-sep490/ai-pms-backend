@@ -48,6 +48,15 @@ public static class WebApplicationExtensions
         app.UseMiddleware<AuthRateLimitingKeyMiddleware>();
         app.UseRateLimiter();
         app.UseAuthorization();
+        app.MapHealthChecks("/health", new HealthCheckOptions
+        {
+            Predicate = _ => false,
+            ResponseWriter = static (context, _) =>
+            {
+                context.Response.ContentType = "application/json; charset=utf-8";
+                return context.Response.WriteAsync("{\"status\":\"Healthy\"}");
+            }
+        }).AllowAnonymous();
         app.MapHealthChecks("/health/ready", new HealthCheckOptions
         {
             Predicate = registration => registration.Tags.Contains("ready"),

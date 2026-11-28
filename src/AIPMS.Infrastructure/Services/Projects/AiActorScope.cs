@@ -9,7 +9,7 @@ using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 
 namespace AIPMS.Infrastructure.Services.Projects;
 
-internal sealed record AiScope(long Actor, long ProjectId, string Status, bool Whole, long[] Majors, string Hash);
+internal sealed record AiScope(long Actor, long ProjectId, string Status, bool Whole, long[] Majors, string Hash, bool IsStudent = false, bool IsPrimarySupervisor = false, bool IsStaff = false);
 
 internal sealed class AiActorScope(AipmsDbContext db, ICurrentUser current)
 {
@@ -30,7 +30,8 @@ internal sealed class AiActorScope(AipmsDbContext db, ICurrentUser current)
             .Select(m => new { m.Id, m.JoinedAt }).SingleOrDefaultAsync(ct) : null;
         var assignments = await db.SupervisorAssignments.AsNoTracking().Where(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == actor && account.Lecturer)
             .OrderBy(a => a.Id).Select(a => new { a.Id, a.AssignmentType, a.IsPrimary, a.MajorId }).ToArrayAsync(ct);
-        var whole = membership is not null || assignments.Any(a => a.AssignmentType == "PRIMARY" && a.IsPrimary)
+        var isPrimary = assignments.Any(a => a.AssignmentType == "PRIMARY" && a.IsPrimary);
+        var whole = membership is not null || isPrimary
             || account.Staff && academic.Provenance == "FROZEN_REGISTRATION_SNAPSHOT" && account.DepartmentId == academic.LeadDepartmentId;
         var majors = assignments.Where(a => a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId.HasValue).Select(a => a.MajorId!.Value).ToHashSet();
         if (account.Staff && academic.Provenance == "FROZEN_REGISTRATION_SNAPSHOT")
@@ -39,9 +40,10 @@ internal sealed class AiActorScope(AipmsDbContext db, ICurrentUser current)
         if (!whole && (academic.Provenance != "FROZEN_REGISTRATION_SNAPSHOT" || majors.Count == 0)) throw new ForbiddenException();
         var signature = System.Text.Json.JsonSerializer.Serialize(new { actor, projectId, whole, academic.Provenance,
             academic.LeadDepartmentId, academic.MajorDepartmentIds, membership, assignments, Majors = majors.Order().ToArray() });
-        return new(actor, projectId, project.Status, whole, majors.ToArray(), Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(signature))));
+        return new(actor, projectId, project.Status, whole, majors.ToArray(), Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(signature))),
+            IsStudent: membership is not null, IsPrimarySupervisor: isPrimary, IsStaff: account.Staff);
     }
 
-    public IQueryable<M.Task> Tasks(AiScope scope) => db.Tasks.AsNoTracking().Where(t => t.Milestone.ProjectId == scope.ProjectId
+    public IQueryable<M.Task> Tasks(AiScope scope) => db.Tasks.AsNoTracking().Where(t => t.DeletedAt == null && t.Milestone.ProjectId == scope.ProjectId
         && (scope.Whole || db.TaskDisciplines.Any(d => d.TaskId == t.Id && scope.Majors.Contains(d.MajorId))));
 }

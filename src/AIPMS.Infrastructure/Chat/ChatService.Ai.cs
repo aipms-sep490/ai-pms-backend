@@ -6,6 +6,7 @@ using AIPMS.Application.Features.Chat;
 using AIPMS.Infrastructure.Persistence.Generated.Models;
 using AIPMS.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Task = System.Threading.Tasks.Task;
 
 namespace AIPMS.Infrastructure.Chat;
@@ -28,7 +29,7 @@ internal sealed partial class ChatService
         if (context.Messages.Length < 1) throw new ConflictException("Conversation has no messages.", "CHAT_EMPTY");
 
         var system = ChatAiIdentity + " " +
-            "Tóm tắt cuộc trò chuyện bằng tiếng Việt súc tích, rõ ràng cho sinh viên/GVHD đồ án tốt nghiệp. " +
+            "[CHAT_AI_SUMMARY] Tóm tắt cuộc trò chuyện bằng tiếng Việt súc tích, rõ ràng cho sinh viên/GVHD đồ án tốt nghiệp. " +
             "Trả ONLY raw JSON (không bọc Markdown code fence) theo đúng schema: " +
             "{\"summary\":string,\"decisions\":string[],\"blockers\":string[],\"openQuestions\":string[]," +
             "\"actionItems\":[{\"title\":string,\"ownerName\":string|null,\"dueAt\":string|null,\"sourceMessageId\":string|null}]," +
@@ -131,7 +132,7 @@ internal sealed partial class ChatService
         string system = mode switch
         {
             "SUGGEST_REPLIES" => ChatAiIdentity + " " +
-                "Đọc các tin nhắn gần nhất và đóng vai hỗ trợ người dùng hiện tại (actorName) soạn phản hồi phù hợp với ngữ cảnh học vụ/đồ án. " +
+                "[CHAT_AI_ASSIST] Đọc các tin nhắn gần nhất và đóng vai hỗ trợ người dùng hiện tại (actorName) soạn phản hồi phù hợp với ngữ cảnh học vụ/đồ án. " +
                 "Trả ONLY raw JSON (không bọc code fence): " +
                 "{\"answer\":string,\"suggestions\":string[],\"references\":[{\"messageId\":string,\"excerpt\":string}]}. " +
                 "answer: 1 câu tóm tắt ngắn tình huống cần phản hồi. " +
@@ -139,7 +140,7 @@ internal sealed partial class ChatService
                 "Không bịa cam kết thời gian hay dữ kiện không có trong tin nhắn. Chỉ dùng messageId có trong danh sách.",
 
             "POLISH_DRAFT" => ChatAiIdentity + " " +
-                "Chỉnh sửa, viết lại bản nháp tin nhắn (draftText) của người dùng hiện tại (actorName) thành 3 phiên bản tiếng Việt rõ ràng, lịch sự và chuyên nghiệp hơn trong môi trường đồ án đại học (trao đổi với GVHD hoặc thành viên nhóm). " +
+                "[CHAT_AI_ASSIST] Chỉnh sửa, viết lại bản nháp tin nhắn (draftText) của người dùng hiện tại (actorName) thành 3 phiên bản tiếng Việt rõ ràng, lịch sự và chuyên nghiệp hơn trong môi trường đồ án đại học (trao đổi với GVHD hoặc thành viên nhóm). " +
                 "Giữ nguyên ý chính và số liệu/mốc thời gian trong draftText, tuyệt đối không bịa thêm cam kết hay thông tin mới. " +
                 "Trả ONLY raw JSON (không bọc code fence): " +
                 "{\"answer\":string,\"suggestions\":string[],\"references\":[]}. " +
@@ -147,7 +148,7 @@ internal sealed partial class ChatService
                 "suggestions: đúng 3 phiên bản viết lại hoàn chỉnh (1: Lịch sự, thân thiện; 2: Ngắn gọn, đi thẳng vào vấn đề; 3: Trang trọng, phù hợp gửi GVHD/Khoa).",
 
             _ => ChatAiIdentity + " " +
-                "Trả lời câu hỏi (query) của người dùng CHỈ dựa trên các tin nhắn và tệp đính kèm trong cuộc trò chuyện này. " +
+                "[CHAT_AI_ASSIST] Trả lời câu hỏi (query) của người dùng CHỈ dựa trên các tin nhắn và tệp đính kèm trong cuộc trò chuyện này. " +
                 "Nếu thông tin chưa được nhắc trong đoạn chat, hãy nói rõ là chưa thấy đề cập trong lịch sử gần nhất. " +
                 "Trả ONLY raw JSON (không bọc code fence): " +
                 "{\"answer\":string,\"suggestions\":string[],\"references\":[{\"messageId\":string,\"excerpt\":string}]}. " +
@@ -311,12 +312,14 @@ internal sealed partial class ChatService
         {
             return await aiProvider!.GenerateTextAsync(system, userPayload, aiCts.Token);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
+            logger?.LogWarning(ex, "Chat AI provider call timed out.");
             return null;
         }
-        catch (Exception) when (!ct.IsCancellationRequested)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
+            logger?.LogWarning(ex, "Chat AI provider call failed; returning fallback.");
             return null;
         }
     }

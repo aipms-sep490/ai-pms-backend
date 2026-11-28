@@ -25,6 +25,8 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
+            builder.UseSetting("AiAssistant:Enabled", "true");
+            builder.UseSetting("AiAssistant:ProgressRiskEnabled", "true");
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IProjectProgressDataReader>();
@@ -77,7 +79,7 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
             ProgressReports: Array.Empty<ProgressReportFact>(),
             Meetings: Array.Empty<MeetingFact>());
 
-        var client = _factory.CreateAuthenticatedClient(10, "student@aipms.test", "Student", AppRoles.Student);
+        var client = _factory.CreateAuthenticatedClient(10, "supervisor@aipms.test", "Supervisor", AppRoles.Lecturer);
 
         var response = await client.GetAsync($"api/v1/projects/{projectId}/progress-analysis");
 
@@ -120,7 +122,7 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
         _factory.ProjectAccessService.CanAccess = true;
         _factory.DataReader.FactsMap.Remove(projectId);
 
-        var client = _factory.CreateAuthenticatedClient(10, "student@aipms.test", "Student", AppRoles.Student);
+        var client = _factory.CreateAuthenticatedClient(10, "supervisor@aipms.test", "Supervisor", AppRoles.Lecturer);
 
         var response = await client.GetAsync($"api/v1/projects/{projectId}/progress-analysis");
 
@@ -148,7 +150,7 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
             ProgressReports: Array.Empty<ProgressReportFact>(),
             Meetings: Array.Empty<MeetingFact>());
 
-        var client = _factory.CreateAuthenticatedClient(10, "student@aipms.test", "Student", AppRoles.Student);
+        var client = _factory.CreateAuthenticatedClient(10, "supervisor@aipms.test", "Supervisor", AppRoles.Lecturer);
 
         var response = await client.GetAsync($"api/v1/projects/{projectId}/progress-analysis");
 
@@ -183,7 +185,7 @@ public sealed class ProjectProgressAnalysisEndpointTests : IClassFixture<Project
             ProgressReports: Array.Empty<ProgressReportFact>(),
             Meetings: Array.Empty<MeetingFact>());
 
-        var client = _factory.CreateAuthenticatedClient(10, "student@aipms.test", "Student", AppRoles.Student);
+        var client = _factory.CreateAuthenticatedClient(10, "supervisor@aipms.test", "Supervisor", AppRoles.Lecturer);
 
         var response = await client.GetAsync($"api/v1/projects/{projectId}/progress-analysis");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

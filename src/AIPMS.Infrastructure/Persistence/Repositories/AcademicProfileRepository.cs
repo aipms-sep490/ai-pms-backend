@@ -70,7 +70,25 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
     public async Task<AcademicProfileDto> SetStatusAsync(long userId, string status, long reviewerId, string? reason, DateTime now, CancellationToken ct = default)
     {
         if (db.Database.CurrentTransaction is null) throw new InvalidOperationException("Profile review requires a transaction.");
-        var departmentId = await GetReviewerDepartmentAsync(reviewerId, ct);
+        var reviewer = await db.Users.AsNoTracking()
+            .Where(u => u.Id == reviewerId && u.Status == "ACTIVE")
+            .Select(u => new
+            {
+                u.DepartmentId,
+                IsAdmin = u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Admin),
+                IsStaff = u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.DepartmentStaff)
+                    && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
+            })
+            .SingleOrDefaultAsync(ct) ?? throw new ForbiddenException();
+        if (!reviewer.IsStaff || !reviewer.DepartmentId.HasValue)
+        {
+            throw new ForbiddenException(
+                reviewer.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot verify or reject student academic profiles."
+                    : "An active department staff account is required to review student academic profiles.",
+                reviewer.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
+        var departmentId = reviewer.DepartmentId;
         var user = await db.Users.Include(u => u.Major).Include(u => u.Department).ThenInclude(d => d!.Organization)
             .SingleOrDefaultAsync(x => x.Id == userId && x.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Student), ct)
             ?? throw new AIPMS.Application.Common.Exceptions.NotFoundException("User", userId);

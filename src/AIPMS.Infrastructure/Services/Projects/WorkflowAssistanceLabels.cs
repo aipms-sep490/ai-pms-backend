@@ -63,6 +63,17 @@ internal static class WorkflowAssistanceLabels
         "MISSING_EVALUATOR" => "Có cấu phần chưa được phân công người chấm; Khoa kiểm tra phương án chấm.",
         "RESULT_NOT_READY" => "Kết quả chưa sẵn sàng; Khoa kiểm tra phương án và các lượt chấm.",
         "RESULT_PUBLICATION_FORBIDDEN" => "Tài khoản hiện tại chưa có quyền công bố kết quả.",
+        "GATE_3_NOT_PASSED" => "Đồ án chưa đạt Cổng 3 (G3 PASSED) nên chưa đủ điều kiện mở khóa nộp cuối kỳ / bảo vệ.",
+        "COLD_PACKAGE_INCOMPLETE" => "Gói hồ sơ chấm nguội (COLD) chưa đủ tệp bắt buộc hoặc chưa được khóa (LOCKED).",
+        "LEGACY_ONE_STEP_FINAL_LOCK_DISABLED" => "Quy trình khóa 1 bước cũ đã tắt; Trưởng nhóm cần gửi yêu cầu khóa để GVHD chính xác nhận khóa 2 bước.",
+        "FINAL_LOCK_PENDING" => "Gói bàn giao cuối kỳ đang chờ GVHD chính xác nhận khóa (bước 2/2).",
+        "INTEGRATION_DELIVERABLE_REQUIRED" => "Đồ án liên ngành bắt buộc phải có minh chứng sản phẩm tích hợp (INTEGRATION / INT-*).",
+        "LEAD_OVERRIDE_SLA_NOT_ELAPSED" => "Chưa đủ thời hạn SLA để Khoa chủ trì thực hiện quyết định vượt quyền (Lead Override).",
+        "UNRESOLVED_CRITICAL_COMMENTS" => "Còn nhận xét mức CRITICAL trên minh chứng chưa được giải quyết (RESOLVED).",
+        "FILE_QUARANTINED" => "Tệp đang bị cách ly hoặc chưa qua bước quét an toàn (ScanStatus != READY).",
+        "ADMIN_NOT_ACADEMIC_AUTHORITY" => "Quản trị viên hệ thống (ADMIN) không có thẩm quyền học thuật; cần Cán bộ Khoa / Bộ môn thực hiện.",
+        "ASSIGNMENT_REVOKED" => "Phân công chấm điểm hoặc thẩm định đã bị thu hồi hoặc hết thời hạn hiệu lực.",
+        "EVALUATOR_ROLE_CONFLICT" => "Xung đột lợi ích (D17): GVHD chính hoặc Mentor chuyên ngành không thể chấm độc lập đồ án này.",
         _ => "Còn điều kiện nghiệp vụ chưa đáp ứng. Mở trang thao tác để xem chi tiết hiện hành hoặc liên hệ người phụ trách."
     };
 
@@ -70,7 +81,8 @@ internal static class WorkflowAssistanceLabels
     {
         "ACTIVE" => "Đang thực hiện", "FINAL_SUBMISSION" => "Bàn giao cuối kỳ",
         "DRAFT" => "Đang soạn đề xuất", "SUBMITTED" => "Đã nộp đề xuất", "UNDER_REVIEW" => "Đang được Khoa xét duyệt",
-        "REVISION_REQUIRED" => "Cần chỉnh sửa đề xuất", "APPROVED" => "Đề xuất đã được duyệt", "REJECTED" => "Đề xuất bị từ chối",
+        "REVISION_REQUIRED" => "Cần chỉnh sửa đề xuất", "APPROVED" => "Đề xuất đã được duyệt",
+        "SUPERVISOR_PENDING" => "Chờ hoàn tất phân công GVHD / Mentor", "REJECTED" => "Đề xuất bị từ chối",
         "COMPLETED" => "Đã hoàn thành", "ARCHIVED" => "Đã lưu trữ", "CANCELLED" => "Đã hủy",
         _ => "Cần kiểm tra giai đoạn tại trang tổng quan"
     };

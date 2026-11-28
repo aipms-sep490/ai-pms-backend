@@ -93,6 +93,10 @@ internal sealed class DeliverableReviewService(AipmsDbContext db, AiActorScope a
             throw new ArgumentException("Tối đa 4 tệp, mỗi tệp 10 MB, tổng 20 MB.");
         if (files.Any(f => !new[] { ".pdf", ".docx", ".txt", ".md" }.Contains(Path.GetExtension(f.OriginalFileName).ToLowerInvariant())))
             throw new ArgumentException("Hỗ trợ PDF, DOCX, TXT và Markdown.");
+        if (files.Any(f => !string.Equals(f.ScanStatus, "READY", StringComparison.OrdinalIgnoreCase)))
+            throw new ConflictException(
+                "Một hoặc nhiều tệp đính kèm chưa đạt trạng thái quét an toàn READY (đang chờ quét hoặc bị cách ly). Không thể chạy AI kiểm tra báo cáo lúc này.",
+                WorkflowErrorCodes.FileQuarantined);
         var run = new AiRun { ProjectId = projectId, ActorId = scope.Actor, Kind = "DELIVERABLE_REVIEW",
             Status = "RUNNING", ModelVersion = "PENDING", ConfigVersion = "DELIVERABLE_REVIEW_V1",
             ScopeHash = scope.Hash, StartedAt = started };

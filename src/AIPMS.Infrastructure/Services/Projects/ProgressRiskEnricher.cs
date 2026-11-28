@@ -17,7 +17,7 @@ internal static class ProgressRiskEnricher
             Returns = t.TaskStatusHistories.Count(h => h.OldStatus == "IN_REVIEW" && h.NewStatus == "IN_PROGRESS")
         }).ToArrayAsync(ct);
         var deliverables = await db.Deliverables.AsNoTracking().Where(d => d.ProjectId == scope.ProjectId &&
-            (scope.Whole || (d.TargetMajorId.HasValue && scope.Majors.Contains(d.TargetMajorId.Value))))
+            (scope.Whole || d.EvidenceScope == null || d.EvidenceScope == "COMMON" || d.EvidenceScope == "INTEGRATION" || (d.TargetMajorId.HasValue && scope.Majors.Contains(d.TargetMajorId.Value))))
             .OrderBy(d => d.Id).Take(2001).Select(d => new { d.Id, d.Title, d.DueAt, HasVersion = d.DeliverableVersions.Any() }).ToArrayAsync(ct);
         var sprints = scope.Whole ? await db.Set<Sprint>().AsNoTracking().Where(s => s.ProjectId == scope.ProjectId &&
             (s.Status == "ACTIVE" || s.Status == "PLANNED") && s.EndAt < now).OrderBy(s => s.Id).Take(2001).ToArrayAsync(ct) : [];
@@ -45,10 +45,18 @@ internal static class ProgressRiskEnricher
         else
         {
             var pulse = await new ProjectHealthPulseCalculator(db).CalculateAsync(scope.ProjectId, now, ct);
+            double? alignedRiskScore = pulse.Status switch
+            {
+                "RED" => 80.0,
+                "YELLOW" => 45.0,
+                "GREEN" => 15.0,
+                _ => null
+            };
             updated = updated with
             {
                 DataStatus = AIPMS.Application.Features.Projects.Abstractions.HealthPulseMapping.ToDataStatus(pulse.Status),
                 RiskLevel = AIPMS.Application.Features.Projects.Abstractions.HealthPulseMapping.ToRiskLevel(pulse.Status),
+                RiskScore = alignedRiskScore,
                 HealthPulseStatus = pulse.Status,
                 HealthPulseSignals = pulse.Signals,
                 Summary = pulse.Summary

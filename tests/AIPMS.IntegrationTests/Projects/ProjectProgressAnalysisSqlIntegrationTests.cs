@@ -25,16 +25,19 @@ public sealed class ProjectProgressAnalysisSqlIntegrationTests(SupervisorDatabas
             base.ConfigureWebHost(builder);
             builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:DefaultConnection"] = database.ConnectionString
+                ["ConnectionStrings:DefaultConnection"] = database.ConnectionString,
+                ["AiAssistant:Enabled"] = "true",
+                ["AiAssistant:ProgressRiskEnabled"] = "true"
             }));
         }
     }
 
-    private async Task<(long ProjectAId, long StudentAId, long ProjectBId, long StudentBId)> SeedTwoProjectsAsync()
+    private async Task<(long ProjectAId, long StudentAId, long SupervisorAId, long ProjectBId, long StudentBId)> SeedTwoProjectsAsync()
     {
         var s = await database.SeedAsync();
         await using var db = database.CreateContext();
         var studentRole = await db.Roles.SingleAsync(r => r.Code == AppRoles.Student);
+        var lecturerRole = await db.Roles.SingleAsync(r => r.Code == AppRoles.Lecturer);
 
         var studentA = new M.User
         {
@@ -44,6 +47,16 @@ public sealed class ProjectProgressAnalysisSqlIntegrationTests(SupervisorDatabas
             PasswordHash = "unused",
             Status = "ACTIVE",
             UserRoleUsers = [new() { RoleId = studentRole.Id }]
+        };
+
+        var supervisorA = new M.User
+        {
+            DepartmentId = s.DepartmentId,
+            Email = $"supervisorA-{Guid.NewGuid():N}@test.local",
+            FullName = "Supervisor A",
+            PasswordHash = "unused",
+            Status = "ACTIVE",
+            UserRoleUsers = [new() { RoleId = lecturerRole.Id }]
         };
 
         var studentB = new M.User
@@ -74,7 +87,7 @@ public sealed class ProjectProgressAnalysisSqlIntegrationTests(SupervisorDatabas
             IsActive = true
         };
 
-        db.Users.AddRange(studentA, studentB);
+        db.Users.AddRange(studentA, supervisorA, studentB);
         db.AcademicSemesters.Add(semester);
         db.Majors.Add(major);
         await db.SaveChangesAsync();
@@ -126,6 +139,27 @@ public sealed class ProjectProgressAnalysisSqlIntegrationTests(SupervisorDatabas
         db.Projects.AddRange(projectA, projectB);
         await db.SaveChangesAsync();
 
+        var supProfile = new M.SupervisorProfile { UserId = supervisorA.Id, MaxActiveProjects = 5, IsAvailable = true };
+        db.SupervisorProfiles.Add(supProfile);
+        await db.SaveChangesAsync();
+        db.SupervisorAssignments.Add(new M.SupervisorAssignment
+        {
+            ProjectId = projectA.Id,
+            SupervisorProfileId = supProfile.Id,
+            AssignmentType = "PRIMARY",
+            IsPrimary = true,
+            AssignedAt = now.AddDays(-10),
+            SupervisorRequest = new M.SupervisorRequest
+            {
+                ProjectId = projectA.Id,
+                SupervisorProfileId = supProfile.Id,
+                RequestedBy = studentA.Id,
+                Status = "ACCEPTED",
+                RequestedAt = now.AddDays(-10)
+            }
+        });
+        await db.SaveChangesAsync();
+
         // Project A Execution Data:
         // - Milestone A1: Active with future due date
         // - Milestone A2: Cancelled with past due date (verifies Cancelled exclusion)
@@ -169,8 +203,29 @@ public sealed class ProjectProgressAnalysisSqlIntegrationTests(SupervisorDatabas
             Summary = "Draft Report A1",
             Status = "DRAFT"
         };
+        var reportA2 = new M.ProgressReport
+        {
+            ProjectId = projectA.Id,
+            SubmittedBy = studentA.Id,
+            ReportType = "WEEKLY",
+            PeriodStart = DateOnly.FromDateTime(now.AddDays(-7)),
+            PeriodEnd = DateOnly.FromDateTime(now.AddDays(-1)),
+            Summary = "Submitted Report A2",
+            Status = "SUBMITTED",
+            SubmittedAt = now.AddDays(-1)
+        };
         db.Tasks.Add(taskA1);
-        db.ProgressReports.Add(reportA1);
+        db.ProgressReports.AddRange(reportA1, reportA2);
+        db.Meetings.Add(new M.Meeting
+        {
+            ProjectId = projectA.Id,
+            Title = "Recent Meeting A1",
+            Status = "COMPLETED",
+            StartAt = now.AddDays(-2),
+            EndAt = now.AddDays(-2).AddHours(1),
+            CreatedBy = studentA.Id,
+            MeetingParticipants = [new() { UserId = supervisorA.Id }, new() { UserId = studentA.Id }]
+        });
 
         // Project B Execution Data:
         // - Milestone B1: Past due date
@@ -218,15 +273,22 @@ public sealed class ProjectProgressAnalysisSqlIntegrationTests(SupervisorDatabas
         db.Tasks.AddRange(taskB1, taskB2, taskB3);
         await db.SaveChangesAsync();
 
-        return (projectA.Id, studentA.Id, projectB.Id, studentB.Id);
+        return (projectA.Id, studentA.Id, supervisorA.Id, projectB.Id, studentB.Id);
     }
 
     [Fact]
     public async Task SQL_TwoProjects_AuthorizedProjectReadsOnlyOwnProgressFacts()
     {
-        var (projectAId, studentAId, projectBId, _) = await SeedTwoProjectsAsync();
+        var (projectAId, studentAId, supervisorAId, _, _) = await SeedTwoProjectsAsync();
         using var app = new Factory(database);
-        using var clientA = app.CreateAuthenticatedClient(studentAId, "studentA@test.local", "Student A", AppRoles.Student);
+
+        // V4.0 N6: Student is denied project risk/progress-analysis (403 SCOPE_ACCESS_DENIED)
+        using var studentClientA = app.CreateAuthenticatedClient(studentAId, "studentA@test.local", "Student A", AppRoles.Student);
+        var studentResp = await studentClientA.GetAsync($"/api/v1/projects/{projectAId}/progress-analysis");
+        Assert.Equal(HttpStatusCode.Forbidden, studentResp.StatusCode);
+
+        // Primary supervisor of Project A reads ONLY Project A facts
+        using var clientA = app.CreateAuthenticatedClient(supervisorAId, "supervisorA@test.local", "Supervisor A", AppRoles.Lecturer);
 
         var response = await clientA.GetAsync($"/api/v1/projects/{projectAId}/progress-analysis");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -257,7 +319,7 @@ public sealed class ProjectProgressAnalysisSqlIntegrationTests(SupervisorDatabas
     [Fact]
     public async Task SQL_TwoProjects_CrossProjectActorDenied()
     {
-        var (projectAId, _, _, studentBId) = await SeedTwoProjectsAsync();
+        var (projectAId, _, _, _, studentBId) = await SeedTwoProjectsAsync();
         using var app = new Factory(database);
 
         // Student B is a member of Project B, but NOT Project A
@@ -270,7 +332,7 @@ public sealed class ProjectProgressAnalysisSqlIntegrationTests(SupervisorDatabas
     [Fact]
     public async Task SQL_Unauthenticated_Denied()
     {
-        var (projectAId, _, _, _) = await SeedTwoProjectsAsync();
+        var (projectAId, _, _, _, _) = await SeedTwoProjectsAsync();
         using var app = new Factory(database);
         using var anonymous = app.CreateClient();
 
@@ -281,9 +343,9 @@ public sealed class ProjectProgressAnalysisSqlIntegrationTests(SupervisorDatabas
     [Fact]
     public async Task SQL_NonExistentProject_NotFound()
     {
-        var (_, studentAId, _, _) = await SeedTwoProjectsAsync();
+        var (_, _, supervisorAId, _, _) = await SeedTwoProjectsAsync();
         using var app = new Factory(database);
-        using var clientA = app.CreateAuthenticatedClient(studentAId, "studentA@test.local", "Student A", AppRoles.Student);
+        using var clientA = app.CreateAuthenticatedClient(supervisorAId, "supervisorA@test.local", "Supervisor A", AppRoles.Lecturer);
 
         var response = await clientA.GetAsync("/api/v1/projects/99999999/progress-analysis");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);

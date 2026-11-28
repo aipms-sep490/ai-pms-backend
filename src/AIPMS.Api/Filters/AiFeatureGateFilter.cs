@@ -18,7 +18,15 @@ public enum AiFeatureArea
     AppealReviewAssist,
     ContributionFairness,
     LegacyProjectAsk,
-    SuggestEvaluationScheme
+    SuggestEvaluationScheme,
+    ScoreCalibration,
+    Knowledge,
+    DeliverableReview,
+    ProgressRisk,
+    TopicSimilarity,
+    PreSemesterAi,
+    WorkflowAssistance,
+    Assistant
 }
 
 public sealed class AiDailyQuotaTracker
@@ -123,7 +131,15 @@ internal sealed class AiFeatureGateFilter(
         AiFeatureArea.AppealReviewAssist => opts.SuiteEnabled && opts.AppealReviewAssistEnabled,
         AiFeatureArea.ContributionFairness => opts.SuiteEnabled && opts.ContributionFairnessEnabled,
         AiFeatureArea.SuggestEvaluationScheme => opts.SuiteEnabled && opts.SuggestEvaluationSchemeEnabled,
+        AiFeatureArea.ScoreCalibration => opts.SuiteEnabled && opts.ScoreCalibrationEnabled,
         AiFeatureArea.LegacyProjectAsk => opts.LegacyProjectAskEnabled,
+        AiFeatureArea.Knowledge => opts.KnowledgeEnabled,
+        AiFeatureArea.DeliverableReview => opts.DeliverableReviewEnabled,
+        AiFeatureArea.ProgressRisk => opts.ProgressRiskEnabled,
+        AiFeatureArea.TopicSimilarity => opts.TopicSimilarityEnabled,
+        AiFeatureArea.PreSemesterAi => opts.PreSemesterAiEnabled,
+        AiFeatureArea.WorkflowAssistance => opts.WorkflowAssistanceEnabled || opts.KnowledgeEnabled,
+        AiFeatureArea.Assistant => opts.LegacyProjectAskEnabled || opts.ProgressRiskEnabled || opts.KnowledgeEnabled,
         _ => false
     };
 

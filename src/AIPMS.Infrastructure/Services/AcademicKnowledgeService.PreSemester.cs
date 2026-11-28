@@ -23,7 +23,7 @@ internal sealed partial class AcademicKnowledgeService
     private async Task<object?> BuildAcademicSetupContextAsync(
         long? departmentId, long? projectPeriodId, string? toolMode, CancellationToken ct)
     {
-        if (toolMode is not ("RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP"))
+        if (toolMode is not ("RUBRIC_SETUP" or "REVIEW_GATE_SETUP" or "TOPIC_BATCH_SETUP" or "COLD_TEMPLATE_SETUP" or "MILESTONE_TEMPLATE_SETUP"))
             return null;
 
         long? orgId = null;
@@ -51,6 +51,7 @@ internal sealed partial class AcademicKnowledgeService
             .Select(m => new { m.Id, m.Code, m.Name }).ToArrayAsync(ct);
 
         object? periodContext = null;
+        long? resolvedSemesterId = null;
         if (projectPeriodId.HasValue)
         {
             var period = await db.ProjectPeriods.AsNoTracking()
@@ -58,6 +59,7 @@ internal sealed partial class AcademicKnowledgeService
                 .Select(p => new
                 {
                     p.Id,
+                    p.AcademicSemesterId,
                     p.Code,
                     p.Name,
                     p.PeriodType,
@@ -67,6 +69,7 @@ internal sealed partial class AcademicKnowledgeService
                     semesterName = p.AcademicSemester.Name
                 })
                 .SingleOrDefaultAsync(ct);
+            resolvedSemesterId = period?.AcademicSemesterId;
             periodContext = period;
         }
         else if (orgId.HasValue)
@@ -77,6 +80,7 @@ internal sealed partial class AcademicKnowledgeService
                 .Select(p => new
                 {
                     p.Id,
+                    p.AcademicSemesterId,
                     p.Code,
                     p.Name,
                     p.PeriodType,
@@ -86,15 +90,30 @@ internal sealed partial class AcademicKnowledgeService
                     semesterName = p.AcademicSemester.Name
                 })
                 .FirstOrDefaultAsync(ct);
+            resolvedSemesterId = activePeriod?.AcademicSemesterId;
             periodContext = activePeriod;
         }
+
+        // V4.0 QD-01: Inject Academic Blueprints context for Pre-Semester AI setup
+        var bpQuery = db.Set<AcademicBlueprint>().AsNoTracking().AsQueryable();
+        if (resolvedSemesterId.HasValue)
+            bpQuery = bpQuery.Where(b => b.AcademicSemesterId == resolvedSemesterId.Value);
+        if (departmentId.HasValue)
+            bpQuery = bpQuery.Where(b => b.LeadDepartmentId == departmentId.Value || b.ParticipatingDepartmentId == departmentId.Value);
+        var publishedBlueprints = await bpQuery
+            .OrderByDescending(b => b.Status == "PUBLISHED")
+            .ThenByDescending(b => b.Version)
+            .Take(10)
+            .Select(b => new { b.Id, b.Code, b.Name, b.TrackCode, b.Version, b.Status, b.GateTemplateId, b.MilestoneTemplateId, b.RubricId })
+            .ToArrayAsync(ct);
 
         return new
         {
             departmentId,
             departmentName,
             availableMajors = majors,
-            targetPeriod = periodContext
+            targetPeriod = periodContext,
+            publishedBlueprints
         };
     }
 
@@ -389,28 +408,28 @@ internal sealed partial class AcademicKnowledgeService
 
     private static AssistantReviewGateSetupPlanDto BuildLocalReviewGateSetup(string query) => new(
         "GATE_AI_DRAFT",
-        "Khung cổng thẩm định đồ án (Nháp đề xuất)",
+        "Khung cổng thẩm định đồ án V4.0 (G1–G3 · Nháp đề xuất)",
         "SINGLE_MAJOR",
         null,
-        $"Khung cổng thẩm định G1–G3 gợi ý cục bộ theo yêu cầu: {query.Trim()}. Kiểm tra ngày bắt đầu/kết thúc theo kỳ và bấm Lưu bản nháp.",
+        $"Khung 3 cổng thẩm định chuẩn V4.0 (G1=20%, G2=35%, G3=45% theo POL-03; hội đồng phản biện độc lập theo QĐ-09) theo yêu cầu: {query.Trim()}. Kiểm tra ngày bắt đầu/kết thúc theo kỳ và bấm Lưu bản nháp.",
         [
-            new("G1", 1, "Cổng 1: Khởi tạo & Đặc tả yêu cầu", "Chốt phạm vi bài toán, đặc tả yêu cầu chức năng/phi chức năng và kế hoạch nhóm.", 25m, null, null, true, true, false, "SUPERVISOR", "COMMON",
+            new("G1", 1, "Cổng 1: Khởi tạo & Đặc tả yêu cầu", "Chốt phạm vi bài toán, đặc tả yêu cầu chức năng/phi chức năng và kế hoạch nhóm.", 20m, null, null, true, true, false, "COUNCIL", "COMMON",
             [
-                new("G1_SRS", "Tài liệu đặc tả yêu cầu (SRS / Proposal)", "Mô tả rõ bài toán, tác nhân, phạm vi và tiêu chí nghiệm thu.", "FILE", "COMMON", null, "HUMAN", true),
-                new("G1_PLAN", "Kế hoạch thực hiện & phân công công việc", "Lịch trình mốc công việc và cam kết thành viên.", "FILE", "COMMON", null, "HUMAN", true)
+                new("G1_SRS", "Tài liệu đặc tả yêu cầu (SRS / Proposal)", "Mô tả rõ bài toán, tác nhân, phạm vi và tiêu chí nghiệm thu.", "FILE", "COMMON", null, "HUMAN", true, "TEAM"),
+                new("G1_PLAN", "Kế hoạch thực hiện & phân công công việc", "Lịch trình mốc công việc và cam kết thành viên.", "FILE", "COMMON", null, "HUMAN", true, "TEAM")
             ]),
             new("G2", 2, "Cổng 2: Thiết kế & Bản thử nghiệm giữa kỳ", "Kiểm duyệt kiến trúc, thiết kế chi tiết và bản chạy thử nghiệm cốt lõi.", 35m, null, null, true, true, false, "COUNCIL", "COMMON",
             [
-                new("G2_DESIGN", "Tài liệu thiết kế kiến trúc & dữ liệu (SDD)", "Sơ đồ kiến trúc, ERD và thiết kế giao diện chính.", "FILE", "COMMON", null, "HUMAN", true),
-                new("G2_DEMO", "Liên kết kho mã nguồn / bản demo giữa kỳ", "Minh chứng tiến độ thực thi chức năng cốt lõi.", "EXTERNAL_LINK", "COMMON", null, "HUMAN", true)
+                new("G2_DESIGN", "Tài liệu thiết kế kiến trúc & dữ liệu (SDD)", "Sơ đồ kiến trúc, ERD và thiết kế giao diện chính.", "FILE", "COMMON", null, "HUMAN", true, "TEAM"),
+                new("G2_DEMO", "Liên kết kho mã nguồn / bản demo giữa kỳ", "Minh chứng tiến độ thực thi chức năng cốt lõi.", "EXTERNAL_LINK", "COMMON", null, "HUMAN", true, "TEAM")
             ]),
-            new("G3", 3, "Cổng 3: Nghiệm thu & Điều kiện bảo vệ", "Rà soát hồ sơ hoàn chỉnh, kết quả kiểm thử và điều kiện đủ ra hội đồng bảo vệ.", 40m, null, null, true, false, true, "COUNCIL", "COMMON",
+            new("G3", 3, "Cổng 3: Nghiệm thu & Điều kiện bảo vệ", "Rà soát hồ sơ hoàn chỉnh, kết quả kiểm thử và điều kiện đủ ra hội đồng bảo vệ.", 45m, null, null, true, false, true, "COUNCIL", "COMMON",
             [
-                new("G3_FINAL", "Báo cáo tổng kết & kết quả kiểm thử", "Hồ sơ hoàn chỉnh sẵn sàng chấm nguội và bảo vệ.", "FILE", "COMMON", null, "HUMAN", true),
-                new("G3_SLIDE", "Slide bảo vệ & hướng dẫn sử dụng", "Tài liệu trình bày hội đồng và triển khai sản phẩm.", "FILE", "COMMON", null, "HUMAN", true)
+                new("G3_FINAL", "Báo cáo tổng kết & kết quả kiểm thử", "Hồ sơ hoàn chỉnh sẵn sàng chấm nguội và bảo vệ.", "FILE", "COMMON", null, "HUMAN", true, "TEAM"),
+                new("G3_INDIV_LOG", "Nhật ký đóng góp cá nhân & tự đánh giá", "Minh chứng đóng góp từng thành viên phục vụ kiểm chứng.", "FILE", "COMMON", null, "HUMAN", true, "EACH_STUDENT")
             ])
         ],
-        ["Khung cổng thẩm định gợi ý cục bộ (tổng trọng số 100%). Khi áp dụng sẽ lưu ở trạng thái DRAFT để Bộ môn kiểm tra trước khi công bố."]);
+        ["Khung 3 cổng thẩm định chuẩn V4.0 (G1=20%, G2=35%, G3=45%, tổng 100%, hội đồng 2 phản biện độc lập theo QĐ-09). Khi áp dụng sẽ lưu ở trạng thái DRAFT để Bộ môn kiểm tra trước khi công bố."]);
 
     private static AssistantTopicBatchPlanDto BuildLocalTopicBatchSetup(string query) => new(
         $"Khung đề tài nháp gợi ý cục bộ theo yêu cầu: {query.Trim()}. Kiểm tra chi tiết, cảnh báo trùng 3 kỳ và chọn các đề tài muốn lưu bản nháp.",
@@ -493,12 +512,12 @@ internal sealed partial class AcademicKnowledgeService
     private static AssistantMilestoneTemplateSetupPlanDto BuildLocalMilestoneTemplateSetup(string query) => new(
         "Mẫu mốc đồ án tốt nghiệp 14 tuần (Nháp AI)",
         $"Lộ trình mốc tiêu chuẩn gợi ý theo yêu cầu: {query.Trim()}",
-        "Bộ 4 mốc tiêu chuẩn tương ứng học kỳ 14 tuần (0–98 ngày) ở trạng thái DRAFT để Quản trị viên tinh chỉnh trước khi công bố.",
+        "Bộ 4 mốc tiêu chuẩn tương ứng học kỳ 14 tuần (0–98 ngày) ở trạng thái DRAFT để Cán bộ bộ môn tinh chỉnh trước khi công bố.",
         [
             new("Mốc 1: Khởi tạo & Đặc tả yêu cầu", "Chốt phạm vi bài toán, cam kết nhóm và tài liệu SRS/Proposal.", 0, 21, 0),
             new("Mốc 2: Thiết kế kiến trúc & Dữ liệu", "Hoàn thiện tài liệu SDD, thiết kế cơ sở dữ liệu và nguyên mẫu giao diện.", 22, 42, 1),
             new("Mốc 3: Triển khai & Kiểm thử giữa kỳ", "Xây dựng các chức năng cốt lõi, tích hợp và đánh giá Review Gate 2.", 43, 77, 2),
             new("Mốc 4: Hoàn thiện, Bàn giao & Bảo vệ", "Kiểm thử toàn hệ thống, nộp hồ sơ chấm nguội và chuẩn bị bảo vệ hội đồng.", 78, 98, 3)
         ],
-        ["Khung mốc gợi ý cục bộ (0–98 ngày). Khi áp dụng sẽ lưu phiên bản DRAFT để Quản trị viên kiểm tra và công bố thủ công."]);
+        ["Khung mốc gợi ý cục bộ (0–98 ngày). Khi áp dụng sẽ lưu phiên bản DRAFT để Cán bộ bộ môn kiểm tra và công bố thủ công."]);
 }
