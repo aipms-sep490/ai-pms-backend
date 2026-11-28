@@ -24,11 +24,12 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class AcademicBlueprintService
 {
-    private async Task<(M.Project Project, AcademicBlueprint Blueprint, AcademicBlueprintConfig Config, long? ExecutionPeriodId, DateTime AnchorUtc)>
+    private async Task<(M.Project Project, ProjectAcademicScope Scope, AcademicBlueprint Blueprint, AcademicBlueprintConfig Config, long? ExecutionPeriodId, DateTime AnchorUtc)>
         ResolveProjectBlueprintContextAsync(long projectId, long? explicitBlueprintId, CancellationToken ct)
     {
         var project = await db.Projects.Include(p => p.Team).SingleOrDefaultAsync(p => p.Id == projectId, ct)
             ?? throw new NotFoundException("Project", projectId);
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
 
         var trackCode = AcademicTrackCodes.Normalize(project.TrackCode);
         if (trackCode is null)
@@ -48,10 +49,14 @@ internal sealed partial class AcademicBlueprintService
         }
         else
         {
-            bp = await db.AcademicBlueprints.AsNoTracking()
+            var candidates = await db.AcademicBlueprints.AsNoTracking()
                 .Where(b => b.AcademicSemesterId == project.Team.AcademicSemesterId && b.TrackCode == trackCode && b.Status == "PUBLISHED")
                 .OrderByDescending(b => b.Version)
-                .FirstOrDefaultAsync(ct);
+                .ToListAsync(ct);
+            bp = (scope.LeadDepartmentId.HasValue
+                    ? candidates.FirstOrDefault(b => b.LeadDepartmentId == scope.LeadDepartmentId.Value)
+                    : null)
+                ?? candidates.FirstOrDefault();
             if (bp is null)
                 throw new ConflictException($"No PUBLISHED AcademicBlueprint found for track {trackCode} in semester {project.Team.AcademicSemesterId}.", WorkflowErrorCodes.BlueprintNotPublished);
         }
@@ -62,7 +67,7 @@ internal sealed partial class AcademicBlueprintService
             .FirstOrDefaultAsync(ct);
 
         var anchorUtc = execPeriod?.StartAt ?? project.ApprovedAt ?? clock.GetUtcNow().UtcDateTime;
-        return (project, bp, ParseConfig(bp.ConfigJson), execPeriod?.Id, DateTime.SpecifyKind(anchorUtc, DateTimeKind.Utc));
+        return (project, scope, bp, ParseConfig(bp.ConfigJson), execPeriod?.Id, DateTime.SpecifyKind(anchorUtc, DateTimeKind.Utc));
     }
 
     private DateTime ShiftWorkingDays(DateTime fromUtc, int days, long? executionPeriodId)
@@ -74,17 +79,139 @@ internal sealed partial class AcademicBlueprintService
             : fromUtc.AddDays(days);
     }
 
+    private static string TruncateReqCode(string code) => code.Length <= 50 ? code : code[..50];
+
+    private static void PopulateGateRequirements(
+        ProjectGateInstance gate,
+        BlueprintGateRule gr,
+        AcademicBlueprintConfig config,
+        ReviewGateDefinition? matchedDef,
+        IReadOnlyList<long> activeMemberIds)
+    {
+        var seenCodes = new HashSet<string>(gate.Requirements.Select(r => r.Code), StringComparer.OrdinalIgnoreCase);
+
+        if (matchedDef is not null && matchedDef.Requirements.Count > 0)
+        {
+            foreach (var r in matchedDef.Requirements.OrderBy(x => x.Id))
+            {
+                if (string.Equals(r.TargetCardinality, "EACH_STUDENT", StringComparison.OrdinalIgnoreCase) && activeMemberIds.Count > 0)
+                {
+                    foreach (var memberId in activeMemberIds)
+                    {
+                        var code = TruncateReqCode($"{r.Code}-S{memberId}");
+                        if (!seenCodes.Add(code)) continue;
+                        gate.Requirements.Add(new ProjectGateRequirement
+                        {
+                            Code = code,
+                            Title = r.Title,
+                            Type = r.Type,
+                            Scope = r.Scope,
+                            MajorId = r.MajorId,
+                            TargetStudentId = memberId,
+                            Required = r.Required,
+                            VerificationStatus = "PENDING",
+                            TargetCardinality = r.TargetCardinality,
+                            DeliveryStage = r.DeliveryStage,
+                            FeedsCold = r.FeedsCold,
+                            FeedsDefense = r.FeedsDefense,
+                            InputKind = r.InputKind,
+                            TemplateDocumentId = r.TemplateDocumentId,
+                            CarryForwardFromCode = r.CarryForwardFromCode,
+                            PolicyTag = r.PolicyTag,
+                            RubricCriterionRef = r.RubricCriterionRef
+                        });
+                    }
+                }
+                else
+                {
+                    var code = TruncateReqCode(r.Code);
+                    if (!seenCodes.Add(code)) continue;
+                    gate.Requirements.Add(new ProjectGateRequirement
+                    {
+                        Code = code,
+                        Title = r.Title,
+                        Type = r.Type,
+                        Scope = r.Scope,
+                        MajorId = r.MajorId,
+                        TargetStudentId = r.TargetStudentId,
+                        Required = r.Required,
+                        VerificationStatus = "PENDING",
+                        TargetCardinality = r.TargetCardinality,
+                        DeliveryStage = r.DeliveryStage,
+                        FeedsCold = r.FeedsCold,
+                        FeedsDefense = r.FeedsDefense,
+                        InputKind = r.InputKind,
+                        TemplateDocumentId = r.TemplateDocumentId,
+                        CarryForwardFromCode = r.CarryForwardFromCode,
+                        PolicyTag = r.PolicyTag,
+                        RubricCriterionRef = r.RubricCriterionRef
+                    });
+                }
+            }
+            return;
+        }
+
+        var deliverables = gr.RequiredDeliverables ?? [];
+        for (var dIdx = 0; dIdx < deliverables.Count; dIdx++)
+        {
+            var title = deliverables[dIdx]?.Trim();
+            if (string.IsNullOrWhiteSpace(title)) continue;
+            var code = TruncateReqCode($"{gr.Code}-DEL-{dIdx + 1}");
+            if (!seenCodes.Add(code)) continue;
+            gate.Requirements.Add(new ProjectGateRequirement
+            {
+                Code = code,
+                Title = title.Length <= 255 ? title : title[..255],
+                Type = "DOCUMENT",
+                Scope = "COMMON",
+                Required = true,
+                VerificationStatus = "PENDING",
+                TargetCardinality = "PROJECT"
+            });
+        }
+
+        foreach (var intDel in config.IntegrationDeliverables ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(intDel.Code) || intDel.Stages is null) continue;
+            if (!intDel.Stages.Any(s => string.Equals(s, gr.Code, StringComparison.OrdinalIgnoreCase))) continue;
+            var code = TruncateReqCode(intDel.Code.Trim().ToUpperInvariant());
+            if (!seenCodes.Add(code)) continue;
+            var title = string.IsNullOrWhiteSpace(intDel.Title) ? code : intDel.Title.Trim();
+            gate.Requirements.Add(new ProjectGateRequirement
+            {
+                Code = code,
+                Title = title.Length <= 255 ? title : title[..255],
+                Type = "DOCUMENT",
+                Scope = "COMMON",
+                Required = true,
+                VerificationStatus = "PENDING",
+                TargetCardinality = "PROJECT",
+                PolicyTag = "POL-05"
+            });
+        }
+    }
+
     public async Task<BlueprintDryRunDiffDto> DryRunProjectPlanAsync(long projectId, long? blueprintId = null, CancellationToken ct = default)
     {
         var actor = await GetActorScopeAsync(ct);
-        if (!actor.IsAdmin && !actor.IsStaff)
+        var (_, scope, bp, config, execPeriodId, anchorUtc) = await ResolveProjectBlueprintContextAsync(projectId, blueprintId, ct);
+
+        if (actor.IsAdmin)
+        {
+            // Admin may inspect read-only dry-run preview.
+        }
+        else if (actor.IsStaff)
+        {
+            if (!actor.DepartmentId.HasValue || !scope.DepartmentIds.Contains(actor.DepartmentId.Value))
+                throw new ForbiddenException("Department staff can only preview blueprint plans for projects within their department scope.");
+        }
+        else
         {
             var isSupervisor = await db.SupervisorAssignments.AsNoTracking()
                 .AnyAsync(sa => sa.ProjectId == projectId && sa.SupervisorProfile.UserId == ActorId && sa.EndedAt == null, ct);
             if (!isSupervisor) throw new ForbiddenException("Only department staff, admins, or assigned supervisors can preview blueprint plans.");
         }
 
-        var (_, bp, config, execPeriodId, anchorUtc) = await ResolveProjectBlueprintContextAsync(projectId, blueprintId, ct);
         var alreadyApplied = await db.ProjectBlueprintSnapshots.AsNoTracking().AnyAsync(s => s.ProjectId == projectId, ct);
 
         var existingGates = await db.ProjectGateInstances.AsNoTracking().Where(g => g.ProjectId == projectId).ToDictionaryAsync(g => g.Code, ct);
@@ -184,13 +311,15 @@ internal sealed partial class AcademicBlueprintService
                 throw new ConflictException("Only ACTIVE projects can apply an AcademicBlueprint plan.", WorkflowErrorCodes.ProjectNotActive);
 
             // Try to resolve blueprint; if invoked automatically on activation and none configured, skip gracefully
-            AcademicBlueprint? bp;
+            M.Project project;
+            ProjectAcademicScope scope;
+            AcademicBlueprint bp;
             AcademicBlueprintConfig config;
             long? execPeriodId;
             DateTime anchorUtc;
             try
             {
-                (_, bp, config, execPeriodId, anchorUtc) = await ResolveProjectBlueprintContextAsync(projectId, blueprintId, ct);
+                (project, scope, bp, config, execPeriodId, anchorUtc) = await ResolveProjectBlueprintContextAsync(projectId, blueprintId, ct);
             }
             catch (ConflictException ex) when (blueprintId is null && ex.Code == WorkflowErrorCodes.BlueprintNotPublished)
             {
@@ -198,10 +327,27 @@ internal sealed partial class AcademicBlueprintService
                 return null;
             }
 
+            if (currentUser.IsAuthenticated && currentUser.UserId == actorUserId
+                && currentUser.Roles.Contains("DEPARTMENT_STAFF") && !currentUser.Roles.Contains("ADMIN"))
+            {
+                var actorScope = await GetActorScopeAsync(ct);
+                if (!actorScope.DepartmentId.HasValue || !scope.DepartmentIds.Contains(actorScope.DepartmentId.Value))
+                    throw new ForbiddenException("Department staff can only apply blueprints to projects within their department scope.");
+            }
+
             int gatesCreated = 0, sprintsCreated = 0, milestonesCreated = 0, tasksCreated = 0;
 
+            // Load linked ReviewGateTemplate (with gates & requirements) if specified on blueprint
+            ReviewGateTemplate? linkedTemplate = null;
+            if (bp.GateTemplateId.HasValue)
+            {
+                linkedTemplate = await db.ReviewGateTemplates.AsNoTracking()
+                    .Include(t => t.Gates).ThenInclude(g => g.Requirements)
+                    .SingleOrDefaultAsync(t => t.Id == bp.GateTemplateId.Value, ct);
+            }
+
             // Ensure a backing ReviewGateTemplate exists if gate rules are provided and blueprint didn't link one
-            long? gateTemplateId = bp.GateTemplateId;
+            long? gateTemplateId = linkedTemplate?.Id ?? bp.GateTemplateId;
             if ((config.GateRules?.Count ?? 0) > 0 && !gateTemplateId.HasValue)
             {
                 var autoTplCode = $"BP-{bp.Code}-V{bp.Version}";
@@ -226,8 +372,18 @@ internal sealed partial class AcademicBlueprintService
                 gateTemplateId = existingTpl.Id;
             }
 
-            var existingGates = await db.ProjectGateInstances.Where(g => g.ProjectId == projectId).ToDictionaryAsync(g => g.Code, ct);
+            var activeMemberIds = await db.TeamMembers.AsNoTracking()
+                .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
+                .OrderBy(m => m.UserId)
+                .Select(m => m.UserId)
+                .ToArrayAsync(ct);
+
+            var existingGates = await db.ProjectGateInstances
+                .Include(g => g.Requirements)
+                .Where(g => g.ProjectId == projectId)
+                .ToDictionaryAsync(g => g.Code, StringComparer.OrdinalIgnoreCase, ct);
             var orderedGates = (config.GateRules ?? []).OrderBy(g => g.Sequence).ToArray();
+            var trackedGates = new List<ProjectGateInstance>(existingGates.Values);
             for (var i = 0; i < orderedGates.Length; i++)
             {
                 var gr = orderedGates[i];
@@ -235,6 +391,8 @@ internal sealed partial class AcademicBlueprintService
                 var revEnd = ShiftWorkingDays(sub, gr.ReviewDurationWorkingDays, execPeriodId);
                 var fixDue = ShiftWorkingDays(revEnd, gr.RevisionDurationWorkingDays, execPeriodId);
                 var offsetJson = JsonSerializer.Serialize(new { gr.SubmissionOffsetWorkingDays, gr.ReviewDurationWorkingDays, gr.RevisionDurationWorkingDays }, JsonOpts);
+                var matchedDef = linkedTemplate?.Gates.FirstOrDefault(g =>
+                    string.Equals(g.Code, gr.Code, StringComparison.OrdinalIgnoreCase) || g.Sequence == gr.Sequence);
 
                 if (existingGates.TryGetValue(gr.Code, out var existingGate))
                 {
@@ -244,22 +402,26 @@ internal sealed partial class AcademicBlueprintService
                     existingGate.WindowStart ??= anchorUtc;
                     existingGate.WindowEnd = fixDue;
                     existingGate.OffsetRuleJson = offsetJson;
+                    if (existingGate.Requirements.Count == 0)
+                        PopulateGateRequirements(existingGate, gr, config, matchedDef, activeMemberIds);
                 }
                 else if (gateTemplateId.HasValue)
                 {
-                    db.ProjectGateInstances.Add(new ProjectGateInstance
+                    var blockNextGate = matchedDef?.BlockNextGate ?? true;
+                    var openImmediately = i == 0 || !blockNextGate;
+                    var newGate = new ProjectGateInstance
                     {
                         ProjectId = projectId,
                         TemplateId = gateTemplateId.Value,
-                        TemplateVersion = bp.Version,
+                        TemplateVersion = linkedTemplate?.Version ?? bp.Version,
                         Code = gr.Code,
                         Sequence = gr.Sequence,
                         Title = gr.Title,
                         Objective = gr.Objective,
-                        Status = "PLANNED",
-                        ReviewEligibility = i == 0 ? "READY" : "BLOCKED",
-                        Required = true,
-                        BlockNextGate = true,
+                        Status = openImmediately ? "PLANNED" : "LOCKED",
+                        ReviewEligibility = openImmediately ? "READY" : "BLOCKED",
+                        Required = matchedDef?.Required ?? true,
+                        BlockNextGate = blockNextGate,
                         BlocksDefense = gr.BlocksDefense,
                         Weight = gr.Weight,
                         WindowStart = anchorUtc,
@@ -269,7 +431,10 @@ internal sealed partial class AcademicBlueprintService
                         RevisionDueAt = fixDue,
                         OffsetRuleJson = offsetJson,
                         CreatedAt = activatedAtUtc
-                    });
+                    };
+                    PopulateGateRequirements(newGate, gr, config, matchedDef, activeMemberIds);
+                    db.ProjectGateInstances.Add(newGate);
+                    trackedGates.Add(newGate);
                     gatesCreated++;
                 }
             }
@@ -283,7 +448,7 @@ internal sealed partial class AcademicBlueprintService
                 if (match is { IsUserCustomized: true }) continue;
                 if (match is null)
                 {
-                    db.Set<Sprint>().Add(new Sprint
+                    var sprint = new Sprint
                     {
                         ProjectId = projectId,
                         Name = sr.Name,
@@ -295,7 +460,9 @@ internal sealed partial class AcademicBlueprintService
                         CreatedBy = actorUserId,
                         CreatedAt = activatedAtUtc,
                         UpdatedAt = activatedAtUtc
-                    });
+                    };
+                    db.Set<Sprint>().Add(sprint);
+                    existingSprints.Add(sprint);
                     sprintsCreated++;
                 }
                 else
@@ -307,8 +474,23 @@ internal sealed partial class AcademicBlueprintService
                 }
             }
 
+            // Persist gates/requirements and sprints before creating core tasks so FK ids are assigned
+            await db.SaveChangesAsync(ct);
+
+            var gateFirstRequirementId = trackedGates
+                .GroupBy(g => g.Code, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    grp => grp.Key,
+                    grp => grp.First().Requirements
+                        .OrderByDescending(r => r.Required)
+                        .ThenBy(r => r.Id)
+                        .Select(r => (long?)r.Id)
+                        .FirstOrDefault(),
+                    StringComparer.OrdinalIgnoreCase);
+
             var existingMilestones = await db.Milestones.Where(m => m.ProjectId == projectId).ToListAsync(ct);
             var existingTasks = await db.Tasks.Where(t => t.Milestone.ProjectId == projectId).ToListAsync(ct);
+            var newlyCreatedCoreTasks = new List<M.Task>();
             foreach (var mr in (config.MilestoneRules ?? []).OrderBy(m => m.SortOrder))
             {
                 var start = ShiftWorkingDays(anchorUtc, mr.StartOffsetWorkingDays, execPeriodId);
@@ -348,13 +530,25 @@ internal sealed partial class AcademicBlueprintService
                 foreach (var tr in mr.CoreTasks ?? [])
                 {
                     var taskDue = tr.DueOffsetWorkingDays.HasValue ? ShiftWorkingDays(anchorUtc, tr.DueOffsetWorkingDays.Value, execPeriodId) : due;
+                    long? linkedGateReqId = !string.IsNullOrWhiteSpace(tr.GateCode)
+                        && gateFirstRequirementId.TryGetValue(tr.GateCode.Trim(), out var reqId)
+                        ? reqId
+                        : null;
+                    long? linkedSprintId = existingSprints
+                        .Where(s => s.StartAt <= taskDue && taskDue <= s.EndAt)
+                        .OrderBy(s => s.StartAt)
+                        .Select(s => (long?)s.Id)
+                        .FirstOrDefault();
+
                     var task = existingTasks.FirstOrDefault(t => t.TemplateOriginId == tr.OriginId);
                     if (task is { IsUserCustomized: true }) continue;
                     if (task is null)
                     {
-                        db.Tasks.Add(new M.Task
+                        var createdTask = new M.Task
                         {
                             MilestoneId = ms.Id,
+                            SprintId = linkedSprintId,
+                            GateRequirementId = linkedGateReqId,
                             Title = tr.Title,
                             Description = tr.Description,
                             Status = "TODO",
@@ -368,7 +562,9 @@ internal sealed partial class AcademicBlueprintService
                             CreatedAt = activatedAtUtc,
                             UpdatedAt = activatedAtUtc,
                             ConcurrencyToken = Guid.NewGuid()
-                        });
+                        };
+                        db.Tasks.Add(createdTask);
+                        newlyCreatedCoreTasks.Add(createdTask);
                         tasksCreated++;
                     }
                     else
@@ -376,7 +572,28 @@ internal sealed partial class AcademicBlueprintService
                         task.Title = tr.Title;
                         task.DueAt = taskDue;
                         task.IsCoreGateTask = tr.IsCoreGateTask;
+                        task.GateRequirementId ??= linkedGateReqId;
+                        task.SprintId ??= linkedSprintId;
                         task.UpdatedAt = activatedAtUtc;
+                    }
+                }
+            }
+
+            if (newlyCreatedCoreTasks.Count > 0 && scope.MajorIds.Count > 0)
+            {
+                await db.SaveChangesAsync(ct);
+                foreach (var createdTask in newlyCreatedCoreTasks)
+                {
+                    for (var mIdx = 0; mIdx < scope.MajorIds.Count; mIdx++)
+                    {
+                        db.TaskDisciplines.Add(new M.TaskDiscipline
+                        {
+                            TaskId = createdTask.Id,
+                            MajorId = scope.MajorIds[mIdx],
+                            Role = mIdx == 0 ? "PRIMARY" : "SUPPORTING",
+                            CreatedBy = actorUserId,
+                            CreatedAt = activatedAtUtc
+                        });
                     }
                 }
             }

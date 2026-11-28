@@ -212,7 +212,7 @@ public sealed class UpdateProjectPeriodCommandHandler(
         UpdateProjectPeriodCommand request,
         CancellationToken cancellationToken)
     {
-        accessService.EnsureCanManageProjectPeriods();
+        var isAdmin = accessService.EnsureCanUpdateProjectPeriod();
 
         var existing = await repository.GetProjectPeriodAsync(
             request.PeriodId,
@@ -229,6 +229,13 @@ public sealed class UpdateProjectPeriodCommandHandler(
             existing.AcademicSemesterId,
             cancellationToken)
             ?? throw new NotFoundException("AcademicSemester", existing.AcademicSemesterId);
+
+        if (!isAdmin)
+        {
+            var actorOrgId = await repository.GetUserActiveOrganizationIdAsync(accessService.ActorUserId, cancellationToken);
+            if (!actorOrgId.HasValue || actorOrgId.Value != semester.OrganizationId)
+                throw new ForbiddenException("Department staff can only update project periods within their active organization.");
+        }
 
         if (semester.Status is SemesterStatuses.Closed or SemesterStatuses.Archived)
         {
@@ -395,7 +402,7 @@ public sealed class UpdateProjectPeriodCommandHandler(
             await auditTrail.RecordAsync(
                 new AuditEntry(
                     accessService.ActorUserId,
-                    "PROJECT_PERIOD_UPDATED",
+                    request.EndAt > existing.EndAt ? "PROJECT_PERIOD_DATES_EXTENDED" : "PROJECT_PERIOD_UPDATED",
                     "PROJECT_PERIOD",
                     period.Id,
                     new Dictionary<string, object?>

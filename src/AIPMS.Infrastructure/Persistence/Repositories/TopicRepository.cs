@@ -64,7 +64,9 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
             .FromSqlInterpolated($"SELECT * FROM dbo.project_topics WITH (UPDLOCK, ROWLOCK) WHERE id = {id}").AsTracking()
             : db.Set<ProjectTopic>().AsNoTracking().Where(t => t.Id == id);
         var topic = await Include(Visible(query, actor)).SingleOrDefaultAsync(ct);
-        return topic?.ToDto(actor);
+        if (topic is null) return null;
+        var selectedCount = await db.Projects.AsNoTracking().CountAsync(p => p.TopicId == topic.Id && p.Status != "REJECTED", ct);
+        return topic.ToDto(actor, selectedCount);
     }
 
     public async Task<TopicDto?> GetByIdForSelectionAsync(long id, TopicActor actor, CancellationToken ct)
@@ -75,7 +77,9 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
             query = query.Where(t => t.Period.AcademicSemester.OrganizationId == actor.OrganizationId);
         }
         var topic = await Include(query).SingleOrDefaultAsync(ct);
-        return topic?.ToDto(actor);
+        if (topic is null) return null;
+        var selectedCount = await db.Projects.AsNoTracking().CountAsync(p => p.TopicId == topic.Id && p.Status != "REJECTED", ct);
+        return topic.ToDto(actor, selectedCount);
     }
 
     public async Task<PagedResult<TopicDto>> ListAsync(TopicActor actor, TopicFilter filter, CancellationToken ct)
@@ -97,17 +101,30 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
         var count = await query.LongCountAsync(ct);
         var rows = await Include(query.OrderByDescending(t => t.CreatedAt).ThenByDescending(t => t.Id)
             .Skip((filter.Page - 1) * filter.PageSize).Take(filter.PageSize)).ToArrayAsync(ct);
-        return new(rows.Select(r => r.ToDto(actor)).ToArray(), filter.Page, filter.PageSize, count);
+        var ids = rows.Select(r => r.Id).ToArray();
+        var counts = ids.Length == 0
+            ? new Dictionary<long, int>()
+            : await db.Projects.AsNoTracking()
+                .Where(p => p.TopicId != null && ids.Contains(p.TopicId.Value) && p.Status != "REJECTED")
+                .GroupBy(p => p.TopicId!.Value)
+                .Select(g => new { TopicId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TopicId, x => x.Count, ct);
+        return new(rows.Select(r => r.ToDto(actor, counts.GetValueOrDefault(r.Id))).ToArray(), filter.Page, filter.PageSize, count);
     }
 
     private static void Content(ProjectTopic row, TopicContentRequest input)
     {
+        if (input.MaxTeams < 1)
+            throw new ValidationException(new Dictionary<string, string[]> { ["maxTeams"] = ["maxTeams must be at least 1."] });
         row.Title = input.Title.Trim(); row.Description = input.Description?.Trim();
         row.ProblemStatement = input.ProblemStatement?.Trim(); row.Objectives = input.Objectives?.Trim();
         row.ExpectedOutput = input.ExpectedOutput?.Trim(); row.Domain = input.Domain?.Trim();
         row.TechnologiesJson = JsonSerializer.Serialize(input.Technologies.Select(t => t.Trim()).Distinct(StringComparer.OrdinalIgnoreCase));
         row.KeywordsJson = JsonSerializer.Serialize(input.Keywords.Select(t => t.Trim()).Distinct(StringComparer.OrdinalIgnoreCase));
         row.ProjectMode = input.ProjectMode; row.PrimaryMajorId = input.PrimaryMajorId;
+        row.MaxTeams = input.MaxTeams;
+        row.TrackCode = string.IsNullOrWhiteSpace(input.TrackCode) ? null : input.TrackCode.Trim().ToUpperInvariant();
+        row.SuggestedSupervisorProfileId = input.SuggestedSupervisorProfileId;
     }
 
     private async Task<List<TopicMajorRequirement>> Requirements(TopicContentRequest input, CancellationToken ct)

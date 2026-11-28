@@ -30,7 +30,7 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             await repository.LockSupervisorAndProjectAsync(profileId, projectId, token);
             var now = clock.GetUtcNow().UtcDateTime;
             await repository.ExpireOverdueAsync(now, token, projectId: projectId);
-            await RequireEligibilityAsync(projectId, profileId, now, false, assignmentType == "PRIMARY", majorId, token);
+            var (_, policy) = await RequireEligibilityAsync(projectId, profileId, now, false, assignmentType == "PRIMARY", majorId, token);
             if (await repository.HasConflictingRoleAsync(projectId, profileId, assignmentType, token))
                 throw new ConflictException(
                     assignmentType == "PRIMARY"
@@ -39,8 +39,17 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
                     WorkflowErrorCodes.SupervisorRoleConflict);
             if (await repository.HasPendingAsync(projectId, profileId, token, assignmentType, majorId))
                 throw new ConflictException("A pending request already exists for this project and supervisor.");
+            var maxPending = policy.MaxPendingSupervisorRequestsPerSlot is >= 1 and <= 5 ? policy.MaxPendingSupervisorRequestsPerSlot : 2;
+            var pendingCount = await repository.CountPendingForSlotAsync(projectId, assignmentType, majorId, token);
+            if (pendingCount >= maxPending)
+            {
+                throw new ConflictException(
+                    $"Maximum concurrent pending supervisor requests ({maxPending}) reached for this slot. Cancel an existing invitation or wait for a response.",
+                    WorkflowErrorCodes.MaxPendingSupervisorRequestsReached);
+            }
+            var expiryDays = policy.SupervisorInvitationExpiryDays is >= 1 and <= 30 ? policy.SupervisorInvitationExpiryDays : 7;
             var request = await repository.CreateAsync(projectId, profileId, actor.UserId, message?.Trim(), now, token,
-                assignmentType, majorId);
+                assignmentType, majorId, expiryDays);
             await events.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.SupervisorRequestSent,
                 request.Id, actor.UserId, now), token);
             await AuditAsync("SUPERVISOR_REQUEST_SENT", actor.UserId, null, request, token);
@@ -95,7 +104,7 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
                 await repository.LockSupervisorAndProjectAsync(request.SupervisorProfileId, request.ProjectId, token);
                 now = clock.GetUtcNow().UtcDateTime;
                 await repository.ExpireOverdueAsync(now, token, projectId: request.ProjectId);
-                var project = await RequireEligibilityAsync(request.ProjectId, request.SupervisorProfileId, now,
+                var (project, _) = await RequireEligibilityAsync(request.ProjectId, request.SupervisorProfileId, now,
                     true, request.AssignmentType == "PRIMARY", request.MajorId, token);
                 if (await repository.HasActiveConflictingRoleAssignmentAsync(request.ProjectId, request.SupervisorProfileId, request.AssignmentType, token))
                     throw new ConflictException(
@@ -159,7 +168,7 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
             throw new ForbiddenException("Only the current student team leader can send or cancel supervisor requests.");
     }
 
-    private async Task<SupervisorCandidateProject> RequireEligibilityAsync(long projectId, long profileId, DateTime now,
+    private async Task<(SupervisorCandidateProject Project, SupervisorSelectionPolicy Policy)> RequireEligibilityAsync(long projectId, long profileId, DateTime now,
         bool accepting, bool primary, long? majorId, CancellationToken ct)
     {
         var project = await candidates.GetProjectAsync(projectId, now, ct) ?? throw new NotFoundException("Project", projectId);
@@ -199,7 +208,7 @@ public sealed class SupervisorRequestWorkflow(ISupervisorRequestRepository repos
         if (new SupervisorCapacity(workload.ProfileLimit, policies[0].MaxProjectsPerSupervisor!.Value,
                 workload.ActiveProjects, workload.SemesterActiveProjects).RemainingSlots == 0)
             throw new ConflictException("The supervisor has reached the profile or semester capacity limit.", "SUPERVISOR_CAPACITY_FULL");
-        return project;
+        return (project, policies[0]);
     }
 
     private async Task<SupervisorRequestModel> GetAsync(long id, CancellationToken ct) =>

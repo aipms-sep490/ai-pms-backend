@@ -63,6 +63,24 @@ public sealed class GetUserByIdQueryHandler(
     }
 }
 
+public sealed record GetUserActiveObligationsQuery(long UserId) : IRequest<UserActiveObligationsDto>;
+
+public sealed class GetUserActiveObligationsQueryHandler(
+    IUserAccountRepository repository,
+    AccountSecurityAccessService accessService)
+    : IRequestHandler<GetUserActiveObligationsQuery, UserActiveObligationsDto>
+{
+    public async Task<UserActiveObligationsDto> Handle(
+        GetUserActiveObligationsQuery request,
+        CancellationToken cancellationToken)
+    {
+        accessService.EnsureAdministrator();
+        _ = await repository.GetUserAsync(request.UserId, cancellationToken)
+            ?? throw new NotFoundException("User", request.UserId);
+        return await repository.GetActiveObligationsAsync(request.UserId, cancellationToken);
+    }
+}
+
 public sealed record GetMyProfileQuery : IRequest<UserAccountDto>;
 
 public sealed class GetMyProfileQueryHandler(

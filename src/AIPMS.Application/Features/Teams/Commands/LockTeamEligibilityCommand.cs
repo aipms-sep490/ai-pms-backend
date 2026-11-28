@@ -57,6 +57,7 @@ public sealed class LockTeamEligibilityCommandHandler(
 
     private async Task<TeamDto> HandleInTransactionAsync(LockTeamEligibilityCommand request, CancellationToken ct)
     {
+        _ = (eligibilityRepository, hasher, freshnessEvaluator, workflow, timeProvider);
         if (!currentUser.IsAuthenticated || currentUser.UserId is null)
             throw new UnauthorizedException();
 
@@ -68,77 +69,10 @@ public sealed class LockTeamEligibilityCommandHandler(
         if (leader is null || leader.UserId != actorId)
             throw new ForbiddenException("Only the team leader can lock the team.");
 
-        // Idempotent retry if already locked
-        if (team.Status == "LOCKED")
-        {
-            return await workflow.GetAsync(team.Id, ct);
-        }
-
-        if (team.Status != "ELIGIBLE")
-        {
-            throw new ConflictException($"Team in status {team.Status} cannot be locked. Only ELIGIBLE teams can be locked.");
-        }
-
-        var utcNow = timeProvider.GetUtcNow().UtcDateTime;
-        var contextInput = await eligibilityRepository.BuildContextInputAsync(team.Id, utcNow, ct);
-
-        var hashes = hasher.ComputeHashes(contextInput, utcNow);
-        var evalContext = new TeamEligibilityEvaluationContext(
-            TeamId: contextInput.TeamId,
-            ProjectPeriodId: contextInput.ProjectPeriodId,
-            ProjectId: contextInput.ProjectId,
-            RoundType: contextInput.RoundType,
-            RevisionHistoryId: contextInput.RevisionHistoryId,
-            ProjectMode: contextInput.ProjectMode,
-            PolicyVersion: contextInput.PolicyVersion,
-            RuleVersion: contextInput.RuleVersion,
-            Hashes: hashes);
-
-        // Resolve current qualifying snapshot matching current evaluation key and context
-        var snapshot = await eligibilityRepository.GetCurrentSnapshotAsync(
-            team.Id,
-            contextInput.ProjectPeriodId,
-            contextInput.ProjectId,
-            contextInput.RoundType,
-            contextInput.RevisionHistoryId,
-            hashes.EvaluationKey,
-            ct);
-
-        if (snapshot is null)
-        {
-            var fallback = await eligibilityRepository.GetLatestCheckAsync(
-                team.Id, contextInput.RoundType, contextInput.RevisionHistoryId, ct);
-            if (fallback is not null)
-            {
-                var fallbackFreshness = freshnessEvaluator.EvaluateFreshness(fallback, evalContext, utcNow);
-                throw new ConflictException($"Team cannot be locked. Requires a CURRENT PASS snapshot. Current snapshot is {fallbackFreshness.ToString().ToUpperInvariant()} {fallback.Result}.");
-            }
-
-            throw new ConflictException("An explicit eligibility check must be run before locking the team.");
-        }
-
-        var freshness = freshnessEvaluator.EvaluateFreshness(snapshot, evalContext, utcNow);
-
-        if (freshness != FreshnessStatus.Current || snapshot.Result != "PASS")
-        {
-            throw new ConflictException($"Team cannot be locked. Requires a CURRENT PASS snapshot. Current snapshot is {freshness.ToString().ToUpperInvariant()} {snapshot.Result}.");
-        }
-
-        await repository.UpdateAsync(team.Id, team.Name, team.Description, "LOCKED", utcNow, ct);
-
-        await auditTrail.RecordAsync(
-            new AuditEntry(
-                actorId,
-                "TEAM_ELIGIBILITY_LOCKED",
-                "TEAM",
-                team.Id,
-                new Dictionary<string, object?>
-                {
-                    ["checkId"] = snapshot.Id,
-                    ["roundType"] = snapshot.RoundType
-                }),
-            ct);
-
-        return await workflow.GetAsync(team.Id, ct);
+        // TK-W1-11 (Q-X-20): Students cannot manually lock a team before proposal submission;
+        // teams lock automatically when submitting a proposal or when registration window N1 closes.
+        throw new ConflictException(
+            "Manual team locking by students is disabled. Teams lock automatically when submitting a project proposal.",
+            WorkflowErrorCodes.TeamManualLockDisabled);
     }
 }

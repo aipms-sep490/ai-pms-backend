@@ -56,7 +56,12 @@ public sealed class DepartOpenApiTests
         using var app = new AipmsWebApplicationFactory();
         using var staff = app.CreateAuthenticatedClient(10, roles: ["DEPARTMENT_STAFF"]);
         Assert.Equal(HttpStatusCode.Forbidden, (await staff.PostAsJsonAsync(route, new { })).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PutAsJsonAsync(route + "/1", new { })).StatusCode);
+        // TK-W1-06: DEPARTMENT_STAFF is explicitly authorized to update/extend project-period dates (PUT),
+        // while semester creation/edit and period create/status remain ADMIN_ONLY.
+        if (route == "/api/v1/academic/semesters")
+            Assert.Equal(HttpStatusCode.Forbidden, (await staff.PutAsJsonAsync(route + "/1", new { })).StatusCode);
+        else
+            Assert.NotEqual(HttpStatusCode.Forbidden, (await staff.PutAsJsonAsync(route + "/1", new { })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await staff.PatchAsJsonAsync(route + "/1/status", new { status = "CLOSED" })).StatusCode);
     }
 }

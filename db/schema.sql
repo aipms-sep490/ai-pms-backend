@@ -183,6 +183,7 @@ CREATE TABLE dbo.users (
     student_code    NVARCHAR(50) NULL,
     curriculum_code NVARCHAR(100) NULL,
     google_enrollment_pending BIT NOT NULL CONSTRAINT df_users_google_enrollment_pending DEFAULT (0),
+    must_change_password BIT NOT NULL CONSTRAINT df_users_must_change_password DEFAULT (0),
     employee_code   NVARCHAR(50) NULL,
     title           NVARCHAR(100) NULL,
     status          NVARCHAR(20) NOT NULL CONSTRAINT df_users_status DEFAULT (N'ACTIVE'),
@@ -635,16 +636,19 @@ CREATE TABLE dbo.team_leader_change_requests (
     requested_by            BIGINT NOT NULL,
     current_leader_user_id BIGINT NOT NULL,
     new_leader_user_id     BIGINT NOT NULL,
-    mentor_profile_id       BIGINT NOT NULL,
+    mentor_profile_id       BIGINT NULL,
     status                  NVARCHAR(20) NOT NULL CONSTRAINT df_team_leader_change_requests_status DEFAULT (N'PENDING'),
     request_message         NVARCHAR(2000) NULL,
     response_message        NVARCHAR(2000) NULL,
     requested_at            DATETIME2(0) NOT NULL CONSTRAINT df_team_leader_change_requests_requested_at DEFAULT (SYSUTCDATETIME()),
     responded_at            DATETIME2(0) NULL,
+    decided_by_user_id      BIGINT NULL,
+    decision_source         NVARCHAR(32) NULL,
     created_at              DATETIME2(0) NOT NULL CONSTRAINT df_team_leader_change_requests_created_at DEFAULT (SYSUTCDATETIME()),
     updated_at              DATETIME2(0) NOT NULL CONSTRAINT df_team_leader_change_requests_updated_at DEFAULT (SYSUTCDATETIME()),
     CONSTRAINT pk_team_leader_change_requests PRIMARY KEY (id),
     CONSTRAINT ck_team_leader_change_requests_status CHECK (status IN (N'PENDING', N'APPROVED', N'REJECTED', N'CANCELLED')),
+    CONSTRAINT ck_team_leader_change_requests_decision_source CHECK (decision_source IS NULL OR decision_source IN (N'MENTOR', N'DEPARTMENT_STAFF', N'DEPARTMENT_FORCE')),
     CONSTRAINT fk_team_leader_change_requests_team FOREIGN KEY (team_id)
         REFERENCES dbo.teams(id) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT fk_team_leader_change_requests_project FOREIGN KEY (project_id)
@@ -656,7 +660,9 @@ CREATE TABLE dbo.team_leader_change_requests (
     CONSTRAINT fk_team_leader_change_requests_new_leader FOREIGN KEY (new_leader_user_id)
         REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_team_leader_change_requests_mentor_profile FOREIGN KEY (mentor_profile_id)
-        REFERENCES dbo.supervisor_profiles(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+        REFERENCES dbo.supervisor_profiles(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_team_leader_change_requests_decided_by FOREIGN KEY (decided_by_user_id)
+        REFERENCES dbo.users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
 GO
 
@@ -1101,6 +1107,7 @@ CREATE TABLE dbo.rubrics (
     effective_from       DATE NULL,
     effective_to         DATE NULL,
     approval_reference   NVARCHAR(1000) NULL,
+    participating_department_id BIGINT NULL,
     CONSTRAINT pk_rubrics PRIMARY KEY (id),
     CONSTRAINT uq_rubrics_code UNIQUE (code),
     CONSTRAINT ck_rubrics_scope CHECK (department_id IS NOT NULL OR academic_semester_id IS NOT NULL),
@@ -1110,6 +1117,8 @@ CREATE TABLE dbo.rubrics (
     CONSTRAINT ck_rubrics_scope_major CHECK (evaluation_scope IS NULL OR evaluation_scope <> 'COMMON' OR major_id IS NULL),
     CONSTRAINT ck_rubrics_effective_range CHECK (effective_from IS NULL OR effective_to IS NULL OR effective_from <= effective_to),
     CONSTRAINT fk_rubrics_department FOREIGN KEY (department_id)
+        REFERENCES dbo.departments(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_rubrics_participating_department FOREIGN KEY (participating_department_id)
         REFERENCES dbo.departments(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_rubrics_semester FOREIGN KEY (academic_semester_id)
         REFERENCES dbo.academic_semesters(id) ON DELETE NO ACTION ON UPDATE NO ACTION,
@@ -1464,11 +1473,16 @@ BEGIN
         decided_at    DATETIME2(0) NULL,
         decision      NVARCHAR(16) NULL,
         reason        NVARCHAR(1000) NULL,
+        department_id BIGINT NULL,
+        scope_role    VARCHAR(20) NULL,
+        is_single_staff_self_approval BIT NOT NULL CONSTRAINT df_rubric_approvals_single_staff DEFAULT (0),
         CONSTRAINT pk_rubric_approvals PRIMARY KEY (id),
         CONSTRAINT ck_rubric_approvals_decision CHECK (decision IS NULL OR decision IN ('APPROVED','REJECTED')),
         CONSTRAINT ck_rubric_approvals_decided CHECK ((decided_by IS NULL AND decided_at IS NULL) OR (decided_by IS NOT NULL AND decided_at IS NOT NULL)),
-        CONSTRAINT ck_rubric_approvals_four_eyes CHECK (decided_by IS NULL OR decided_by <> submitted_by),
+        CONSTRAINT ck_rubric_approvals_scope_role CHECK (scope_role IS NULL OR scope_role IN ('LEAD','PARTICIPATING')),
+        CONSTRAINT ck_rubric_approvals_four_eyes CHECK (decided_by IS NULL OR decided_by <> submitted_by OR is_single_staff_self_approval = 1),
         CONSTRAINT fk_rubric_approvals_rubric FOREIGN KEY (rubric_id) REFERENCES dbo.rubrics(id),
+        CONSTRAINT fk_rubric_approvals_department FOREIGN KEY (department_id) REFERENCES dbo.departments(id),
         CONSTRAINT fk_rubric_approvals_submitter FOREIGN KEY (submitted_by) REFERENCES dbo.users(id),
         CONSTRAINT fk_rubric_approvals_decider FOREIGN KEY (decided_by) REFERENCES dbo.users(id)
     );
@@ -1675,10 +1689,16 @@ BEGIN
         submitted_by bigint NOT NULL,
         submitted_at datetime2(0) NOT NULL,
         snapshot_json nvarchar(max) NOT NULL,
+        is_lead_override bit NOT NULL CONSTRAINT df_prs_lead_override DEFAULT (0),
+        override_reason nvarchar(2000) NULL,
+        overridden_by bigint NULL,
+        overridden_at datetime2(0) NULL,
+        consolidated_revision_notes nvarchar(max) NULL,
         CONSTRAINT fk_project_registration_project FOREIGN KEY (project_id) REFERENCES dbo.projects(id),
         CONSTRAINT fk_project_registration_period FOREIGN KEY (project_period_id) REFERENCES dbo.project_periods(id),
         CONSTRAINT fk_project_registration_lead FOREIGN KEY (lead_department_id) REFERENCES dbo.departments(id),
         CONSTRAINT fk_project_registration_submitter FOREIGN KEY (submitted_by) REFERENCES dbo.users(id),
+        CONSTRAINT fk_prs_overridden_by FOREIGN KEY (overridden_by) REFERENCES dbo.users(id),
         CONSTRAINT ck_project_registration_json CHECK (ISJSON(snapshot_json) = 1)
     );
     CREATE INDEX ix_project_registration_latest ON dbo.project_registration_snapshots(project_id, id);
@@ -1698,8 +1718,8 @@ BEGIN
         CONSTRAINT fk_project_decision_actor FOREIGN KEY (decided_by) REFERENCES dbo.users(id),
         CONSTRAINT ck_project_decision_state CHECK (
             (decision = 'PENDING' AND decided_by IS NULL AND decided_at IS NULL)
-            OR (decision IN ('APPROVED','REJECTED') AND decided_by IS NOT NULL AND decided_at IS NOT NULL)),
-        CONSTRAINT ck_project_decision_reason CHECK (decision <> 'REJECTED' OR (reason IS NOT NULL AND LEN(LTRIM(RTRIM(reason))) > 0))
+            OR (decision IN ('APPROVED','REVISION_REQUIRED','REJECTED') AND decided_by IS NOT NULL AND decided_at IS NOT NULL)),
+        CONSTRAINT ck_project_decision_reason CHECK (decision NOT IN ('REJECTED','REVISION_REQUIRED') OR (reason IS NOT NULL AND LEN(LTRIM(RTRIM(reason))) > 0))
     );
 END;
 COMMIT TRANSACTION;
@@ -2660,6 +2680,9 @@ BEGIN TRY
             closed_at datetime2(0) NULL,
             close_reason nvarchar(2000) NULL,
             concurrency_token uniqueidentifier NOT NULL,
+            max_teams int NOT NULL CONSTRAINT df_project_topics_max_teams DEFAULT (1),
+            track_code varchar(20) NULL,
+            suggested_supervisor_profile_id bigint NULL,
             CONSTRAINT fk_topic_period FOREIGN KEY(project_period_id) REFERENCES dbo.project_periods(id),
             CONSTRAINT fk_topic_lead FOREIGN KEY(lead_department_id) REFERENCES dbo.departments(id),
             CONSTRAINT fk_topic_primary_major FOREIGN KEY(primary_major_id) REFERENCES dbo.majors(id),
@@ -2668,6 +2691,7 @@ BEGIN TRY
             CONSTRAINT fk_topic_publisher FOREIGN KEY(published_by) REFERENCES dbo.users(id),
             CONSTRAINT fk_topic_closer FOREIGN KEY(closed_by) REFERENCES dbo.users(id),
             CONSTRAINT ck_topic_identity CHECK (LEN(LTRIM(RTRIM(code))) > 0 AND LEN(LTRIM(RTRIM(title))) > 0),
+            CONSTRAINT ck_project_topics_max_teams CHECK (max_teams >= 1),
             CONSTRAINT ck_topic_mode CHECK (
                 (project_mode = 'SINGLE_MAJOR' AND primary_major_id IS NOT NULL)
                 OR (project_mode = 'INTERDISCIPLINARY' AND primary_major_id IS NULL)),

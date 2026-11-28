@@ -10,12 +10,14 @@ public partial class TeamLeaderChangeRequest
     public long RequestedBy { get; set; }
     public long CurrentLeaderUserId { get; set; }
     public long NewLeaderUserId { get; set; }
-    public long MentorProfileId { get; set; }
+    public long? MentorProfileId { get; set; }
     public string Status { get; set; } = null!;
     public string? RequestMessage { get; set; }
     public string? ResponseMessage { get; set; }
     public DateTime RequestedAt { get; set; }
     public DateTime? RespondedAt { get; set; }
+    public long? DecidedByUserId { get; set; }
+    public string? DecisionSource { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
@@ -24,6 +26,7 @@ public partial class TeamLeaderChangeRequest
     public virtual User RequestedByNavigation { get; set; } = null!;
     public virtual User CurrentLeaderUser { get; set; } = null!;
     public virtual User NewLeaderUser { get; set; } = null!;
-    public virtual SupervisorProfile MentorProfile { get; set; } = null!;
+    public virtual SupervisorProfile? MentorProfile { get; set; }
+    public virtual User? DecidedByUser { get; set; }
 }
 

@@ -238,7 +238,9 @@ public sealed partial class ProjectRepository
             snapshot.SubmittedBy, snapshot.SubmittedAt, evidence,
             snapshot.Decisions.OrderBy(d => d.DepartmentId).Select(d => new DepartmentDecisionDto(d.DepartmentId,
                 d.Decision, d.DecidedBy, d.DecidedAt, d.Reason,
-                d.DecidedBy.HasValue ? deciderNames.GetValueOrDefault(d.DecidedBy.Value) : null)).ToArray(), "FROZEN_REGISTRATION_SNAPSHOT");
+                d.DecidedBy.HasValue ? deciderNames.GetValueOrDefault(d.DecidedBy.Value) : null)).ToArray(),
+            "FROZEN_REGISTRATION_SNAPSHOT",
+            snapshot.IsLeadOverride, snapshot.OverrideReason, snapshot.OverriddenBy, snapshot.OverriddenAt, snapshot.ConsolidatedRevisionNotes);
         var scope = await GetTeamScopeAsync(project.TeamId, ct);
         var effectiveScope = project.Status is not ("DRAFT" or "REVISION_REQUIRED")
             ? dto?.Evidence?.Scope : scope is null ? null : TeamAcademicScopeDto.FromScope(scope);
@@ -248,8 +250,54 @@ public sealed partial class ProjectRepository
                 d.Decision, d.DecidedBy, d.DecidedAt, d.Reason,
                 d.DecidedBy.HasValue ? deciderNames.GetValueOrDefault(d.DecidedBy.Value) : null)).ToArray(),
             Services.Projects.ProjectAcademicScopeReader.ParseEvidence(s.SnapshotJson) is null
-                ? "UNKNOWN" : "FROZEN_REGISTRATION_SNAPSHOT")).ToArray();
-        return new(Convert.ToBase64String(project.RowVersion), effectiveScope, dto, history);
+                ? "UNKNOWN" : "FROZEN_REGISTRATION_SNAPSHOT",
+            s.IsLeadOverride, s.OverrideReason, s.OverriddenBy, s.OverriddenAt, s.ConsolidatedRevisionNotes)).ToArray();
+
+        var elapsedWorkingDays = 0;
+        var slaState = "ON_TIME";
+        var canLeadOverride = false;
+        string? consolidatedNotes = snapshot?.ConsolidatedRevisionNotes;
+        if (snapshot is not null && evidence is not null)
+        {
+            var submittedOffset = new DateTimeOffset(DateTime.SpecifyKind(snapshot.SubmittedAt, DateTimeKind.Utc));
+            var nowOffset = new DateTimeOffset(DateTime.SpecifyKind(Now, DateTimeKind.Utc));
+            elapsedWorkingDays = workingDayCalculator is not null
+                ? workingDayCalculator.CountElapsedWorkingDays(submittedOffset, nowOffset, snapshot.ProjectPeriodId)
+                : AIPMS.Application.Features.Semesters.WorkingDayMath.CountElapsedWorkingDays(submittedOffset, nowOffset, 62, []);
+            var hasPending = snapshot.Decisions.Any(d => d.Decision == "PENDING");
+            if (project.Status is "SUBMITTED" or "UNDER_REVIEW" && hasPending)
+            {
+                if (elapsedWorkingDays >= 3) slaState = "ESCALATED_3WD";
+                else if (elapsedWorkingDays >= 2) slaState = "REMINDER_2WD";
+            }
+            var participatingDecisions = snapshot.Decisions
+                .Where(d => d.DepartmentId != evidence.Scope.LeadDepartmentId)
+                .ToArray();
+            var hasDisagreement = participatingDecisions.Any(d => d.Decision is "REVISION_REQUIRED" or "REJECTED");
+            var hasPendingParticipating = participatingDecisions.Any(d => d.Decision == "PENDING");
+            canLeadOverride = project.Status == "UNDER_REVIEW"
+                && evidence.Scope.ProjectMode == "INTERDISCIPLINARY"
+                && ((hasPendingParticipating && elapsedWorkingDays >= 3) || hasDisagreement);
+
+            if (string.IsNullOrWhiteSpace(consolidatedNotes))
+            {
+                var notesWithReason = snapshot.Decisions
+                    .Where(d => d.Decision is "REVISION_REQUIRED" or "REJECTED" && !string.IsNullOrWhiteSpace(d.Reason))
+                    .ToArray();
+                if (notesWithReason.Length > 0)
+                {
+                    var dIds = notesWithReason.Select(d => d.DepartmentId).Distinct().ToArray();
+                    var deptNames = await context.Departments.AsNoTracking()
+                        .Where(d => dIds.Contains(d.Id))
+                        .ToDictionaryAsync(d => d.Id, d => d.Name, ct);
+                    consolidatedNotes = string.Join(" | ", notesWithReason.Select(d =>
+                        $"[{deptNames.GetValueOrDefault(d.DepartmentId, $"Khoa #{d.DepartmentId}")}] {d.Reason!.Trim()}"));
+                }
+            }
+        }
+
+        return new(Convert.ToBase64String(project.RowVersion), effectiveScope, dto, history,
+            consolidatedNotes, elapsedWorkingDays, slaState, canLeadOverride);
     }
 
     private async Task<long> RequireAcademicReviewerAsync(long actorId, CancellationToken ct)
@@ -271,7 +319,7 @@ public sealed partial class ProjectRepository
             ?? throw new ConflictException("ACADEMIC_SCOPE_UNKNOWN");
         if (departmentId != evidence.Scope.LeadDepartmentId)
             throw new ForbiddenException("Only the lead department can change the proposal review state; participating departments record their own decision.");
-        if (newStatus == "APPROVED" && evidence.Scope.ProjectMode == "INTERDISCIPLINARY"
+        if (newStatus == "APPROVED" && evidence.Scope.ProjectMode == "INTERDISCIPLINARY" && !snapshot.IsLeadOverride
             && (snapshot.Decisions.Count != evidence.DepartmentIds.Count || snapshot.Decisions.Any(d => d.Decision != "APPROVED")))
             throw new ConflictException("Every participating department must approve this submission before final approval.");
     }
@@ -291,14 +339,168 @@ public sealed partial class ProjectRepository
         var decision = snapshot.Decisions.SingleOrDefault(d => d.DepartmentId == departmentId)
             ?? throw new ForbiddenException("Your department is not a required reviewer for this submission.");
         if (decision.Decision != "PENDING") throw new ConflictException("This department has already decided. Request a revision for a new review round.");
-        if (request.Decision is not ("APPROVED" or "REJECTED") || (request.Decision == "REJECTED" && string.IsNullOrWhiteSpace(request.Reason)))
-            throw new ConflictException("A valid decision and rejection reason are required.");
+        if (request.Decision is not ("APPROVED" or "REVISION_REQUIRED" or "REJECTED")
+            || (request.Decision is ("REJECTED" or "REVISION_REQUIRED") && string.IsNullOrWhiteSpace(request.Reason)))
+            throw new ConflictException("A valid decision (APPROVED, REVISION_REQUIRED, REJECTED) and reason for revision/rejection are required.");
         decision.Decision = request.Decision; decision.Reason = request.Reason?.Trim();
         decision.DecidedBy = actorId; decision.DecidedAt = Now;
         // Touch the proposal even with a fixed test clock, so its rowversion arbitrates decisions and final approval.
         project.UpdatedAt = Now;
         context.Entry(project).Property(p => p.UpdatedAt).IsModified = true;
         await context.SaveChangesAsync(ct);
+
+        if (departmentId != snapshot.LeadDepartmentId)
+        {
+            var leadStaffIds = await Services.Projects.V4WorkflowNotificationHelper.GetDepartmentStaffIdsAsync(context, snapshot.LeadDepartmentId, ct);
+            if (leadStaffIds.Length > 0)
+            {
+                var deptName = await context.Departments.AsNoTracking()
+                    .Where(d => d.Id == departmentId).Select(d => d.Name).FirstOrDefaultAsync(ct) ?? $"Khoa #{departmentId}";
+                await Services.Projects.V4WorkflowNotificationHelper.EmitAsync(
+                    context, actorId, "PROJECT_DEPARTMENT_DECISION_RECORDED",
+                    $"Khoa phối hợp đã gửi ý kiến thẩm định đề cương {project.Code}",
+                    $"{deptName} đã ghi nhận ý kiến ({decision.Decision}) cho đề tài \"{project.Title}\"{(string.IsNullOrWhiteSpace(decision.Reason) ? "" : $": {decision.Reason}")}.",
+                    "PROJECT", project.Id, leadStaffIds, Now, enqueueEmail: false, ct);
+            }
+        }
+
         return await GetAcademicReviewAsync(projectId, ct);
+    }
+
+    public async Task<string> ConsolidateRevisionNotesAsync(long projectId, string leadReason, CancellationToken ct)
+    {
+        var trimmedLead = leadReason.Trim();
+        var snapshot = await LatestRegistrationAsync(projectId, ct);
+        if (snapshot is null) return trimmedLead;
+
+        var evidence = Services.Projects.ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson);
+        var leadDeptId = evidence?.Scope.LeadDepartmentId ?? snapshot.LeadDepartmentId;
+
+        var deptIds = snapshot.Decisions.Select(d => d.DepartmentId).Append(leadDeptId).Distinct().ToArray();
+        var deptNames = await context.Departments.AsNoTracking()
+            .Where(d => deptIds.Contains(d.Id))
+            .ToDictionaryAsync(d => d.Id, d => d.Name, ct);
+
+        var parts = new List<string>();
+        var leadName = deptNames.GetValueOrDefault(leadDeptId, "Khoa chủ trì");
+        parts.Add($"[{leadName}] {trimmedLead}");
+
+        foreach (var d in snapshot.Decisions
+            .Where(x => x.DepartmentId != leadDeptId && x.Decision is "REVISION_REQUIRED" or "REJECTED" && !string.IsNullOrWhiteSpace(x.Reason))
+            .OrderBy(x => x.DepartmentId))
+        {
+            var pName = deptNames.GetValueOrDefault(d.DepartmentId, $"Khoa #{d.DepartmentId}");
+            parts.Add($"[{pName}] {d.Reason!.Trim()}");
+        }
+
+        var consolidated = parts.Count == 1 ? trimmedLead : string.Join(" | ", parts);
+        snapshot.ConsolidatedRevisionNotes = consolidated;
+        await context.SaveChangesAsync(ct);
+        return consolidated;
+    }
+
+    public async Task<ProjectDto> LeadOverrideApproveAsync(
+        long projectId,
+        long actorUserId,
+        string concurrencyToken,
+        string reason,
+        CancellationToken ct)
+    {
+        if (context.Database.CurrentTransaction is null) throw new InvalidOperationException("Lead override approval requires a transaction.");
+        var trimmedReason = reason?.Trim() ?? string.Empty;
+        if (trimmedReason.Length < 20)
+        {
+            throw new AIPMS.Domain.Exceptions.DomainException(
+                "Lead override reason must be at least 20 characters.",
+                WorkflowErrorCodes.OverrideReasonTooShort);
+        }
+
+        var project = await LockProjectAsync(projectId, ct);
+        if (project.Status != "UNDER_REVIEW")
+            throw new ConflictException($"Lead override approval requires UNDER_REVIEW status (current: {project.Status}).");
+        if (Convert.ToBase64String(project.RowVersion) != concurrencyToken)
+            throw new ConflictException("The project has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
+
+        var actorDeptId = await RequireAcademicReviewerAsync(actorUserId, ct);
+        var snapshot = await LatestRegistrationAsync(projectId, ct)
+            ?? throw new ConflictException("This proposal must be submitted with a current academic scope snapshot.");
+        var evidence = Services.Projects.ProjectAcademicScopeReader.ParseEvidence(snapshot.SnapshotJson)
+            ?? throw new ConflictException("ACADEMIC_SCOPE_UNKNOWN");
+
+        if (actorDeptId != evidence.Scope.LeadDepartmentId)
+            throw new ForbiddenException("Only the lead department can perform a lead override approval.", WorkflowErrorCodes.ScopeAccessDenied);
+        if (evidence.Scope.ProjectMode != "INTERDISCIPLINARY")
+            throw new ConflictException("Lead override applies only to interdisciplinary proposals.");
+
+        var participatingDecisions = snapshot.Decisions.Where(d => d.DepartmentId != evidence.Scope.LeadDepartmentId).ToArray();
+        var hasDisagreement = participatingDecisions.Any(d => d.Decision is "REVISION_REQUIRED" or "REJECTED");
+        var submittedOffset = new DateTimeOffset(DateTime.SpecifyKind(snapshot.SubmittedAt, DateTimeKind.Utc));
+        var nowOffset = new DateTimeOffset(DateTime.SpecifyKind(Now, DateTimeKind.Utc));
+        var elapsedWorkingDays = workingDayCalculator is not null
+            ? workingDayCalculator.CountElapsedWorkingDays(submittedOffset, nowOffset, snapshot.ProjectPeriodId)
+            : AIPMS.Application.Features.Semesters.WorkingDayMath.CountElapsedWorkingDays(submittedOffset, nowOffset, 62, []);
+
+        if (!hasDisagreement && elapsedWorkingDays < 3)
+        {
+            throw new ConflictException(
+                $"Lead override requires at least 3 elapsed working days (currently {elapsedWorkingDays} WD) or an explicit participating department disagreement.",
+                WorkflowErrorCodes.LeadOverrideSlaNotElapsed);
+        }
+
+        var now = Now;
+        snapshot.IsLeadOverride = true;
+        snapshot.OverrideReason = trimmedReason;
+        snapshot.OverriddenBy = actorUserId;
+        snapshot.OverriddenAt = now;
+
+        project.Status = "APPROVED";
+        project.ApprovedAt = now;
+        project.UpdatedAt = now;
+        context.ProjectStatusHistories.Add(new ProjectStatusHistory
+        {
+            ProjectId = project.Id,
+            OldStatus = "UNDER_REVIEW",
+            NewStatus = "APPROVED",
+            ChangedBy = actorUserId,
+            Reason = $"[Lead Override] {trimmedReason}",
+            ChangedAt = now
+        });
+        await context.SaveChangesAsync(ct);
+
+        // Notify Participating Department staff & Team students (In-App + Email)
+        var recipientIds = new List<long>();
+        foreach (var deptId in evidence.DepartmentIds.Where(d => d != evidence.Scope.LeadDepartmentId))
+            recipientIds.AddRange(await Services.Projects.V4WorkflowNotificationHelper.GetDepartmentStaffIdsAsync(context, deptId, ct));
+        recipientIds.AddRange(await Services.Projects.V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(context, project.Id, ct));
+
+        await Services.Projects.V4WorkflowNotificationHelper.EmitAsync(
+            context, actorUserId, "PROJECT_PROPOSAL_LEAD_OVERRIDE",
+            $"Khoa chủ trì phê duyệt vượt quyền (Lead Override): {project.Code}",
+            $"Đề tài \"{project.Title}\" đã được Khoa chủ trì phê duyệt vượt quyền (POL-02). Lý do: {trimmedReason}",
+            "PROJECT", project.Id, recipientIds, now, enqueueEmail: true, ct);
+
+        return (await GetByIdAsync(project.Id, ct))!;
+    }
+
+    public async System.Threading.Tasks.Task NotifyProposalSubmittedAsync(long projectId, long actorUserId, CancellationToken ct)
+    {
+        var project = await context.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => new { p.Id, p.Code, p.Title })
+            .SingleOrDefaultAsync(ct);
+        if (project is null) return;
+
+        var deptIds = await GetProjectMajorDepartmentIdsAsync(projectId, ct);
+        var staffIds = new List<long>();
+        foreach (var deptId in deptIds.Distinct())
+            staffIds.AddRange(await Services.Projects.V4WorkflowNotificationHelper.GetDepartmentStaffIdsAsync(context, deptId, ct));
+
+        if (staffIds.Count == 0) return;
+
+        await Services.Projects.V4WorkflowNotificationHelper.EmitAsync(
+            context, actorUserId, "PROJECT_SUBMITTED_FOR_REVIEW",
+            $"Đề cương mới chờ thẩm định: {project.Code}",
+            $"Nhóm đã nộp đề cương \"{project.Title}\" chờ Khoa xem xét và thẩm định.",
+            "PROJECT", project.Id, staffIds, Now, enqueueEmail: false, ct);
     }
 }

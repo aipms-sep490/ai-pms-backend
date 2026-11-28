@@ -1,4 +1,5 @@
 using AIPMS.Application.Common.Models;
+using AIPMS.Application.Features.AccountSecurity.DTOs;
 using AIPMS.Application.Features.AccountSecurity.Models;
 
 namespace AIPMS.Application.Features.AccountSecurity.Abstractions;
@@ -91,4 +92,28 @@ public interface IUserAccountRepository
         long userId,
         long roleId,
         CancellationToken cancellationToken = default);
+
+    Task<UserActiveObligationsDto> GetActiveObligationsAsync(
+        long userId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new UserActiveObligationsDto(userId, 0, [], [], [], [], []));
+
+    Task NotifyDepartmentsOfAccountLockAsync(
+        long actorUserId,
+        long targetUserId,
+        string targetFullName,
+        string targetEmail,
+        string newStatus,
+        string? reason,
+        UserActiveObligationsDto obligations,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+
+    Task IssueTemporaryPasswordAsync(
+        long userId,
+        string passwordHash,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
 }

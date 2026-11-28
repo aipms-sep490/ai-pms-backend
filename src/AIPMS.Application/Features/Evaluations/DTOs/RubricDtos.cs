@@ -20,12 +20,25 @@ public sealed record RubricCriterionDto(long Id, long CriterionId, string Name, 
     public IReadOnlyList<RubricCriterionLevelDto> Levels { get; init; } = [];
     public IReadOnlyList<RubricCriterionDto> Children { get; init; } = [];
 }
+public sealed record RubricApprovalDto(
+    long Id,
+    long? DepartmentId,
+    string? ScopeRole,
+    long SubmittedBy,
+    DateTime SubmittedAt,
+    long? DecidedBy,
+    DateTime? DecidedAt,
+    string? Decision,
+    string? Reason,
+    bool IsSingleStaffSelfApproval);
+
 public sealed record RubricDto(long Id, long? DepartmentId, long? AcademicSemesterId, string Code,
     string Name, string? Description, string Status, bool IsActive, long RootRubricId, int Version,
     string ConcurrencyToken, bool CanEdit, DateTime CreatedAt, DateTime UpdatedAt,
     IReadOnlyList<RubricCriterionDto> Criteria)
 {
     public long? MajorId { get; init; }
+    public long? ParticipatingDepartmentId { get; init; }
     public string? ProjectMode { get; init; }
     public string? EvaluationStage { get; init; }
     public string? EvaluationScope { get; init; }
@@ -35,11 +48,14 @@ public sealed record RubricDto(long Id, long? DepartmentId, long? AcademicSemest
     public bool CanSubmitForApproval { get; init; }
     public bool CanApprove { get; init; }
     public bool CanReject { get; init; }
+    public bool RequiresApprovalReferenceForSelfApproval { get; init; }
+    public IReadOnlyList<RubricApprovalDto> Approvals { get; init; } = [];
 }
 public sealed record CreateRubricRequest(long DepartmentId, long AcademicSemesterId, string Code,
     string Name, string? Description, IReadOnlyList<RubricCriterionInput> Criteria)
 {
     public long? MajorId { get; init; }
+    public long? ParticipatingDepartmentId { get; init; }
     public string? ProjectMode { get; init; }
     public string? EvaluationStage { get; init; }
     public string? EvaluationScope { get; init; }
@@ -50,6 +66,7 @@ public sealed record UpdateRubricRequest(string Name, string? Description,
     IReadOnlyList<RubricCriterionInput> Criteria, string ConcurrencyToken)
 {
     public long? MajorId { get; init; }
+    public long? ParticipatingDepartmentId { get; init; }
     public string? ProjectMode { get; init; }
     public string? EvaluationStage { get; init; }
     public string? EvaluationScope { get; init; }
@@ -65,7 +82,13 @@ public sealed record CloneRubricCriterionRequest(string ConcurrencyToken);
 
 public static class RubricDtoMapper
 {
-    public static RubricDto ToDto(this RubricRecord r, bool canSubmitForApproval = false, bool canApprove = false, bool canReject = false)
+    public static RubricDto ToDto(
+        this RubricRecord r,
+        bool canSubmitForApproval = false,
+        bool canApprove = false,
+        bool canReject = false,
+        bool requiresApprovalReferenceForSelfApproval = false,
+        IReadOnlyList<RubricApprovalRecord>? approvals = null)
     {
         var ordered = RubricHierarchy.WithEffectiveWeights(r.Criteria);
         var byParent = ordered.ToLookup(c => c.ParentId);
@@ -92,6 +115,7 @@ public static class RubricDtoMapper
             byParent[null].OrderBy(c => c.SortOrder).ThenBy(c => c.Id).Select(c => mapped[c.Id]).ToArray())
         {
             MajorId = r.MajorId,
+            ParticipatingDepartmentId = r.ParticipatingDepartmentId,
             ProjectMode = r.ProjectMode,
             EvaluationStage = r.EvaluationStage,
             EvaluationScope = r.EvaluationScope,
@@ -100,7 +124,11 @@ public static class RubricDtoMapper
             ApprovalReference = r.ApprovalReference,
             CanSubmitForApproval = canSubmitForApproval,
             CanApprove = canApprove,
-            CanReject = canReject
+            CanReject = canReject,
+            RequiresApprovalReferenceForSelfApproval = requiresApprovalReferenceForSelfApproval,
+            Approvals = (approvals ?? []).Select(a => new RubricApprovalDto(
+                a.Id, a.DepartmentId, a.ScopeRole, a.SubmittedBy, a.SubmittedAt,
+                a.DecidedBy, a.DecidedAt, a.Decision, a.Reason, a.IsSingleStaffSelfApproval)).ToArray()
         };
     }
 }

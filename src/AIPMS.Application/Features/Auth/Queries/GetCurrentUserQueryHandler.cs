@@ -31,7 +31,8 @@ public sealed class GetCurrentUserQueryHandler(
                     account.FullName,
                     account.Roles,
                     account.Title,
-                    account.Phone);
+                    account.Phone,
+                    account.MustChangePassword);
             }
         }
         catch

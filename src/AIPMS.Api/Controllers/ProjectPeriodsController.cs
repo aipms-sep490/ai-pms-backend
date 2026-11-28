@@ -71,7 +71,7 @@ public sealed class ProjectPeriodsController(ISender sender) : ControllerBase
             result);
     }
 
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
     [HttpPut("{periodId:long}")]
     [ProducesResponseType<ProjectPeriodDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]

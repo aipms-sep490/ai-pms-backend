@@ -37,6 +37,11 @@ public sealed class ProjectRegistrationSnapshot
     public long SubmittedBy { get; set; }
     public DateTime SubmittedAt { get; set; }
     public string SnapshotJson { get; set; } = string.Empty;
+    public bool IsLeadOverride { get; set; }
+    public string? OverrideReason { get; set; }
+    public long? OverriddenBy { get; set; }
+    public DateTime? OverriddenAt { get; set; }
+    public string? ConsolidatedRevisionNotes { get; set; }
     public List<ProjectDepartmentDecision> Decisions { get; set; } = [];
 }
 

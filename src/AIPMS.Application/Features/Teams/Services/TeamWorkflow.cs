@@ -189,6 +189,18 @@ public sealed class TeamWorkflow(
         TeamRegistrationWindow window, TeamFormationPolicy policy, CancellationToken ct)
     {
         var scope = request.ToScope();
+        if (!string.IsNullOrWhiteSpace(scope.TrackCode))
+        {
+            var normalizedTrack = AcademicTrackCodes.Normalize(scope.TrackCode);
+            if (normalizedTrack is null)
+                throw new ConflictException($"Invalid TrackCode '{scope.TrackCode}'.", WorkflowErrorCodes.TrackModeMismatch);
+            var expectedMode = normalizedTrack == AcademicTrackCodes.ItMkt ? "INTERDISCIPLINARY" : "SINGLE_MAJOR";
+            if (!string.Equals(scope.ProjectMode, expectedMode, StringComparison.OrdinalIgnoreCase))
+                throw new ConflictException(
+                    $"TrackCode '{normalizedTrack}' requires ProjectMode '{expectedMode}', got '{scope.ProjectMode}'.",
+                    WorkflowErrorCodes.TrackModeMismatch);
+            scope = scope with { TrackCode = normalizedTrack };
+        }
         RequireMode(window, scope.ProjectMode);
         var errors = HybridTeamRules.EligibilityErrors(team.Members, policy, window.OrganizationId, scope, false);
         if (errors.Count != 0) throw new ConflictException(string.Join(", ", errors), errors[0]);

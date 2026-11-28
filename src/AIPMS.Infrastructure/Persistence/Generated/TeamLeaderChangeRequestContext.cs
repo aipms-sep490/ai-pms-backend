@@ -28,6 +28,8 @@ public partial class AipmsDbContext
             entity.Property(e => e.ResponseMessage).HasMaxLength(2000).HasColumnName("response_message");
             entity.Property(e => e.RequestedAt).HasPrecision(0).HasColumnName("requested_at");
             entity.Property(e => e.RespondedAt).HasPrecision(0).HasColumnName("responded_at");
+            entity.Property(e => e.DecidedByUserId).HasColumnName("decided_by_user_id");
+            entity.Property(e => e.DecisionSource).HasMaxLength(32).HasColumnName("decision_source");
             entity.Property(e => e.CreatedAt).HasPrecision(0).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasPrecision(0).HasColumnName("updated_at");
             entity.HasOne(e => e.Project).WithMany().HasForeignKey(e => e.ProjectId)
@@ -42,6 +44,8 @@ public partial class AipmsDbContext
                 .OnDelete(DeleteBehavior.ClientSetNull).HasConstraintName("fk_team_leader_change_requests_new_leader");
             entity.HasOne(e => e.MentorProfile).WithMany().HasForeignKey(e => e.MentorProfileId)
                 .OnDelete(DeleteBehavior.ClientSetNull).HasConstraintName("fk_team_leader_change_requests_mentor_profile");
+            entity.HasOne(e => e.DecidedByUser).WithMany().HasForeignKey(e => e.DecidedByUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull).HasConstraintName("fk_team_leader_change_requests_decided_by");
         });
     }
 }

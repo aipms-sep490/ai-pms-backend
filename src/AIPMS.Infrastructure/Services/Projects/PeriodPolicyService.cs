@@ -16,34 +16,88 @@ namespace AIPMS.Infrastructure.Services.Projects;
 internal sealed class PeriodPolicyService(AipmsDbContext db, ICurrentUser current, IEvaluationDraftRepository transactions,
     IAuditTrail audit, TimeProvider clock) : IPeriodPolicyService
 {
-    public Task<IReadOnlyList<PeriodPolicyDto>> HistoryAsync(long periodId, CancellationToken ct) => transactions.InTransactionAsync<IReadOnlyList<PeriodPolicyDto>>(async () =>
+    private static PeriodPolicyDto BuildVirtualPolicy(AIPMS.Infrastructure.Persistence.Generated.Models.ProjectPeriod period) =>
+        new(
+            0,
+            period.Id,
+            period.PolicyVersion,
+            "PUBLISHED",
+            DateTime.SpecifyKind(period.StartAt, DateTimeKind.Utc),
+            DateTime.SpecifyKind(period.EndAt, DateTimeKind.Utc),
+            string.Empty,
+            new PeriodPolicyFields(
+                period.AllowedProjectModes,
+                period.AllowedProposalSources,
+                period.MinTeamSize ?? 3,
+                period.MaxTeamSize ?? 5,
+                period.MinDistinctMajors ?? 1,
+                period.MaxProjectsPerSupervisor ?? 5));
+
+    public async Task<IReadOnlyList<PeriodPolicyDto>> HistoryAsync(long periodId, CancellationToken ct)
     {
         await Authorize(periodId, ct);
-        await PolicyVersions.EnsureAsync(db, periodId, clock.GetUtcNow().UtcDateTime, ct);
-        return (await db.Set<PeriodPolicyVersion>().AsNoTracking().Where(p => p.ProjectPeriodId == periodId)
-            .OrderByDescending(p => p.Version).ToListAsync(ct)).Select(Map).ToArray();
-    }, ct);
+        var rows = await db.Set<PeriodPolicyVersion>().AsNoTracking()
+            .Where(p => p.ProjectPeriodId == periodId)
+            .OrderByDescending(p => p.Version)
+            .ToListAsync(ct);
+        if (rows.Count > 0)
+            return rows.Select(Map).ToArray();
+
+        var period = await db.ProjectPeriods.AsNoTracking()
+            .SingleOrDefaultAsync(p => p.Id == periodId, ct)
+            ?? throw new NotFoundException("ProjectPeriod", periodId);
+        return [BuildVirtualPolicy(period)];
+    }
+
     private async Task Authorize(long periodId, CancellationToken ct)
     {
         var actor = await transactions.GetActorAsync(current.UserId ?? throw new UnauthorizedException(), ct)
             ?? throw new ForbiddenException();
-        var organization = await db.ProjectPeriods.Where(p => p.Id == periodId)
-            .Select(p => (long?)p.AcademicSemester.OrganizationId).SingleOrDefaultAsync(ct) ?? throw new NotFoundException("ProjectPeriod", periodId);
-        // Periods are organization-wide: staff may manage only a period whose rubric explicitly scopes it to their department.
-        if (!actor.IsAdmin && !(actor.IsStaff && await db.ProjectPeriods.AnyAsync(p => p.Id == periodId
-            && p.Rubric != null && p.Rubric.DepartmentId == actor.DepartmentId
-            && p.Rubric.Department != null && p.Rubric.Department.OrganizationId == organization, ct))) throw new ForbiddenException();
+        var periodScope = await db.ProjectPeriods.AsNoTracking()
+            .Where(p => p.Id == periodId)
+            .Select(p => new
+            {
+                OrganizationId = p.AcademicSemester.OrganizationId,
+                RubricDepartmentId = p.Rubric == null ? (long?)null : p.Rubric.DepartmentId
+            })
+            .SingleOrDefaultAsync(ct)
+            ?? throw new NotFoundException("ProjectPeriod", periodId);
+
+        if (actor.IsAdmin) return;
+        if (!actor.IsStaff || !actor.DepartmentId.HasValue)
+            throw new ForbiddenException();
+
+        var staffInSameOrg = await db.Departments.AsNoTracking()
+            .AnyAsync(d => d.Id == actor.DepartmentId.Value && d.IsActive && d.OrganizationId == periodScope.OrganizationId && d.Organization.IsActive, ct);
+        if (!staffInSameOrg)
+            throw new ForbiddenException();
+
+        if (periodScope.RubricDepartmentId.HasValue && periodScope.RubricDepartmentId.Value != actor.DepartmentId.Value)
+            throw new ForbiddenException();
     }
-    public Task<PeriodPolicyDto> GetAsync(long periodId, DateTimeOffset? asOf, CancellationToken ct) => transactions.InTransactionAsync(async () =>
+
+    public async Task<PeriodPolicyDto> GetAsync(long periodId, DateTimeOffset? asOf, CancellationToken ct)
     {
         await Authorize(periodId, ct);
-        await PolicyVersions.EnsureAsync(db, periodId, clock.GetUtcNow().UtcDateTime, ct);
         var instant = asOf?.UtcDateTime ?? clock.GetUtcNow().UtcDateTime;
-        var row = await db.Set<PeriodPolicyVersion>().SingleOrDefaultAsync(p => p.ProjectPeriodId == periodId
-            && p.Status != "DRAFT" && p.EffectiveFrom <= instant && instant < p.EffectiveTo, ct)
-            ?? throw new NotFoundException("EffectivePolicy", periodId);
-        return Map(row);
-    }, ct);
+        var hasVersions = await db.Set<PeriodPolicyVersion>().AsNoTracking()
+            .AnyAsync(p => p.ProjectPeriodId == periodId, ct);
+        if (hasVersions)
+        {
+            var row = await db.Set<PeriodPolicyVersion>().AsNoTracking()
+                .SingleOrDefaultAsync(p => p.ProjectPeriodId == periodId
+                    && p.Status != "DRAFT" && p.EffectiveFrom <= instant && instant < p.EffectiveTo, ct)
+                ?? throw new NotFoundException("EffectivePolicy", periodId);
+            return Map(row);
+        }
+
+        var period = await db.ProjectPeriods.AsNoTracking()
+            .SingleOrDefaultAsync(p => p.Id == periodId, ct)
+            ?? throw new NotFoundException("ProjectPeriod", periodId);
+        if (instant < period.StartAt || instant >= period.EndAt)
+            throw new NotFoundException("EffectivePolicy", periodId);
+        return BuildVirtualPolicy(period);
+    }
 
     public Task<PeriodPolicyDto> PutAsync(long periodId, UpdatePeriodPolicyRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
@@ -54,15 +108,13 @@ internal sealed class PeriodPolicyService(AipmsDbContext db, ICurrentUser curren
         var latest = await db.Set<PeriodPolicyVersion>().Where(p => p.ProjectPeriodId == periodId).OrderByDescending(p => p.Version).FirstAsync(ct);
         if (input.ExpectedVersion != latest.Version) throw new ConflictException("Policy version changed. Reload before saving.");
         var fields = input.Policy;
-        if (fields is not null && (fields.RequireWorkingAgreement != JsonSerializer.Deserialize<PeriodPolicyFields>(latest.SnapshotJson)!.RequireWorkingAgreement
-                || input.Operation == "PUBLISH" && fields.RequireWorkingAgreement != JsonSerializer.Deserialize<PeriodPolicyFields>(existing.SnapshotJson)!.RequireWorkingAgreement)
-            && (await transactions.GetActorAsync(current.UserId!.Value, ct))?.IsAdmin != true)
-            throw new ForbiddenException("Only Admin may change the Working Agreement requirement.");
         if (fields is null || fields.AllowedProjectModes is null || fields.AllowedProposalSources is null
             || !ProjectPeriodGovernancePolicy.IsValid(fields.AllowedProjectModes, true)
             || !ProjectPeriodGovernancePolicy.IsValid(fields.AllowedProposalSources, false)
             || fields.MinTeamSize < 1 || fields.MaxTeamSize < fields.MinTeamSize || fields.MinDistinctMajors < 1
             || fields.MinDistinctMajors > fields.MaxTeamSize || fields.MaxProjectsPerSupervisor < 1
+            || fields.SupervisorInvitationExpiryDays is < 1 or > 30
+            || fields.MaxPendingSupervisorRequestsPerSlot is < 1 or > 5
             || input.EffectiveFrom >= input.EffectiveTo || input.EffectiveTo.UtcDateTime > period.EndAt
             || input.EffectiveFrom.UtcDateTime < period.StartAt)
             throw new ValidationException(new Dictionary<string, string[]> { ["policy"] = ["Invalid policy fields or effective interval."] });
@@ -86,13 +138,24 @@ internal sealed class PeriodPolicyService(AipmsDbContext db, ICurrentUser curren
         row.EffectiveTo = input.EffectiveTo.UtcDateTime; row.ConcurrencyToken = Guid.NewGuid();
         if (input.Operation == "PUBLISH")
         {
-            // Publication is immediate. The predecessor payload is never rewritten; only its effective interval is closed.
-            if (row.EffectiveFrom > now || row.EffectiveFrom < now.AddMinutes(-5) || row.EffectiveTo <= now)
+            var isUpcomingPublish = period.Status == "UPCOMING"
+                && row.EffectiveFrom >= period.StartAt
+                && row.EffectiveTo <= period.EndAt;
+            // Publication is immediate for active periods, or scheduled at period.StartAt for UPCOMING periods.
+            if (!isUpcomingPublish && (row.EffectiveFrom > now || row.EffectiveFrom < now.AddMinutes(-5) || row.EffectiveTo <= now))
                 throw new ConflictException("Publish an immediately effective policy (effectiveFrom within the last five minutes).");
-            if (existing.EffectiveFrom >= row.EffectiveFrom) throw new ConflictException("The successor must start after the predecessor.");
-            if (await db.Set<PeriodPolicyUsage>().AnyAsync(u => u.PolicyVersionId == existing.Id && u.CreatedAt >= row.EffectiveFrom, ct))
-                throw new ConflictException("A successor cannot change the policy effective at an already recorded operation.");
-            if (existing.EffectiveTo > row.EffectiveFrom) existing.EffectiveTo = row.EffectiveFrom;
+            var existingHasUsage = await db.Set<PeriodPolicyUsage>().AnyAsync(u => u.PolicyVersionId == existing.Id, ct);
+            if (isUpcomingPublish && !existingHasUsage && existing.EffectiveFrom == row.EffectiveFrom)
+            {
+                existing.EffectiveTo = existing.EffectiveFrom;
+            }
+            else
+            {
+                if (existing.EffectiveFrom >= row.EffectiveFrom) throw new ConflictException("The successor must start after the predecessor.");
+                if (await db.Set<PeriodPolicyUsage>().AnyAsync(u => u.PolicyVersionId == existing.Id && u.CreatedAt >= row.EffectiveFrom, ct))
+                    throw new ConflictException("A successor cannot change the policy effective at an already recorded operation.");
+                if (existing.EffectiveTo > row.EffectiveFrom) existing.EffectiveTo = row.EffectiveFrom;
+            }
             row.Status = "PUBLISHED";
             period.AllowedProjectModes = ProjectPeriodGovernancePolicy.Normalize(fields.AllowedProjectModes);
             period.AllowedProposalSources = ProjectPeriodGovernancePolicy.Normalize(fields.AllowedProposalSources);
@@ -170,10 +233,80 @@ internal static class PolicyVersions
         db.Add(new PeriodPolicyUsage { PolicyVersionId = row.Id, EntityType = type, EntityId = entityId, CreatedAt = now });
         await db.SaveChangesAsync(ct); return row.Id;
     }
+    internal static Task<bool> HasPolicyUsageAsync(AipmsDbContext db, long periodId, CancellationToken ct) =>
+        (from u in db.Set<PeriodPolicyUsage>().AsNoTracking()
+         join v in db.Set<PeriodPolicyVersion>().AsNoTracking() on u.PolicyVersionId equals v.Id
+         where v.ProjectPeriodId == periodId
+         select u.Id).AnyAsync(ct);
+
     internal static async Task GuardLegacyEditAsync(AipmsDbContext db, long periodId, CancellationToken ct)
     {
         await db.ProjectPeriods.FromSqlInterpolated($"SELECT * FROM dbo.project_periods WITH (UPDLOCK,HOLDLOCK) WHERE id={periodId}").AsNoTracking().SingleAsync(ct);
-        if (await db.Set<PeriodPolicyVersion>().AnyAsync(x => x.ProjectPeriodId == periodId, ct))
-            throw new ConflictException("Use the versioned policy endpoint; this period has protected policy history.");
+        var hasUsage = await HasPolicyUsageAsync(db, periodId, ct);
+        var versionCount = await db.Set<PeriodPolicyVersion>().AsNoTracking().CountAsync(x => x.ProjectPeriodId == periodId, ct);
+        if (hasUsage || versionCount > 1)
+            throw new ConflictException("Use the versioned policy endpoint; this period has protected policy history or recorded usage.");
+    }
+
+    internal static async Task SyncPolicyWindowOnDateUpdateAsync(
+        AipmsDbContext db,
+        long periodId,
+        DateTime oldStartAt,
+        DateTime oldEndAt,
+        DateTime newStartAt,
+        DateTime newEndAt,
+        CancellationToken ct)
+    {
+        if (newEndAt < oldEndAt)
+        {
+            var usageAfterEnd = await (from u in db.Set<PeriodPolicyUsage>().AsNoTracking()
+                                       join v in db.Set<PeriodPolicyVersion>().AsNoTracking() on u.PolicyVersionId equals v.Id
+                                       where v.ProjectPeriodId == periodId && u.CreatedAt >= newEndAt
+                                       select u.Id).AnyAsync(ct);
+            if (usageAfterEnd)
+            {
+                throw new ConflictException(
+                    "Cannot shrink the period end date before already recorded policy usage.",
+                    WorkflowErrorCodes.PeriodShrinkConflictsWithUsage);
+            }
+        }
+
+        if (newStartAt > oldStartAt)
+        {
+            var usageBeforeStart = await (from u in db.Set<PeriodPolicyUsage>().AsNoTracking()
+                                          join v in db.Set<PeriodPolicyVersion>().AsNoTracking() on u.PolicyVersionId equals v.Id
+                                          where v.ProjectPeriodId == periodId && u.CreatedAt < newStartAt
+                                          select u.Id).AnyAsync(ct);
+            if (usageBeforeStart)
+            {
+                throw new ConflictException(
+                    "Cannot move the period start date after already recorded policy usage.",
+                    WorkflowErrorCodes.PeriodShrinkConflictsWithUsage);
+            }
+        }
+
+        var versions = await db.Set<PeriodPolicyVersion>()
+            .Where(v => v.ProjectPeriodId == periodId && v.Status != "DRAFT")
+            .OrderByDescending(v => v.Version)
+            .ToListAsync(ct);
+        if (versions.Count == 0) return;
+
+        var latest = versions[0];
+        if (newEndAt != oldEndAt && (latest.EffectiveTo == oldEndAt || latest.EffectiveTo < newEndAt || newEndAt < latest.EffectiveTo))
+        {
+            if (newEndAt <= latest.EffectiveFrom)
+            {
+                throw new ConflictException(
+                    "The new period end date must be after the latest published policy effective start.",
+                    WorkflowErrorCodes.PeriodShrinkConflictsWithUsage);
+            }
+            latest.EffectiveTo = newEndAt;
+        }
+
+        var earliest = versions[^1];
+        if (newStartAt != oldStartAt && earliest.EffectiveFrom == oldStartAt && newStartAt < earliest.EffectiveTo)
+        {
+            earliest.EffectiveFrom = newStartAt;
+        }
     }
 }

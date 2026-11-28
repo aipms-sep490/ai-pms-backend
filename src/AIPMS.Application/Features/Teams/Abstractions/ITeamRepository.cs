@@ -33,4 +33,12 @@ public interface ITeamRepository
         int page, int pageSize, CancellationToken cancellationToken);
     Task<bool> CanUserViewTeamAsync(long teamId, long userId, DateTime now, CancellationToken cancellationToken) =>
         Task.FromResult(true);
+    Task CancelAllPendingInvitationsAsync(long teamId, DateTime now, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+    Task<long?> GetTeamLeadDepartmentIdAsync(long teamId, CancellationToken cancellationToken) =>
+        Task.FromResult<long?>(null);
+    Task<(bool IsStaff, bool IsAdmin, long? DepartmentId)> GetStaffActorScopeAsync(long userId, CancellationToken cancellationToken) =>
+        Task.FromResult<(bool, bool, long?)>((false, false, null));
+    Task NotifyTeamMembersAsync(long teamId, long actorUserId, string notificationType, string title, string content, DateTime now, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }

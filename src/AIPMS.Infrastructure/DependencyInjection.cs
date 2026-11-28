@@ -89,6 +89,7 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IDeliverableReviewService, DeliverableReviewService>();
         services.AddScoped<AIPMS.Application.Features.AcademicKnowledge.Abstractions.IAiSetupService, ProjectAiSetupService>();
         services.AddScoped<AIPMS.Application.Features.Academic.Abstractions.IPreSemesterSetupService, Services.Academic.PreSemesterRolloverService>();
+        services.AddScoped<AIPMS.Application.Features.StudentQualifications.Abstractions.IStudentQualificationImportService, Services.StudentQualifications.StudentQualificationImportService>();
         services.AddScoped<AIPMS.Application.Features.Tasks.Abstractions.ITaskCriteriaService, TaskCriteriaService>();
         services.AddScoped<AIPMS.Application.Features.Topics.Abstractions.ITopicSimilarityReviewService,
             Services.Topics.TopicSimilarityReviewService>();
@@ -268,6 +269,8 @@ public static class DependencyInjection
         services.AddScoped<ISupervisorCandidateRepository, SupervisorCandidateRepository>();
         services.AddScoped<AIPMS.Application.Features.Supervisors.Abstractions.ISupervisorReplacementService,
             AIPMS.Infrastructure.Services.Projects.SupervisorReplacementService>();
+        services.AddScoped<AIPMS.Application.Features.Supervisors.Abstractions.ISupervisorDirectAssignmentService,
+            AIPMS.Infrastructure.Services.Projects.SupervisorDirectAssignmentService>();
         services.AddScoped<ISupervisorRequestRepository, SupervisorRequestRepository>();
         services.AddScoped<ISupervisorAssignmentRepository, SupervisorAssignmentRepository>();
         services.AddScoped<IDeliverableRepository, DeliverableRepository>();

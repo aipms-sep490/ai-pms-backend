@@ -214,15 +214,28 @@ public sealed class UpdateMyProfileCommandHandler(
         CancellationToken cancellationToken)
     {
         var userId = currentUser.UserId ?? throw new UnauthorizedException();
-        _ = await repository.GetUserAsync(userId, cancellationToken)
+        var existing = await repository.GetUserAsync(userId, cancellationToken)
             ?? throw new UnauthorizedException();
+
+        var isPureStudent = existing.Roles.Contains(AppRoles.Student, StringComparer.Ordinal)
+            && existing.Roles.All(r => string.Equals(r, AppRoles.Student, StringComparison.Ordinal));
+        var trimmedFullName = request.FullName.Trim();
+        var normalizedTitle = NormalizeOptional(request.Title);
+        if (isPureStudent
+            && (!string.Equals(trimmedFullName, existing.FullName, StringComparison.Ordinal)
+                || !string.IsNullOrWhiteSpace(normalizedTitle)))
+        {
+            throw new ConflictException(
+                "Students cannot change their full name or assign a title. Contact an administrator to correct your legal name.",
+                WorkflowErrorCodes.StudentIdentityLocked);
+        }
 
         var user = await repository.UpdateProfileAsync(
             userId,
             new UpdateProfileData(
-                request.FullName.Trim(),
+                isPureStudent ? existing.FullName : trimmedFullName,
                 NormalizeOptional(request.Phone),
-                NormalizeOptional(request.Title)),
+                isPureStudent ? existing.Title : normalizedTitle),
             timeProvider.GetUtcNow().UtcDateTime,
             cancellationToken);
 
@@ -339,7 +352,11 @@ public sealed class UpdateUserAccountCommandHandler(
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
-public sealed record SetUserStatusCommand(long UserId, string Status)
+public sealed record SetUserStatusCommand(
+    long UserId,
+    string Status,
+    string? Reason = null,
+    bool? AcknowledgeObligations = null)
     : IRequest<UserAccountDto>;
 
 public sealed class SetUserStatusCommandHandler(
@@ -356,8 +373,9 @@ public sealed class SetUserStatusCommandHandler(
         var user = await repository.GetUserAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("User", request.UserId);
         var status = request.Status.Trim().ToUpperInvariant();
+        var isLocking = !string.Equals(status, "ACTIVE", StringComparison.Ordinal);
 
-        if (!string.Equals(status, "ACTIVE", StringComparison.Ordinal)
+        if (isLocking
             && string.Equals(user.Status, "ACTIVE", StringComparison.Ordinal)
             && user.Roles.Contains(AppRoles.Admin, StringComparer.Ordinal)
             && await repository.CountActiveUsersInRoleAsync(
@@ -367,11 +385,54 @@ public sealed class SetUserStatusCommandHandler(
                 "The last active System Administrator cannot be deactivated or suspended.");
         }
 
+        UserActiveObligationsDto? obligations = null;
+        if (isLocking)
+        {
+            obligations = await repository.GetActiveObligationsAsync(request.UserId, cancellationToken);
+            if (obligations.TotalCount > 0 && request.AcknowledgeObligations == false)
+            {
+                throw new ConflictException(
+                    "This account has active academic obligations. Explicit acknowledgement is required before deactivating or suspending.",
+                    WorkflowErrorCodes.ActiveObligationsAcknowledgementRequired);
+            }
+        }
+
+        var utcNow = timeProvider.GetUtcNow().UtcDateTime;
         var updated = await repository.SetStatusAsync(
             request.UserId,
             status,
-            timeProvider.GetUtcNow().UtcDateTime,
+            utcNow,
             cancellationToken);
+
+        var trimmedReason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+        var details = new Dictionary<string, object?>
+        {
+            ["previousStatus"] = user.Status,
+            ["status"] = updated.Status,
+            ["reason"] = trimmedReason
+        };
+        if (obligations is not null && obligations.TotalCount > 0)
+        {
+            details["obligationsSummary"] = new Dictionary<string, object?>
+            {
+                ["totalCount"] = obligations.TotalCount,
+                ["teamMemberships"] = obligations.TeamMemberships.Count,
+                ["supervisions"] = obligations.Supervisions.Count,
+                ["gateReviews"] = obligations.GateReviews.Count,
+                ["evaluationsAndAppeals"] = obligations.EvaluationsAndAppeals.Count,
+                ["impactedDepartmentIds"] = obligations.ImpactedDepartmentIds
+            };
+            await repository.NotifyDepartmentsOfAccountLockAsync(
+                accessService.ActorUserId,
+                updated.Id,
+                updated.FullName,
+                updated.Email,
+                updated.Status,
+                trimmedReason,
+                obligations,
+                utcNow,
+                cancellationToken);
+        }
 
         await auditTrail.RecordAsync(
             new AuditEntry(
@@ -379,14 +440,74 @@ public sealed class SetUserStatusCommandHandler(
                 "ACCOUNT_STATUS_CHANGED",
                 "USER",
                 updated.Id,
-                new Dictionary<string, object?>
-                {
-                    ["previousStatus"] = user.Status,
-                    ["status"] = updated.Status
-                }),
+                details),
             cancellationToken);
 
         return updated.ToDto();
+    }
+}
+
+public sealed record IssueTemporaryPasswordCommand(long UserId, string? Reason = null)
+    : IRequest<TemporaryPasswordResultDto>;
+
+public sealed class IssueTemporaryPasswordCommandHandler(
+    IUserAccountRepository repository,
+    AccountSecurityAccessService accessService,
+    IPasswordHashingService passwordHashingService,
+    IAuditTrail auditTrail,
+    TimeProvider timeProvider) : IRequestHandler<IssueTemporaryPasswordCommand, TemporaryPasswordResultDto>
+{
+    public async Task<TemporaryPasswordResultDto> Handle(
+        IssueTemporaryPasswordCommand request,
+        CancellationToken cancellationToken)
+    {
+        accessService.EnsureAdministrator();
+        var user = await repository.GetUserAsync(request.UserId, cancellationToken)
+            ?? throw new NotFoundException("User", request.UserId);
+
+        var tempPassword = GenerateStrongPassword(12);
+        var hash = passwordHashingService.Hash(tempPassword);
+        var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+
+        await repository.IssueTemporaryPasswordAsync(user.Id, hash, utcNow, cancellationToken);
+
+        await auditTrail.RecordAsync(
+            new AuditEntry(
+                accessService.ActorUserId,
+                "ACCOUNT_TEMPORARY_PASSWORD_ISSUED",
+                "USER",
+                user.Id,
+                new Dictionary<string, object?>
+                {
+                    ["reason"] = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim(),
+                    ["mustChangePassword"] = true
+                }),
+            cancellationToken);
+
+        return new TemporaryPasswordResultDto(user.Id, tempPassword, true, null);
+    }
+
+    public static string GenerateStrongPassword(int length)
+    {
+        const string upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+        const string lower = "abcdefghijkmnopqrstuvwxyz";
+        const string digits = "23456789";
+        const string special = "!@#$%^&*";
+        const string all = upper + lower + digits + special;
+
+        var chars = new char[Math.Max(length, 12)];
+        chars[0] = upper[System.Security.Cryptography.RandomNumberGenerator.GetInt32(upper.Length)];
+        chars[1] = lower[System.Security.Cryptography.RandomNumberGenerator.GetInt32(lower.Length)];
+        chars[2] = digits[System.Security.Cryptography.RandomNumberGenerator.GetInt32(digits.Length)];
+        chars[3] = special[System.Security.Cryptography.RandomNumberGenerator.GetInt32(special.Length)];
+        for (var i = 4; i < chars.Length; i++)
+            chars[i] = all[System.Security.Cryptography.RandomNumberGenerator.GetInt32(all.Length)];
+        for (var i = chars.Length - 1; i > 0; i--)
+        {
+            var j = System.Security.Cryptography.RandomNumberGenerator.GetInt32(i + 1);
+            (chars[i], chars[j]) = (chars[j], chars[i]);
+        }
+        return new string(chars);
     }
 }
 

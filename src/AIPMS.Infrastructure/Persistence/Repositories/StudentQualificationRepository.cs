@@ -13,9 +13,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-internal sealed class StudentQualificationRepository(AipmsDbContext context)
+internal sealed class StudentQualificationRepository(AipmsDbContext context, TimeProvider? clock = null)
     : IStudentQualificationRepository
 {
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     public async Task<long> AddCertificateFileAsync(long actorId, string storageKey,
         AIPMS.Application.Features.Deliverables.Models.ValidatedUpload file, DateTime now, CancellationToken ct)
     {
@@ -164,8 +165,26 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
 
         query = query.Where(x => x.Qualification.OrganizationId == organizationId
             && x.DepartmentId == departmentId);
+        var nowUtc = _clock.GetUtcNow().UtcDateTime;
         if (!string.IsNullOrWhiteSpace(verificationStatus))
-            query = query.Where(x => x.Qualification.VerificationStatus == verificationStatus);
+        {
+            if (string.Equals(verificationStatus, StudentQualificationStatuses.Expired, StringComparison.Ordinal))
+            {
+                query = query.Where(x => x.Qualification.VerificationStatus == StudentQualificationStatuses.Expired
+                    || (x.Qualification.VerificationStatus == StudentQualificationStatuses.Verified
+                        && x.Qualification.ExpiresAt.HasValue
+                        && x.Qualification.ExpiresAt.Value <= nowUtc));
+            }
+            else if (string.Equals(verificationStatus, StudentQualificationStatuses.Verified, StringComparison.Ordinal))
+            {
+                query = query.Where(x => x.Qualification.VerificationStatus == StudentQualificationStatuses.Verified
+                    && (!x.Qualification.ExpiresAt.HasValue || x.Qualification.ExpiresAt.Value > nowUtc));
+            }
+            else
+            {
+                query = query.Where(x => x.Qualification.VerificationStatus == verificationStatus);
+            }
+        }
         if (!string.IsNullOrWhiteSpace(search))
         {
             var value = search.Trim();
@@ -263,6 +282,13 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
                 CreatedAt = utcNow
             };
             context.Add(entity);
+        }
+        else if (entity.VerificationStatus == StudentQualificationStatuses.Verified
+            && (!entity.ExpiresAt.HasValue || entity.ExpiresAt.Value > utcNow))
+        {
+            throw new ConflictException(
+                "This qualification is already verified and still valid. Verified qualifications cannot be overwritten.",
+                WorkflowErrorCodes.QualificationAlreadyVerified);
         }
 
         entity.OrganizationId = student.OrganizationId;
@@ -373,4 +399,12 @@ internal sealed class StudentQualificationRepository(AipmsDbContext context)
 
         return (await GetPeriodPolicyAsync(projectPeriodId, cancellationToken))!;
     }
+
+    public Task<long?> GetRegistrationPeriodOrganizationIdAsync(
+        long projectPeriodId,
+        CancellationToken cancellationToken = default) =>
+        context.ProjectPeriods.AsNoTracking()
+            .Where(x => x.Id == projectPeriodId && x.PeriodType == "REGISTRATION")
+            .Select(x => (long?)x.AcademicSemester.OrganizationId)
+            .SingleOrDefaultAsync(cancellationToken);
 }

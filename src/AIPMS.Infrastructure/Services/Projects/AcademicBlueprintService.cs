@@ -27,7 +27,8 @@ internal sealed partial class AcademicBlueprintService(
     ICurrentUser currentUser,
     IAuditTrail auditTrail,
     TimeProvider clock,
-    IWorkingDayCalculator workingDays) : IAcademicBlueprintService
+    IWorkingDayCalculator workingDays,
+    IProjectAccessService? projectAccess = null) : IAcademicBlueprintService
 {
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
     private static readonly string[] CanonicalPeriodTypes =
@@ -44,18 +45,36 @@ internal sealed partial class AcademicBlueprintService(
         ? currentUser.UserId.Value
         : throw new UnauthorizedException();
 
-    private async Task<(bool IsAdmin, bool IsStaff, long? DepartmentId)> GetActorScopeAsync(CancellationToken ct)
+    private async Task<(bool IsAdmin, bool IsStaff, long? DepartmentId, long? OrganizationId)> GetActorScopeAsync(CancellationToken ct)
     {
         var info = await db.Users.AsNoTracking()
             .Where(u => u.Id == ActorId && u.Status == "ACTIVE")
             .Select(u => new
             {
                 u.DepartmentId,
+                OrganizationId = u.Department != null ? (long?)u.Department.OrganizationId : null,
                 IsAdmin = u.UserRoleUsers.Any(r => r.Role.Code == "ADMIN"),
                 IsStaff = u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF")
             })
             .SingleOrDefaultAsync(ct) ?? throw new ForbiddenException();
-        return (info.IsAdmin, info.IsStaff, info.DepartmentId);
+        return (info.IsAdmin, info.IsStaff, info.DepartmentId, info.OrganizationId);
+    }
+
+    private async Task<long> RequireDepartmentStaffWriteScopeAsync(CancellationToken ct, string? nonAdminMessage = null)
+    {
+        var actor = await GetActorScopeAsync(ct);
+        if (!actor.IsStaff)
+        {
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot perform academic blueprint operations."
+                    : nonAdminMessage ?? "Only department staff can manage academic blueprints.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
+
+        if (!actor.DepartmentId.HasValue)
+            throw new ForbiddenException("Department staff account is not assigned to an active department.");
+        return actor.DepartmentId.Value;
     }
 
     private static AcademicBlueprintConfig ParseConfig(string json)
@@ -126,6 +145,41 @@ internal sealed partial class AcademicBlueprintService(
         if (errors.Count > 0) throw new ValidationException(errors);
     }
 
+    private async Task ValidateGateRequirementsForPublishAsync(AcademicBlueprint bp, AcademicBlueprintConfig config, CancellationToken ct)
+    {
+        var gates = config.GateRules ?? [];
+        if (gates.Count == 0) return;
+
+        ReviewGateTemplate? template = null;
+        if (bp.GateTemplateId.HasValue)
+        {
+            template = await db.ReviewGateTemplates.AsNoTracking()
+                .Include(t => t.Gates).ThenInclude(g => g.Requirements)
+                .SingleOrDefaultAsync(t => t.Id == bp.GateTemplateId.Value, ct);
+        }
+
+        var intDeliverables = config.IntegrationDeliverables ?? [];
+        foreach (var gr in gates)
+        {
+            var hasDeliverables = gr.RequiredDeliverables is not null
+                && gr.RequiredDeliverables.Any(d => !string.IsNullOrWhiteSpace(d));
+            var hasIntDeliverables = intDeliverables.Any(d =>
+                !string.IsNullOrWhiteSpace(d.Code)
+                && d.Stages is not null
+                && d.Stages.Any(s => string.Equals(s, gr.Code, StringComparison.OrdinalIgnoreCase)));
+            var hasTemplateReqs = template is not null
+                && template.Gates.Any(g =>
+                    (string.Equals(g.Code, gr.Code, StringComparison.OrdinalIgnoreCase) || g.Sequence == gr.Sequence)
+                    && g.Requirements.Count > 0);
+            if (!hasDeliverables && !hasIntDeliverables && !hasTemplateReqs)
+            {
+                throw new DomainException(
+                    $"Gate '{gr.Code}' must define at least one required deliverable or link a ReviewGateTemplate with requirements before publishing.",
+                    WorkflowErrorCodes.GateRequirementsRequired);
+            }
+        }
+    }
+
     public async Task<IReadOnlyList<AcademicBlueprintDto>> ListAsync(long? semesterId, string? trackCode, string? status, CancellationToken ct = default)
     {
         var actor = await GetActorScopeAsync(ct);
@@ -154,13 +208,12 @@ internal sealed partial class AcademicBlueprintService(
 
     public async Task<AcademicBlueprintDto> CreateAsync(CreateAcademicBlueprintRequest request, CancellationToken ct = default)
     {
-        var actor = await GetActorScopeAsync(ct);
-        if (!actor.IsAdmin && !actor.IsStaff) throw new ForbiddenException();
+        var staffDeptId = await RequireDepartmentStaffWriteScopeAsync(ct, "Only lead department staff can create an academic blueprint.");
         var track = AcademicTrackCodes.Normalize(request.TrackCode)
             ?? throw new ValidationException(new Dictionary<string, string[]> { ["trackCode"] = ["TrackCode must be IT_ONLY, MKT_ONLY, or IT_MKT."] });
 
-        if (!actor.IsAdmin && actor.DepartmentId != request.LeadDepartmentId)
-            throw new ForbiddenException("Only lead department staff or admin can create an academic blueprint.");
+        if (staffDeptId != request.LeadDepartmentId)
+            throw new ForbiddenException("Only lead department staff can create an academic blueprint.");
 
         if (track == AcademicTrackCodes.ItMkt && (!request.ParticipatingDepartmentId.HasValue || request.ParticipatingDepartmentId == request.LeadDepartmentId))
             throw new ValidationException(new Dictionary<string, string[]> { ["participatingDepartmentId"] = ["IT_MKT blueprint requires a distinct participating department."] });
@@ -209,12 +262,11 @@ internal sealed partial class AcademicBlueprintService(
 
     public async Task<AcademicBlueprintDto> UpdateAsync(long id, UpdateAcademicBlueprintRequest request, CancellationToken ct = default)
     {
-        var actor = await GetActorScopeAsync(ct);
-        if (!actor.IsAdmin && !actor.IsStaff) throw new ForbiddenException();
+        var staffDeptId = await RequireDepartmentStaffWriteScopeAsync(ct);
 
         var bp = await db.AcademicBlueprints.Include(b => b.Approvals).SingleOrDefaultAsync(b => b.Id == id, ct)
             ?? throw new NotFoundException("AcademicBlueprint", id);
-        if (!actor.IsAdmin && actor.DepartmentId != bp.LeadDepartmentId && actor.DepartmentId != bp.ParticipatingDepartmentId)
+        if (staffDeptId != bp.LeadDepartmentId && staffDeptId != bp.ParticipatingDepartmentId)
             throw new ForbiddenException();
 
         if (bp.Status is "PUBLISHED" or "RETIRED")
@@ -225,8 +277,15 @@ internal sealed partial class AcademicBlueprintService(
 
         ValidateConfigOrThrow(bp.TrackCode, request.Config, forPublish: false);
 
+        var nextParticipatingDeptId = request.ParticipatingDepartmentId ?? bp.ParticipatingDepartmentId;
+        if (bp.TrackCode == AcademicTrackCodes.ItMkt && (!nextParticipatingDeptId.HasValue || nextParticipatingDeptId.Value == bp.LeadDepartmentId))
+            throw new ValidationException(new Dictionary<string, string[]> { ["participatingDepartmentId"] = ["IT_MKT blueprint requires a distinct participating department."] });
+        if (nextParticipatingDeptId.HasValue && nextParticipatingDeptId.Value == bp.LeadDepartmentId)
+            throw new ValidationException(new Dictionary<string, string[]> { ["participatingDepartmentId"] = ["Participating department must be distinct from lead department."] });
+
+        var oldParticipatingDeptId = bp.ParticipatingDepartmentId;
         bp.Name = request.Name.Trim();
-        bp.ParticipatingDepartmentId = request.ParticipatingDepartmentId ?? bp.ParticipatingDepartmentId;
+        bp.ParticipatingDepartmentId = nextParticipatingDeptId;
         bp.PeriodPolicyVersionId = request.PeriodPolicyVersionId ?? bp.PeriodPolicyVersionId;
         bp.GateTemplateId = request.GateTemplateId ?? bp.GateTemplateId;
         bp.MilestoneTemplateId = request.MilestoneTemplateId ?? bp.MilestoneTemplateId;
@@ -234,6 +293,26 @@ internal sealed partial class AcademicBlueprintService(
         bp.ConfigJson = JsonSerializer.Serialize(request.Config, JsonOpts);
         bp.UpdatedAt = clock.GetUtcNow().UtcDateTime;
         bp.ConcurrencyToken = Guid.NewGuid();
+
+        if (oldParticipatingDeptId != nextParticipatingDeptId)
+        {
+            var existingPart = bp.Approvals.Where(a => a.ScopeRole == "PARTICIPATING").ToList();
+            foreach (var oldRow in existingPart)
+            {
+                bp.Approvals.Remove(oldRow);
+                db.AcademicBlueprintApprovals.Remove(oldRow);
+            }
+            if (nextParticipatingDeptId.HasValue)
+            {
+                bp.Approvals.Add(new AcademicBlueprintApproval
+                {
+                    BlueprintId = bp.Id,
+                    DepartmentId = nextParticipatingDeptId.Value,
+                    ScopeRole = "PARTICIPATING",
+                    Decision = "PENDING"
+                });
+            }
+        }
 
         // Any edit resets pending sign-offs if already in review
         if (bp.Status == "IN_REVIEW")
@@ -252,13 +331,12 @@ internal sealed partial class AcademicBlueprintService(
 
     public async Task<AcademicBlueprintDto> CloneVersionAsync(long id, CancellationToken ct = default)
     {
-        var actor = await GetActorScopeAsync(ct);
-        if (!actor.IsAdmin && !actor.IsStaff) throw new ForbiddenException();
+        var staffDeptId = await RequireDepartmentStaffWriteScopeAsync(ct, "Only lead department staff can clone a new blueprint version.");
 
         var source = await db.AcademicBlueprints.AsNoTracking().SingleOrDefaultAsync(b => b.Id == id, ct)
             ?? throw new NotFoundException("AcademicBlueprint", id);
-        if (!actor.IsAdmin && actor.DepartmentId != source.LeadDepartmentId)
-            throw new ForbiddenException("Only lead department staff or admin can clone a new blueprint version.");
+        if (staffDeptId != source.LeadDepartmentId)
+            throw new ForbiddenException("Only lead department staff can clone a new blueprint version.");
 
         var maxVer = await db.AcademicBlueprints.AsNoTracking()
             .Where(b => b.AcademicSemesterId == source.AcademicSemesterId && b.Code == source.Code)
@@ -295,12 +373,11 @@ internal sealed partial class AcademicBlueprintService(
 
     public async Task<AcademicBlueprintDto> SubmitForReviewAsync(long id, CancellationToken ct = default)
     {
-        var actor = await GetActorScopeAsync(ct);
-        if (!actor.IsAdmin && !actor.IsStaff) throw new ForbiddenException();
+        var staffDeptId = await RequireDepartmentStaffWriteScopeAsync(ct);
 
         var bp = await db.AcademicBlueprints.Include(b => b.Approvals).SingleOrDefaultAsync(b => b.Id == id, ct)
             ?? throw new NotFoundException("AcademicBlueprint", id);
-        if (!actor.IsAdmin && actor.DepartmentId != bp.LeadDepartmentId && actor.DepartmentId != bp.ParticipatingDepartmentId)
+        if (staffDeptId != bp.LeadDepartmentId && staffDeptId != bp.ParticipatingDepartmentId)
             throw new ForbiddenException();
         if (bp.Status is "PUBLISHED" or "RETIRED")
             throw new ConflictException("Published or retired blueprints cannot be submitted for review.", WorkflowErrorCodes.ImmutableVersion);
@@ -314,8 +391,7 @@ internal sealed partial class AcademicBlueprintService(
 
     public async Task<AcademicBlueprintDto> RecordApprovalAsync(long id, RecordBlueprintApprovalRequest request, CancellationToken ct = default)
     {
-        var actor = await GetActorScopeAsync(ct);
-        if (!actor.IsAdmin && !actor.IsStaff) throw new ForbiddenException();
+        var staffDeptId = await RequireDepartmentStaffWriteScopeAsync(ct);
         var decision = (request.Decision ?? "").Trim().ToUpperInvariant();
         if (decision is not ("APPROVED" or "REJECTED"))
             throw new ValidationException(new Dictionary<string, string[]> { ["decision"] = ["Decision must be APPROVED or REJECTED."] });
@@ -325,7 +401,7 @@ internal sealed partial class AcademicBlueprintService(
         if (bp.Status is "PUBLISHED" or "RETIRED")
             throw new ConflictException("Published or retired blueprints are immutable.", WorkflowErrorCodes.ImmutableVersion);
 
-        if (!actor.IsAdmin && actor.DepartmentId != request.DepartmentId)
+        if (staffDeptId != request.DepartmentId)
             throw new ForbiddenException("You can only record approval for your own department.");
 
         var approval = bp.Approvals.SingleOrDefault(a => a.DepartmentId == request.DepartmentId)
@@ -348,19 +424,19 @@ internal sealed partial class AcademicBlueprintService(
 
     public async Task<AcademicBlueprintDto> PublishAsync(long id, CancellationToken ct = default)
     {
-        var actor = await GetActorScopeAsync(ct);
-        if (!actor.IsAdmin && !actor.IsStaff) throw new ForbiddenException();
+        var staffDeptId = await RequireDepartmentStaffWriteScopeAsync(ct, "Only lead department staff can publish an academic blueprint.");
 
         var bp = await db.AcademicBlueprints.Include(b => b.Approvals).SingleOrDefaultAsync(b => b.Id == id, ct)
             ?? throw new NotFoundException("AcademicBlueprint", id);
-        if (!actor.IsAdmin && actor.DepartmentId != bp.LeadDepartmentId)
-            throw new ForbiddenException("Only lead department staff or admin can publish an academic blueprint.");
+        if (staffDeptId != bp.LeadDepartmentId)
+            throw new ForbiddenException("Only lead department staff can publish an academic blueprint.");
         if (bp.Status == "PUBLISHED") return ToDto(bp);
         if (bp.Status == "RETIRED")
             throw new ConflictException("Retired blueprints cannot be published.", WorkflowErrorCodes.ImmutableVersion);
 
         var config = ParseConfig(bp.ConfigJson);
         ValidateConfigOrThrow(bp.TrackCode, config, forPublish: true);
+        await ValidateGateRequirementsForPublishAsync(bp, config, ct);
 
         var now = clock.GetUtcNow().UtcDateTime;
         if (bp.TrackCode == AcademicTrackCodes.ItMkt)
@@ -393,9 +469,13 @@ internal sealed partial class AcademicBlueprintService(
             }
         }
 
-        // Retire any previous published version of the same (semester, track, code)
+        // Retire any previous published version of the same (semester, track, lead department)
         var priors = await db.AcademicBlueprints
-            .Where(b => b.AcademicSemesterId == bp.AcademicSemesterId && b.TrackCode == bp.TrackCode && b.Status == "PUBLISHED" && b.Id != bp.Id)
+            .Where(b => b.AcademicSemesterId == bp.AcademicSemesterId
+                && b.TrackCode == bp.TrackCode
+                && b.LeadDepartmentId == bp.LeadDepartmentId
+                && b.Status == "PUBLISHED"
+                && b.Id != bp.Id)
             .ToListAsync(ct);
         foreach (var prior in priors)
         {
@@ -416,8 +496,17 @@ internal sealed partial class AcademicBlueprintService(
 
     public async Task<SemesterReadinessDto> GetSemesterReadinessAsync(long semesterId, CancellationToken ct = default)
     {
-        if (!await db.AcademicSemesters.AsNoTracking().AnyAsync(s => s.Id == semesterId, ct))
-            throw new NotFoundException("AcademicSemester", semesterId);
+        var actor = await GetActorScopeAsync(ct);
+        if (!actor.IsAdmin && !actor.IsStaff)
+            throw new ForbiddenException("Only department staff or admins can inspect semester blueprint readiness.");
+
+        var semester = await db.AcademicSemesters.AsNoTracking()
+            .Where(s => s.Id == semesterId)
+            .Select(s => new { s.Id, s.OrganizationId })
+            .SingleOrDefaultAsync(ct) ?? throw new NotFoundException("AcademicSemester", semesterId);
+
+        if (!actor.IsAdmin && (!actor.OrganizationId.HasValue || actor.OrganizationId.Value != semester.OrganizationId))
+            throw new ForbiddenException("You do not belong to the organization of this semester.");
 
         var periods = await db.ProjectPeriods.AsNoTracking()
             .Where(p => p.AcademicSemesterId == semesterId && p.Status != SemesterStatuses.Archived)
@@ -425,9 +514,11 @@ internal sealed partial class AcademicBlueprintService(
         var presentTypes = periods.Select(p => p.PeriodType).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var missingTypes = CanonicalPeriodTypes.Where(t => !presentTypes.Contains(t, StringComparer.OrdinalIgnoreCase)).ToArray();
 
-        var blueprints = await db.AcademicBlueprints.AsNoTracking()
-            .Where(b => b.AcademicSemesterId == semesterId)
-            .ToListAsync(ct);
+        var bpQuery = db.AcademicBlueprints.AsNoTracking()
+            .Where(b => b.AcademicSemesterId == semesterId);
+        if (!actor.IsAdmin && actor.DepartmentId.HasValue)
+            bpQuery = bpQuery.Where(b => b.LeadDepartmentId == actor.DepartmentId.Value || b.ParticipatingDepartmentId == actor.DepartmentId.Value);
+        var blueprints = await bpQuery.ToListAsync(ct);
         var publishedTracks = blueprints.Where(b => b.Status == "PUBLISHED").Select(b => b.TrackCode).Distinct().ToArray();
         var configuredTracks = blueprints.Select(b => b.TrackCode).Distinct().ToArray();
         var missingTracks = configuredTracks.Where(t => !publishedTracks.Contains(t)).ToList();
@@ -478,5 +569,97 @@ internal sealed partial class AcademicBlueprintService(
                 $"Cannot open REGISTRATION period because track(s) [{string.Join(", ", unpublished)}] do not have a PUBLISHED AcademicBlueprint.",
                 WorkflowErrorCodes.BlueprintNotPublished);
         }
+    }
+
+    public async Task<IReadOnlyList<SemesterTrackPresetDto>> GetSemesterTrackPresetsAsync(long semesterId, CancellationToken ct = default)
+    {
+        var actor = await GetActorScopeAsync(ct);
+        var semester = await db.AcademicSemesters.AsNoTracking()
+            .Where(s => s.Id == semesterId)
+            .Select(s => new { s.Id, s.OrganizationId })
+            .SingleOrDefaultAsync(ct) ?? throw new NotFoundException("AcademicSemester", semesterId);
+
+        if (!actor.IsAdmin && actor.OrganizationId.HasValue && actor.OrganizationId.Value != semester.OrganizationId)
+            throw new ForbiddenException("You do not belong to the organization of this semester.");
+
+        var regPeriod = await db.ProjectPeriods.AsNoTracking()
+            .Where(p => p.AcademicSemesterId == semesterId && p.PeriodType == PeriodTypes.Registration && p.Status != SemesterStatuses.Archived)
+            .OrderByDescending(p => p.Status == "ACTIVE" ? 1 : 0)
+            .ThenByDescending(p => p.StartAt)
+            .FirstOrDefaultAsync(ct);
+
+        var minTeamSize = regPeriod?.MinTeamSize ?? 3;
+        var maxTeamSize = regPeriod?.MaxTeamSize ?? 5;
+        var minDistinct = regPeriod?.MinDistinctMajors ?? 1;
+        var allowedModes = regPeriod?.AllowedProjectModes ?? "SINGLE_MAJOR,INTERDISCIPLINARY";
+
+        var publishedBlueprints = await db.AcademicBlueprints.AsNoTracking()
+            .Where(b => b.AcademicSemesterId == semesterId && b.Status == "PUBLISHED")
+            .OrderByDescending(b => b.Version)
+            .ToListAsync(ct);
+
+        var orgMajors = await db.Majors.AsNoTracking()
+            .Where(m => m.IsActive && m.Department.IsActive && m.Department.OrganizationId == semester.OrganizationId)
+            .OrderBy(m => m.Id)
+            .Select(m => new { m.Id, m.Code, m.Name, m.DepartmentId })
+            .ToListAsync(ct);
+
+        bool ModeAllowed(string mode) => ProjectPeriodGovernancePolicy.Allows(allowedModes, mode);
+
+        var presets = new List<SemesterTrackPresetDto>();
+        foreach (var track in new[] { AcademicTrackCodes.ItOnly, AcademicTrackCodes.MktOnly, AcademicTrackCodes.ItMkt })
+        {
+            var projectMode = track == AcademicTrackCodes.ItMkt ? "INTERDISCIPLINARY" : "SINGLE_MAJOR";
+            if (!ModeAllowed(projectMode)) continue;
+
+            var bp = publishedBlueprints.FirstOrDefault(b => b.TrackCode == track);
+            var defaultReqs = new List<SemesterTrackMajorPresetDto>();
+            long? leadDeptId = bp?.LeadDepartmentId;
+            long? partDeptId = bp?.ParticipatingDepartmentId;
+
+            if (track == AcademicTrackCodes.ItMkt)
+            {
+                var leadMajor = (leadDeptId.HasValue ? orgMajors.FirstOrDefault(m => m.DepartmentId == leadDeptId.Value) : null)
+                    ?? orgMajors.FirstOrDefault();
+                var partMajor = (partDeptId.HasValue ? orgMajors.FirstOrDefault(m => m.DepartmentId == partDeptId.Value && m.Id != leadMajor?.Id) : null)
+                    ?? orgMajors.FirstOrDefault(m => m.Id != leadMajor?.Id);
+                if (leadMajor is not null)
+                {
+                    leadDeptId ??= leadMajor.DepartmentId;
+                    defaultReqs.Add(new SemesterTrackMajorPresetDto(leadMajor.Id, leadMajor.Code, leadMajor.Name, leadMajor.DepartmentId, 1, maxTeamSize, "Chủ trì kỹ thuật / sản phẩm"));
+                }
+                if (partMajor is not null)
+                {
+                    partDeptId ??= partMajor.DepartmentId;
+                    defaultReqs.Add(new SemesterTrackMajorPresetDto(partMajor.Id, partMajor.Code, partMajor.Name, partMajor.DepartmentId, 1, maxTeamSize, "Phối hợp chuyên ngành"));
+                }
+            }
+            else
+            {
+                var matchedMajor = (leadDeptId.HasValue ? orgMajors.FirstOrDefault(m => m.DepartmentId == leadDeptId.Value) : null)
+                    ?? (track == AcademicTrackCodes.MktOnly
+                        ? orgMajors.FirstOrDefault(m => m.Code.Contains("MKT", StringComparison.OrdinalIgnoreCase) || m.Name.Contains("Marketing", StringComparison.OrdinalIgnoreCase))
+                        : orgMajors.FirstOrDefault(m => !m.Code.Contains("MKT", StringComparison.OrdinalIgnoreCase)))
+                    ?? orgMajors.FirstOrDefault();
+                if (matchedMajor is not null)
+                {
+                    leadDeptId ??= matchedMajor.DepartmentId;
+                    defaultReqs.Add(new SemesterTrackMajorPresetDto(matchedMajor.Id, matchedMajor.Code, matchedMajor.Name, matchedMajor.DepartmentId, minTeamSize, maxTeamSize, "Chủ trì"));
+                }
+            }
+
+            presets.Add(new SemesterTrackPresetDto(
+                track,
+                projectMode,
+                minTeamSize,
+                maxTeamSize,
+                projectMode == "INTERDISCIPLINARY" ? Math.Max(2, minDistinct) : 1,
+                leadDeptId,
+                partDeptId,
+                defaultReqs,
+                bp is not null));
+        }
+
+        return presets;
     }
 }

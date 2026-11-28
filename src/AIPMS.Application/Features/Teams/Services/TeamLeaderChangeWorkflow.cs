@@ -56,14 +56,16 @@ public sealed class TeamLeaderChangeWorkflow(
                 throw new ConflictException("This student is already the leader.");
             var context = await requests.GetContextAsync(team.Id, target.UserId, token)
                 ?? throw new NotFoundException("Team", team.Id);
-            if (context.ProjectId is not long projectId || context.MentorProfileId is not long mentorProfileId)
-                throw new ConflictException("An active project mentor must be assigned before changing the team leader.");
-            if (context.CurrentLeaderUserId != actor.UserId || context.MentorUserId is null)
-                throw new ConflictException("The team leadership or mentor assignment changed. Reload and retry.");
+            if (context.ProjectId is not long projectId)
+                throw new ConflictException("A project must exist before submitting a leader-change approval request.");
+            if (context.ProjectStatus is "COMPLETED" or "ARCHIVED")
+                throw new ConflictException("Cannot change the team leader of a COMPLETED or ARCHIVED project.");
+            if (context.CurrentLeaderUserId != actor.UserId)
+                throw new ConflictException("The team leadership changed. Reload and retry.");
             if (await requests.HasPendingAsync(team.Id, token))
                 throw new ConflictException("A leader-change request is already pending for this team.");
             var result = await requests.CreateAsync(team.Id, projectId, actor.UserId,
-                context.CurrentLeaderUserId, target.UserId, mentorProfileId,
+                context.CurrentLeaderUserId, target.UserId, context.MentorProfileId,
                 TrimMessage(request.Message), Now, token);
             await events.Publish(new WorkflowNotificationEvent(
                 WorkflowNotificationKind.TeamLeaderChangeRequested, result.Id, actor.UserId, result.RequestedAt), token);
@@ -76,16 +78,17 @@ public sealed class TeamLeaderChangeWorkflow(
         long actorId, TeamSnapshot team, TeamParticipant target, TeamLeaderChangeContext context,
         CancellationToken token)
     {
-        if (context.ProjectId is not long projectId || context.MentorProfileId is not long mentorProfileId
-            || context.MentorUserId is null)
-            throw new ConflictException("An active project mentor must be assigned before changing the team leader.");
+        if (context.ProjectId is not long projectId)
+            throw new ConflictException("A project must exist before submitting a leader-change approval request.");
+        if (context.ProjectStatus is "COMPLETED" or "ARCHIVED")
+            throw new ConflictException("Cannot change the team leader of a COMPLETED or ARCHIVED project.");
         await RequireReplacementAllowedAsync(team, target, token);
         if (context.CurrentLeaderUserId != actorId)
             throw new ConflictException("The team leadership changed. Reload and retry.");
         if (await requests.HasPendingAsync(team.Id, token))
             throw new ConflictException("A leader-change request is already pending for this team.");
         var result = await requests.CreateAsync(team.Id, projectId, actorId, context.CurrentLeaderUserId,
-            target.UserId, mentorProfileId, TrimMessage(request.Message), Now, token);
+            target.UserId, context.MentorProfileId, TrimMessage(request.Message), Now, token);
         await events.Publish(new WorkflowNotificationEvent(
             WorkflowNotificationKind.TeamLeaderChangeRequested, result.Id, actorId, result.RequestedAt), token);
         await AuditAsync("TEAM_LEADER_CHANGE_REQUESTED", team, actorId, target.UserId, result, token);
@@ -98,18 +101,50 @@ public sealed class TeamLeaderChangeWorkflow(
             var actor = await RequireAuthenticatedAsync(token);
             await requests.LockRequestAsync(requestId, token);
             var request = await GetRequestAsync(requestId, token);
-            var mentor = await supervisorAccess.EnsureCanReadAsync(token);
-            if (actor.UserId != request.MentorUserId || mentor.UserId != request.MentorUserId
-                || !mentor.HasActiveAcademicScope || !mentor.Roles.Contains(AppRoles.Lecturer))
-                throw new ForbiddenException("Only the current project mentor can respond to this request.");
+
+            var isAssignedMentor = false;
+            var isLeadDeptStaff = false;
+            if (currentUser.Roles.Contains(AppRoles.Lecturer) && request.MentorUserId.HasValue && actor.UserId == request.MentorUserId.Value)
+            {
+                var mentor = await supervisorAccess.EnsureCanReadAsync(token);
+                isAssignedMentor = mentor.UserId == request.MentorUserId.Value
+                    && mentor.HasActiveAcademicScope
+                    && mentor.Roles.Contains(AppRoles.Lecturer);
+            }
+            if (!isAssignedMentor && currentUser.Roles.Contains(AppRoles.DepartmentStaff))
+            {
+                isLeadDeptStaff = await requests.IsLeadDepartmentStaffForProjectAsync(request.ProjectId, actor.UserId, token);
+            }
+
+            if (!isAssignedMentor && !isLeadDeptStaff)
+            {
+                var pureAdmin = currentUser.Roles.Contains(AppRoles.Admin) && !currentUser.Roles.Contains(AppRoles.DepartmentStaff);
+                throw new ForbiddenException(
+                    pureAdmin
+                        ? "Platform administrators without DEPARTMENT_STAFF role cannot decide team leader change requests."
+                        : "Only the assigned primary supervisor or lead department staff can respond to this request.",
+                    pureAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+            }
+
+            if (isLeadDeptStaff && request.MentorProfileId.HasValue && string.IsNullOrWhiteSpace(message))
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    ["message"] = ["Lead department staff stepping in for an assigned supervisor must provide a reason."]
+                });
+            }
+
+            var decisionSource = isAssignedMentor ? "MENTOR" : "DEPARTMENT_STAFF";
             var desired = accept ? "APPROVED" : "REJECTED";
             if (request.Status == desired) return request.ToDto();
             if (request.Status != "PENDING")
                 throw new ConflictException("The leader-change request has already been processed.");
 
             var team = await GetTeamAsync(request.TeamId, token);
-            if (!await requests.HasActiveMentorAsync(request.ProjectId, request.MentorProfileId, token))
+            if (isAssignedMentor && (!request.MentorProfileId.HasValue
+                || !await requests.HasActiveMentorAsync(request.ProjectId, request.MentorProfileId.Value, token)))
                 throw new ConflictException("The mentor assignment is no longer active.");
+
             if (accept)
             {
                 RequireLeaderChangeState(team);
@@ -119,14 +154,17 @@ public sealed class TeamLeaderChangeWorkflow(
                 if (team.Members.SingleOrDefault(m => m.IsLeader)?.UserId != request.CurrentLeaderUserId)
                     throw new ConflictException("The current team leader changed while this request was pending.");
                 var context = await requests.GetContextAsync(team.Id, request.NewLeaderUserId, token);
-                if (context?.ProjectId != request.ProjectId || context.MentorProfileId != request.MentorProfileId
+                if (context?.ProjectId != request.ProjectId || context.ProjectStatus is "COMPLETED" or "ARCHIVED")
+                    throw new ConflictException("The project state no longer allows changing the team leader.");
+                if (isAssignedMentor && (context.MentorProfileId != request.MentorProfileId
                     || context.MentorUserId != request.MentorUserId
-                    || !await requests.HasActiveMentorAsync(request.ProjectId, request.MentorProfileId, token))
+                    || !request.MentorProfileId.HasValue
+                    || !await requests.HasActiveMentorAsync(request.ProjectId, request.MentorProfileId.Value, token)))
                     throw new ConflictException("The mentor assignment is no longer active.");
                 await teams.TransferLeaderAsync(team.Id, request.CurrentLeaderUserId,
                     request.NewLeaderUserId, Now, token);
             }
-            var result = await requests.RespondAsync(request.Id, desired, TrimMessage(message), Now, token);
+            var result = await requests.RespondAsync(request.Id, desired, TrimMessage(message), Now, token, actor.UserId, decisionSource);
             await events.Publish(new WorkflowNotificationEvent(
                 accept ? WorkflowNotificationKind.TeamLeaderChangeApproved : WorkflowNotificationKind.TeamLeaderChangeRejected,
                 result.Id, actor.UserId, result.RespondedAt ?? Now), token);
@@ -138,18 +176,117 @@ public sealed class TeamLeaderChangeWorkflow(
             return result.ToDto();
         }, ct);
 
+    public Task<TeamLeaderChangeRequestDto> CancelAsync(long requestId, CancellationToken ct) =>
+        requests.InTransactionAsync(async token =>
+        {
+            var actor = await RequireStudentAsync(token);
+            await requests.LockRequestAsync(requestId, token);
+            var request = await GetRequestAsync(requestId, token);
+            var team = await GetTeamAsync(request.TeamId, token);
+            var isRequesterOrLeader = request.RequestedBy == actor.UserId
+                || team.Members.Any(m => m.UserId == actor.UserId && m.IsLeader);
+            if (!isRequesterOrLeader)
+                throw new ForbiddenException("Only the requester or current team leader can cancel this leader-change request.");
+            if (request.Status == "CANCELLED") return request.ToDto();
+            if (request.Status != "PENDING")
+                throw new ConflictException("Only pending leader-change requests can be cancelled.");
+            var result = await requests.RespondAsync(request.Id, "CANCELLED", "Cancelled by team leader.", Now, token, actor.UserId, null);
+            await AuditAsync("TEAM_LEADER_CHANGE_CANCELLED", team, actor.UserId, request.NewLeaderUserId, result, token);
+            return result.ToDto();
+        }, ct);
+
+    public Task<TeamDto> ForceTransferByDepartmentAsync(long teamId, long newLeaderUserId, string reason, CancellationToken ct) =>
+        requests.InTransactionAsync(async token =>
+        {
+            var actor = await RequireAuthenticatedAsync(token);
+            var (isStaff, isAdmin, actorDeptId) = await teams.GetStaffActorScopeAsync(actor.UserId, token);
+            if (!isStaff)
+            {
+                throw new ForbiddenException(
+                    isAdmin
+                        ? "Platform administrators without DEPARTMENT_STAFF role cannot force a team leader change."
+                        : "Only lead department staff can force a team leader change.",
+                    isAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+            }
+
+            var trimmedReason = reason?.Trim() ?? string.Empty;
+            if (trimmedReason.Length < 15)
+            {
+                throw new AIPMS.Domain.Exceptions.DomainException(
+                    "Forcing a team leader change requires a reason of at least 15 characters.",
+                    WorkflowErrorCodes.ReasonRequired);
+            }
+
+            await requests.LockTeamAsync(teamId, token);
+            var team = await GetTeamAsync(teamId, token);
+            RequireLeaderChangeState(team);
+
+            var leadDeptId = await teams.GetTeamLeadDepartmentIdAsync(team.Id, token);
+            if (leadDeptId.HasValue && actorDeptId != leadDeptId.Value)
+                throw new ForbiddenException("Only staff of the team's lead department can force a team leader change.");
+
+            if (team.ProjectStatuses.Any(s => s is "COMPLETED" or "ARCHIVED"))
+                throw new ConflictException("Cannot change the team leader of a COMPLETED or ARCHIVED project.");
+
+            var currentLeader = team.Members.SingleOrDefault(m => m.IsLeader)
+                ?? throw new ConflictException("The team must have an active leader.");
+            var target = team.Members.SingleOrDefault(m => m.UserId == newLeaderUserId)
+                ?? throw new ConflictException("The new leader must be an active member of this team.");
+            if (target.UserId == currentLeader.UserId)
+                throw new ConflictException("This student is already the team leader.");
+
+            await RequireReplacementAllowedAsync(team, target, token);
+
+            var now = Now;
+            await requests.CancelPendingByTeamAsync(team.Id, actor.UserId, trimmedReason, "DEPARTMENT_FORCE", now, token);
+            await teams.TransferLeaderAsync(team.Id, currentLeader.UserId, target.UserId, now, token);
+
+            var context = await requests.GetContextAsync(team.Id, target.UserId, token);
+            await audit.RecordAsync(new AuditEntry(
+                actor.UserId,
+                "TEAM_LEADER_FORCED",
+                "TEAM",
+                team.Id,
+                new Dictionary<string, object?>
+                {
+                    ["projectId"] = context?.ProjectId,
+                    ["previousLeaderUserId"] = currentLeader.UserId,
+                    ["newLeaderUserId"] = target.UserId,
+                    ["reason"] = trimmedReason,
+                    ["decisionSource"] = "DEPARTMENT_FORCE"
+                }), token);
+
+            await requests.NotifyForceLeaderChangedAsync(
+                team.Id, context?.ProjectId, actor.UserId, currentLeader.UserId, target.UserId, trimmedReason, now, token);
+
+            return await teamWorkflow.GetAsync(team.Id, token);
+        }, ct);
+
     public async Task<PagedResult<TeamLeaderChangeRequestDto>> ListAsync(long? teamId,
-        string? status, int page, int pageSize, CancellationToken ct)
+        string? status, int page, int pageSize, CancellationToken ct, long? projectId = null)
     {
-        var actor = teamId.HasValue
-            ? await RequireStudentAsync(ct)
-            : await RequireAuthenticatedAsync(ct);
+        var actor = await RequireAuthenticatedAsync(ct);
         long? mentorUserId = null;
-        if (teamId.HasValue)
+        if (projectId.HasValue)
+        {
+            var isLeadStaff = currentUser.Roles.Contains(AppRoles.DepartmentStaff)
+                && await requests.IsLeadDepartmentStaffForProjectAsync(projectId.Value, actor.UserId, ct);
+            if (!isLeadStaff && !currentUser.Roles.Contains(AppRoles.Admin))
+                throw new ForbiddenException("Only lead department staff can view leader-change requests for this project.");
+        }
+        else if (teamId.HasValue)
         {
             var team = await GetTeamAsync(teamId.Value, ct);
-            if (!team.Members.Any(m => m.UserId == actor.UserId))
-                throw new ForbiddenException("Only active team members can view leader-change requests.");
+            var isMember = currentUser.Roles.Contains(AppRoles.Student) && team.Members.Any(m => m.UserId == actor.UserId);
+            var isLeadStaff = false;
+            if (!isMember && currentUser.Roles.Contains(AppRoles.DepartmentStaff))
+            {
+                var (_, _, deptId) = await teams.GetStaffActorScopeAsync(actor.UserId, ct);
+                var leadDeptId = await teams.GetTeamLeadDepartmentIdAsync(team.Id, ct);
+                isLeadStaff = deptId.HasValue && (!leadDeptId.HasValue || deptId.Value == leadDeptId.Value);
+            }
+            if (!isMember && !isLeadStaff && !currentUser.Roles.Contains(AppRoles.Admin))
+                throw new ForbiddenException("Only active team members or lead department staff can view leader-change requests.");
         }
         else
         {
@@ -158,7 +295,7 @@ public sealed class TeamLeaderChangeWorkflow(
                 throw new ForbiddenException("Only lecturers can view the mentor leader-change inbox.");
             mentorUserId = mentor.UserId;
         }
-        var result = await requests.SearchAsync(new(teamId, mentorUserId, status, page, pageSize), ct);
+        var result = await requests.SearchAsync(new(teamId, mentorUserId, status, page, pageSize, projectId), ct);
         return new(result.Items.Select(x => x.ToDto()).ToArray(), result.Page, result.PageSize, result.TotalCount);
     }
 

@@ -52,6 +52,19 @@ public sealed class ProjectsController(ISender sender) : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
     }
 
+    [HttpPost("from-topic/{topicId:long}")]
+    [ProducesResponseType<ProjectDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ProjectDto>> CreateDraftFromTopic(
+        long topicId,
+        CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(new CreateProjectFromTopicCommand(topicId), cancellationToken);
+        return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+    }
+
     [HttpPut("{id}")]
     [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ProjectDto>> UpdateDraft(
@@ -108,6 +121,16 @@ public sealed class ProjectsController(ISender sender) : ControllerBase
 
         return Ok(await sender.Send(command, cancellationToken));
     }
+
+    [HttpDelete("{id:long}/topic")]
+    [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ProjectDto>> DeselectTopic(
+        long id,
+        CancellationToken cancellationToken) =>
+        Ok(await sender.Send(new DeselectProjectTopicCommand(id), cancellationToken));
 
     [HttpGet("{id}")]
     [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
@@ -197,6 +220,20 @@ public sealed class ProjectsController(ISender sender) : ControllerBase
         CancellationToken cancellationToken)
     {
         var command = new ApproveProjectCommand(id, request.ConcurrencyToken);
+        return Ok(await sender.Send(command, cancellationToken));
+    }
+
+    [HttpPost("{id:long}/lead-override-approve")]
+    [ProducesResponseType<ProjectDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<ActionResult<ProjectDto>> LeadOverrideApprove(
+        long id,
+        [FromBody] LeadOverrideApproveRequest request,
+        CancellationToken cancellationToken)
+    {
+        var command = new LeadOverrideApproveProjectCommand(id, request.ConcurrencyToken, request.Reason);
         return Ok(await sender.Send(command, cancellationToken));
     }
 

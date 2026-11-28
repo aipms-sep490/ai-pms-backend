@@ -4,9 +4,12 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.AccountSecurity.Abstractions;
+using AIPMS.Application.Features.AccountSecurity.DTOs;
 using AIPMS.Application.Features.AccountSecurity.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Mappers;
+using AIPMS.Infrastructure.Persistence.Models;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using PermissionEntity = AIPMS.Infrastructure.Persistence.Generated.Models.Permission;
@@ -318,6 +321,310 @@ internal sealed class AccountSecurityRepository(AipmsDbContext context)
         await SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return (await GetUserAsync(userId, cancellationToken))!;
+    }
+
+    public async Task<UserActiveObligationsDto> GetActiveObligationsAsync(
+        long userId,
+        CancellationToken cancellationToken = default)
+    {
+        var userScope = await context.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new
+            {
+                u.Id,
+                u.DepartmentId,
+                DepartmentName = u.Department == null ? null : u.Department.Name
+            })
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("User", userId);
+
+        var activeTeamRows = await context.TeamMembers.AsNoTracking()
+            .Where(m => m.UserId == userId && m.LeftAt == null && m.Team.Status != "DISBANDED")
+            .Select(m => new
+            {
+                m.TeamId,
+                TeamCode = m.Team.Code,
+                TeamStatus = m.Team.Status,
+                m.IsLeader,
+                Project = context.Projects
+                    .Where(p => p.TeamId == m.TeamId)
+                    .OrderByDescending(p => p.Id)
+                    .Select(p => new
+                    {
+                        p.Id,
+                        p.Code,
+                        p.Title,
+                        p.Status,
+                        LeadDeptId = p.ProjectMajors.OrderBy(pm => pm.Id)
+                            .Select(pm => (long?)pm.Major.DepartmentId).FirstOrDefault(),
+                        LeadDeptName = p.ProjectMajors.OrderBy(pm => pm.Id)
+                            .Select(pm => pm.Major.Department.Name).FirstOrDefault()
+                    })
+                    .FirstOrDefault()
+            })
+            .ToListAsync(cancellationToken);
+
+        var teamObligations = activeTeamRows
+            .Where(r => r.Project is null || r.Project.Status is not ("COMPLETED" or "ARCHIVED" or "REJECTED"))
+            .Select(r => new UserObligationItemDto(
+                "TEAM_MEMBER",
+                r.Project?.Id ?? r.TeamId,
+                r.Project?.Code ?? r.TeamCode,
+                r.Project?.Title,
+                r.IsLeader ? "TEAM_LEADER" : "TEAM_MEMBER",
+                r.Project?.Status ?? r.TeamStatus,
+                r.Project?.LeadDeptId ?? userScope.DepartmentId,
+                r.Project?.LeadDeptName ?? userScope.DepartmentName))
+            .ToList();
+
+        var supervisionRows = await context.SupervisorAssignments.AsNoTracking()
+            .Where(a => a.SupervisorProfile.UserId == userId
+                && a.EndedAt == null
+                && a.Project.Status != "COMPLETED"
+                && a.Project.Status != "ARCHIVED"
+                && a.Project.Status != "REJECTED")
+            .Select(a => new
+            {
+                a.Id,
+                a.ProjectId,
+                ProjectCode = a.Project.Code,
+                ProjectTitle = a.Project.Title,
+                ProjectStatus = a.Project.Status,
+                a.AssignmentType,
+                LeadDeptId = a.Project.ProjectMajors.OrderBy(pm => pm.Id)
+                    .Select(pm => (long?)pm.Major.DepartmentId).FirstOrDefault(),
+                LeadDeptName = a.Project.ProjectMajors.OrderBy(pm => pm.Id)
+                    .Select(pm => pm.Major.Department.Name).FirstOrDefault()
+            })
+            .ToListAsync(cancellationToken);
+
+        var supervisionObligations = supervisionRows
+            .Select(s => new UserObligationItemDto(
+                "SUPERVISION",
+                s.ProjectId,
+                s.ProjectCode,
+                s.ProjectTitle,
+                s.AssignmentType,
+                s.ProjectStatus,
+                s.LeadDeptId ?? userScope.DepartmentId,
+                s.LeadDeptName ?? userScope.DepartmentName))
+            .ToList();
+
+        var gateRows = await context.Set<GateReviewerAssignment>().AsNoTracking()
+            .Where(a => a.ReviewerId == userId
+                && a.Status == "ACTIVE"
+                && a.GateInstance.Status != "PASSED"
+                && a.GateInstance.Status != "WAIVED"
+                && a.GateInstance.Project.Status != "COMPLETED"
+                && a.GateInstance.Project.Status != "ARCHIVED")
+            .Select(a => new
+            {
+                a.Id,
+                a.GateInstance.ProjectId,
+                ProjectCode = a.GateInstance.Project.Code,
+                ProjectTitle = a.GateInstance.Project.Title,
+                GateCode = a.GateInstance.Code,
+                a.Scope,
+                GateStatus = a.GateInstance.Status,
+                LeadDeptId = a.GateInstance.Project.ProjectMajors.OrderBy(pm => pm.Id)
+                    .Select(pm => (long?)pm.Major.DepartmentId).FirstOrDefault(),
+                LeadDeptName = a.GateInstance.Project.ProjectMajors.OrderBy(pm => pm.Id)
+                    .Select(pm => pm.Major.Department.Name).FirstOrDefault()
+            })
+            .ToListAsync(cancellationToken);
+
+        var gateObligations = gateRows
+            .Select(g => new UserObligationItemDto(
+                "GATE_REVIEW",
+                g.ProjectId,
+                g.ProjectCode,
+                g.ProjectTitle,
+                $"{g.GateCode}:{g.Scope}",
+                g.GateStatus,
+                g.LeadDeptId ?? userScope.DepartmentId,
+                g.LeadDeptName ?? userScope.DepartmentName))
+            .ToList();
+
+        var evalRows = await (
+            from assignment in context.Set<EvaluationAssignment>().AsNoTracking()
+            join project in context.Projects.AsNoTracking() on assignment.ProjectId equals project.Id
+            where assignment.EvaluatorId == userId
+                && assignment.Status == "ACTIVE"
+                && project.Status != "COMPLETED"
+                && project.Status != "ARCHIVED"
+                && !context.Set<EvaluationDraftState>().Any(d =>
+                    d.AssignmentId == assignment.Id
+                    && context.Evaluations.Any(ev => ev.Id == d.EvaluationId && ev.Status == "FINALIZED"))
+            select new
+            {
+                assignment.Id,
+                assignment.ProjectId,
+                ProjectCode = project.Code,
+                ProjectTitle = project.Title,
+                assignment.EvaluationType,
+                assignment.Status,
+                DepartmentId = assignment.DepartmentId > 0
+                    ? (long?)assignment.DepartmentId
+                    : project.ProjectMajors.OrderBy(pm => pm.Id)
+                        .Select(pm => (long?)pm.Major.DepartmentId).FirstOrDefault(),
+                DepartmentName = project.ProjectMajors.OrderBy(pm => pm.Id)
+                    .Select(pm => pm.Major.Department.Name).FirstOrDefault()
+            })
+            .ToListAsync(cancellationToken);
+
+        var evalAndAppealObligations = evalRows
+            .Select(e => new UserObligationItemDto(
+                "EVALUATION",
+                e.ProjectId,
+                e.ProjectCode,
+                e.ProjectTitle,
+                e.EvaluationType,
+                e.Status,
+                e.DepartmentId ?? userScope.DepartmentId,
+                e.DepartmentName ?? userScope.DepartmentName))
+            .ToList();
+
+        var appealRows = await (
+            from appeal in context.Set<ResultAppealRequest>().AsNoTracking()
+            join project in context.Projects.AsNoTracking() on appeal.ProjectId equals project.Id
+            where appeal.ReviewerId == userId
+                && (appeal.Status == "SUBMITTED" || appeal.Status == "UNDER_REVIEW" || appeal.Status == "ESCALATED")
+            select new
+            {
+                appeal.Id,
+                appeal.ProjectId,
+                ProjectCode = project.Code,
+                ProjectTitle = project.Title,
+                appeal.Scope,
+                appeal.Status,
+                DepartmentId = (long?)appeal.ResponsibleDepartmentId
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var a in appealRows)
+        {
+            evalAndAppealObligations.Add(new UserObligationItemDto(
+                "APPEAL_REVIEW",
+                a.ProjectId,
+                a.ProjectCode,
+                a.ProjectTitle,
+                a.Scope,
+                a.Status,
+                a.DepartmentId ?? userScope.DepartmentId,
+                null));
+        }
+
+        var impactedDepts = teamObligations
+            .Concat(supervisionObligations)
+            .Concat(gateObligations)
+            .Concat(evalAndAppealObligations)
+            .Where(o => o.DepartmentId.HasValue)
+            .Select(o => o.DepartmentId!.Value)
+            .Distinct()
+            .OrderBy(id => id)
+            .ToList();
+
+        var total = teamObligations.Count + supervisionObligations.Count + gateObligations.Count + evalAndAppealObligations.Count;
+        if (total > 0 && impactedDepts.Count == 0 && userScope.DepartmentId.HasValue)
+            impactedDepts.Add(userScope.DepartmentId.Value);
+
+        return new UserActiveObligationsDto(
+            userId,
+            total,
+            teamObligations,
+            supervisionObligations,
+            gateObligations,
+            evalAndAppealObligations,
+            impactedDepts);
+    }
+
+    public async Task NotifyDepartmentsOfAccountLockAsync(
+        long actorUserId,
+        long targetUserId,
+        string targetFullName,
+        string targetEmail,
+        string newStatus,
+        string? reason,
+        UserActiveObligationsDto obligations,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+    {
+        if (obligations.TotalCount == 0 || obligations.ImpactedDepartmentIds.Count == 0) return;
+
+        var projectCodes = obligations.TeamMemberships
+            .Concat(obligations.Supervisions)
+            .Concat(obligations.GateReviews)
+            .Concat(obligations.EvaluationsAndAppeals)
+            .Select(o => o.ProjectCode)
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(10)
+            .ToArray();
+        var codesText = projectCodes.Length > 0 ? string.Join(", ", projectCodes) : $"User #{targetUserId}";
+        var reasonText = string.IsNullOrWhiteSpace(reason) ? "Không ghi lý do." : reason;
+        var title = $"Cảnh báo khẩn: Tài khoản {targetFullName} đã chuyển trạng thái {newStatus} khi còn {obligations.TotalCount} vai trò hoạt động";
+        var content = $"Admin đã chuyển tài khoản {targetFullName} ({targetEmail}) sang trạng thái {newStatus}. "
+            + $"Lý do: {reasonText} "
+            + $"Ảnh hưởng ({obligations.TotalCount}): Nhóm={obligations.TeamMemberships.Count}, Hướng dẫn={obligations.Supervisions.Count}, Phản biện cổng={obligations.GateReviews.Count}, Chấm/Phúc khảo={obligations.EvaluationsAndAppeals.Count}. "
+            + $"Mã đồ án/nhóm liên quan: {codesText}. Vui lòng kiểm tra và thực hiện bàn giao/thay thế kịp thời.";
+
+        var staffIds = new HashSet<long>();
+        foreach (var deptId in obligations.ImpactedDepartmentIds)
+        {
+            var ids = await V4WorkflowNotificationHelper.GetDepartmentStaffIdsAsync(context, deptId, cancellationToken);
+            foreach (var id in ids) staffIds.Add(id);
+        }
+
+        if (staffIds.Count > 0)
+        {
+            await V4WorkflowNotificationHelper.EmitAsync(
+                context,
+                actorUserId,
+                "ACCOUNT_LOCKED_WITH_OBLIGATIONS",
+                title,
+                content,
+                "USER",
+                targetUserId,
+                staffIds,
+                utcNow,
+                enqueueEmail: true,
+                cancellationToken);
+        }
+    }
+
+    public async Task IssueTemporaryPasswordAsync(
+        long userId,
+        string passwordHash,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
+        var user = await context.Users.SingleOrDefaultAsync(u => u.Id == userId, cancellationToken)
+            ?? throw new NotFoundException("User", userId);
+
+        var normalized = new DateTime(utcNow.Ticks - (utcNow.Ticks % TimeSpan.TicksPerSecond), DateTimeKind.Utc);
+        var nextVersion = user.PasswordChangedAt is not null && user.PasswordChangedAt.Value >= normalized
+            ? user.PasswordChangedAt.Value.AddSeconds(1)
+            : normalized;
+
+        user.PasswordHash = passwordHash;
+        user.PasswordChangedAt = nextVersion;
+        user.MustChangePassword = true;
+        user.GoogleEnrollmentPending = false;
+        user.AccessFailedCount = 0;
+        user.LockoutEndAt = null;
+        user.UpdatedAt = utcNow;
+
+        await context.RefreshTokens
+            .Where(token => token.UserId == userId && token.RevokedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(token => token.RevokedAt, utcNow),
+                cancellationToken);
+
+        await SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public Task<bool> UserHasRoleAsync(

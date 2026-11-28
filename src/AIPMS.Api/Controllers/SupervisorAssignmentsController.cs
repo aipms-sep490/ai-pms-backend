@@ -1,4 +1,6 @@
 using AIPMS.Application.Common.Models;
+using AIPMS.Application.Common.Security;
+using AIPMS.Application.Features.Supervisors.Abstractions;
 using AIPMS.Application.Features.Supervisors.Commands;
 using AIPMS.Application.Features.Supervisors.DTOs;
 using AIPMS.Application.Features.Supervisors.Queries;
@@ -16,7 +18,9 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-public sealed class SupervisorAssignmentsController(ISender sender) : ControllerBase
+public sealed class SupervisorAssignmentsController(
+    ISender sender,
+    ISupervisorDirectAssignmentService directAssignment) : ControllerBase
 {
     [HttpGet("{assignmentId:long}")]
     [ProducesResponseType<SupervisorAssignmentDto>(StatusCodes.Status200OK)]
@@ -50,4 +54,32 @@ public sealed class SupervisorAssignmentsController(ISender sender) : Controller
     [ProducesResponseType<SupervisorAssignmentDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<SupervisorAssignmentDto>> End(long assignmentId, EndSupervisorAssignmentRequest request, CancellationToken ct) =>
         Ok(await sender.Send(new EndSupervisorAssignmentCommand(assignmentId, request.Reason), ct));
+
+    [HttpGet("/api/v1/projects/{projectId:long}/supervisor-assignments/direct-candidates")]
+    [Authorize(Roles = AppRoles.DepartmentStaff)]
+    [ProducesResponseType<PagedResult<SupervisorCandidateDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<SupervisorCandidateDto>>> DirectCandidates(
+        long projectId,
+        [FromQuery] string assignmentType = "PRIMARY",
+        [FromQuery] long? majorId = null,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default) =>
+        Ok(await directAssignment.GetDirectCandidatesAsync(projectId, assignmentType, majorId, search, page, pageSize, ct));
+
+    [HttpPost("/api/v1/projects/{projectId:long}/supervisor-assignments/direct")]
+    [Authorize(Roles = AppRoles.DepartmentStaff)]
+    [ProducesResponseType<SupervisorAssignmentDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<SupervisorAssignmentDto>> DirectAssign(
+        long projectId,
+        [FromBody] DirectAssignSupervisorRequest request,
+        CancellationToken ct = default) =>
+        Ok(await directAssignment.DirectAssignAsync(
+            projectId,
+            request.SupervisorProfileId,
+            request.AssignmentType,
+            request.MajorId,
+            request.Reason,
+            ct));
 }

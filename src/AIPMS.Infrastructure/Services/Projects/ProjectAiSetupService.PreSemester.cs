@@ -515,7 +515,8 @@ internal sealed partial class ProjectAiSetupService
         if (!user.IsStaff)
             throw new ForbiddenException(user.IsAdmin
                 ? "Tài khoản quản trị viên không có vai trò Cán bộ bộ môn (DEPARTMENT_STAFF) nên không thể lưu cấu hình chuyên môn này."
-                : "Chỉ Cán bộ bộ môn mới có quyền áp dụng cấu hình này.");
+                : "Chỉ Cán bộ bộ môn mới có quyền áp dụng cấu hình này.",
+                user.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
 
         if (!user.DepartmentId.HasValue || !user.OrganizationId.HasValue)
             throw new ForbiddenException("Tài khoản Cán bộ bộ môn chưa được gắn khoa/bộ môn hoạt động.");

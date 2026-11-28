@@ -17,3 +17,11 @@ public sealed record WorkingAgreementDto(long Id, long ProjectId, int Version, s
     long CreatedBy, DateTime CreatedAt, string ConcurrencyToken, bool Required, int MemberCount,
     bool AcceptedByMe, IReadOnlyList<AgreementAcceptanceDto> Acceptances, WorkingAgreementReadiness Readiness,
     IReadOnlyList<ExecutionActionDto> Actions);
+
+public sealed record ForceActivateProjectRequest(string Reason);
+
+public sealed record ForceActivateProjectResponse(
+    long ProjectId,
+    string Status,
+    bool WorkingAgreementBypassed,
+    string Reason);

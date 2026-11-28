@@ -8,6 +8,7 @@ using AIPMS.Application.Common.Models;
 using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.Academic.DTOs;
 using AIPMS.Infrastructure.Persistence.Generated;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
@@ -78,8 +79,21 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
             || user.Department is null || !user.Department.IsActive || !user.Department.Organization.IsActive
             || user.Major.DepartmentId != user.DepartmentId))
             throw new ConflictException("Verification requires an active student, major, department and organization with matching scope.");
-        if (status == "REJECTED" && (string.IsNullOrWhiteSpace(reason) || reason.Length > 2000))
-            throw new ValidationException(new Dictionary<string, string[]> { ["reason"] = ["A reason of 1 to 2000 characters is required."] });
+        if (status == "REJECTED")
+        {
+            if (string.IsNullOrWhiteSpace(reason) || reason.Length > 2000)
+                throw new ValidationException(new Dictionary<string, string[]> { ["reason"] = ["A reason of 1 to 2000 characters is required."] });
+            var inActiveProject = await db.TeamMembers.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                    && m.LeftAt == null
+                    && db.Projects.Any(p => p.TeamId == m.TeamId && (p.Status == "ACTIVE" || p.Status == "FINAL_SUBMISSION")), ct);
+            if (inActiveProject)
+            {
+                throw new ConflictException(
+                    "Cannot reject academic profile of a student currently in an ACTIVE or FINAL_SUBMISSION project.",
+                    WorkflowErrorCodes.StudentInActiveProject);
+            }
+        }
         user.AcademicProfileStatus = status;
         user.AcademicProfileReviewedBy = reviewerId;
         user.AcademicProfileReviewedAt = now;
@@ -119,6 +133,13 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
             throw new ConflictException("An active team, supervisor or evaluator obligation prevents changing this academic scope.");
         if (changed)
         {
+            var previousDepartmentId = user.DepartmentId;
+            var keepVerified = string.Equals(user.AcademicProfileStatus, "VERIFIED", StringComparison.Ordinal)
+                && previousDepartmentId.HasValue
+                && departmentId.HasValue
+                && previousDepartmentId.Value == departmentId.Value
+                && majorId.HasValue;
+
             user.DepartmentId = departmentId; user.MajorId = majorId;
             if (user.SpecializationId.HasValue)
             {
@@ -128,8 +149,14 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
                         && (s.MajorId == null || s.MajorId == majorId), ct);
                 if (!specStillValid) user.SpecializationId = null;
             }
-            user.AcademicProfileStatus = "PENDING"; user.AcademicProfileReviewedBy = null;
-            user.AcademicProfileReviewedAt = null; user.AcademicProfileRejectionReason = null; user.UpdatedAt = now;
+            if (!keepVerified)
+            {
+                user.AcademicProfileStatus = "PENDING";
+                user.AcademicProfileReviewedBy = null;
+                user.AcademicProfileReviewedAt = null;
+                user.AcademicProfileRejectionReason = null;
+            }
+            user.UpdatedAt = now;
             await db.SaveChangesAsync(ct);
         }
         var result = await db.Users.AsNoTracking()
@@ -141,4 +168,152 @@ internal sealed class AcademicProfileRepository(AipmsDbContext db) : IAcademicPr
 
     public Task<bool> IsVerifiedAsync(long userId, CancellationToken ct = default)
         => db.Users.AsNoTracking().AnyAsync(x => x.Id == userId && x.AcademicProfileStatus == "VERIFIED", ct);
+
+    public async Task<BulkVerifyAcademicProfilesResultDto> BulkVerifyAsync(
+        long actorId,
+        IReadOnlyList<long>? userIds,
+        string? classCode,
+        long? majorId,
+        DateTime now,
+        CancellationToken ct = default)
+    {
+        if (db.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Bulk profile verification requires a transaction.");
+
+        var actor = await db.Users.AsNoTracking()
+            .Where(u => u.Id == actorId && u.Status == "ACTIVE")
+            .Select(u => new
+            {
+                u.DepartmentId,
+                IsAdmin = u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Admin),
+                IsStaff = u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.DepartmentStaff)
+                    && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
+            })
+            .SingleOrDefaultAsync(ct) ?? throw new ForbiddenException();
+
+        if (!actor.IsStaff || !actor.DepartmentId.HasValue)
+        {
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot verify student academic profiles."
+                    : "An active department staff account is required to bulk verify student academic profiles.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
+
+        var departmentId = actor.DepartmentId.Value;
+        var hasExplicitIds = userIds is { Count: > 0 };
+        var normalizedClass = string.IsNullOrWhiteSpace(classCode) ? null : classCode.Trim().ToUpperInvariant();
+        if (!hasExplicitIds && normalizedClass is null && !majorId.HasValue)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["filter"] = ["Provide userIds, classCode, or majorId to bulk verify academic profiles."]
+            });
+        }
+
+        long[] targetIds;
+        if (hasExplicitIds)
+        {
+            targetIds = userIds!.Where(id => id > 0).Distinct().OrderBy(id => id).ToArray();
+            if (targetIds.Length == 0 || targetIds.Length > 500)
+                throw new ValidationException(new Dictionary<string, string[]> { ["userIds"] = ["Bulk verify supports between 1 and 500 students per batch."] });
+
+            var outsideDept = await db.Users.AsNoTracking()
+                .AnyAsync(u => targetIds.Contains(u.Id) && u.DepartmentId != departmentId, ct);
+            if (outsideDept)
+                throw new ForbiddenException("Bulk verification can only target students within your assigned department.", WorkflowErrorCodes.StudentOutsideDepartment);
+        }
+        else
+        {
+            var query = db.Users.AsNoTracking()
+                .Where(u => u.DepartmentId == departmentId
+                    && u.Status == "ACTIVE"
+                    && u.AcademicProfileStatus != "VERIFIED"
+                    && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Student));
+            if (normalizedClass is not null)
+                query = query.Where(u => u.ClassCode != null && u.ClassCode.ToUpper() == normalizedClass);
+            if (majorId.HasValue)
+                query = query.Where(u => u.MajorId == majorId.Value);
+
+            targetIds = await query.OrderBy(u => u.Id).Select(u => u.Id).Take(501).ToArrayAsync(ct);
+            if (targetIds.Length > 500)
+                throw new ValidationException(new Dictionary<string, string[]> { ["filter"] = ["More than 500 matching students found. Narrow the filter (class/major) or select <= 500 students."] });
+        }
+
+        if (targetIds.Length == 0)
+            return new BulkVerifyAcademicProfilesResultDto(0, 0, [], []);
+
+        // Lock rows in ascending UserId order to prevent SQL Server deadlocks.
+        foreach (var id in targetIds)
+        {
+            await db.Users.FromSqlInterpolated($"SELECT * FROM dbo.users WITH (UPDLOCK, HOLDLOCK) WHERE id = {id}")
+                .AsNoTracking().ToListAsync(ct);
+        }
+
+        var users = await db.Users
+            .Include(u => u.Major)
+            .Include(u => u.Department).ThenInclude(d => d!.Organization)
+            .Where(u => targetIds.Contains(u.Id) && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.Student))
+            .OrderBy(u => u.Id)
+            .ToListAsync(ct);
+
+        var verifiedIds = new List<long>();
+        var skippedIds = new List<long>();
+        var foundSet = new HashSet<long>();
+        foreach (var user in users)
+        {
+            foundSet.Add(user.Id);
+            var eligible = user.Status == "ACTIVE"
+                && user.DepartmentId == departmentId
+                && user.Major is not null && user.Major.IsActive
+                && user.Department is not null && user.Department.IsActive && user.Department.Organization.IsActive
+                && user.Major.DepartmentId == user.DepartmentId
+                && !string.Equals(user.AcademicProfileStatus, "VERIFIED", StringComparison.Ordinal);
+
+            if (!eligible)
+            {
+                skippedIds.Add(user.Id);
+                continue;
+            }
+
+            user.AcademicProfileStatus = "VERIFIED";
+            user.AcademicProfileReviewedBy = actorId;
+            user.AcademicProfileReviewedAt = now;
+            user.AcademicProfileRejectionReason = null;
+            user.UpdatedAt = now;
+            db.AcademicProfileVerifications.Add(new()
+            {
+                UserId = user.Id,
+                Status = "VERIFIED",
+                ReviewedBy = actorId,
+                ReviewedAt = now,
+                RejectionReason = null
+            });
+            verifiedIds.Add(user.Id);
+        }
+
+        foreach (var id in targetIds)
+        {
+            if (!foundSet.Contains(id)) skippedIds.Add(id);
+        }
+
+        if (verifiedIds.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            await V4WorkflowNotificationHelper.EmitAsync(
+                db,
+                actorId,
+                "ACADEMIC_PROFILE_VERIFIED",
+                "Hồ sơ học vụ của bạn đã được xác minh",
+                "Giáo vụ Khoa đã xác minh hồ sơ học vụ của bạn. Bạn đã đủ điều kiện tham gia lập nhóm và đăng ký đồ án theo quy định kỳ hiện hành.",
+                "USER",
+                actorId,
+                verifiedIds,
+                now,
+                enqueueEmail: false,
+                ct);
+        }
+
+        return new BulkVerifyAcademicProfilesResultDto(verifiedIds.Count, skippedIds.Count, verifiedIds, skippedIds);
+    }
 }

@@ -629,15 +629,22 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                 }
             }
 
-            if (entity.PeriodType != periodType || entity.StartAt != startAt || entity.EndAt != endAt
-                || entity.MinTeamSize != minTeamSize || entity.MaxTeamSize != maxTeamSize
-                || entity.MinDistinctMajors != minDistinctMajors || entity.MaxProjectsPerSupervisor != maxProjectsPerSupervisor)
+            var ruleParamsChanged = entity.PeriodType != periodType
+                || entity.MinTeamSize != minTeamSize
+                || entity.MaxTeamSize != maxTeamSize
+                || entity.MinDistinctMajors != minDistinctMajors
+                || entity.MaxProjectsPerSupervisor != maxProjectsPerSupervisor;
+            if (ruleParamsChanged)
             {
                 await AIPMS.Infrastructure.Services.Projects.PolicyVersions.GuardLegacyEditAsync(context, periodId, cancellationToken);
                 entity.PolicyVersion++;
             }
-            if (entity.RubricId != rubricId || entity.MilestoneTemplateId != milestoneTemplateId)
-                await AIPMS.Infrastructure.Services.Projects.PolicyVersions.GuardLegacyEditAsync(context, periodId, cancellationToken);
+
+            if (entity.StartAt != startAt || entity.EndAt != endAt)
+            {
+                await AIPMS.Infrastructure.Services.Projects.PolicyVersions.SyncPolicyWindowOnDateUpdateAsync(
+                    context, periodId, entity.StartAt, entity.EndAt, startAt, endAt, cancellationToken);
+            }
             entity.Code = code;
             entity.Name = name;
             entity.PeriodType = periodType;
@@ -884,6 +891,15 @@ internal sealed class SemesterRepository(AipmsDbContext context)
                                 && r.Department.Organization.IsActive)),
                 cancellationToken);
     }
+
+    public Task<long?> GetUserActiveOrganizationIdAsync(
+        long userId,
+        CancellationToken cancellationToken = default) =>
+        context.Users.AsNoTracking()
+            .Where(u => u.Id == userId && u.Status == "ACTIVE"
+                && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive)
+            .Select(u => (long?)u.Department!.OrganizationId)
+            .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<Task<T>> action,

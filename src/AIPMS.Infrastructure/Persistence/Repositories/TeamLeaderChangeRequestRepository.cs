@@ -48,14 +48,15 @@ internal sealed class TeamLeaderChangeRequestRepository(AipmsDbContext context)
             {
                 t.Id,
                 ProjectId = t.Project == null ? (long?)null : t.Project.Id,
+                ProjectStatus = t.Project == null ? null : t.Project.Status,
                 CurrentLeaderUserId = t.TeamMembers.Where(m => m.LeftAt == null && m.IsLeader)
                     .Select(m => (long?)m.UserId).SingleOrDefault()
             }).SingleOrDefaultAsync(ct);
         if (team is null) return null;
         if (!await context.TeamMembers.AnyAsync(m => m.TeamId == teamId && m.UserId == newLeaderUserId && m.LeftAt == null, ct))
-            return new(team.Id, team.ProjectId, team.CurrentLeaderUserId ?? 0, newLeaderUserId, null, null, null);
+            return new(team.Id, team.ProjectId, team.CurrentLeaderUserId ?? 0, newLeaderUserId, null, null, null, team.ProjectStatus);
         if (team.ProjectId is not long projectId)
-            return new(team.Id, null, team.CurrentLeaderUserId ?? 0, newLeaderUserId, null, null, null);
+            return new(team.Id, null, team.CurrentLeaderUserId ?? 0, newLeaderUserId, null, null, null, null);
         var mentor = await context.SupervisorAssignments.Where(a => a.ProjectId == projectId
                 && a.IsPrimary && a.EndedAt == null
                 && a.SupervisorProfile.User.Status == "ACTIVE"
@@ -67,7 +68,7 @@ internal sealed class TeamLeaderChangeRequestRepository(AipmsDbContext context)
             .Select(a => new { a.SupervisorProfileId, a.SupervisorProfile.UserId, a.SupervisorProfile.User.FullName })
             .SingleOrDefaultAsync(ct);
         return new(team.Id, projectId, team.CurrentLeaderUserId ?? 0, newLeaderUserId,
-            mentor?.SupervisorProfileId, mentor?.UserId, mentor?.FullName);
+            mentor?.SupervisorProfileId, mentor?.UserId, mentor?.FullName, team.ProjectStatus);
     }
 
     public Task<bool> HasPendingAsync(long teamId, CancellationToken ct) =>
@@ -75,7 +76,7 @@ internal sealed class TeamLeaderChangeRequestRepository(AipmsDbContext context)
             .SingleAsync(ct);
 
     public async Task<TeamLeaderChangeRequestModel> CreateAsync(long teamId, long projectId,
-        long requestedBy, long currentLeaderUserId, long newLeaderUserId, long mentorProfileId,
+        long requestedBy, long currentLeaderUserId, long newLeaderUserId, long? mentorProfileId,
         string? message, DateTime now, CancellationToken ct)
     {
         var entity = new TeamLeaderChangeRequestEntity
@@ -102,11 +103,17 @@ internal sealed class TeamLeaderChangeRequestRepository(AipmsDbContext context)
             .Where(r => r.Id == requestId)).SingleOrDefaultAsync(ct);
 
     public async Task<TeamLeaderChangeRequestModel> RespondAsync(long requestId, string status,
-        string? message, DateTime now, CancellationToken ct)
+        string? message, DateTime now, CancellationToken ct,
+        long? decidedByUserId = null, string? decisionSource = null)
     {
         var affected = await context.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE dbo.team_leader_change_requests
-            SET status = {status}, response_message = {message}, responded_at = {now}, updated_at = {now}
+            SET status = {status},
+                response_message = {message},
+                responded_at = {now},
+                decided_by_user_id = {decidedByUserId},
+                decision_source = {decisionSource},
+                updated_at = {now}
             WHERE id = {requestId} AND status = N'PENDING'
             """, ct);
         if (affected != 1) throw new ConflictException("The leader-change request has already been processed.");
@@ -118,8 +125,9 @@ internal sealed class TeamLeaderChangeRequestRepository(AipmsDbContext context)
     {
         var query = context.TeamLeaderChangeRequests.AsNoTracking();
         if (search.TeamId.HasValue) query = query.Where(x => x.TeamId == search.TeamId.Value);
+        if (search.ProjectId.HasValue) query = query.Where(x => x.ProjectId == search.ProjectId.Value);
         if (search.MentorUserId.HasValue)
-            query = query.Where(x => x.MentorProfile.UserId == search.MentorUserId.Value);
+            query = query.Where(x => x.MentorProfile != null && x.MentorProfile.UserId == search.MentorUserId.Value);
         if (search.Status is not null) query = query.Where(x => x.Status == search.Status);
         var count = await query.LongCountAsync(ct);
         var page = query.OrderByDescending(x => x.RequestedAt).ThenByDescending(x => x.Id)
@@ -132,10 +140,62 @@ internal sealed class TeamLeaderChangeRequestRepository(AipmsDbContext context)
         context.Database.SqlQuery<bool>($"SELECT CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.supervisor_assignments WHERE project_id = {projectId} AND supervisor_profile_id = {mentorProfileId} AND is_primary = 1 AND ended_at IS NULL) THEN 1 ELSE 0 END AS bit) AS Value")
             .SingleAsync(ct);
 
+    public Task<int> CancelPendingByTeamAsync(long teamId, long actorUserId, string reason, string decisionSource, DateTime now, CancellationToken ct) =>
+        context.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE dbo.team_leader_change_requests
+            SET status = N'CANCELLED',
+                response_message = {reason},
+                responded_at = {now},
+                decided_by_user_id = {actorUserId},
+                decision_source = {decisionSource},
+                updated_at = {now}
+            WHERE team_id = {teamId} AND status = N'PENDING'
+            """, ct);
+
+    public async Task<bool> IsLeadDepartmentStaffForProjectAsync(long projectId, long userId, CancellationToken ct)
+    {
+        var actor = await context.Users.AsNoTracking()
+            .Where(u => u.Id == userId && u.Status == "ACTIVE")
+            .Select(u => new
+            {
+                u.DepartmentId,
+                HasActiveDept = u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive,
+                IsStaff = u.UserRoleUsers.Any(r => r.Role.Code == AIPMS.Application.Common.Security.AppRoles.DepartmentStaff)
+            })
+            .SingleOrDefaultAsync(ct);
+        if (actor is null || !actor.IsStaff || !actor.HasActiveDept || !actor.DepartmentId.HasValue) return false;
+        var scope = await AIPMS.Infrastructure.Services.Projects.ProjectAcademicScopeReader.ReadAsync(context, projectId, ct);
+        return scope.LeadDepartmentId.HasValue && scope.LeadDepartmentId.Value == actor.DepartmentId.Value;
+    }
+
+    public async Task NotifyForceLeaderChangedAsync(long teamId, long? projectId, long actorUserId, long oldLeaderUserId, long newLeaderUserId, string reason, DateTime now, CancellationToken ct)
+    {
+        var recipients = new HashSet<long> { oldLeaderUserId, newLeaderUserId };
+        var memberIds = await context.TeamMembers.AsNoTracking()
+            .Where(m => m.TeamId == teamId && m.LeftAt == null)
+            .Select(m => m.UserId)
+            .ToArrayAsync(ct);
+        foreach (var id in memberIds) recipients.Add(id);
+        if (projectId.HasValue)
+        {
+            var supIds = await AIPMS.Infrastructure.Services.Projects.V4WorkflowNotificationHelper
+                .GetActiveSupervisorAndMentorIdsAsync(context, projectId.Value, primaryOnly: false, ct);
+            foreach (var id in supIds) recipients.Add(id);
+        }
+        await AIPMS.Infrastructure.Services.Projects.V4WorkflowNotificationHelper.EmitAsync(
+            context, actorUserId, "TEAM_LEADER_FORCED",
+            "Khoa chủ trì đã chuyển quyền Trưởng nhóm",
+            $"Khoa chủ trì đã thực hiện chuyển quyền Trưởng nhóm. Lý do: {reason}",
+            "TEAM", teamId, recipients, now, enqueueEmail: true, ct);
+    }
+
     private static IQueryable<TeamLeaderChangeRequestModel> ProjectQuery(
         IQueryable<TeamLeaderChangeRequestEntity> query) => query.Select(r => new TeamLeaderChangeRequestModel(
             r.Id, r.TeamId, r.ProjectId,
             r.RequestedBy, r.CurrentLeaderUserId, r.NewLeaderUserId, r.MentorProfileId,
-            r.MentorProfile.UserId, r.MentorProfile.User.FullName, r.Status, r.RequestMessage,
-            r.ResponseMessage, r.RequestedAt, r.RespondedAt));
+            r.MentorProfile != null ? (long?)r.MentorProfile.UserId : null,
+            r.MentorProfile != null ? r.MentorProfile.User.FullName : null,
+            r.Status, r.RequestMessage,
+            r.ResponseMessage, r.RequestedAt, r.RespondedAt,
+            r.DecidedByUserId, r.DecisionSource));
 }

@@ -13,4 +13,12 @@ public interface IAcademicProfileRepository
     Task<AcademicProfileDto> SetStatusAsync(long userId, string status, long reviewerId, string? reason, DateTime now, CancellationToken ct = default);
     Task<AcademicProfileDto> UpdateAcademicScopeAsync(long userId, long? departmentId, long? majorId, string expectedToken, long actorId, DateTime now, CancellationToken ct = default);
     Task<bool> IsVerifiedAsync(long userId, CancellationToken ct = default);
+    Task<BulkVerifyAcademicProfilesResultDto> BulkVerifyAsync(
+        long actorId,
+        IReadOnlyList<long>? userIds,
+        string? classCode,
+        long? majorId,
+        DateTime now,
+        CancellationToken ct = default) =>
+        Task.FromResult(new BulkVerifyAcademicProfilesResultDto(0, 0, [], []));
 }

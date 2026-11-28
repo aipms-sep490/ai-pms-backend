@@ -17,6 +17,8 @@ public sealed class SupervisorAssignmentHandlerTests
     public async Task End_is_transactional_and_replay_does_not_rewrite_reason_or_time()
     {
         var fixture = new Fixture();
+        // TK-W1-13: Ending PRIMARY on ACTIVE is blocked (use Replace instead); ending non-primary or pre-ACTIVE remains transactional & idempotent
+        fixture.Repository.Assignment = fixture.Repository.Assignment with { IsPrimary = false, AssignmentType = "DISCIPLINE_MENTOR" };
         var handler = new EndSupervisorAssignmentCommandHandler(fixture.Workflow);
         var result = await handler.Handle(new(1, " Finished "), default);
         Assert.NotNull(result.EndedAt);
@@ -25,6 +27,16 @@ public sealed class SupervisorAssignmentHandlerTests
         var audit = Assert.Single(fixture.Audit.Entries);
         Assert.Equal("SUPERVISOR_ASSIGNMENT_ENDED", audit.Action);
         Assert.Equal("SUPERVISOR_ASSIGNMENT", audit.EntityType);
+    }
+
+    [Fact]
+    public async Task End_primary_supervisor_on_active_project_is_blocked_TK_W1_13()
+    {
+        var fixture = new Fixture();
+        var handler = new EndSupervisorAssignmentCommandHandler(fixture.Workflow);
+        var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new(1, "Attempt end primary"), default));
+        Assert.Equal(WorkflowErrorCodes.PrimarySupervisorReplaceRequired, ex.Code);
+        Assert.Equal(0, fixture.Repository.Writes);
     }
 
     [Theory]
@@ -45,18 +57,27 @@ public sealed class SupervisorAssignmentHandlerTests
     [InlineData("COMPLETED")]
     [InlineData("ARCHIVED")]
     [InlineData("FINAL_SUBMISSION")]
-    public async Task Even_admin_cannot_end_assignments_outside_active_execution(string status)
+    public async Task Department_staff_cannot_end_assignments_outside_active_execution(string status)
     {
-        var f = new Fixture(AppRoles.Admin);
+        var f = new Fixture(AppRoles.DepartmentStaff);
         f.Repository.Assignment = f.Repository.Assignment with { ProjectStatus = status };
         await Assert.ThrowsAsync<ConflictException>(() => new EndSupervisorAssignmentCommandHandler(f.Workflow).Handle(new(1, "Done"), default));
         Assert.Equal(0, f.Repository.Writes);
     }
 
     [Fact]
-    public async Task Unknown_scope_blocks_owner_and_admin_mutation_and_capabilities()
+    public async Task Pure_admin_cannot_end_supervisor_assignment_TK_W1_01()
     {
-        foreach (var role in new[] { AppRoles.Lecturer, AppRoles.Admin })
+        var f = new Fixture(AppRoles.Admin);
+        var ex = await Assert.ThrowsAsync<ForbiddenException>(() => new EndSupervisorAssignmentCommandHandler(f.Workflow).Handle(new(1, "Done"), default));
+        Assert.Equal(WorkflowErrorCodes.AdminNotAcademicAuthority, ex.Code);
+        Assert.Equal(0, f.Repository.Writes);
+    }
+
+    [Fact]
+    public async Task Unknown_scope_blocks_owner_and_staff_mutation_and_capabilities()
+    {
+        foreach (var role in new[] { AppRoles.Lecturer, AppRoles.DepartmentStaff })
         {
             var f = new Fixture(role);
             f.Repository.Assignment = f.Repository.Assignment with { HasKnownAcademicScope = false };

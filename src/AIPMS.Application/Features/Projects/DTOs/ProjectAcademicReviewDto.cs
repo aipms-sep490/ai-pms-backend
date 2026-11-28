@@ -20,9 +20,20 @@ public sealed record DepartmentDecisionDto(long DepartmentId, string Decision, l
 
 public sealed record RegistrationSnapshotDto(long Id, long ProjectPeriodId, long SubmittedBy,
     DateTime SubmittedAt, RegistrationEvidence? Evidence, IReadOnlyList<DepartmentDecisionDto> Decisions,
-    string AcademicScopeProvenance = "UNKNOWN");
+    string AcademicScopeProvenance = "UNKNOWN",
+    bool IsLeadOverride = false,
+    string? OverrideReason = null,
+    long? OverriddenBy = null,
+    DateTime? OverriddenAt = null,
+    string? ConsolidatedRevisionNotes = null);
 
 public sealed record ProjectAcademicReviewDto(string ConcurrencyToken, TeamAcademicScopeDto? AcademicScope,
-    RegistrationSnapshotDto? LatestSubmission, IReadOnlyList<RegistrationSnapshotDto>? SubmissionHistory = null);
+    RegistrationSnapshotDto? LatestSubmission, IReadOnlyList<RegistrationSnapshotDto>? SubmissionHistory = null,
+    string? ConsolidatedRevisionNotes = null,
+    int ElapsedWorkingDays = 0,
+    string SlaState = "ON_TIME",
+    bool CanLeadOverride = false);
 
 public sealed record DepartmentDecisionRequest(long SnapshotId, string ConcurrencyToken, string Decision, string? Reason);
+
+public sealed record LeadOverrideApproveRequest(string ConcurrencyToken, string Reason);

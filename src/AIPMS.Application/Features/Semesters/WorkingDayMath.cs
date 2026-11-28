@@ -18,6 +18,37 @@ public static class WorkingDayMath
         return result;
     }
 
+    // Strictly elapsed working days after 'from' (Mon 10:00 + 2 WD = Wed 10:00; Fri 10:00 + 2 WD = Tue 10:00).
+    public static DateTimeOffset AddElapsedWorkingDays(DateTimeOffset from, int days, int mask, IReadOnlyList<PeriodHoliday> holidays)
+    {
+        if (days < 0 || days > 3660) throw new ArgumentOutOfRangeException(nameof(days));
+        if (days == 0) return from;
+        var result = from;
+        var counted = 0;
+        while (counted < days)
+        {
+            result = result.AddDays(1);
+            if (IsWorkingDay(DateOnly.FromDateTime(result.Date), mask, holidays))
+                counted++;
+        }
+        return result;
+    }
+
+    public static int CountElapsedWorkingDays(DateTimeOffset from, DateTimeOffset to, int mask, IReadOnlyList<PeriodHoliday> holidays)
+    {
+        if (to <= from) return 0;
+        var cursor = from;
+        var counted = 0;
+        while (counted < 3660)
+        {
+            cursor = cursor.AddDays(1);
+            if (cursor > to) break;
+            if (IsWorkingDay(DateOnly.FromDateTime(cursor.Date), mask, holidays))
+                counted++;
+        }
+        return counted;
+    }
+
     // Eight working hours: 08:00-12:00 and 13:30-17:30 in the input offset.
     public static DateTimeOffset AddWorkingHours(DateTimeOffset from, int hours, int mask, IReadOnlyList<PeriodHoliday> holidays)
     {

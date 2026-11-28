@@ -44,8 +44,14 @@ public sealed class ArchiveProjectCommandHandler(
                 departmentId = id;
         }
         var departmentIds = await repository.GetProjectMajorDepartmentIdsAsync(request.ProjectId, cancellationToken);
-        if (!ProjectArchivePolicy.HasScope(isAdmin, isStaff, departmentId, departmentIds)
-            || !await repository.CanUserViewProjectAsync(request.ProjectId, actorId, isAdmin, departmentId, cancellationToken))
+        if (!isStaff)
+            throw new ForbiddenException(
+                isAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot archive academic projects."
+                    : "Only department staff within the project's academic scope can archive projects.",
+                isAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.Forbidden);
+        if (!ProjectArchivePolicy.HasScope(false, isStaff, departmentId, departmentIds)
+            || !await repository.CanUserViewProjectAsync(request.ProjectId, actorId, false, departmentId, cancellationToken))
             throw new ForbiddenException("You can only archive projects within your academic department scope.");
         if (!ProjectArchivePolicy.HasState(project.Status))
             throw new ConflictException("Only a COMPLETED project can be archived.", WorkflowErrorCodes.ArchiveNotAllowed);

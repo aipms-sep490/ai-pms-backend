@@ -108,7 +108,18 @@ public sealed class TeamEligibilityEvaluationService(
         CancellationToken cancellationToken)
     {
         var utcNow = timeProvider.GetUtcNow().UtcDateTime;
-        var contextInput = await eligibilityRepository.BuildContextInputAsync(teamId, utcNow, cancellationToken);
+        TeamEligibilityContextInput contextInput;
+        try
+        {
+            contextInput = await eligibilityRepository.BuildContextInputAsync(teamId, utcNow, cancellationToken);
+        }
+        catch (ConflictException)
+        {
+            // TK-W1-11 (ISS-X-43): After registration window N1 closes, return the latest snapshot in read-only mode instead of 409.
+            var closedSnapshot = await eligibilityRepository.GetLatestCheckAsync(teamId, null, null, cancellationToken);
+            if (closedSnapshot is null) return null;
+            return MapToDto(closedSnapshot, FreshnessStatus.Stale) with { Freshness = "WINDOW_CLOSED" };
+        }
         var hashes = hasher.ComputeHashes(contextInput, utcNow);
 
         var evaluationContext = new TeamEligibilityEvaluationContext(

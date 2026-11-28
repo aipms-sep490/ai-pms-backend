@@ -43,28 +43,29 @@ public sealed class StartReviewProjectCommandHandler(
         var project = await repository.GetByIdAsync(request.ProjectId, cancellationToken)
             ?? throw new NotFoundException("Project", request.ProjectId);
 
-        // Authorization checks (Admin or Department Staff in scope)
+        // Authorization checks (Department Staff in scope only — pure ADMIN is not academic authority, Q-X-05)
         var isAdmin = currentUser.Roles.Contains(AppRoles.Admin, StringComparer.Ordinal);
         var isStaff = currentUser.Roles.Contains(AppRoles.DepartmentStaff, StringComparer.Ordinal);
 
-        if (!isAdmin && !isStaff)
+        if (!isStaff)
         {
-            throw new ForbiddenException("Only Admin or Department Staff can review projects.");
+            throw new ForbiddenException(
+                isAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot review project proposals."
+                    : "Only Department Staff can review projects.",
+                isAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.Forbidden);
         }
 
-        if (isStaff && !isAdmin)
+        var staffScope = await academicRepository.GetUserScopeAsync(actorUserId, cancellationToken);
+        if (staffScope is null)
         {
-            var staffScope = await academicRepository.GetUserScopeAsync(actorUserId, cancellationToken);
-            if (staffScope is null)
-            {
-                throw new ForbiddenException("Your account does not have a configured academic department scope.");
-            }
+            throw new ForbiddenException("Your account does not have a configured academic department scope.");
+        }
 
-            var projectDeptIds = await repository.GetProjectMajorDepartmentIdsAsync(request.ProjectId, cancellationToken);
-            if (!projectDeptIds.Contains(staffScope.DepartmentId))
-            {
-                throw new ForbiddenException("You can only review projects within your assigned academic department scope.");
-            }
+        var projectDeptIds = await repository.GetProjectMajorDepartmentIdsAsync(request.ProjectId, cancellationToken);
+        if (!projectDeptIds.Contains(staffScope.DepartmentId))
+        {
+            throw new ForbiddenException("You can only review projects within your assigned academic department scope.");
         }
 
         // Validate state machine transition

@@ -55,7 +55,39 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context, Time
                 .OrderByDescending(p => p.StartAt).ThenByDescending(p => p.Id).Take(2)
                 .Select(p => new SupervisorSelectionPolicy(p.Id, p.MaxProjectsPerSupervisor)).ToListAsync(ct);
         }
-        return policies;
+        if (policies.Count == 0) return policies;
+
+        var periodIds = policies.Select(p => p.PeriodId).ToArray();
+        var effectiveVersions = await context.Set<AIPMS.Infrastructure.Persistence.Models.PeriodPolicyVersion>().AsNoTracking()
+            .Where(v => periodIds.Contains(v.ProjectPeriodId) && v.Status != "DRAFT" && v.EffectiveFrom <= now && now < v.EffectiveTo)
+            .OrderByDescending(v => v.Version)
+            .ToListAsync(ct);
+        var versionByPeriod = effectiveVersions.GroupBy(v => v.ProjectPeriodId).ToDictionary(g => g.Key, g => g.First());
+
+        var enriched = new List<SupervisorSelectionPolicy>(policies.Count);
+        foreach (var policy in policies)
+        {
+            if (versionByPeriod.TryGetValue(policy.PeriodId, out var version))
+            {
+                try
+                {
+                    var fields = System.Text.Json.JsonSerializer.Deserialize<AIPMS.Application.Features.Semesters.DTOs.PeriodPolicyFields>(version.SnapshotJson);
+                    if (fields is not null)
+                    {
+                        enriched.Add(policy with
+                        {
+                            MaxProjectsPerSupervisor = fields.MaxProjectsPerSupervisor > 0 ? fields.MaxProjectsPerSupervisor : policy.MaxProjectsPerSupervisor,
+                            SupervisorInvitationExpiryDays = fields.SupervisorInvitationExpiryDays is >= 1 and <= 30 ? fields.SupervisorInvitationExpiryDays : 7,
+                            MaxPendingSupervisorRequestsPerSlot = fields.MaxPendingSupervisorRequestsPerSlot is >= 1 and <= 5 ? fields.MaxPendingSupervisorRequestsPerSlot : 2
+                        });
+                        continue;
+                    }
+                }
+                catch { /* fallback to defaults */ }
+            }
+            enriched.Add(policy);
+        }
+        return enriched;
     }
 
     public async Task<PagedResult<SupervisorCandidateModel>> SearchAsync(SupervisorCandidateSearch search, CancellationToken ct)

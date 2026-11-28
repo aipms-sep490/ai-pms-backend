@@ -6,4 +6,5 @@ public sealed record AuthUserDto(
     string FullName,
     IReadOnlyCollection<string> Roles,
     string? Title = null,
-    string? Phone = null);
+    string? Phone = null,
+    bool MustChangePassword = false);

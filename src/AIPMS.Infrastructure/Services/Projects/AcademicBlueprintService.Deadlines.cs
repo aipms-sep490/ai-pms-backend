@@ -26,9 +26,36 @@ internal sealed partial class AcademicBlueprintService
 {
     public async Task<IReadOnlyList<GateDeadlineChangeRequestDto>> ListDeadlineChangeRequestsAsync(long projectId, string? gateCode = null, CancellationToken ct = default)
     {
+        if (!await db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, ct))
+            throw new NotFoundException("Project", projectId);
+
+        var actor = await GetActorScopeAsync(ct);
+        if (!actor.IsAdmin)
+        {
+            var canAccess = false;
+            if (actor.IsStaff && actor.DepartmentId.HasValue)
+            {
+                var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
+                canAccess = scope.DepartmentIds.Contains(actor.DepartmentId.Value);
+            }
+            if (!canAccess && projectAccess is not null)
+            {
+                canAccess = await projectAccess.CanAccessAsync(ActorId, projectId, ct);
+            }
+            if (!canAccess && projectAccess is null)
+            {
+                canAccess = await db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId
+                    && (p.Team.TeamMembers.Any(m => m.UserId == ActorId && m.LeftAt == null)
+                        || p.SupervisorAssignments.Any(sa => sa.EndedAt == null && sa.SupervisorProfile.UserId == ActorId)), ct);
+            }
+            if (!canAccess)
+                throw new ForbiddenException("You do not have access to view gate deadline change requests for this project.");
+        }
+
+        var normalizedCode = string.IsNullOrWhiteSpace(gateCode) ? null : gateCode.Trim().ToUpperInvariant();
         var query = from r in db.GateDeadlineChangeRequests.AsNoTracking()
                     join g in db.ProjectGateInstances.AsNoTracking() on r.GateInstanceId equals g.Id
-                    where r.ProjectId == projectId && (gateCode == null || g.Code == gateCode)
+                    where r.ProjectId == projectId && (normalizedCode == null || g.Code == normalizedCode)
                     orderby r.CreatedAt descending, r.Id descending
                     select new GateDeadlineChangeRequestDto(
                         r.Id, r.ProjectId, r.GateInstanceId, g.Code,
@@ -54,8 +81,16 @@ internal sealed partial class AcademicBlueprintService
         var isSupervisor = await db.SupervisorAssignments.AsNoTracking()
             .AnyAsync(sa => sa.ProjectId == projectId && sa.SupervisorProfile.UserId == ActorId && sa.EndedAt == null, ct);
         var actor = await GetActorScopeAsync(ct);
-        if (!isLeader && !isSupervisor && !actor.IsAdmin && !actor.IsStaff)
-            throw new ForbiddenException("Only the team leader, assigned supervisor, or department staff can request a gate deadline change.");
+        var reqScope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
+        var isInScopeStaff = actor.IsStaff && actor.DepartmentId.HasValue && reqScope.DepartmentIds.Contains(actor.DepartmentId.Value);
+        if (!isLeader && !isSupervisor && !isInScopeStaff)
+        {
+            throw new ForbiddenException(
+                actor.IsAdmin && !actor.IsStaff
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot request gate deadline changes."
+                    : "Only the team leader, assigned supervisor, or in-scope department staff can request a gate deadline change.",
+                actor.IsAdmin && !actor.IsStaff ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
 
         var normalizedCode = gateCode.Trim().ToUpperInvariant();
         var gate = await db.ProjectGateInstances.AsNoTracking()
@@ -82,7 +117,6 @@ internal sealed partial class AcademicBlueprintService
         await auditTrail.RecordAsync(new AuditEntry(ActorId, "GATE_DEADLINE_CHANGE_REQUESTED", "PROJECT_GATE_INSTANCE", gate.Id,
             new Dictionary<string, object?> { ["requestId"] = entity.Id, ["projectId"] = projectId, ["gateCode"] = gate.Code }), ct);
 
-        var reqScope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
         if (reqScope.LeadDepartmentId.HasValue)
         {
             var staffIds = await V4WorkflowNotificationHelper.GetDepartmentStaffIdsAsync(db, reqScope.LeadDepartmentId.Value, ct);
@@ -101,13 +135,11 @@ internal sealed partial class AcademicBlueprintService
 
     public async Task<GateDeadlineChangeRequestDto> ReviewDeadlineChangeRequestAsync(long projectId, long requestId, ReviewGateDeadlineChangeRequest request, CancellationToken ct = default)
     {
-        var actor = await GetActorScopeAsync(ct);
-        if (!actor.IsAdmin && !actor.IsStaff)
-            throw new ForbiddenException("Only lead department staff or admins can approve or reject gate deadline change requests.");
+        var staffDeptId = await RequireDepartmentStaffWriteScopeAsync(ct, "Only lead department staff can approve or reject gate deadline change requests.");
 
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
-        if (!actor.IsAdmin && scope.LeadDepartmentId.HasValue && actor.DepartmentId != scope.LeadDepartmentId.Value)
-            throw new ForbiddenException("Only LeadScope department staff or admins can approve gate deadline changes.");
+        if (scope.LeadDepartmentId.HasValue && staffDeptId != scope.LeadDepartmentId.Value)
+            throw new ForbiddenException("Only LeadScope department staff can approve gate deadline changes.");
 
         var decision = (request.Decision ?? "").Trim().ToUpperInvariant();
         if (decision is not ("APPROVED" or "REJECTED"))

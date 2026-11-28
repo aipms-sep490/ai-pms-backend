@@ -60,9 +60,28 @@ public sealed class GetTeamLeaderChangeRequestsQueryValidator
     public GetTeamLeaderChangeRequestsQueryValidator()
     {
         RuleFor(x => x.TeamId).GreaterThan(0).When(x => x.TeamId.HasValue);
+        RuleFor(x => x.ProjectId).GreaterThan(0).When(x => x.ProjectId.HasValue);
         RuleFor(x => x.Page).InclusiveBetween(1, 1000000);
         RuleFor(x => x.PageSize).InclusiveBetween(1, 100);
         RuleFor(x => x.Status).Must(value => value is null or "PENDING" or "APPROVED" or "REJECTED" or "CANCELLED")
             .WithMessage("Status must be PENDING, APPROVED, REJECTED or CANCELLED.");
+    }
+}
+
+public sealed class CancelTeamLeaderChangeCommandValidator : AbstractValidator<CancelTeamLeaderChangeCommand>
+{
+    public CancelTeamLeaderChangeCommandValidator()
+    {
+        RuleFor(x => x.RequestId).GreaterThan(0);
+    }
+}
+
+public sealed class ForceTransferTeamLeaderCommandValidator : AbstractValidator<ForceTransferTeamLeaderCommand>
+{
+    public ForceTransferTeamLeaderCommandValidator()
+    {
+        RuleFor(x => x.TeamId).GreaterThan(0);
+        RuleFor(x => x.NewLeaderUserId).GreaterThan(0);
+        RuleFor(x => x.Reason).NotEmpty().MinimumLength(15).MaximumLength(2000);
     }
 }

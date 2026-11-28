@@ -14,7 +14,8 @@ public static class RubricStatuses
 public sealed record RubricActor(long UserId, bool IsAdmin, long? DepartmentId, long? OrganizationId = null, bool IsStaff = false);
 public sealed record RubricScope(long DepartmentId, long OrganizationId, string SemesterStatus);
 public sealed record RubricApprovalRecord(long Id, long RubricId, long SubmittedBy, DateTime SubmittedAt,
-    long? DecidedBy, DateTime? DecidedAt, string? Decision, string? Reason);
+    long? DecidedBy, DateTime? DecidedAt, string? Decision, string? Reason,
+    long? DepartmentId = null, string? ScopeRole = null, bool IsSingleStaffSelfApproval = false);
 
 public sealed record RubricCriterionLevelInput(int LevelOrder, string Label, string Descriptor,
     decimal? ScoreFrom, decimal? ScoreTo);
@@ -55,6 +56,7 @@ public sealed record RubricRecord(long Id, long? DepartmentId, long? AcademicSem
     public DateOnly? EffectiveFrom { get; init; }
     public DateOnly? EffectiveTo { get; init; }
     public string? ApprovalReference { get; init; }
+    public long? ParticipatingDepartmentId { get; init; }
 }
 
 public sealed record RubricFilter(long? DepartmentId, long? AcademicSemesterId, string? Status,

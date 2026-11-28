@@ -11,4 +11,5 @@ public sealed record AuthAccount(
     DateTime? LockoutEndAt,
     DateTime? PasswordChangedAt,
     string? Title = null,
-    string? Phone = null);
+    string? Phone = null,
+    bool MustChangePassword = false);

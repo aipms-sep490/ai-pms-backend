@@ -42,11 +42,17 @@ public partial class AipmsDbContext
             e.Property(x => x.SubmittedBy).HasColumnName("submitted_by");
             e.Property(x => x.SubmittedAt).HasColumnName("submitted_at").HasPrecision(0);
             e.Property(x => x.SnapshotJson).HasColumnName("snapshot_json");
+            e.Property(x => x.IsLeadOverride).HasColumnName("is_lead_override").HasDefaultValue(false);
+            e.Property(x => x.OverrideReason).HasColumnName("override_reason").HasMaxLength(2000);
+            e.Property(x => x.OverriddenBy).HasColumnName("overridden_by");
+            e.Property(x => x.OverriddenAt).HasColumnName("overridden_at").HasPrecision(0);
+            e.Property(x => x.ConsolidatedRevisionNotes).HasColumnName("consolidated_revision_notes");
             e.HasIndex(x => new { x.ProjectId, x.Id });
             e.HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<ProjectPeriod>().WithMany().HasForeignKey(x => x.ProjectPeriodId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Department>().WithMany().HasForeignKey(x => x.LeadDepartmentId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.SubmittedBy).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.OverriddenBy).OnDelete(DeleteBehavior.NoAction);
             e.HasMany(x => x.Decisions).WithOne().HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.NoAction);
         });
         modelBuilder.Entity<ProjectDepartmentDecision>(e =>

@@ -17,14 +17,24 @@ using Microsoft.Extensions.Options;
 namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraftRepository transactions,
-    ICurrentUser current, IAuditTrail audit, TimeProvider clock, IOptions<WorkingAgreementSettings> settings) : IWorkingAgreementService
+    ICurrentUser current, IAuditTrail audit, TimeProvider clock, IOptions<WorkingAgreementSettings> settings,
+    AIPMS.Application.Features.Projects.Abstractions.IProjectRepository? projectRepository = null,
+    AIPMS.Application.Abstractions.Projects.IProjectActivationService? activationService = null) : IWorkingAgreementService
 {
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
     private sealed record Access(bool Leader, bool Member, bool Writable);
     private static ValidationException Invalid(string value) => new(new Dictionary<string, string[]> { ["workingAgreement"] = [value] });
+    private async Task<bool> IsFeatureAvailableAsync(long projectId, CancellationToken ct)
+    {
+        if (settings.Value.Enabled) return true;
+        var exists = await db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, ct);
+        if (!exists) return false;
+        return (await WorkingAgreementGuard.Read(db, projectId, ct)).Required;
+    }
+
     private async Task<Access> Scope(long projectId, CancellationToken ct)
     {
-        if (!settings.Value.Enabled) throw new NotFoundException("WorkingAgreementFeature", projectId);
+        if (!await IsFeatureAvailableAsync(projectId, ct)) throw new NotFoundException("WorkingAgreementFeature", projectId);
         var actor = await transactions.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
         var project = await transactions.GetProjectAsync(projectId, ct) ?? throw new NotFoundException("Project", projectId);
         var member = await db.TeamMembers.AsNoTracking().Where(m => m.Team.Project != null && m.Team.Project.Id == projectId
@@ -78,7 +88,7 @@ internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraf
         Map(row, Actor, await WorkingAgreementGuard.Read(db, row.ProjectId, ct), await Actions(row.ProjectId, access, ct));
     public async Task<IReadOnlyList<ExecutionActionDto>> Capabilities(long projectId, CancellationToken ct)
     {
-        if (!settings.Value.Enabled) return [Action("manage_working_agreement", false, "FEATURE_DISABLED"),
+        if (!await IsFeatureAvailableAsync(projectId, ct)) return [Action("manage_working_agreement", false, "FEATURE_DISABLED"),
             Action("publish_working_agreement", false, "FEATURE_DISABLED"), Action("accept_working_agreement", false, "FEATURE_DISABLED")];
         try { return await Actions(projectId, await Scope(projectId, ct), ct); }
         catch (ForbiddenException) { return [Action("manage_working_agreement", false, "AGREEMENT_SCOPE_REQUIRED"),
@@ -86,7 +96,7 @@ internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraf
     }
     public async Task<WorkingAgreementReadiness?> Readiness(long projectId, CancellationToken ct)
     {
-        if (!settings.Value.Enabled) return null;
+        if (!await IsFeatureAvailableAsync(projectId, ct)) return null;
         try { await Scope(projectId, ct); return await WorkingAgreementGuard.Read(db, projectId, ct); }
         catch (ForbiddenException) { return null; }
     }
@@ -148,6 +158,16 @@ internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraf
         row.Members = roster.Select(m => new AgreementMember { UserId = m.UserId, TeamMemberId = m.TeamMemberId,
             MembershipJoinedAt = m.JoinedAt, MembershipGeneration = m.MembershipGeneration }).ToList();
         await db.SaveChangesAsync(ct); await Audit("WORKING_AGREEMENT_PUBLISHED", row, ct);
+
+        // TK-W1-18: Notify active team members to sign the published working agreement
+        var projectCode = await db.Projects.AsNoTracking().Where(p => p.Id == projectId).Select(p => p.Code).FirstOrDefaultAsync(ct) ?? $"#{projectId}";
+        await V4WorkflowNotificationHelper.EmitAsync(
+            db, Actor, "WORKING_AGREEMENT_PUBLISHED",
+            $"Cam kết nhóm v{row.Version} đã công bố — Đồ án {projectCode}",
+            $"Trưởng nhóm đã công bố Cam kết nhóm (phiên bản v{row.Version}) cho đồ án {projectCode}. Vui lòng xem và xác nhận đồng ý để hoàn tất kích hoạt đồ án.",
+            "WORKING_AGREEMENT", row.Id, roster.Select(m => m.UserId), row.PublishedAt ?? clock.GetUtcNow().UtcDateTime,
+            enqueueEmail: false, ct, excludeActor: true);
+
         return await Dto(row, access, ct);
     }, ct);
     public Task<WorkingAgreementDto> Accept(long projectId, AgreementTokenRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
@@ -173,7 +193,7 @@ internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraf
                 var readiness = await WorkingAgreementGuard.Read(db, projectId, ct);
                 if (!readiness.Required || readiness.Status == "READY")
                 {
-                    var confirmation = await new AIPMS.Infrastructure.Persistence.Repositories.ProjectRepository(db, clock)
+                    var confirmation = await (projectRepository ?? new AIPMS.Infrastructure.Persistence.Repositories.ProjectRepository(db, clock, activationService))
                         .GetSupervisorConfirmationAsync(projectId, ct);
                     if (confirmation.HasConfirmedPrimarySupervisor && confirmation.MissingMentorMajorIds.Count == 0)
                     {
@@ -189,7 +209,7 @@ internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraf
                             ChangedAt = now
                         });
                         await db.SaveChangesAsync(ct);
-                        await new ProjectActivationService(db).ApplyMilestoneTemplateAsync(projectId, Actor, now, ct);
+                        await (activationService ?? new ProjectActivationService(db)).ApplyMilestoneTemplateAsync(projectId, Actor, now, ct);
                         await audit.RecordAsync(new(Actor, "PROJECT_ACTIVATED", "PROJECT", projectId,
                             new Dictionary<string, object?>
                             {
@@ -202,5 +222,86 @@ internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraf
             }
         }
         return await Dto(row, access, ct);
+    }, ct);
+
+    public Task<ForceActivateProjectResponse> ForceActivateAsync(long projectId, ForceActivateProjectRequest input, CancellationToken ct) => transactions.InTransactionAsync(async () =>
+    {
+        var isStaff = current.Roles.Contains(AIPMS.Application.Common.Security.AppRoles.DepartmentStaff, StringComparer.Ordinal);
+        var isAdmin = current.Roles.Contains(AIPMS.Application.Common.Security.AppRoles.Admin, StringComparer.Ordinal);
+        if (!isStaff)
+        {
+            throw new ForbiddenException(
+                isAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot force-activate projects."
+                    : "Only Lead Department Staff can force-activate a project.",
+                isAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.Forbidden);
+        }
+
+        var trimmedReason = input.Reason?.Trim() ?? string.Empty;
+        if (trimmedReason.Length < 15)
+        {
+            throw new AIPMS.Domain.Exceptions.DomainException(
+                "Force-activate reason must be at least 15 characters.",
+                WorkflowErrorCodes.ReasonRequired);
+        }
+
+        await transactions.LockProjectAsync(projectId, ct);
+        var project = await db.Projects.SingleOrDefaultAsync(p => p.Id == projectId, ct)
+            ?? throw new NotFoundException("Project", projectId);
+
+        var actor = await transactions.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
+        var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: false);
+        if (!actor.DepartmentId.HasValue || !scope.LeadDepartmentId.HasValue || actor.DepartmentId.Value != scope.LeadDepartmentId.Value)
+            throw new ForbiddenException("Only the lead department can force-activate this project.", WorkflowErrorCodes.ScopeAccessDenied);
+
+        if (project.Status != "SUPERVISOR_PENDING")
+            throw new ConflictException($"Force-activate requires project status SUPERVISOR_PENDING (current: {project.Status}).");
+
+        var confirmation = await (projectRepository ?? new AIPMS.Infrastructure.Persistence.Repositories.ProjectRepository(db, clock, activationService))
+            .GetSupervisorConfirmationAsync(projectId, ct);
+        if (!confirmation.HasConfirmedPrimarySupervisor || confirmation.MissingMentorMajorIds.Count > 0)
+        {
+            throw new ConflictException(
+                "Supervision is incomplete; confirm Primary Supervisor and all required Discipline Mentors before force-activating.",
+                WorkflowErrorCodes.SupervisionIncomplete);
+        }
+
+        var readiness = await WorkingAgreementGuard.Read(db, projectId, ct);
+        var bypassed = readiness.Required && readiness.Status != "READY";
+        var now = clock.GetUtcNow().UtcDateTime;
+
+        project.Status = "ACTIVE";
+        project.UpdatedAt = now;
+        db.ProjectStatusHistories.Add(new AIPMS.Infrastructure.Persistence.Generated.Models.ProjectStatusHistory
+        {
+            ProjectId = projectId,
+            OldStatus = "SUPERVISOR_PENDING",
+            NewStatus = "ACTIVE",
+            ChangedBy = Actor,
+            Reason = $"[Force-Activate] {trimmedReason}",
+            ChangedAt = now
+        });
+        await db.SaveChangesAsync(ct);
+
+        await (activationService ?? new ProjectActivationService(db)).ApplyMilestoneTemplateAsync(projectId, Actor, now, ct);
+
+        await audit.RecordAsync(new(Actor, "PROJECT_FORCE_ACTIVATED", "PROJECT", projectId,
+            new Dictionary<string, object?>
+            {
+                ["oldStatus"] = "SUPERVISOR_PENDING",
+                ["newStatus"] = "ACTIVE",
+                ["workingAgreementBypassed"] = bypassed,
+                ["reason"] = trimmedReason
+            }), ct);
+
+        var studentIds = await V4WorkflowNotificationHelper.GetActiveTeamStudentIdsAsync(db, projectId, ct);
+        var supervisorIds = await V4WorkflowNotificationHelper.GetActiveSupervisorAndMentorIdsAsync(db, projectId, primaryOnly: false, ct);
+        await V4WorkflowNotificationHelper.EmitAsync(
+            db, Actor, "PROJECT_FORCE_ACTIVATED",
+            $"Khoa đã kích hoạt đồ án {project.Code}",
+            $"Khoa chủ trì đã kích hoạt đồ án \"{project.Title}\" sang trạng thái ACTIVE. Lý do: {trimmedReason}",
+            "PROJECT", projectId, studentIds.Concat(supervisorIds), now, enqueueEmail: true, ct);
+
+        return new ForceActivateProjectResponse(projectId, project.Status, bypassed, trimmedReason);
     }, ct);
 }

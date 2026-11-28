@@ -12,4 +12,5 @@ public interface IWorkingAgreementService
     Task<WorkingAgreementDto> Accept(long projectId, AgreementTokenRequest input, CancellationToken ct);
     Task<IReadOnlyList<ExecutionActionDto>> Capabilities(long projectId, CancellationToken ct);
     Task<WorkingAgreementReadiness?> Readiness(long projectId, CancellationToken ct);
+    Task<ForceActivateProjectResponse> ForceActivateAsync(long projectId, ForceActivateProjectRequest input, CancellationToken ct);
 }

@@ -52,7 +52,41 @@ public sealed record UpdateUserAccountRequest(
     string? EmployeeCode,
     string? ConcurrencyToken);
 
-public sealed record SetUserStatusRequest(string Status);
+public sealed record SetUserStatusRequest(
+    string Status,
+    string? Reason = null,
+    bool? AcknowledgeObligations = null);
+
+public sealed record UserStatusActionRequest(
+    string? Reason = null,
+    bool? AcknowledgeObligations = null);
+
+public sealed record UserObligationItemDto(
+    string Category,
+    long EntityId,
+    string? ProjectCode,
+    string? ProjectTitle,
+    string RoleOrScope,
+    string Status,
+    long? DepartmentId,
+    string? DepartmentName);
+
+public sealed record UserActiveObligationsDto(
+    long UserId,
+    int TotalCount,
+    IReadOnlyList<UserObligationItemDto> TeamMemberships,
+    IReadOnlyList<UserObligationItemDto> Supervisions,
+    IReadOnlyList<UserObligationItemDto> GateReviews,
+    IReadOnlyList<UserObligationItemDto> EvaluationsAndAppeals,
+    IReadOnlyList<long> ImpactedDepartmentIds);
+
+public sealed record IssueTemporaryPasswordRequest(string? Reason = null);
+
+public sealed record TemporaryPasswordResultDto(
+    long UserId,
+    string TemporaryPassword,
+    bool MustChangePassword,
+    DateTime? ExpiresAt);
 
 public sealed record SecurityRoleDto(
     long Id,

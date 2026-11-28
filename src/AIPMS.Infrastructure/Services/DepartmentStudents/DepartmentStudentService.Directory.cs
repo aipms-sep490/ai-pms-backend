@@ -87,15 +87,24 @@ internal sealed partial class DepartmentStudentService
 
         var userIds = students.Select(s => s.Id).ToArray();
 
+        var nowUtc = Now;
         var qualByUser = userIds.Length == 0
             ? new Dictionary<long, string>()
             : (await db.Set<StudentQualification>().AsNoTracking()
                 .Where(q => userIds.Contains(q.UserId))
                 .OrderByDescending(q => q.UpdatedAt).ThenByDescending(q => q.Id)
-                .Select(q => new { q.UserId, q.VerificationStatus })
+                .Select(q => new { q.UserId, q.VerificationStatus, q.ExpiresAt })
                 .ToListAsync(ct))
                 .GroupBy(q => q.UserId)
-                .ToDictionary(g => g.Key, g => g.First().VerificationStatus);
+                .ToDictionary(g => g.Key, g =>
+                {
+                    var latest = g.First();
+                    return latest.VerificationStatus == "VERIFIED"
+                        && latest.ExpiresAt.HasValue
+                        && latest.ExpiresAt.Value <= nowUtc
+                        ? "EXPIRED"
+                        : latest.VerificationStatus;
+                });
 
         var teamMembersQuery = db.TeamMembers.AsNoTracking()
             .Where(m => userIds.Contains(m.UserId) && m.LeftAt == null && m.Team.Status != "DISBANDED");

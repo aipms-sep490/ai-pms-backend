@@ -36,6 +36,9 @@ public partial class AipmsDbContext
             e.Property(x => x.ClosedAt).HasColumnName("closed_at").HasPrecision(0);
             e.Property(x => x.CloseReason).HasColumnName("close_reason").HasMaxLength(2000);
             e.Property(x => x.ConcurrencyToken).HasColumnName("concurrency_token").IsConcurrencyToken();
+            e.Property(x => x.MaxTeams).HasColumnName("max_teams").HasDefaultValue(1);
+            e.Property(x => x.TrackCode).HasColumnName("track_code").HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.SuggestedSupervisorProfileId).HasColumnName("suggested_supervisor_profile_id");
             e.HasIndex(x => new { x.ProjectPeriodId, x.Code }).IsUnique().HasDatabaseName("uq_project_topics_period_code");
             e.HasIndex(x => new { x.ProjectPeriodId, x.Status, x.Id });
             e.HasOne(x => x.Period).WithMany().HasForeignKey(x => x.ProjectPeriodId).OnDelete(DeleteBehavior.NoAction);

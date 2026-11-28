@@ -4,7 +4,8 @@ public sealed record TopicMajorRequirementRequest(long MajorId, int MinMembers, 
 public sealed record TopicContentRequest(string Title, string? Description, string? ProblemStatement,
     string? Objectives, string? ExpectedOutput, string? Domain, IReadOnlyList<string> Technologies,
     IReadOnlyList<string> Keywords, string ProjectMode, long? PrimaryMajorId,
-    IReadOnlyList<TopicMajorRequirementRequest> Requirements);
+    IReadOnlyList<TopicMajorRequirementRequest> Requirements,
+    int MaxTeams = 1, string? TrackCode = null, long? SuggestedSupervisorProfileId = null);
 public sealed record CreateTopicRequest(long ProjectPeriodId, string Code, long LeadDepartmentId, TopicContentRequest Content);
 public sealed record UpdateTopicRequest(Guid ConcurrencyToken, TopicContentRequest Content);
 public sealed record PublishTopicRequest(Guid ConcurrencyToken);
@@ -17,7 +18,8 @@ public sealed record TopicDto(long Id, string Code, string Status, long ProjectP
     IReadOnlyList<string> Technologies, IReadOnlyList<string> Keywords, string ProjectMode, long? PrimaryMajorId,
     IReadOnlyList<TopicMajorRequirementDto> Requirements, long CreatedBy, long UpdatedBy, DateTime CreatedAt,
     DateTime UpdatedAt, long? PublishedBy, DateTime? PublishedAt, long? ClosedBy, DateTime? ClosedAt,
-    string? CloseReason, Guid ConcurrencyToken, bool? MatchesMyMajor);
+    string? CloseReason, Guid ConcurrencyToken, bool? MatchesMyMajor,
+    int MaxTeams = 1, int SelectedTeamCount = 0, string? TrackCode = null, long? SuggestedSupervisorProfileId = null);
 public sealed record TopicSummaryDto(long Id, string Title, string SemesterCode);
 public sealed record SimilarTopicMatchDto(long Id, string Title, string SemesterCode, double Score);
 public sealed record TopicSimilarityResultDto(TopicSummaryDto? ExactMatch, IReadOnlyList<SimilarTopicMatchDto> Similar);

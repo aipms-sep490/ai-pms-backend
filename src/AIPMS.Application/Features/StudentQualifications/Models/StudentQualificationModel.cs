@@ -1,8 +1,25 @@
 namespace AIPMS.Application.Features.StudentQualifications.Models;
 
+public sealed record StudentQualificationTypeDefinition(string Code, string Name, string Description);
+
 public static class StudentQualificationTypes
 {
     public const string CapstoneReadiness = "CAPSTONE_READINESS";
+    public const string CreditsThreshold = "CREDITS_THRESHOLD";
+    public const string EnglishProficiency = "ENGLISH_PROFICIENCY";
+    public const string InternshipCompleted = "INTERNSHIP_COMPLETED";
+
+    public static readonly IReadOnlyList<StudentQualificationTypeDefinition> Allowed =
+    [
+        new(CapstoneReadiness, "Đủ điều kiện làm đồ án tốt nghiệp", "Xác nhận sinh viên hoàn tất điều kiện học vụ chung để đăng ký đồ án tốt nghiệp."),
+        new(CreditsThreshold, "Đủ tín chỉ tích lũy", "Xác nhận sinh viên đã tích lũy đủ số tín chỉ tối thiểu theo khung chương trình."),
+        new(EnglishProficiency, "Chuẩn ngoại ngữ", "Xác nhận sinh viên đạt chuẩn đầu ra/đầu vào ngoại ngữ theo quy định."),
+        new(InternshipCompleted, "Hoàn thành thực tập doanh nghiệp", "Xác nhận sinh viên đã hoàn thành học phần thực tập doanh nghiệp (OJT).")
+    ];
+
+    public static bool IsValid(string? code) =>
+        !string.IsNullOrWhiteSpace(code)
+        && Allowed.Any(x => string.Equals(x.Code, code.Trim(), StringComparison.OrdinalIgnoreCase));
 }
 
 public static class StudentTrainingStatuses

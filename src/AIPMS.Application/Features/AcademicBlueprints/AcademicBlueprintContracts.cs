@@ -189,3 +189,23 @@ public sealed record SemesterReadinessDto(
     IReadOnlyList<string> PublishedTracks,
     IReadOnlyList<string> MissingOrUnpublishedTracks,
     IReadOnlyList<string> BlockingIssues);
+
+public sealed record SemesterTrackMajorPresetDto(
+    long MajorId,
+    string MajorCode,
+    string MajorName,
+    long DepartmentId,
+    int MinMembers,
+    int MaxMembers,
+    string Responsibility);
+
+public sealed record SemesterTrackPresetDto(
+    string TrackCode,
+    string ProjectMode,
+    int MinTeamSize,
+    int MaxTeamSize,
+    int MinDistinctMajors,
+    long? LeadDepartmentId,
+    long? ParticipatingDepartmentId,
+    IReadOnlyList<SemesterTrackMajorPresetDto> DefaultMajorRequirements,
+    bool HasPublishedBlueprint);

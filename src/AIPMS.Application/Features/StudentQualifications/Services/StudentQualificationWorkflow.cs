@@ -3,6 +3,7 @@ using AIPMS.Application.Abstractions.Security;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Models;
 using AIPMS.Application.Common.Security;
+using AIPMS.Domain.Exceptions;
 using AIPMS.Application.Features.Academic.Abstractions;
 using AIPMS.Application.Features.StudentQualifications.Abstractions;
 using AIPMS.Application.Features.StudentQualifications.DTOs;
@@ -222,7 +223,25 @@ public sealed class StudentQualificationWorkflow(
         SetProjectPeriodQualificationPolicyRequest request,
         CancellationToken cancellationToken)
     {
-        var actorId = RequireRole(AppRoles.Admin);
+        if (!currentUser.IsAuthenticated || currentUser.UserId is not long actorId)
+            throw new UnauthorizedException();
+        var isStaff = currentUser.Roles.Contains(AppRoles.DepartmentStaff);
+        if (!isStaff)
+        {
+            var isAdmin = currentUser.Roles.Contains(AppRoles.Admin);
+            throw new ForbiddenException(
+                isAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot configure student qualification policies."
+                    : "Only department staff can configure student qualification policies.",
+                isAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
+
+        var scope = await academic.GetUserScopeAsync(actorId, cancellationToken)
+            ?? throw new ForbiddenException("The department staff account has no active academic scope.");
+        var periodOrgId = await repository.GetRegistrationPeriodOrganizationIdAsync(projectPeriodId, cancellationToken);
+        if (periodOrgId.HasValue && periodOrgId.Value != scope.OrganizationId)
+            throw new ForbiddenException("Department staff can only configure qualification policies within their own organization.");
+
         var qualificationType = NormalizeType(request.QualificationType);
         return await repository.InTransactionAsync(async token =>
         {
@@ -314,9 +333,13 @@ public sealed class StudentQualificationWorkflow(
 
     private static string NormalizeType(string value)
     {
-        var normalized = value.Trim().ToUpperInvariant();
-        if (string.IsNullOrWhiteSpace(normalized) || normalized.Length > 50)
-            throw new ConflictException("Qualification type is required and must not exceed 50 characters.");
+        var normalized = (value ?? string.Empty).Trim().ToUpperInvariant();
+        if (!StudentQualificationTypes.IsValid(normalized))
+        {
+            throw new DomainException(
+                $"Qualification type '{normalized}' is invalid. Supported types: {string.Join(", ", StudentQualificationTypes.Allowed.Select(t => t.Code))}.",
+                WorkflowErrorCodes.InvalidQualificationType);
+        }
         return normalized;
     }
 
