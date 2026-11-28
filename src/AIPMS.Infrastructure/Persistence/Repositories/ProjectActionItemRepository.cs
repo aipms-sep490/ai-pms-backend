@@ -130,7 +130,7 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context, ICurrent
 
                 if (meeting.Status == "CANCELLED")
                     throw new ConflictException("Cannot create action items for a cancelled meeting.");
-                if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.");
+                if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.", WorkflowErrorCodes.MeetingNotesLocked);
             }
 
             var entity = new ProjectActionItem
@@ -165,6 +165,21 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context, ICurrent
                 var meeting = await context.Meetings.SingleAsync(m => m.Id == meetingId, cancellationToken);
                 meeting.ConcurrencyToken = Guid.NewGuid();
                 await MeetingNotesHistory.Capture(context, meeting, createdBy, now, cancellationToken);
+            }
+            if (ownerId.HasValue && ownerId.Value != createdBy)
+            {
+                await V4WorkflowNotificationHelper.EmitAsync(
+                    context,
+                    createdBy,
+                    "ACTION_ITEM_ASSIGNED",
+                    $"Bạn được giao việc mới: {title}",
+                    $"Một đầu việc hành động mới \"{title}\" đã được giao cho bạn.",
+                    "PROJECT_ACTION_ITEM",
+                    entity.Id,
+                    [ownerId.Value],
+                    now,
+                    enqueueEmail: false,
+                    cancellationToken);
             }
             if (tx != null) await tx.CommitAsync(cancellationToken);
 
@@ -220,7 +235,7 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context, ICurrent
 
                 if (meeting.Status == "CANCELLED")
                     throw new ConflictException("Cannot modify action items associated with a cancelled meeting.");
-                if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.");
+                if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.", WorkflowErrorCodes.MeetingNotesLocked);
             }
 
             var entity = await context.ProjectActionItems
@@ -236,6 +251,7 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context, ICurrent
             if (expectedToken.HasValue && entity.ConcurrencyToken != expectedToken.Value)
                 throw new ConflictException("The action item has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
 
+            var previousOwnerId = entity.OwnerId;
             entity.Title = title;
             entity.Description = description;
             entity.OwnerId = ownerId;
@@ -252,11 +268,27 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context, ICurrent
             {
                 await onUpdated(dto);
             }
+            var actorId = currentUser?.UserId;
             if (meta.MeetingId.HasValue)
             {
                 var meeting = await context.Meetings.SingleAsync(m => m.Id == meta.MeetingId, cancellationToken);
                 meeting.ConcurrencyToken = Guid.NewGuid();
-                await MeetingNotesHistory.Capture(context, meeting, currentUser?.UserId ?? throw new UnauthorizedException(), now, cancellationToken);
+                await MeetingNotesHistory.Capture(context, meeting, actorId ?? throw new UnauthorizedException(), now, cancellationToken);
+            }
+            if (ownerId.HasValue && ownerId != previousOwnerId && actorId.HasValue && ownerId.Value != actorId.Value)
+            {
+                await V4WorkflowNotificationHelper.EmitAsync(
+                    context,
+                    actorId.Value,
+                    "ACTION_ITEM_ASSIGNED",
+                    $"Bạn được giao việc: {title}",
+                    $"Đầu việc hành động \"{title}\" đã được phân công cho bạn.",
+                    "PROJECT_ACTION_ITEM",
+                    entity.Id,
+                    [ownerId.Value],
+                    now,
+                    enqueueEmail: false,
+                    cancellationToken);
             }
             if (tx != null) await tx.CommitAsync(cancellationToken);
 
@@ -322,7 +354,13 @@ public sealed class ProjectActionItemRepository(AipmsDbContext context, ICurrent
             if (expectedToken.HasValue && entity.ConcurrencyToken != expectedToken.Value)
                 throw new ConflictException("The action item has been modified by another user. Please refresh and try again.", WorkflowErrorCodes.StaleConcurrencyToken);
 
-            entity.Status = newStatus.Trim().ToUpperInvariant();
+            var normalizedNext = newStatus.Trim().ToUpperInvariant();
+            if (entity.Status is ("DONE" or "CANCELLED") && normalizedNext != entity.Status)
+                throw new ConflictException(
+                    "Completed or cancelled action items are terminal and cannot be reopened.",
+                    WorkflowErrorCodes.ActionItemTerminalLocked);
+
+            entity.Status = normalizedNext;
             entity.UpdatedAt = now;
             entity.ConcurrencyToken = Guid.NewGuid();
 

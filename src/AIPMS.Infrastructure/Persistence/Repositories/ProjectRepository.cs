@@ -916,16 +916,17 @@ public sealed partial class ProjectRepository(
 
         var tasksData = await context.Tasks
             .AsNoTracking()
-            .Where(t => t.Milestone.ProjectId == projectId)
+            .Where(t => t.Milestone.ProjectId == projectId && t.DeletedAt == null)
             .Select(static t => new { t.Id, t.Status, t.DueAt })
             .ToListAsync(cancellationToken);
 
-        var totalTasks = tasksData.Count;
-        var doneTasks = tasksData.Count(static t => t.Status == "DONE");
-        var blockedTasks = tasksData.Count(static t => t.Status == "BLOCKED");
+        var activeTasksData = tasksData.Where(static t => t.Status != "CANCELLED").ToList();
+        var totalTasks = activeTasksData.Count;
+        var doneTasks = activeTasksData.Count(static t => t.Status == "DONE");
+        var blockedTasks = activeTasksData.Count(static t => t.Status == "BLOCKED");
 
         var utcNow = DateTime.UtcNow;
-        var overdueTasks = tasksData.Count(t => t.DueAt < utcNow && t.Status != "DONE" && t.Status != "CANCELLED");
+        var overdueTasks = activeTasksData.Count(t => t.DueAt < utcNow && t.Status != "DONE");
 
         var progressPercentage = totalTasks == 0
             ? 0.0
@@ -961,8 +962,9 @@ public sealed partial class ProjectRepository(
         var timelineMilestones = new List<TimelineMilestoneDto>();
         foreach (var milestone in milestones)
         {
-            var totalTasks = milestone.Tasks.Count;
-            var doneTasks = milestone.Tasks.Count(static t => t.Status == "DONE");
+            var effectiveTasks = milestone.Tasks.Where(static t => t.DeletedAt == null && t.Status != "CANCELLED").ToList();
+            var totalTasks = effectiveTasks.Count;
+            var doneTasks = effectiveTasks.Count(static t => t.Status == "DONE");
             var progressPercentage = totalTasks == 0
                 ? 0.0
                 : Math.Round((doneTasks * 100.0) / totalTasks, 2);

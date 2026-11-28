@@ -88,9 +88,8 @@ internal sealed class GateSessionScriptService(AipmsDbContext db, ICurrentUser c
             throw Invalid("sessionScript", "Mode or verdict is unsupported.");
         if (gate.Sequence == 4 || gate.Sequence is < 1 or > 4)
             throw new ConflictException("Gate 4 uses the defense session workflow.", "GATE4_DEFENSE_SESSION_REQUIRED");
-        if (gate.Sequence is 1 or 2 && input.Mode != "ONLINE" || gate.Sequence == 3 && input.Mode != "OFFLINE")
-            throw Invalid("mode", "Gate 1 and 2 are online; Gate 3 is offline. Gate 4 uses defense sessions.");
-        if (gate.Sequence == 3)
+        // TK-W2-12: Gates 1-3 flexibly support both ONLINE and OFFLINE modes.
+        if (gate.Sequence == 3 && input.Mode == "OFFLINE")
             await OfflineGateEligibility.RequirePreviousGateAndWindow(db, gate.ProjectId, 3,
                 input.ScheduledStartAt, input.ScheduledEndAt, ct);
         if (input.ScheduledEndAt <= input.ScheduledStartAt || input.ScheduledEndAt - input.ScheduledStartAt > TimeSpan.FromHours(12)
@@ -100,8 +99,7 @@ internal sealed class GateSessionScriptService(AipmsDbContext db, ICurrentUser c
                 || input.LiveKitRoomName.Length > 100)
             || input.Mode == "OFFLINE" && (!input.RoomId.HasValue || !string.IsNullOrWhiteSpace(input.LiveKitRoomName)))
             throw Invalid("mode", "Online sessions require a LiveKit room; offline sessions require a physical room.");
-        if (input.Mode == "OFFLINE" && !await db.Set<Room>().AnyAsync(r => r.Id == input.RoomId && r.Status == "ACTIVE"
-            && (gate.Sequence != 3 || r.Floor >= 2 && r.Floor <= 4), ct))
+        if (input.Mode == "OFFLINE" && !await db.Set<Room>().AnyAsync(r => r.Id == input.RoomId && r.Status == "ACTIVE", ct))
             throw Invalid("roomId", "The physical room is unavailable.");
         if (input.Mode == "OFFLINE")
         {
@@ -173,8 +171,8 @@ internal sealed class GateSessionScriptService(AipmsDbContext db, ICurrentUser c
             || role == "SECRETARY" && !string.IsNullOrWhiteSpace(input.SignedBySecretary) && input.SignedBySecretary != actorName)
             throw new ForbiddenException("A participant may only sign with their own account name.");
         var row = await db.Set<GateSessionScript>().SingleOrDefaultAsync(s => s.ProjectGateInstanceId == gate.Id, ct);
-        if (gate.Sequence == 3 && row?.PublishedAt is null)
-            throw new ConflictException("Academic staff must publish the Gate 3 schedule before a session script can be edited.",
+        if (gate.Sequence == 3 && input.Mode == "OFFLINE" && row?.PublishedAt is null)
+            throw new ConflictException("Academic staff must publish the Gate 3 offline schedule before an offline session script can be edited.",
                 "REVIEW_GATE_3_SCHEDULE_NOT_PUBLISHED");
         if (row is null)
         {

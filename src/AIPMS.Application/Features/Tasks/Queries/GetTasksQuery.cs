@@ -29,7 +29,8 @@ public sealed record GetTasksQuery(
 public sealed class GetTasksQueryHandler(
     ITaskRepository repository,
     IProjectAccessService projectAccessService,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    IProjectScopeResolver? scopeResolver = null)
     : IRequestHandler<GetTasksQuery, PagedResult<TaskDto>>
 {
     public async Task<PagedResult<TaskDto>> Handle(
@@ -56,6 +57,42 @@ public sealed class GetTasksQueryHandler(
             {
                 throw new ForbiddenException("The requested major does not belong to this project.");
             }
+        }
+
+        // TK-W2-05: Enforce Discipline Mentor major scope isolation on task lists.
+        IReadOnlyCollection<long>? allowedMajorIds = null;
+        if (scopeResolver is not null)
+        {
+            var actorScope = await scopeResolver.ResolveAsync(actorUserId, request.ProjectId, cancellationToken);
+            if (actorScope is { IsFullProjectAccess: false, IsMentor: true })
+            {
+                if (request.MajorId.HasValue && !actorScope.CanAccessMajor(request.MajorId.Value))
+                {
+                    throw new ForbiddenException("The requested major is outside your assigned mentor scope.", WorkflowErrorCodes.ScopeAccessDenied);
+                }
+                allowedMajorIds = actorScope.AllowedMajorIds;
+            }
+        }
+
+        if (allowedMajorIds is not null)
+        {
+            return await repository.GetTasksScopedAsync(
+                request.ProjectId,
+                request.MilestoneId,
+                request.Status,
+                request.Priority,
+                request.AssigneeUserId,
+                request.Search,
+                request.DueFrom,
+                request.DueTo,
+                request.IsOverdue,
+                request.IsBlocked,
+                request.Page,
+                request.PageSize,
+                request.MajorId,
+                allowedMajorIds,
+                cancellationToken,
+                request.DisciplineRole);
         }
 
         return await repository.GetTasksAsync(

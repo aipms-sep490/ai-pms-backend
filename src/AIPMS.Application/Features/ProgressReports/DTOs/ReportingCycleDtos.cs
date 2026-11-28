@@ -34,3 +34,24 @@ public sealed record UpdateReportingCycleRequest(
     string? LatePolicy = null,
     string? ReportType = null,
     string? ConcurrencyToken = null);
+
+public sealed record GenerateReportingCyclesRequest(
+    string Cadence = "WEEKLY",
+    string LatePolicy = "FLAG",
+    int DeadlineOffsetDays = 1,
+    bool DryRun = false);
+
+public sealed record GeneratedReportingCycleSlotDto(
+    DateTime PeriodStart,
+    DateTime PeriodEnd,
+    DateTime Deadline);
+
+public sealed record GenerateReportingCyclesResultDto(
+    long ProjectPeriodId,
+    string Cadence,
+    string LatePolicy,
+    bool DryRun,
+    int ProjectsProcessed,
+    int CyclesCreated,
+    int CyclesSkipped,
+    IReadOnlyList<GeneratedReportingCycleSlotDto> Slots);

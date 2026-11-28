@@ -14,7 +14,7 @@ internal static class V4WorkflowNotificationHelper
 {
     public static async Task EmitAsync(
         AipmsDbContext db,
-        long actorId,
+        long? actorId,
         string notificationType,
         string title,
         string content,
@@ -27,7 +27,7 @@ internal static class V4WorkflowNotificationHelper
         bool excludeActor = true)
     {
         var distinctIds = recipientIds
-            .Where(id => id > 0 && (!excludeActor || id != actorId))
+            .Where(id => id > 0 && (!excludeActor || !actorId.HasValue || id != actorId.Value))
             .Distinct()
             .ToArray();
         if (distinctIds.Length == 0) return;

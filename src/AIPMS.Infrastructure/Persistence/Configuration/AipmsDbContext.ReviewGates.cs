@@ -87,6 +87,7 @@ public partial class AipmsDbContext
             e.Property(x => x.Decision).HasMaxLength(20).IsUnicode(false); e.Property(x => x.Feedback).HasMaxLength(2000);
             e.HasOne<GateEvidence>().WithMany().HasForeignKey(x => x.EvidenceId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<GateReviewerAssignment>().WithMany().HasForeignKey(x => x.AssignmentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<ProjectGateRequirement>().WithMany().HasForeignKey(x => x.RequirementId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Generated.Models.User>().WithMany().HasForeignKey(x => x.ReviewerId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<GateDecision>(e => {

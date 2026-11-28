@@ -2,7 +2,8 @@ namespace AIPMS.Application.Features.AcademicTracking;
 
 public sealed record AutoSchedulePreviewRequest(DateOnly StartDate, DateOnly EndDate,
     IReadOnlyList<long> RoomIds, int MaxSlotsPerDay = 6,
-    IReadOnlyList<RoomSchedulingExclusion>? Exclusions = null);
+    IReadOnlyList<RoomSchedulingExclusion>? Exclusions = null,
+    int? SlotDurationMinutes = null);
 public sealed record RoomSchedulingExclusion(long RoomId, DateOnly? Date, int? SlotNumber);
 public sealed record DefenseAllocation(long ProjectId, long CommitteeId, long RoomId, string RoomCode,
     DateOnly Date, int SlotNumber, DateTimeOffset StartAt, DateTimeOffset EndAt,

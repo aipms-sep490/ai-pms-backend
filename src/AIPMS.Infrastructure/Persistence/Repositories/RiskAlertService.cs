@@ -9,6 +9,7 @@ using AIPMS.Application.Features.Projects.Abstractions;
 using AIPMS.Application.Features.Projects.Models;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
@@ -19,7 +20,8 @@ internal sealed class RiskAlertService(
     AipmsDbContext db,
     IProjectProgressDataReader progressReader,
     IProgressAnalysisService analysis,
-    IOptions<RiskAlertSettings> options)
+    IOptions<RiskAlertSettings> options,
+    IProjectHealthPulseCalculator? healthPulseCalculator = null)
     : IRiskAlertService
 {
     public async Task<IReadOnlyList<long>> GetProjectIdsAsync(long afterId, int limit, CancellationToken ct) =>
@@ -30,7 +32,7 @@ internal sealed class RiskAlertService(
     {
         if (nowUtc.Kind != DateTimeKind.Utc) throw new ArgumentException("UTC is required.", nameof(nowUtc));
 
-        var settings = options.Value;
+        _ = options.Value;
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
 
         var project = await db.Projects.FromSqlInterpolated(
@@ -51,39 +53,45 @@ internal sealed class RiskAlertService(
         var today = DateOnly.FromDateTime(nowUtc);
         if (!scope.IsActive || scope.Status != "ACTIVE" || today < scope.StartDate || today > scope.EndDate) return;
 
+        // TK-W2-13: Single unified 4-signal Health Pulse calculation
+        var calculator = healthPulseCalculator ?? new ProjectHealthPulseCalculator(db);
+        var pulse = await calculator.CalculateAsync(projectId, nowUtc, ct);
+        if (pulse.Status is "INSUFFICIENT_DATA" or "GREEN") return;
+
+        var riskLevel = HealthPulseMapping.ToRiskLevel(pulse.Status); // YELLOW -> MEDIUM, RED -> HIGH
+
         var facts = await progressReader.GetProjectProgressFactsAsync(projectId, ct);
-        if (facts is null || facts.Tasks.Count == 0 || facts.Milestones.Count == 0) return;
-
-        var result = analysis.Analyze(facts, nowUtc, ct);
-        if (result.DataStatus == "INSUFFICIENT_DATA" || result.RiskLevel == "INSUFFICIENT_DATA") return;
-
-        var summary = result.ProgressSummary;
+        var summary = facts is not null ? analysis.Analyze(facts, nowUtc, ct).ProgressSummary : null;
         var overdueTasks = summary?.OverdueTasks ?? 0;
-        var blockedTasks = summary?.BlockedTasks ?? 0;
+        var blockedTasks = pulse.Signals.BlockedOver48hCount;
         var unassignedTasks = summary?.UnassignedTasks ?? 0;
         var progressPercent = summary?.ProgressPercentage ?? 0.0;
-        var riskScore = result.RiskScore;
 
-        var isElevated = result.RiskLevel is "MEDIUM" or "HIGH" or "CRITICAL"
-            || overdueTasks >= settings.OverdueTaskThreshold
-            || blockedTasks >= settings.BlockedTaskThreshold
-            || (riskScore.HasValue && riskScore.Value >= settings.CriticalRiskScoreThreshold);
+        // TK-W2-13: Deduplicate risk_history (insert only when risk level changed OR >= 1 UTC day elapsed)
+        var latestHistory = await db.Set<RiskHistory>().AsNoTracking()
+            .Where(h => h.ProjectId == projectId)
+            .OrderByDescending(h => h.RecordedAt)
+            .ThenByDescending(h => h.Id)
+            .FirstOrDefaultAsync(ct);
 
-        if (!isElevated) return;
+        var shouldRecordHistory = latestHistory is null
+            || !string.Equals(latestHistory.RiskLevel, riskLevel, StringComparison.OrdinalIgnoreCase)
+            || latestHistory.RecordedAt.Date < nowUtc.Date;
 
-        // Record risk history snapshot for analytics
-        var history = new RiskHistory
+        if (shouldRecordHistory)
         {
-            ProjectId = projectId,
-            RiskLevel = result.RiskLevel,
-            RiskScore = riskScore.HasValue ? (decimal?)Math.Round(riskScore.Value, 2) : null,
-            OverdueTasks = overdueTasks,
-            BlockedTasks = blockedTasks,
-            UnassignedTasks = unassignedTasks,
-            ProgressPercentage = (decimal)progressPercent,
-            RecordedAt = nowUtc
-        };
-        db.Set<RiskHistory>().Add(history);
+            db.Set<RiskHistory>().Add(new RiskHistory
+            {
+                ProjectId = projectId,
+                RiskLevel = riskLevel,
+                RiskScore = pulse.Status == "RED" ? 80m : 50m,
+                OverdueTasks = overdueTasks,
+                BlockedTasks = blockedTasks,
+                UnassignedTasks = unassignedTasks,
+                ProgressPercentage = (decimal)progressPercent,
+                RecordedAt = nowUtc
+            });
+        }
 
         // Project department scope
         var projectDepartmentIds = await db.ProjectMajors.Where(m => m.ProjectId == projectId && m.Major.IsActive)
@@ -113,18 +121,18 @@ internal sealed class RiskAlertService(
             return;
         }
 
-        var key = FormattableString.Invariant($"RISK_ALERT:{projectId}:{nowUtc:yyyyMMdd}:{result.RiskLevel}");
+        var key = FormattableString.Invariant($"RISK_ALERT:{projectId}:{nowUtc:yyyyMMdd}:{riskLevel}");
         var occurrence = await db.Set<ScheduledNotificationOccurrence>()
             .Include(o => o.Notification).ThenInclude(n => n.NotificationRecipients)
             .SingleOrDefaultAsync(o => o.ProjectId == projectId && o.OccurrenceKey == key, ct);
 
         if (occurrence is null)
         {
-            var riskLevelLabel = RiskLevelLabel(result.RiskLevel);
+            var riskLevelLabel = RiskLevelLabel(riskLevel);
             var projectLabel = string.IsNullOrWhiteSpace(project.Title) ? project.Code : $"{project.Code} - {project.Title}";
             var rawTitle = $"Cảnh báo rủi ro tiến độ đồ án {project.Code}: Mức độ {riskLevelLabel}";
             var title = rawTitle.Length <= 255 ? rawTitle : rawTitle[..255];
-            var content = $"Đồ án {projectLabel} hiện có {overdueTasks} công việc quá hạn và {blockedTasks} công việc đang bị chặn. Mức độ rủi ro: {riskLevelLabel}.";
+            var content = $"Đồ án {projectLabel} hiện ở trạng thái Health Pulse {pulse.Status} (Task BLOCKED > 48h: {blockedTasks}, Báo cáo 14 ngày: {pulse.Signals.WeeklyReportsLast14Days}). {pulse.Summary}";
             occurrence = new ScheduledNotificationOccurrence
             {
                 ProjectId = projectId,

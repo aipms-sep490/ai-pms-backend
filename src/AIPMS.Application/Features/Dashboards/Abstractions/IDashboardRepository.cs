@@ -1,4 +1,5 @@
 using AIPMS.Application.Features.Dashboards.DTOs;
+using AIPMS.Application.Features.ProjectHub;
 using AIPMS.Application.Features.Projects.Models;
 
 namespace AIPMS.Application.Features.Dashboards.Abstractions;
@@ -6,7 +7,7 @@ namespace AIPMS.Application.Features.Dashboards.Abstractions;
 public sealed record DashboardProjectFacts(long Id, string Code, string Title, string Status, long TeamId,
     long SemesterId, int PendingProgressReviews, ProjectProgressFacts Facts,
     IReadOnlyList<DashboardMajorFact>? Majors = null, DashboardSupervisorFact? Supervisor = null,
-    DateTime CreatedAt = default);
+    DateTime CreatedAt = default, ProjectHealthPulseDto? HealthPulse = null);
 public sealed record DashboardMajorFact(long ProjectId, long Id, string Code, string Name, long DepartmentId, string DepartmentName);
 public sealed record DashboardSupervisorFact(long UserId, string Name);
 public sealed record StudentDashboardFacts(DashboardProjectFacts? Project, int UnreadNotifications,

@@ -40,9 +40,13 @@ public static class DependencyInjection
         services.AddOptions<AIPMS.Application.Features.Projects.Models.RiskAlertSettings>()
             .BindConfiguration(AIPMS.Application.Features.Projects.Models.RiskAlertSettings.SectionName)
             .ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<DualDeptSlaSettings>()
+            .BindConfiguration(DualDeptSlaSettings.SectionName)
+            .ValidateDataAnnotations().ValidateOnStart();
         services.AddHostedService<Services.MeetingReminderWorker>();
         services.AddHostedService<Services.ScheduledNotificationWorker>();
         services.AddHostedService<Services.RiskAlertWorker>();
+        services.AddHostedService<Services.DualDeptSlaWorker>();
         services.AddHostedService<Services.NotificationEmailWorker>();
         services.AddHostedService<Services.PasswordRecoveryWorker>();
         services.AddHostedService<Services.GoogleChallengeCleanupWorker>();

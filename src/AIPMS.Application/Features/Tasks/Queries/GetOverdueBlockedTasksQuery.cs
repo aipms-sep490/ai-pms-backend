@@ -17,7 +17,8 @@ public sealed class GetOverdueBlockedTasksQueryHandler(
     ITaskRepository repository,
     IProjectRepository projectRepository,
     IProjectAccessService projectAccessService,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    IProjectScopeResolver? scopeResolver = null)
     : IRequestHandler<GetOverdueBlockedTasksQuery, OverdueBlockedTasksDto>
 {
     public async Task<OverdueBlockedTasksDto> Handle(
@@ -41,7 +42,19 @@ public sealed class GetOverdueBlockedTasksQueryHandler(
             throw new ForbiddenException("You do not have access to this project.");
         }
 
-        var (overdue, blocked) = await repository.GetOverdueAndBlockedAsync(request.ProjectId, cancellationToken);
+        IReadOnlyCollection<long>? allowedMajorIds = null;
+        if (scopeResolver is not null)
+        {
+            var actorScope = await scopeResolver.ResolveAsync(actorUserId, request.ProjectId, cancellationToken);
+            if (actorScope is { IsFullProjectAccess: false, IsMentor: true })
+            {
+                allowedMajorIds = actorScope.AllowedMajorIds;
+            }
+        }
+
+        var (overdue, blocked) = allowedMajorIds is not null
+            ? await repository.GetOverdueAndBlockedScopedAsync(request.ProjectId, allowedMajorIds, cancellationToken)
+            : await repository.GetOverdueAndBlockedAsync(request.ProjectId, cancellationToken);
         return new OverdueBlockedTasksDto(overdue, blocked);
     }
 }

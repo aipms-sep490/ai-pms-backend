@@ -5,6 +5,7 @@ public sealed record MeetingSeriesDto(Guid SeriesId, string Recurrence, IReadOnl
 public sealed record RespondMeetingRequest(string Status, string ConcurrencyToken);
 public sealed record MeetingRsvpDto(long MeetingId, long UserId, string Status, string ConcurrencyToken);
 public sealed record LockMeetingNotesRequest(string ConcurrencyToken);
+public sealed record UnlockMeetingNotesRequest(string ConcurrencyToken, string Reason);
 public sealed record MeetingNotesVersionDto(long Id, long MeetingId, int Version, bool IsLocked, string? MeetingNotes,
     string? Minutes, string? Decisions, string? Blockers, long ChangedBy, DateTime ChangedAt, MeetingGovernanceSnapshotDto Governance);
 public sealed record MeetingGovernanceSnapshotDto(IReadOnlyList<MeetingDecisionSnapshotDto> Decisions,
@@ -14,5 +15,6 @@ public sealed record MeetingActionDefinitionDto(long Id, string Title, string? D
 public sealed record ProjectActionDefinitionDto(long Id, string Title, string? Description, long? OwnerId, long? TaskId, long? MilestoneId, DateTime? DueAt);
 public sealed record MeetingCollaborationDto(long MeetingId, string ConcurrencyToken, Guid? SeriesId, int? OccurrenceNumber,
     string Recurrence, int NotesVersion, DateTime? NotesLockedAt, long? NotesLockedBy, bool CanLockNotes,
-    MeetingRsvpDto? MyRsvp, IReadOnlyList<MeetingEmailDeliveryDto> EmailDeliveries, bool HasMoreEmailDeliveries);
+    MeetingRsvpDto? MyRsvp, IReadOnlyList<MeetingEmailDeliveryDto> EmailDeliveries, bool HasMoreEmailDeliveries,
+    bool CanUnlockNotes = false);
 public sealed record MeetingEmailDeliveryDto(long UserId, string NotificationType, string Status, int AttemptCount, DateTime? SentAt);

@@ -93,9 +93,14 @@ internal sealed partial class AcademicTrackingService(AipmsDbContext db, IEvalua
                 content = new { task.Id, task.Title, task.Description, task.Status, task.ConcurrencyToken, task.UpdatedAt };
                 files = db.Files.Where(f => f.TaskId == task.Id); break;
             case "DELIVERABLE":
-                var version = await db.DeliverableVersions.AsNoTracking().Include(v => v.Deliverable).SingleOrDefaultAsync(v => v.Id == versionId
+                var effectiveVersionId = versionId ?? await db.DeliverableVersions.AsNoTracking()
+                    .Where(v => v.DeliverableId == evidence.SourceId && v.Deliverable.ProjectId == evidence.ProjectId)
+                    .OrderByDescending(v => v.VersionNumber).ThenByDescending(v => v.Id)
+                    .Select(v => (long?)v.Id)
+                    .FirstOrDefaultAsync(ct);
+                var version = await db.DeliverableVersions.AsNoTracking().Include(v => v.Deliverable).SingleOrDefaultAsync(v => v.Id == effectiveVersionId
                     && v.DeliverableId == evidence.SourceId && v.Deliverable.ProjectId == evidence.ProjectId, ct)
-                    ?? throw new NotFoundException("Exact deliverable version", versionId ?? 0);
+                    ?? throw new NotFoundException("Exact deliverable version", effectiveVersionId ?? 0);
                 if (evidence.MajorId.HasValue && version.Deliverable.TargetMajorId != evidence.MajorId)
                     throw new ConflictException("Explicit deliverable target does not match evidence major.");
                 content = new { version.Id, version.VersionNumber, version.Status, version.SubmissionNote, version.UpdatedAt,
@@ -175,7 +180,9 @@ internal sealed partial class AcademicTrackingService(AipmsDbContext db, IEvalua
     public Task<PagedResult<EvidenceReviewDto>> Reviews(long evidenceId, int page, int pageSize, CancellationToken ct) => transactions.InTransactionAsync(async () =>
     {
         Page(page, pageSize); var evidence = await Evidence(evidenceId, ct); var access = await Scope(evidence.ProjectId, ct);
-        if (!access.CanRead(evidence.MajorId) || access.StudentMajor.HasValue && !access.Primary && !access.Actor.IsStaff) throw new ForbiddenException();
+        // TK-W2-03: Students within the project/major scope can read evidence review reasons (CHANGES_REQUESTED / REJECTED);
+        // write reviews remain strictly restricted to Primary Supervisor / scoped Mentor.
+        if (!access.CanRead(evidence.MajorId)) throw new ForbiddenException();
         var query = db.Set<ProjectEvidenceReview>().AsNoTracking().Where(r => r.EvidenceId == evidenceId);
         var count = await query.LongCountAsync(ct);
         var rows = await query.OrderByDescending(r => r.Id).Skip((page - 1) * pageSize).Take(pageSize).ToArrayAsync(ct);

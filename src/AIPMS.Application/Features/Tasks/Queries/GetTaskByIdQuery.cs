@@ -15,7 +15,8 @@ public sealed class GetTaskByIdQueryHandler(
     ITaskRepository repository,
     IMilestoneRepository milestoneRepository,
     IProjectAccessService projectAccessService,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    IProjectScopeResolver? scopeResolver = null)
     : IRequestHandler<GetTaskByIdQuery, TaskDto>
 {
     public async Task<TaskDto> Handle(
@@ -39,6 +40,20 @@ public sealed class GetTaskByIdQueryHandler(
         if (!await projectAccessService.CanAccessAsync(actorUserId, milestone.ProjectId, cancellationToken))
         {
             throw new ForbiddenException("You do not have access to this project.");
+        }
+
+        // TK-W2-05: Enforce Discipline Mentor major scope isolation on direct task reads.
+        if (scopeResolver is not null)
+        {
+            var actorScope = await scopeResolver.ResolveAsync(actorUserId, milestone.ProjectId, cancellationToken);
+            if (actorScope is { IsFullProjectAccess: false, IsMentor: true })
+            {
+                var taskMajorIds = await repository.GetTaskMajorIdsAsync(request.Id, cancellationToken);
+                if (taskMajorIds.Count > 0 && !taskMajorIds.Any(id => actorScope.CanAccessMajor(id)))
+                {
+                    throw new ForbiddenException("This task is outside your assigned mentor major scope.", WorkflowErrorCodes.ScopeAccessDenied);
+                }
+            }
         }
 
         return task;

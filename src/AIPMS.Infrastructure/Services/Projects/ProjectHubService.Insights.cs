@@ -121,68 +121,8 @@ internal sealed partial class ProjectHubService
     {
         var ctx = await LoadAccessAsync(projectId, ct);
         RequireHealthPulseScope(ctx);
-        var now = Now;
-
-        var gateReqs = await db.ProjectGateRequirements.AsNoTracking()
-            .Include(r => r.Evidence)
-            .Where(r => r.GateInstance.ProjectId == projectId && r.Required && r.VerificationStatus != "WAIVED_WITHDRAWN")
-            .ToArrayAsync(ct);
-        var totalMandatory = gateReqs.Length;
-        var readyCount = gateReqs.Count(r => r.Evidence.OrderByDescending(e => e.Version).FirstOrDefault()?.ScanStatus == "READY");
-        decimal? evidenceReadyPct = totalMandatory == 0 ? null : decimal.Round(readyCount * 100m / totalMandatory, 2);
-
-        var tasks = await db.Tasks.AsNoTracking()
-            .Where(t => t.DeletedAt == null && t.Milestone.ProjectId == projectId)
-            .Select(t => new { t.Status, t.BlockedSinceAt, t.TaskCategory }).ToArrayAsync(ct);
-        var blockedCutoff = now.AddHours(-48);
-        var blockedOver48h = tasks.Count(t => t.Status == "BLOCKED" && t.BlockedSinceAt.HasValue && t.BlockedSinceAt.Value <= blockedCutoff);
-
-        var reportCutoff = now.AddDays(-14);
-        var totalReports = await db.ProgressReports.AsNoTracking().CountAsync(r => r.ProjectId == projectId, ct);
-        var recentReports = await db.ProgressReports.AsNoTracking()
-            .CountAsync(r => r.ProjectId == projectId && r.Status != "DRAFT" && (r.SubmittedAt ?? r.UpdatedAt) >= reportCutoff, ct);
-
-        decimal? balanceRatio = null;
-        var isInter = string.Equals(ctx.Project.TrackCode, "IT_MKT", StringComparison.OrdinalIgnoreCase)
-            || ctx.Project.ProjectMajors.Count > 1;
-        if (isInter)
-        {
-            var itCount = tasks.Count(t => t.TaskCategory != null && t.TaskCategory.StartsWith("IT_", StringComparison.OrdinalIgnoreCase));
-            var mktCount = tasks.Count(t => t.TaskCategory != null && t.TaskCategory.StartsWith("MKT_", StringComparison.OrdinalIgnoreCase));
-            if (itCount + mktCount > 0)
-            {
-                var max = Math.Max(itCount, mktCount);
-                var min = Math.Min(itCount, mktCount);
-                balanceRatio = decimal.Round((decimal)min / max, 2);
-            }
-        }
-
-        var signals = new HealthPulseSignalsDto(evidenceReadyPct, totalMandatory, blockedOver48h, recentReports, balanceRatio);
-
-        string status;
-        string summary;
-        if (totalMandatory == 0 && tasks.Length == 0 && totalReports == 0)
-        {
-            status = "INSUFFICIENT_DATA";
-            summary = "Chưa đủ tín hiệu vận hành (chưa có Gate, Task hoặc Báo cáo tuần) để kết luận sức khỏe đồ án.";
-        }
-        else if (blockedOver48h >= 2 || (evidenceReadyPct.HasValue && evidenceReadyPct.Value < 50m) || (balanceRatio.HasValue && balanceRatio.Value < 0.25m))
-        {
-            status = "RED";
-            summary = "Đồ án có nguy cơ cao: tồn đọng Task BLOCKED > 48h, tỷ lệ minh chứng READY thấp hoặc lệch nhịp IT/MKT.";
-        }
-        else if (blockedOver48h == 1 || (evidenceReadyPct.HasValue && evidenceReadyPct.Value < 80m) || recentReports == 0 || (balanceRatio.HasValue && balanceRatio.Value < 0.50m))
-        {
-            status = "YELLOW";
-            summary = "Đồ án cần theo dõi: kiểm tra báo cáo tuần, minh chứng còn thiếu hoặc tiến độ liên ngành.";
-        }
-        else
-        {
-            status = "GREEN";
-            summary = "Tất cả 4 tín hiệu thực thi đang ổn định.";
-        }
-
-        return new(projectId, status, summary, signals, now);
+        var calculator = healthPulseCalculator ?? new ProjectHealthPulseCalculator(db);
+        return await calculator.CalculateAsync(projectId, Now, ct);
     }
 
     public async Task<IReadOnlyList<ProjectAuditTimelineEntryDto>> GetAuditTimelineAsync(long projectId, int limit, CancellationToken ct)

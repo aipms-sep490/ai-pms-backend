@@ -49,13 +49,33 @@ public sealed class DeleteTaskCommandHandler(
 
         var projectId = milestone.ProjectId;
 
-        // Verify authorization: Student Leader, Assigned Supervisor, OR creator of own non-core task
+        // TK-W2-02: Student Leader / Assigned Supervisor can delete any non-historical task;
+        // active STUDENT_MEMBER can soft-delete non-core tasks they created or are assigned to within their own majorScope.
         var isLeaderOrSupervisor = await repository.IsProjectLeaderOrSupervisorAsync(projectId, actorUserId, cancellationToken);
-        var isCreatorMember = !task.IsCoreGateTask && task.CreatedBy == actorUserId
-            && await repository.IsUserActiveTeamMemberAsync(projectId, actorUserId, cancellationToken);
-        if (!isLeaderOrSupervisor && !isCreatorMember)
+        if (!isLeaderOrSupervisor)
         {
-            throw new ForbiddenException("You are not authorized to delete tasks for this project.");
+            if (task.IsCoreGateTask || task.GateRequirementId.HasValue)
+            {
+                throw new ForbiddenException("Only the team leader or assigned primary supervisor can delete core gate tasks.");
+            }
+
+            var isActiveMember = await repository.IsUserActiveTeamMemberAsync(projectId, actorUserId, cancellationToken);
+            var isCreatorOrAssignee = task.CreatedBy == actorUserId
+                || await repository.IsTaskAssigneeAsync(request.Id, actorUserId, cancellationToken);
+            if (!isActiveMember || !isCreatorOrAssignee)
+            {
+                throw new ForbiddenException("You are not authorized to delete tasks for this project.");
+            }
+
+            var taskMajors = await repository.GetTaskMajorIdsAsync(request.Id, cancellationToken);
+            if (taskMajors.Count > 0)
+            {
+                var actorMajor = await repository.GetUserMajorIdAsync(projectId, actorUserId, cancellationToken);
+                if (actorMajor.HasValue && taskMajors.Any(majorId => majorId != actorMajor.Value))
+                {
+                    throw new ForbiddenException("Team members can only delete tasks within their own major scope.");
+                }
+            }
         }
 
         // Delete Task Policy: Reject if core gate task or meaningful historical execution data or locked evidence references exist

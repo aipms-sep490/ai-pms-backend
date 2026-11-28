@@ -12,7 +12,9 @@ using Project = AIPMS.Infrastructure.Persistence.Generated.Models.Project;
 
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
-public sealed class DashboardRepository(AipmsDbContext db) : IDashboardRepository
+public sealed class DashboardRepository(
+    AipmsDbContext db,
+    AIPMS.Application.Features.Projects.Abstractions.IProjectHealthPulseCalculator? healthPulseCalculator = null) : IDashboardRepository
 {
     private const int MaxPortfolioProjects = 10_000;
     private static readonly string[] OpenTaskStates = ["TODO", "IN_PROGRESS", "BLOCKED", "IN_REVIEW"];
@@ -36,7 +38,7 @@ public sealed class DashboardRepository(AipmsDbContext db) : IDashboardRepositor
         if (projectId is null) return new(null, unread, 0, 0, [], []);
         var projects = db.Projects.AsNoTracking().Where(p => p.Id == projectId
             && p.Team.TeamMembers.Any(m => m.UserId == userId && m.LeftAt == null));
-        var project = (await ReadProjectsAsync(projects, ct)).SingleOrDefault()
+        var project = (await ReadProjectsAsync(projects, now, ct)).SingleOrDefault()
             ?? throw new ForbiddenException("Current project membership is required.");
         var tasks = db.Tasks.AsNoTracking().Where(t => t.Milestone.ProjectId == projectId
             && OpenTaskStates.Contains(t.Status) && t.TaskAssignees.Any(a => a.UserId == userId));
@@ -77,7 +79,7 @@ public sealed class DashboardRepository(AipmsDbContext db) : IDashboardRepositor
             && OpenTaskStates.Contains(t.Status) && t.DueAt < now, ct);
         var page = projects.OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id)
             .Skip((filter.Page - 1) * filter.PageSize).Take(filter.PageSize);
-        return new(workload, states, pending, overdue, states.Sum(s => (long)s.Count), await ReadProjectsAsync(page, ct));
+        return new(workload, states, pending, overdue, states.Sum(s => (long)s.Count), await ReadProjectsAsync(page, now, ct));
     }
 
     public async Task<PortfolioDashboardFacts> GetPortfolioAsync(long userId, bool isAdmin,
@@ -116,11 +118,11 @@ public sealed class DashboardRepository(AipmsDbContext db) : IDashboardRepositor
         var total = await query.LongCountAsync(ct);
         if (total > MaxPortfolioProjects)
             throw new DomainException($"The filtered portfolio contains more than {MaxPortfolioProjects} projects. Narrow the filters and retry.");
-        var projects = await ReadProjectsAsync(query.OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id), ct);
+        var projects = await ReadProjectsAsync(query.OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id), now, ct);
         return new(departmentId, projects);
     }
 
-    private async Task<IReadOnlyList<DashboardProjectFacts>> ReadProjectsAsync(IQueryable<Project> projects, CancellationToken ct)
+    private async Task<IReadOnlyList<DashboardProjectFacts>> ReadProjectsAsync(IQueryable<Project> projects, DateTime nowUtc, CancellationToken ct)
     {
         var rows = await projects.Select(p => new { p.Id, p.Code, p.Title, p.Status, p.TeamId,
             p.CreatedAt, SemesterId = p.Team.AcademicSemesterId, MemberCount = p.Team.TeamMembers.Count(m => m.LeftAt == null),
@@ -133,7 +135,7 @@ public sealed class DashboardRepository(AipmsDbContext db) : IDashboardRepositor
             .OrderBy(m => m.SortOrder).ThenBy(m => m.Id)
             .Select(m => new { m.ProjectId, Fact = new MilestoneFact(m.Id, m.Title, m.Status, m.StartDate, m.DueDate, m.SortOrder) })
             .ToArrayAsync(ct)).ToLookup(m => m.ProjectId, m => m.Fact);
-        var tasks = (await db.Tasks.AsNoTracking().Where(t => ids.Contains(t.Milestone.ProjectId))
+        var tasks = (await db.Tasks.AsNoTracking().Where(t => t.DeletedAt == null && ids.Contains(t.Milestone.ProjectId))
             .OrderBy(t => t.Id).Select(t => new { t.Milestone.ProjectId,
                 Fact = new TaskFact(t.Id, t.MilestoneId, t.Title, t.Status, t.Priority, t.StartAt, t.DueAt, t.CompletedAt, t.TaskAssignees.Count) })
             .ToArrayAsync(ct)).ToLookup(t => t.ProjectId, t => t.Fact);
@@ -148,11 +150,14 @@ public sealed class DashboardRepository(AipmsDbContext db) : IDashboardRepositor
             .Where(a => ids.Contains(a.ProjectId) && a.EndedAt == null && a.IsPrimary)
             .Select(a => new { a.ProjectId, Fact = new DashboardSupervisorFact(a.SupervisorProfile.UserId, a.SupervisorProfile.User.FullName) })
             .ToArrayAsync(ct)).ToLookup(a => a.ProjectId, a => a.Fact);
+        var calculator = healthPulseCalculator ?? new AIPMS.Infrastructure.Services.Projects.ProjectHealthPulseCalculator(db);
+        var healthPulses = await calculator.CalculateBatchAsync(ids, nowUtc, ct);
         return rows.Select(p => new DashboardProjectFacts(p.Id, p.Code, p.Title, p.Status, p.TeamId, p.SemesterId,
             reports[p.Id].Count(r => r.Status == "SUBMITTED"),
             new(p.Id, p.Status, p.TeamId, p.MemberCount, milestones[p.Id].ToArray(), tasks[p.Id].ToArray(),
                 reports[p.Id].ToArray(), meetings[p.Id].ToArray()), p.Majors,
-                supervisors[p.Id].FirstOrDefault(), p.CreatedAt)).ToArray();
+                supervisors[p.Id].FirstOrDefault(), p.CreatedAt,
+                healthPulses.GetValueOrDefault(p.Id))).ToArray();
     }
 
     private IQueryable<long> DepartmentProjectIds(long departmentId)

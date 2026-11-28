@@ -33,7 +33,7 @@ internal sealed class ExecutionCapabilityService(
         var isTeamMember = await tasks.IsUserActiveTeamMemberAsync(projectId, Actor, cancellationToken);
         var execution = new[]
         {
-            Action("create_task", manager && active, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
+            Action("create_task", (manager || isTeamMember) && active, !active ? "PROJECT_NOT_ACTIVE" : "ACTIVE_TEAM_MEMBER_OR_MANAGER_REQUIRED"),
             Action("create_milestone", manager && active, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
             Action("reorder_milestones", manager && active, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
             Action("create_progress_report", isTeamMember && active, !active ? "PROJECT_NOT_ACTIVE" : "ACTIVE_TEAM_MEMBER_REQUIRED"),
@@ -46,13 +46,30 @@ internal sealed class ExecutionCapabilityService(
     public async Task<ExecutionCapabilityDto> GetTaskAsync(long taskId, CancellationToken cancellationToken)
     {
         var row = await db.Tasks.AsNoTracking().Where(x => x.Id == taskId)
-            .Select(x => new { x.Id, x.Status, x.ConcurrencyToken, ProjectId = x.Milestone.ProjectId, ProjectStatus = x.Milestone.Project.Status })
+            .Select(x => new { x.Id, x.Status, x.ConcurrencyToken, x.CreatedBy, x.IsCoreGateTask, x.GateRequirementId, ProjectId = x.Milestone.ProjectId, ProjectStatus = x.Milestone.Project.Status })
             .SingleOrDefaultAsync(cancellationToken) ?? throw new NotFoundException("Task", taskId);
         await RequireProjectAccess(row.ProjectId, cancellationToken);
         var active = row.ProjectStatus == "ACTIVE";
         var manager = await IsProjectManager(row.ProjectId, cancellationToken);
-        var assignee = await tasks.IsTaskAssigneeAsync(taskId, Actor, cancellationToken)
-            && await tasks.IsUserActiveTeamMemberAsync(row.ProjectId, Actor, cancellationToken);
+        var isActiveMember = await tasks.IsUserActiveTeamMemberAsync(row.ProjectId, Actor, cancellationToken);
+        var assignee = isActiveMember && await tasks.IsTaskAssigneeAsync(taskId, Actor, cancellationToken);
+        var isCreator = isActiveMember && row.CreatedBy == Actor;
+        var isCore = row.IsCoreGateTask || row.GateRequirementId.HasValue;
+        var withinActorMajor = true;
+        if (!manager && isActiveMember && !isCore && (isCreator || assignee))
+        {
+            var actorMajor = await tasks.GetUserMajorIdAsync(row.ProjectId, Actor, cancellationToken);
+            if (actorMajor.HasValue)
+            {
+                var taskMajors = await db.TaskDisciplines.AsNoTracking()
+                    .Where(d => d.TaskId == taskId)
+                    .Select(d => d.MajorId)
+                    .ToArrayAsync(cancellationToken);
+                if (taskMajors.Length > 0 && taskMajors.Any(m => m != actorMajor.Value))
+                    withinActorMajor = false;
+            }
+        }
+        var memberCanEdit = isActiveMember && !isCore && withinActorMajor && (isCreator || assignee);
         var mentor = await IsScopedMentor(taskId, row.ProjectId, cancellationToken);
         var writer = manager || assignee || mentor;
         var structural = manager;
@@ -63,8 +80,8 @@ internal sealed class ExecutionCapabilityService(
         var statusAllowed = active && statusWriter && row.Status != "COMPLETED" && (row.Status != "CANCELLED" || restoreCompleted && manager);
         var actions = new[]
         {
-            Action("update_task", active && structural, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
-            Action("delete_task", active && structural, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),
+            Action("update_task", active && (structural || memberCanEdit), !active ? "PROJECT_NOT_ACTIVE" : isCore ? "CORE_GATE_TASK_MANAGER_REQUIRED" : "PROJECT_MANAGER_REQUIRED"),
+            Action("delete_task", active && (structural || (memberCanEdit && isCreator)), !active ? "PROJECT_NOT_ACTIVE" : isCore ? "CORE_GATE_TASK_MANAGER_REQUIRED" : "PROJECT_MANAGER_REQUIRED"),
             Action("assign_task", active && structural && !assignmentLocked, !active ? "PROJECT_NOT_ACTIVE" : assignmentLocked ? "TASK_ASSIGNEES_LOCKED" : "PROJECT_MANAGER_REQUIRED"),
             Action("change_task_status", statusAllowed, !active ? "PROJECT_NOT_ACTIVE" : (row.Status == "DONE" || restoreCompleted) && !manager ? "PROJECT_MANAGER_REQUIRED" : !statusWriter ? "TASK_WRITER_REQUIRED" : "TASK_NOT_WRITABLE"),
             Action("review_task_dependency_impact", active && manager, !active ? "PROJECT_NOT_ACTIVE" : "PROJECT_MANAGER_REQUIRED"),

@@ -104,6 +104,15 @@ public static class WorkflowErrorCodes
     public const string LeadOverrideSlaNotElapsed = "LEAD_OVERRIDE_SLA_NOT_ELAPSED";
     public const string SupervisionIncomplete = "SUPERVISION_INCOMPLETE";
     public const string ReasonRequired = "REASON_REQUIRED";
+    public const string ActionItemTerminalLocked = "ACTION_ITEM_TERMINAL_LOCKED";
+    public const string MeetingNotesLocked = "MEETING_NOTES_LOCKED";
+    public const string GateMajorReviewerLimit = "GATE_MAJOR_REVIEWER_LIMIT";
+    public const string GateReviewPanelRequired = "GATE_REVIEW_PANEL_REQUIRED";
+    public const string UseOverrideOrRoundDecision = "USE_OVERRIDE_OR_ROUND_DECISION";
+    public const string GateImmutableLocked = "GATE_IMMUTABLE_LOCKED";
+    public const string GateWindowClosed = "GATE_WINDOW_CLOSED";
+    public const string IndividualProcessManagedBySupervisor = "INDIVIDUAL_PROCESS_MANAGED_BY_SUPERVISOR";
+    public const string PrimarySupervisorRequired = "PRIMARY_SUPERVISOR_REQUIRED";
     public const string Unauthorized = "UNAUTHORIZED";
     public const string Forbidden = "FORBIDDEN";
     public const string NotFound = "NOT_FOUND";

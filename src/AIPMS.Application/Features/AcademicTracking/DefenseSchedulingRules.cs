@@ -52,6 +52,60 @@ public static class DefenseSchedulingRules
         }).ToArray();
     }
 
+    /// <summary>
+    /// Configurable office slots (Vietnam UTC+7) within Morning 08:00-11:30 & Afternoon 13:30-17:00
+    /// supporting 30..120 min durations (defaults: 45m single-major / 60m interdisciplinary per POL-06;
+    /// retains 75m legacy layout when durationMinutes == 75).
+    /// </summary>
+    public static IReadOnlyList<(int SlotNumber, DateTimeOffset Start, DateTimeOffset End, int DurationMinutes)> GenerateOfficeSlots(DateOnly date, int durationMinutes)
+    {
+        if (durationMinutes is < 30 or > 120)
+            throw new ArgumentOutOfRangeException(nameof(durationMinutes), "Slot duration must be between 30 and 120 minutes.");
+        if (durationMinutes == 45) return AllSlotsV4(date, false);
+        if (durationMinutes == 60) return AllSlotsV4(date, true);
+        if (durationMinutes == 75)
+            return Enumerable.Range(1, 6).Select(n =>
+            {
+                var (s, e) = Slot(date, n);
+                return (n, s, e, 75);
+            }).ToArray();
+
+        var result = new List<(int, DateTimeOffset, DateTimeOffset, int)>();
+        var slotNumber = 1;
+        foreach (var (windowStart, windowEnd) in new[] { (new TimeOnly(8, 0), new TimeOnly(11, 30)), (new TimeOnly(13, 30), new TimeOnly(17, 0)) })
+        {
+            var cursor = new DateTimeOffset(date.ToDateTime(windowStart), VietnamOffset);
+            var endLimit = new DateTimeOffset(date.ToDateTime(windowEnd), VietnamOffset);
+            var sessionIndex = 0;
+            while (cursor.AddMinutes(durationMinutes) <= endLimit)
+            {
+                var end = cursor.AddMinutes(durationMinutes);
+                result.Add((slotNumber++, cursor, end, durationMinutes));
+                sessionIndex++;
+                cursor = sessionIndex == 1 ? end.AddMinutes(15) : end;
+            }
+        }
+        return result;
+    }
+
+    public static bool IsValidOfficeWindow(DateTimeOffset start, DateTimeOffset end)
+    {
+        if (end <= start) return false;
+        var duration = (end - start).TotalMinutes;
+        if (duration is < 30 or > 120) return false;
+        var vnStart = start.ToOffset(VietnamOffset);
+        var vnEnd = end.ToOffset(VietnamOffset);
+        if (vnStart.Date != vnEnd.Date) return false;
+        var day = DateOnly.FromDateTime(vnStart.Date);
+        if (Enumerable.Range(1, 6).Any(n => { var s = Slot(day, n); return s.Start == start && s.End == end; }))
+            return true;
+        var startTime = TimeOnly.FromDateTime(vnStart.DateTime);
+        var endTime = TimeOnly.FromDateTime(vnEnd.DateTime);
+        var inMorning = startTime >= new TimeOnly(8, 0) && endTime <= new TimeOnly(11, 30);
+        var inAfternoon = startTime >= new TimeOnly(13, 30) && endTime <= new TimeOnly(17, 0);
+        return inMorning || inAfternoon;
+    }
+
     public static bool MeetsColdBuffer(DateTimeOffset defenseStartUtc, DateTime? coldWindowEndUtc, int bufferHours)
     {
         if (!coldWindowEndUtc.HasValue) return true;

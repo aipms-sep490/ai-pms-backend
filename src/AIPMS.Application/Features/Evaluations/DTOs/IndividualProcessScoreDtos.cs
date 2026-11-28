@@ -15,7 +15,7 @@ public sealed record GateIndividualProcessScoreItemDto(
     long GateInstanceId,
     int GateNumber,
     long StudentId,
-    long SupervisorAssignmentId,
+    long? SupervisorAssignmentId,
     decimal? Score,
     decimal GateWeightPercent,
     string? MentorReferenceNotes,

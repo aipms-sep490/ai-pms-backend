@@ -61,6 +61,7 @@ public partial class AipmsDbContext
         ConfigureProjectChecklists(modelBuilder);
         ConfigureProjectHub(modelBuilder);
         ConfigureStudentSpecializations(modelBuilder);
+        ConfigureTasksSoftDeleteFilter(modelBuilder);
         modelBuilder.Entity<RubricVersion>(entity =>
         {
             entity.ToTable("rubric_versions", table =>

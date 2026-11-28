@@ -2,7 +2,7 @@ namespace AIPMS.Application.Features.Meetings.Video;
 
 public sealed record VideoCapabilities(bool CanStart, bool CanJoin, bool CanEnd, bool CanRecord);
 public sealed record VideoJoinWindow(DateTime? AvailableFrom, DateTime? AvailableUntil);
-public sealed record VideoSessionDto(long MeetingId, string MeetingStatus, string MeetingDeliveryMode, string VideoChannel, VideoSessionStateDto? Session, VideoCapabilities Capabilities, VideoJoinWindow? JoinWindow, IReadOnlyList<string> DenialReasons);
+public sealed record VideoSessionDto(long MeetingId, string MeetingStatus, string MeetingDeliveryMode, string VideoChannel, VideoSessionStateDto? Session, VideoCapabilities Capabilities, VideoJoinWindow? JoinWindow, IReadOnlyList<string> DenialReasons, IReadOnlyList<string>? WindowWarnings = null);
 public sealed record VideoSessionStateDto(long Id, string Status, string Provider, DateTime? StartedAt, DateTime? EndedAt, int? ActiveParticipantCount, string ConcurrencyToken);
 public sealed record VideoJoinCredentialDto(string Provider, string ServerUrl, string ParticipantIdentity, string ParticipantName, string AccessToken, DateTime ExpiresAt, VideoJoinCapabilities Capabilities);
 public sealed record VideoJoinCapabilities(bool PublishAudio, bool PublishVideo, bool ScreenShare, bool Moderator);

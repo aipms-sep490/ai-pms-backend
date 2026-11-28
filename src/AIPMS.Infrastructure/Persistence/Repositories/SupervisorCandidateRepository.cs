@@ -45,7 +45,7 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context, Time
                 && (execution ? (p.Status == "ACTIVE" || p.Status == "CLOSED") && p.StartAt <= now
                     : p.Status == "ACTIVE" && p.StartAt <= now && now < p.EndAt))
             .OrderByDescending(p => p.StartAt).ThenByDescending(p => p.Id).Take(execution ? 1 : 2)
-            .Select(p => new SupervisorSelectionPolicy(p.Id, p.MaxProjectsPerSupervisor)).ToListAsync(ct);
+            .Select(p => new SupervisorSelectionPolicy(p.Id, p.MaxProjectsPerSupervisor, 7, 2)).ToListAsync(ct);
         if (policies.Count == 0 && !await context.ProjectPeriods.AsNoTracking()
             .AnyAsync(p => p.AcademicSemesterId == academicSemesterId && p.PeriodType == "SUPERVISOR_SELECTION", ct))
         {
@@ -53,7 +53,7 @@ internal sealed class SupervisorCandidateRepository(AipmsDbContext context, Time
                 .Where(p => p.AcademicSemesterId == academicSemesterId && p.PeriodType == "REGISTRATION"
                     && p.Status == "ACTIVE" && p.StartAt <= now && now < p.EndAt && p.MaxProjectsPerSupervisor != null)
                 .OrderByDescending(p => p.StartAt).ThenByDescending(p => p.Id).Take(2)
-                .Select(p => new SupervisorSelectionPolicy(p.Id, p.MaxProjectsPerSupervisor)).ToListAsync(ct);
+                .Select(p => new SupervisorSelectionPolicy(p.Id, p.MaxProjectsPerSupervisor, 7, 2)).ToListAsync(ct);
         }
         if (policies.Count == 0) return policies;
 

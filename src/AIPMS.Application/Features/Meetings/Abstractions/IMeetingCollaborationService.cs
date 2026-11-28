@@ -9,5 +9,6 @@ public interface IMeetingCollaborationService
     Task<MeetingCollaborationDto> Get(long meetingId, CancellationToken ct);
     Task<MeetingRsvpDto> Respond(long meetingId, RespondMeetingRequest input, CancellationToken ct);
     Task<MeetingCollaborationDto> LockNotes(long meetingId, LockMeetingNotesRequest input, CancellationToken ct);
+    Task<MeetingCollaborationDto> UnlockNotes(long meetingId, UnlockMeetingNotesRequest input, CancellationToken ct);
     Task<PagedResult<MeetingNotesVersionDto>> NotesHistory(long meetingId, int page, int pageSize, CancellationToken ct);
 }

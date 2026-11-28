@@ -40,9 +40,9 @@ internal sealed class WorkingAgreementService(AipmsDbContext db, IEvaluationDraf
         var member = await db.TeamMembers.AsNoTracking().Where(m => m.Team.Project != null && m.Team.Project.Id == projectId
             && m.LeftAt == null && m.UserId == Actor && m.User.UserRoleUsers.Any(r => r.Role.Code == "STUDENT"))
             .Select(m => new { m.IsLeader }).SingleOrDefaultAsync(ct);
-        var primary = actor.IsLecturer && await db.SupervisorAssignments.AnyAsync(a => a.ProjectId == projectId
-            && a.AssignmentType == "PRIMARY" && a.IsPrimary && a.EndedAt == null && a.SupervisorProfile.UserId == Actor, ct);
-        if (member is null && !primary && !AcademicAuthority.HasScope(actor, project)) throw new ForbiddenException();
+        var supervisorOrMentor = actor.IsLecturer && await db.SupervisorAssignments.AnyAsync(a => a.ProjectId == projectId
+            && a.EndedAt == null && a.SupervisorProfile.UserId == Actor, ct);
+        if (member is null && !supervisorOrMentor && !AcademicAuthority.HasScope(actor, project)) throw new ForbiddenException();
         var writable = project.Status is "DRAFT" or "REVISION_REQUIRED" or "SUBMITTED" or "APPROVED" or "SUPERVISOR_PENDING" or "ACTIVE";
         writable &= project.ActiveScope || project.Status is "DRAFT" or "REVISION_REQUIRED";
         return new(member?.IsLeader == true, member is not null, writable);

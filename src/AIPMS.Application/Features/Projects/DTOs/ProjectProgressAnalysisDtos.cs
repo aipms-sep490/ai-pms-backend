@@ -30,6 +30,8 @@ public sealed record ProjectProgressAnalysisDto(
     public string GenerationStatus { get; init; } = "COMPLETED";
     public IReadOnlyList<ProgressRiskSignalDto> Signals { get; init; } = [];
     public IReadOnlyList<AIPMS.Application.Features.AiAssistant.Models.EvidenceReferenceDto> ProjectEvidence { get; init; } = [];
+    public string? HealthPulseStatus { get; init; }
+    public AIPMS.Application.Features.ProjectHub.HealthPulseSignalsDto? HealthPulseSignals { get; init; }
     public IReadOnlyList<RiskFactorDto> Reasons => Factors;
 }
 

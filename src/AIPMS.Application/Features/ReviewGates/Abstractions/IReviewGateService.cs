@@ -27,6 +27,12 @@ public interface IReviewGateService
     Task<AssignedReviewItemDto> Revoke(long assignmentId, RevokeReviewGateAssignmentRequest request, CancellationToken ct);
     Task<ProjectReviewMatrixRowDto> UpdateDecision(long projectId, string gateCode, UpdateReviewGateDecisionRequest request, CancellationToken ct);
     Task<OverrideReviewGateDto> OverrideDecision(long projectId, string gateCode, OverrideReviewGateRequest request, CancellationToken ct);
+    Task<StudentReviewTimelineDto> ReopenGate(long projectId, string gateCode, ReopenReviewGateRequest request, CancellationToken ct)
+        => throw new NotImplementedException();
+    Task<IReadOnlyList<GateAssignmentSummaryDto>> GateAssignments(long projectId, string gateCode, CancellationToken ct)
+        => throw new NotImplementedException();
+    Task<PagedResult<GateReviewerCandidateDto>> ReviewerCandidates(long projectId, string gateCode, long? majorId, string? search, int page, int pageSize, CancellationToken ct)
+        => throw new NotImplementedException();
     Task<ReviewGateUserCapabilitiesDto> OverrideCapability(long projectId, CancellationToken ct);
     Task<ProjectReviewMatrixRowDto> UpdateScope(long projectId, string scope, UpdateReviewGateScopeRequest request, CancellationToken ct);
     Task<IReadOnlyList<ProjectReviewMatrixRowDto>> Matrix(string? mode, long? departmentId, CancellationToken ct);
