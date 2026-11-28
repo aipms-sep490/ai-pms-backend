@@ -1910,16 +1910,17 @@ public sealed class ProgressAndMeetingConcurrencyTests(SupervisorDatabaseFixture
         var fakeRes = await fakeAdminClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/action-items/{itemId}/status", reopenReq);
         Assert.Equal(HttpStatusCode.Forbidden, fakeRes.StatusCode);
 
-        // 2. Real persisted Admin: user with Admin in DB -> 200 OK!
+        // 2. Real persisted Admin passes auth check, then hits Wave 2 terminal lock (409 ACTION_ITEM_TERMINAL_LOCKED)
         using var realAdminClient = app.CreateAuthenticatedClient(adminUserId, roles: [AppRoles.Admin]);
         var realRes = await realAdminClient.PostAsJsonAsync($"/api/v1/projects/{ctx.ProjectId}/action-items/{itemId}/status", reopenReq);
-        Assert.Equal(HttpStatusCode.OK, realRes.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, realRes.StatusCode);
+        Assert.Contains("ACTION_ITEM_TERMINAL_LOCKED", await realRes.Content.ReadAsStringAsync());
 
-        // 3. Confirm in DB status is now IN_PROGRESS
+        // 3. Confirm in DB status remains terminal DONE
         await using (var verifyDb = database.CreateContext())
         {
-            var updated = await verifyDb.ProjectActionItems.FindAsync(itemId);
-            Assert.Equal("IN_PROGRESS", updated!.Status);
+            var persisted = await verifyDb.ProjectActionItems.FindAsync(itemId);
+            Assert.Equal("DONE", persisted!.Status);
         }
     }
 

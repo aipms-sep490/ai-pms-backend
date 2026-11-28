@@ -134,9 +134,14 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
         // Check -> ELIGIBLE
         await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
 
-        // Lock -> LOCKED
-        var lockedTeam = await BodyAsync<TeamDto>(await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/lock", null));
-        Assert.Equal("LOCKED", lockedTeam.Status);
+        // Manual lock by students is disabled (Wave 1); teams lock on proposal submission
+        var manualLockRes = await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/lock", null);
+        Assert.Equal(HttpStatusCode.Conflict, manualLockRes.StatusCode);
+        Assert.Contains("TEAM_MANUAL_LOCK_DISABLED", await manualLockRes.Content.ReadAsStringAsync());
+
+        // Lock team (simulating automatic lock on proposal submission)
+        await using (var lockDb = database.CreateContext())
+            await lockDb.Teams.Where(t => t.Id == team.Id).ExecuteUpdateAsync(x => x.SetProperty(t => t.Status, "LOCKED"));
 
         // Refresh on LOCKED team -> remains LOCKED
         var refreshedTeam = await BodyAsync<TeamDto>(await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/refresh", null));
@@ -163,8 +168,11 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
         var teamAfterCheck = await BodyAsync<TeamDto>(await clientLeader.GetAsync($"/api/v1/teams/{team.Id}"));
         Assert.Equal("ELIGIBLE", teamAfterCheck.Status);
 
-        // 22. LOCKED + PASS -> LOCKED
-        await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/lock", null);
+        // 22. LOCKED + PASS -> LOCKED (manual student lock is disabled; teams lock on proposal submission)
+        var manualLock = await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/lock", null);
+        Assert.Equal(HttpStatusCode.Conflict, manualLock.StatusCode);
+        await using (var lockDb = database.CreateContext())
+            await lockDb.Teams.Where(t => t.Id == team.Id).ExecuteUpdateAsync(x => x.SetProperty(t => t.Status, "LOCKED"));
         var teamLocked = await BodyAsync<TeamDto>(await clientLeader.GetAsync($"/api/v1/teams/{team.Id}"));
         Assert.Equal("LOCKED", teamLocked.Status);
 
@@ -294,9 +302,10 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
         var team = await BodyAsync<TeamDto>(await clientLeader.PostAsJsonAsync("/api/v1/teams",
             new { academicSemesterId = s.SemesterId, code = "TREV1", name = "Revision Team 1", description = "Test" }));
 
-        // Check & Lock team
+        // Check & lock team (simulating automatic lock on proposal submission)
         await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
-        await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/lock", null);
+        await using (var lockDb = database.CreateContext())
+            await lockDb.Teams.Where(t => t.Id == team.Id).ExecuteUpdateAsync(x => x.SetProperty(t => t.Status, "LOCKED"));
 
         var teamLocked = await BodyAsync<TeamDto>(await clientLeader.GetAsync($"/api/v1/teams/{team.Id}"));
         Assert.Equal("LOCKED", teamLocked.Status);
@@ -349,9 +358,10 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
         var team = await BodyAsync<TeamDto>(await clientLeader.PostAsJsonAsync("/api/v1/teams",
             new { academicSemesterId = s.SemesterId, code = "TREV2", name = "Revision Team 2", description = "Test" }));
 
-        // Check & Lock team
+        // Check & lock team (simulating automatic lock on proposal submission)
         await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
-        await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/lock", null);
+        await using (var lockDb = database.CreateContext())
+            await lockDb.Teams.Where(t => t.Id == team.Id).ExecuteUpdateAsync(x => x.SetProperty(t => t.Status, "LOCKED"));
 
         long projectId1;
         string concurrencyToken1;
@@ -532,21 +542,18 @@ public sealed class TeamEligibilityGovernanceIntegrationTests(TeamDatabaseFixtur
         // Establish CURRENT PASS snapshot
         await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/check", null);
 
-        // Concurrently invoke Lock
+        // Manual student lock is disabled (Wave 1); concurrent manual lock requests consistently return 409 TEAM_MANUAL_LOCK_DISABLED
         var t1 = clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/lock", null);
         var t2 = clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/lock", null);
         var responses = await Task.WhenAll(t1, t2);
 
-        Assert.True(responses[0].StatusCode == HttpStatusCode.OK || responses[1].StatusCode == HttpStatusCode.OK);
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.Conflict, r.StatusCode));
+        foreach (var r in responses)
+            Assert.Contains("TEAM_MANUAL_LOCK_DISABLED", await r.Content.ReadAsStringAsync());
 
         await using var ctx = database.CreateContext();
         var finalTeam = await ctx.Teams.SingleAsync(t => t.Id == team.Id);
-        Assert.Equal("LOCKED", finalTeam.Status);
-
-        var lockAudits = await ctx.AuditLogs
-            .Where(a => a.Action == "TEAM_ELIGIBILITY_LOCKED" && a.EntityId == team.Id.ToString())
-            .ToListAsync();
-        Assert.True(lockAudits.Count is 1 or 2);
+        Assert.Equal("ELIGIBLE", finalTeam.Status);
     }
 
     [Fact]

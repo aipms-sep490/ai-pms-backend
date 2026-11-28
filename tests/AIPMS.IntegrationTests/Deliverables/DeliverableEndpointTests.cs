@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Data.Common;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -38,18 +39,33 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
         Directory.CreateDirectory(temporary);
         try
         {
-            var source = Path.Combine(temporary, "source.pdf");
-            var size = sizeMiB * 1024L * 1024;
-            await using (var stream = new FileStream(source, FileMode.CreateNew, FileAccess.Write))
+            var source = Path.Combine(temporary, "source.zip");
+            var targetSize = sizeMiB * 1024L * 1024;
+            await using (var fs = new FileStream(source, FileMode.CreateNew, FileAccess.Write))
+            using (var archive = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: false))
             {
-                await stream.WriteAsync("%PDF-1.7\n"u8.ToArray());
-                stream.SetLength(size);
+                var entry = archive.CreateEntry("payload.bin", CompressionLevel.NoCompression);
+                await using var entryStream = entry.Open();
+                var pad = new byte[1024 * 1024];
+                // Keep total ZIP file size <= targetSize (accounting for ZIP headers)
+                var payloadBytes = targetSize - 1024;
+                long written = 0;
+                while (written < payloadBytes)
+                {
+                    var chunkLen = (int)Math.Min(pad.Length, payloadBytes - written);
+                    await entryStream.WriteAsync(pad.AsMemory(0, chunkLen));
+                    written += chunkLen;
+                }
             }
+            var size = new FileInfo(source).Length;
             using var app = new Factory(database, diskStorageRoot: Path.Combine(temporary, "stored"));
             using var leader = app.CreateAuthenticatedClient(s.Accounts.Student);
             using var other = app.CreateAuthenticatedClient(s.MemberId);
             leader.Timeout = TimeSpan.FromMinutes(3);
-            var request = new CreateProjectFileUploadSession("REPORT", s.ReportId, "large.pdf", "application/pdf", size);
+            var request = new CreateProjectFileUploadSession("REPORT", s.ReportId, "large.zip", "application/zip", size);
+            // POL-06: PDF documents are capped at 20 MiB while ZIP archives allow up to 500 MiB.
+            Assert.Equal(HttpStatusCode.RequestEntityTooLarge, (await leader.PostAsJsonAsync("/api/v1/files/upload-sessions",
+                new CreateProjectFileUploadSession("REPORT", s.ReportId, "oversized.pdf", "application/pdf", UploadPolicies.EffectiveFileLimit + 1))).StatusCode);
             Assert.Equal(HttpStatusCode.RequestEntityTooLarge, (await leader.PostAsJsonAsync("/api/v1/files/upload-sessions",
                 request with { SizeBytes = UploadPolicies.ProjectFileLimit + 1 })).StatusCode);
             var session = await Body<ProjectFileUploadSession>(await leader.PostAsJsonAsync("/api/v1/files/upload-sessions", request));
@@ -337,11 +353,11 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
     }
 
     [Theory]
-    [InlineData("report.exe", "application/octet-stream", "fake")]
-    [InlineData("report.pdf", "application/pdf", "not a pdf")]
-    [InlineData("report.txt", "application/pdf", "text")]
-    [InlineData("../report.txt", "text/plain", "text")]
-    public async Task Invalid_upload_never_creates_storage_or_metadata(string name, string mime, string content)
+    [InlineData("report.exe", "application/octet-stream", "fake", HttpStatusCode.BadRequest)]
+    [InlineData("report.pdf", "application/pdf", "not a pdf", HttpStatusCode.UnprocessableEntity)]
+    [InlineData("report.txt", "application/pdf", "text", HttpStatusCode.BadRequest)]
+    [InlineData("../report.txt", "text/plain", "text", HttpStatusCode.BadRequest)]
+    public async Task Invalid_upload_never_creates_storage_or_metadata(string name, string mime, string content, HttpStatusCode expectedStatus)
     {
         var s = await Seed();
         using var app = new Factory(database);
@@ -349,7 +365,7 @@ public sealed class DeliverableEndpointTests(SupervisorDatabaseFixture database)
         var d = await Body<DeliverableDto>(await Create(leader, s.ProjectId));
         using var form = Form(Encoding.UTF8.GetBytes(content), name, mime);
         form.Add(new StringContent("0"), "expectedLatestVersion");
-        Assert.Equal(HttpStatusCode.BadRequest, (await leader.PostAsync($"/api/v1/deliverables/{d.Id}/versions", form)).StatusCode);
+        Assert.Equal(expectedStatus, (await leader.PostAsync($"/api/v1/deliverables/{d.Id}/versions", form)).StatusCode);
         Assert.Empty(app.Storage.Objects);
     }
 

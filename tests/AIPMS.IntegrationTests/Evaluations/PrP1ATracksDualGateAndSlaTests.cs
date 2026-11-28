@@ -168,6 +168,40 @@ public sealed class PrP1ATracksDualGateAndSlaTests(EvaluationDraftDatabaseFixtur
             new RecordRoundScopeDecisionRequest(itMajorId.ToString(), 1, "OVERRIDDEN_PASS", "MKT trying to override IT lead scope illegally", IsLeadOverride: true));
         Assert.Equal(HttpStatusCode.Forbidden, illegalOverride.StatusCode);
 
+        // 4b. Negative (TK-W2-06): Gate 1–3 PASSED requires both assigned reviewers to pass first -> 409 GATE_REVIEW_PANEL_REQUIRED
+        var panelMissing = await leadStaff.PostAsJsonAsync(
+            $"/api/v1/projects/{s.ProjectId}/review-gates/G1/round-scope-decisions",
+            new RecordRoundScopeDecisionRequest(itMajorId.ToString(), 1, "PASSED", "Attempting pass before reviewer panel"));
+        Assert.Equal(HttpStatusCode.Conflict, panelMissing.StatusCode);
+        Assert.Equal(WorkflowErrorCodes.GateReviewPanelRequired, await ReadProblemCode(panelMissing));
+
+        // Seed 2 distinct passed gate reviewers for G1 so department scope sign-offs satisfy TK-W2-06
+        await using (var db = database.CreateContext())
+        {
+            db.GateReviewerAssignments.AddRange(
+                new GateReviewerAssignment
+                {
+                    GateInstanceId = g1Id,
+                    ReviewerId = s.Scope.Users.NewLecturer,
+                    Scope = "COMMON",
+                    Status = "REVIEWED",
+                    SessionRole = "CHAIR",
+                    LatestDecision = "PASSED",
+                    CreatedAt = Now
+                },
+                new GateReviewerAssignment
+                {
+                    GateInstanceId = g1Id,
+                    ReviewerId = s.Scope.Users.OtherLecturer,
+                    Scope = "COMMON",
+                    Status = "REVIEWED",
+                    SessionRole = "MEMBER",
+                    LatestDecision = "PASSED",
+                    CreatedAt = Now
+                });
+            await db.SaveChangesAsync();
+        }
+
         // 5. IT passes alone while MKT still has REVISION_REQUIRED -> G1 stays REVISION_REQUIRED (G2 stays PLANNED) until MKT also passes
         var passIt = await Body<GateRoundConsensusDto>(await leadStaff.PostAsJsonAsync(
             $"/api/v1/projects/{s.ProjectId}/review-gates/G1/round-scope-decisions",

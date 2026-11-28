@@ -24,11 +24,12 @@ public sealed class RbacReadOnlyMatrixTests(EvaluationDraftDatabaseFixture datab
     public async Task Admin_WriteEndpoints_Return409ReadOnly_WhileReadMatrix_AndUserRoleAssignment_StillWork()
     {
         var s = await database.Seed(false);
-        long studentRoleId, lecturerRoleId;
+        long studentRoleId, lecturerRoleId, staffRoleId;
         await using (var db = database.CreateContext())
         {
             studentRoleId = await db.Roles.Where(r => r.Code == AppRoles.Student).Select(r => r.Id).SingleAsync();
             lecturerRoleId = await db.Roles.Where(r => r.Code == AppRoles.Lecturer).Select(r => r.Id).SingleAsync();
+            staffRoleId = await db.Roles.Where(r => r.Code == AppRoles.DepartmentStaff).Select(r => r.Id).SingleAsync();
         }
 
         using var app = new EvaluationFactory(database);
@@ -69,11 +70,16 @@ public sealed class RbacReadOnlyMatrixTests(EvaluationDraftDatabaseFixture datab
         Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync("/api/v1/security/roles")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync("/api/v1/security/permissions")).StatusCode);
 
-        // 4. Positive: Admin assigns & removes one of the 4 system roles to/from a user account (QD-10)
-        var assignRes = await admin.PutAsync($"/api/v1/users/{s.Scope.Users.Student}/roles/{lecturerRoleId}", null);
+        // 4. Negative (Q-X-04): STUDENT account cannot hold staff/lecturer roles -> 409 ROLE_COMBINATION_CONFLICT
+        var conflictRes = await admin.PutAsync($"/api/v1/users/{s.Scope.Users.Student}/roles/{lecturerRoleId}", null);
+        Assert.Equal(HttpStatusCode.Conflict, conflictRes.StatusCode);
+        Assert.Equal("ROLE_COMBINATION_CONFLICT", await ReadProblemCode(conflictRes));
+
+        // 5. Positive: Admin assigns & removes one of the 4 system roles to/from a staff/lecturer account (QD-10)
+        var assignRes = await admin.PutAsync($"/api/v1/users/{s.Scope.Users.Lecturer}/roles/{staffRoleId}", null);
         Assert.True(assignRes.IsSuccessStatusCode, await assignRes.Content.ReadAsStringAsync());
 
-        var removeRes = await admin.DeleteAsync($"/api/v1/users/{s.Scope.Users.Student}/roles/{lecturerRoleId}");
+        var removeRes = await admin.DeleteAsync($"/api/v1/users/{s.Scope.Users.Lecturer}/roles/{staffRoleId}");
         Assert.True(removeRes.IsSuccessStatusCode, await removeRes.Content.ReadAsStringAsync());
     }
 }

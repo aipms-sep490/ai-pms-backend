@@ -283,7 +283,8 @@ public sealed partial class TeamEndpointTests
             var notice = await noticeDb.Notifications.Include(n => n.NotificationRecipients)
                 .SingleAsync(n => n.RelatedEntityType == "TEAM_LEADER_CHANGE_REQUEST"
                     && n.RelatedEntityId == pending.Id && n.NotificationType == "TEAM_LEADER_CHANGE_APPROVED");
-            Assert.Equal(scenario.Students[0], Assert.Single(notice.NotificationRecipients).UserId);
+            var recipientIds = notice.NotificationRecipients.Select(r => r.UserId).OrderBy(x => x).ToArray();
+            Assert.Equal(new[] { scenario.Students[0], scenario.Students[1] }.OrderBy(x => x).ToArray(), recipientIds);
         }
 
         await using var after = database.CreateContext();

@@ -118,13 +118,14 @@ public sealed partial class InterdisciplinaryWorkflowTests
         using var designStaffClient = app.CreateAuthenticatedClient(threeDepartments ? designStaff : s.OtherStaff, roles: ["DEPARTMENT_STAFF"]);
         using var adminClient = app.CreateAuthenticatedClient(adminId, roles: ["ADMIN"]);
         using var primaryClient = app.CreateAuthenticatedClient(primaryId, roles: ["LECTURER"]);
+        using var replacementClient = app.CreateAuthenticatedClient(replacementId, roles: ["LECTURER"]);
         using var mentorClient = app.CreateAuthenticatedClient(mentorId, roles: ["LECTURER"]);
         using var evaluatorClient = app.CreateAuthenticatedClient(evaluatorId, roles: ["LECTURER"]);
         using var anonymous = app.CreateClient();
         var policyUrl = $"/api/v1/academic/project-periods/{s.Team.PeriodId}/qualification-policy";
         var policy = new SetProjectPeriodQualificationPolicyRequest(true, "CAPSTONE_READINESS");
-        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PutAsJsonAsync(policyUrl, policy)).StatusCode);
-        await Body<ProjectPeriodQualificationPolicyDto>(await adminClient.PutAsJsonAsync(policyUrl, policy));
+        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.PutAsJsonAsync(policyUrl, policy)).StatusCode);
+        await Body<ProjectPeriodQualificationPolicyDto>(await staff.PutAsJsonAsync(policyUrl, policy));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, (await leader.PostAsJsonAsync("/api/v1/student-qualifications/me/evidence",
             new SubmitStudentQualificationEvidenceRequest("CAPSTONE_READINESS", "TRAINING_COMPLETED", "INVALID-MIME", invalidCertificateId,
                 now.AddDays(-1), now.AddYears(1)))).StatusCode);
@@ -207,9 +208,13 @@ public sealed partial class InterdisciplinaryWorkflowTests
         var requirements = await Body<FinalRequirementsDto>(await staff.PutAsJsonAsync(finalUrl + "/requirements", new ConfigureFinalRequirementsRequest([item.Id], null)));
         var submit = new SubmitFinalSubmissionRequest(draft.ConcurrencyToken, requirements.ConcurrencyToken!);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(finalUrl)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await member.PostAsJsonAsync(finalUrl, submit)).StatusCode);
-        await Body<FinalSubmissionDto>(await leader.PostAsJsonAsync(finalUrl, submit));
+        // Wave 3 disables legacy 1-step POST /final-submission in favor of 2-step Pre-Defense lock.
         Assert.Equal(HttpStatusCode.Conflict, (await leader.PostAsJsonAsync(finalUrl, submit)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await member.PostAsJsonAsync(finalUrl + "/request-lock", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await leader.PostAsJsonAsync(finalUrl + "/request-lock", new { })).StatusCode);
+        var lockRes = await replacementClient.PostAsJsonAsync(finalUrl + "/supervisor-lock", new { decision = "LOCK", notes = "Approved for defense" });
+        Assert.True(lockRes.IsSuccessStatusCode, await lockRes.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Conflict, (await leader.PostAsJsonAsync(finalUrl + "/request-lock", new { })).StatusCode);
         var rubric = await Body<RubricDto>(await staff.PostAsJsonAsync("/api/v1/rubrics", new CreateRubricRequest(s.LeadDepartment,
             s.Team.SemesterId, "DEPART-" + Guid.NewGuid().ToString("N"), "Assessment", null, [new("Quality", null, 100, 10, 0, true)])));
         rubric = await Body<RubricDto>(await staff.PostAsJsonAsync($"/api/v1/rubrics/{rubric.Id}/publish", new ChangeRubricStatusRequest(rubric.ConcurrencyToken)));
@@ -260,7 +265,8 @@ public sealed partial class InterdisciplinaryWorkflowTests
         project = await Body<ProjectDto>(await leader.GetAsync($"/api/v1/projects/{project.Id}"));
         Assert.Equal("COMPLETED", project.Status);
         Assert.NotNull(project.CompletedAt);
-        project = await Body<ProjectDto>(await adminClient.PostAsJsonAsync($"/api/v1/projects/{project.Id}/archive", new ArchiveProjectRequest(project.ConcurrencyToken, "DEPART acceptance")));
+        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.PostAsJsonAsync($"/api/v1/projects/{project.Id}/archive", new ArchiveProjectRequest(project.ConcurrencyToken, "Admin cannot archive"))).StatusCode);
+        project = await Body<ProjectDto>(await staff.PostAsJsonAsync($"/api/v1/projects/{project.Id}/archive", new ArchiveProjectRequest(project.ConcurrencyToken, "DEPART acceptance")));
         Assert.Equal("ARCHIVED", project.Status);
         Assert.Equal(HttpStatusCode.Conflict, (await leader.PostAsJsonAsync($"/api/v1/projects/{project.Id}/deliverables",
             new SaveDeliverableRequest(null, "Late write", null, "REPORT", now.AddDays(1)))).StatusCode);

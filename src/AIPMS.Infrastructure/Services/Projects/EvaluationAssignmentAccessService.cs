@@ -306,10 +306,10 @@ internal sealed class EvaluationAssignmentAccessService(
                 scopedItems = rawItems;
                 break;
             case "MAJOR_SPECIFIC" when row.MajorId.HasValue && row.MajorId.Value > 0:
-                scopedItems = rawItems.Where(i => (i.Dto.MajorId == null && i.Dto.StudentId == null) || i.Dto.MajorId == row.MajorId.Value).ToList();
+                scopedItems = rawItems.Where(i => i.Dto.MajorId == row.MajorId.Value).ToList();
                 break;
             case "INDIVIDUAL" when row.StudentId.HasValue && row.StudentId.Value > 0:
-                scopedItems = rawItems.Where(i => (i.Dto.MajorId == null && i.Dto.StudentId == null) || (i.Dto.StudentId == row.StudentId.Value && i.Dto.MajorId == row.MajorId)).ToList();
+                scopedItems = rawItems.Where(i => i.Dto.StudentId == row.StudentId.Value && i.Dto.MajorId == row.MajorId).ToList();
                 break;
             default:
                 scopedItems = [];

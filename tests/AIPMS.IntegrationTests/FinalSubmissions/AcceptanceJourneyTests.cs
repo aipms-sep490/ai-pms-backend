@@ -96,6 +96,14 @@ public sealed partial class FinalSubmissionEndpointTests
         var result = await Body<ProjectResultDto>(await staff.PostAsJsonAsync(resultPath, new PublishProjectResultRequest(preview.ConfirmationToken)));
         Assert.Equal(8.5m, result.TotalScore);
         Assert.Equal(result.Id, (await Body<ProjectResultDto>(await member.GetAsync(resultPath))).Id);
+        // Wave 4 archive readiness requires published StudentResults for every active team member.
+        foreach (var studentId in new[] { s.Users.Student, s.MemberId })
+        {
+            var studentPreview = await Body<ProjectResultPreviewDto>(await staff.GetAsync($"/api/v1/projects/{s.ProjectId}/students/{studentId}/result/preview"));
+            Assert.True(studentPreview.CanPublish);
+            await Body<StudentResultDto>(await staff.PostAsJsonAsync($"/api/v1/projects/{s.ProjectId}/students/{studentId}/result",
+                new PublishProjectResultRequest(studentPreview.ConfirmationToken)));
+        }
         var actions = await Body<ProjectWorkflowActionsDto>(await staff.GetAsync($"/api/v1/projects/{s.ProjectId}/actions"));
         Assert.True(Assert.Single(actions.Actions.Where(a => a.Code == "archive_project")).Allowed);
         var memberActions = await Body<ProjectWorkflowActionsDto>(await member.GetAsync($"/api/v1/projects/{s.ProjectId}/actions"));
@@ -131,7 +139,61 @@ public sealed partial class FinalSubmissionEndpointTests
         using (var json = JsonDocument.Parse(await blocked.Content.ReadAsStringAsync()))
             Assert.Equal("ARCHIVE_NOT_ALLOWED", json.RootElement.GetProperty("code").GetString());
         await using (var db = database.CreateContext())
+        {
             await db.Projects.Where(p => p.Id == s.ProjectId).ExecuteUpdateAsync(x => x.SetProperty(p => p.Status, "COMPLETED"));
+            var majorId = await db.ProjectMajors.Where(pm => pm.ProjectId == s.ProjectId).Select(pm => pm.MajorId).FirstAsync();
+            var finalSub = new FinalSubmission
+            {
+                ProjectId = s.ProjectId,
+                ProjectPeriodId = s.PeriodId,
+                SubmittedBy = s.Users.Student,
+                SubmittedAt = Now,
+                Deadline = Now.AddDays(1)
+            };
+            db.Add(finalSub);
+            var scheme = new EvaluationScheme
+            {
+                ProjectId = s.ProjectId,
+                ProjectPeriodId = s.PeriodId,
+                Name = "Archive seed scheme",
+                Version = 1,
+                Status = "PUBLISHED",
+                PassThreshold = 5m,
+                CreatedBy = s.Users.Staff,
+                CreatedAt = Now,
+                PublishedBy = s.Users.Staff,
+                PublishedAt = Now
+            };
+            db.Add(scheme);
+            await db.SaveChangesAsync();
+            db.Add(new ProjectResult
+            {
+                ProjectId = s.ProjectId,
+                FinalSubmissionId = finalSub.Id,
+                PublishedBy = s.Users.Staff,
+                PublishedAt = Now,
+                SnapshotJson = "{}"
+            });
+            var memberIds = await db.TeamMembers.Where(m => m.TeamId == s.TeamId && m.LeftAt == null).Select(m => m.UserId).ToArrayAsync();
+            foreach (var studentId in memberIds)
+            {
+                db.Add(new StudentResult
+                {
+                    ProjectId = s.ProjectId,
+                    StudentId = studentId,
+                    MajorId = majorId,
+                    SchemeId = scheme.Id,
+                    TotalScore = 8.5m,
+                    PassThreshold = 5m,
+                    Outcome = "PASSED",
+                    CalculationRule = "LEGACY_V1",
+                    PublishedBy = s.Users.Staff,
+                    PublishedAt = Now,
+                    SnapshotJson = "{}"
+                });
+            }
+            await db.SaveChangesAsync();
+        }
         var current = await Body<ProjectWorkflowActionsDto>(await staff.GetAsync(url + "/actions"));
         Assert.True(Assert.Single(current.Actions.Where(a => a.Code == "archive_project")).Allowed);
         var stale = await staff.PostAsJsonAsync(url + "/archive", new ArchiveProjectRequest(active.ConcurrencyToken, null));

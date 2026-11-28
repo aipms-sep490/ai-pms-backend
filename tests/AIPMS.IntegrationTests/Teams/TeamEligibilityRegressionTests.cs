@@ -1297,10 +1297,10 @@ public sealed class TeamEligibilityRegressionTests(TeamDatabaseFixture database)
         Assert.Equal("PASS", getCheck.Result);
         Assert.Equal("CURRENT", getCheck.Freshness);
 
-        // Step 11: Lock => succeeds using A
+        // Step 11: Manual student lock is disabled (Wave 1); team locks automatically upon proposal submission below
         var lockRes = await clientLeader.PostAsync($"/api/v1/teams/{team.Id}/eligibility/lock", null);
-        var lockedTeam = await BodyAsync<TeamDto>(lockRes);
-        Assert.Equal("LOCKED", lockedTeam.Status);
+        Assert.Equal(HttpStatusCode.Conflict, lockRes.StatusCode);
+        Assert.Contains("TEAM_MANUAL_LOCK_DISABLED", await lockRes.Content.ReadAsStringAsync());
 
         // Step 10: where applicable prepare project submission correctly
         long projectId;

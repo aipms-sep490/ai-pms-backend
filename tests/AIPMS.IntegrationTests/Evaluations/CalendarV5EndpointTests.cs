@@ -38,7 +38,7 @@ public sealed class CalendarV5EndpointTests(EvaluationDraftDatabaseFixture datab
         using var app = new EvaluationFactory(database); var x = await Seed();
         await using (var db = database.CreateContext())
         {
-            var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Fixture committee", CreatedBy = x.S.Scope.Users.Staff,
+            var committee = new DefenseCommittee { ProjectId = x.S.ProjectId, Name = "Fixture committee", Status = "CONFIRMED", CreatedBy = x.S.Scope.Users.Staff,
                 CreatedAt = Due, Members = [new() { UserId = x.S.Scope.Users.NewLecturer, MajorId = x.Major }] };
             db.Add(committee); await db.SaveChangesAsync();
             db.Add(new DefenseSession { ProjectId = x.S.ProjectId, CommitteeId = committee.Id, StartAt = Due, EndAt = Due.AddHours(1),

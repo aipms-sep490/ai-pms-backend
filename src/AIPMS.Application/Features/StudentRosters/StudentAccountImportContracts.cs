@@ -14,7 +14,7 @@ public sealed record StudentImportedCredential(
 public sealed record StudentAccountImportCommit(
     long MajorId,
     IReadOnlyList<StudentAccountImportRow> Rows,
-    bool RequireGoogleSso = false,
+    bool RequireGoogleSso = true,
     bool MarkProfilesVerified = false);
 
 public sealed record StudentAccountImportResult(

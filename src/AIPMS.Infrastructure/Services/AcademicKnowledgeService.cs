@@ -408,6 +408,12 @@ internal sealed partial class AcademicKnowledgeService(
                         var hasOfficial = ids.Any(officialIds.Contains);
                         var hasFile = ids.Any(fileIds.Contains);
 
+                        if (string.IsNullOrEmpty(rawKind) && insufficientExplicit == false && ids.Length == 0 && officialIds.Count > 0)
+                        {
+                            retryableJsonFailure = false;
+                            throw new JsonException("Model omitted answerType and citations despite retrieved official sources.");
+                        }
+
                         var kind = !string.IsNullOrEmpty(rawKind)
                             ? rawKind
                             : (insufficientExplicit == true ? "INSUFFICIENT_EVIDENCE"

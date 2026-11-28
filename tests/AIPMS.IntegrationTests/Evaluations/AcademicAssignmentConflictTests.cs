@@ -182,7 +182,11 @@ public sealed class AcademicAssignmentConflictTests(EvaluationDraftDatabaseFixtu
         assignment.RevocationReason = "Fixture revocation";
         db.Add(assignment);
         await db.SaveChangesAsync();
-        await AcademicAssignmentGuard.EnsureEvaluatorAsync(db, s.ProjectId, s.Scope.Users.Lecturer, "LECTURER", default);
+        // D17 COI: Current or former discipline mentor is blocked from being assigned as evaluator,
+        // while a revoked evaluator still does not block primary supervisor assignment.
+        var mentorConflict = await Assert.ThrowsAsync<ConflictException>(
+            () => AcademicAssignmentGuard.EnsureEvaluatorAsync(db, s.ProjectId, s.Scope.Users.Lecturer, "LECTURER", default));
+        Assert.Equal(AcademicAssignmentGuard.ConflictCode, mentorConflict.Code);
         await AcademicAssignmentGuard.EnsurePrimaryAsync(db, s.ProjectId, s.Scope.Users.ProfileId, default);
         Assert.Equal("REVOKED", assignment.Status);
     }

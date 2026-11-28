@@ -124,11 +124,12 @@ public sealed partial class TeamEndpointTests
     public async Task Qualification_policy_update_rolls_back_when_audit_fails()
     {
         var scenario = await database.SeedAsync();
+        var staffId = await AddStaffAsync(scenario);
         using var app = new TeamTestFactory(database, scenario,
             failAuditAction: "PROJECT_PERIOD_QUALIFICATION_POLICY_UPDATED");
-        using var admin = app.CreateAuthenticatedClient(scenario.Students[0], roles: [AppRoles.Admin]);
+        using var staff = app.CreateAuthenticatedClient(staffId, roles: [AppRoles.DepartmentStaff]);
 
-        var response = await admin.PutAsJsonAsync(
+        var response = await staff.PutAsJsonAsync(
             $"/api/v1/academic/project-periods/{scenario.PeriodId}/qualification-policy", new
             {
                 requireStudentQualification = true,

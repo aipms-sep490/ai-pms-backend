@@ -41,6 +41,7 @@ public sealed class Wave4AppealsArchiveGoLiveIntegrationTests(EvaluationDraftDat
             builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Appeals:Enabled"] = appealsEnabled.ToString(),
+                ["Chat:Enabled"] = "true",
                 ["PeerEvaluation:Enabled"] = peerEvalEnabled.ToString(),
                 ["ExecutionConcurrency:RequireTokens"] = requireTokens.ToString(),
                 ["ExecutionConcurrency:LogMissingTokens"] = "true",

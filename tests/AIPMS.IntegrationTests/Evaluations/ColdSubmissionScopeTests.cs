@@ -163,7 +163,10 @@ public sealed partial class ColdSubmissionEndpointTests
         scheme = await Body<EvaluationSchemeDto>(await staff.PostAsJsonAsync($"/api/v1/evaluation-schemes/{scheme.Id}/publish", new SchemeTokenRequest(scheme.ConcurrencyToken)));
         var component = scheme.Components.Single(c => c.MajorId == marketingMajor);
         Assert.Equal(HttpStatusCode.Forbidden, (await AssignCold(staff, s, component, s.Scope.Users.Lecturer)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await AssignCold(marketingStaff, s, component, s.Scope.Users.OtherLecturer)).StatusCode);
+        // Ended discipline mentor is blocked by D17 COI (409 EVALUATOR_ROLE_CONFLICT) from COLD evaluation.
+        var endedMentorConflict = await AssignCold(marketingStaff, s, component, s.Scope.Users.OtherLecturer);
+        Assert.Equal(HttpStatusCode.Conflict, endedMentorConflict.StatusCode);
+        Assert.Contains("EVALUATOR_ROLE_CONFLICT", await endedMentorConflict.Content.ReadAsStringAsync());
         var assignment = await Body<EvaluationAssignmentDto>(await AssignCold(marketingStaff, s, component, marketingEvaluatorId));
         var evidence = await Body<EvaluationAssignmentEvidenceDto>(await marketingEvaluator.GetAsync($"/api/v1/evaluation-assignments/{assignment.Id}/evidence"));
         Assert.Equal(2, evidence.Items.Count); Assert.All(evidence.Items, i => Assert.Equal(marketingMajor, i.MajorId));

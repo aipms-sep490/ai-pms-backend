@@ -256,7 +256,7 @@ public sealed class PrP1CExecutionKanbanDagAndUndoTests(EvaluationDraftDatabaseF
         await member.DeleteAsync($"/api/v1/tasks/{restored.Id}?concurrencyToken={restored.ConcurrencyToken}");
         await using (var db = database.CreateContext())
         {
-            var raw = await db.Tasks.SingleAsync(t => t.Id == restored.Id);
+            var raw = await db.Tasks.IgnoreQueryFilters().SingleAsync(t => t.Id == restored.Id);
             raw.RestoreUntilAt = Now.AddSeconds(-10);
             await db.SaveChangesAsync();
         }

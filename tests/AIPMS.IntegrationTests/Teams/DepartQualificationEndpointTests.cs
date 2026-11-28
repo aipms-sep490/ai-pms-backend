@@ -50,8 +50,7 @@ public sealed partial class TeamEndpointTests
         var bytes = await staff.GetByteArrayAsync(certificate + "/download");
         var metadata = await BodyAsync<StudentQualificationCertificateDto>(await student.GetAsync(certificate));
         Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant(), metadata.ChecksumSha256);
-        await BodyAsync<StudentQualificationDto>(await staff.PostAsJsonAsync($"/api/v1/student-qualifications/{first.Id}/verify",
-            new { expectedConcurrencyToken = first.ConcurrencyToken }));
+        // Replace while PENDING_VERIFICATION atomically swaps file & deletes superseded file
         using var replacement = Upload("%PDF-1.7 revised");
         var second = await BodyAsync<StudentQualificationDto>(await student.PostAsync(route, replacement));
         Assert.Equal(first.Id, second.Id);
@@ -61,10 +60,17 @@ public sealed partial class TeamEndpointTests
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync($"/api/v1/student-qualifications/{first.Id}/verify",
             new { expectedConcurrencyToken = first.ConcurrencyToken })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await student.GetAsync($"/api/v1/files/{first.CertificateFileId}/download")).StatusCode);
+        await BodyAsync<StudentQualificationDto>(await staff.PostAsJsonAsync($"/api/v1/student-qualifications/{first.Id}/verify",
+            new { expectedConcurrencyToken = second.ConcurrencyToken }));
+        // Verified valid qualifications cannot be overwritten (409 QUALIFICATION_ALREADY_VERIFIED)
+        using var blockedAfterVerify = Upload("%PDF-1.7 blocked");
+        var verifiedRes = await student.PostAsync(route, blockedAfterVerify);
+        Assert.Equal(HttpStatusCode.Conflict, verifiedRes.StatusCode);
+        Assert.Contains("QUALIFICATION_ALREADY_VERIFIED", await verifiedRes.Content.ReadAsStringAsync());
         using var badType = Upload("text", "text/plain", "file.txt");
         Assert.Equal(HttpStatusCode.UnprocessableEntity, (await student.PostAsync(route, badType)).StatusCode);
         using var badSignature = Upload("not a PDF");
-        Assert.Equal(HttpStatusCode.BadRequest, (await student.PostAsync(route, badSignature)).StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await student.PostAsync(route, badSignature)).StatusCode);
     }
 
     private sealed class DepartUploadStorage : IFileStorage

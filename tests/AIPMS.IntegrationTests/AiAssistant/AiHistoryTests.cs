@@ -11,6 +11,7 @@ using AIPMS.Infrastructure.Persistence.Models;
 using AIPMS.IntegrationTests.Evaluations;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
@@ -33,10 +34,10 @@ public sealed class AiHistoryTests(EvaluationDraftDatabaseFixture database) : IC
     [Fact]
     public async Task Ask_persists_safe_history_and_audit_with_current_scope_and_no_academic_mutation()
     {
-        var x = await Seed(); using var app = new EvaluationFactory(database); using var leader = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
+        var x = await Seed(); using var app = new LegacyAiFactory(database); using var leader = app.CreateAuthenticatedClient(x.S.Scope.Users.Student);
         await CreateTask(leader, x.Milestone, x.Major);
         var result = await Body<ProjectAssistantResponseDto>(await leader.PostAsJsonAsync(Url(x.S.ProjectId) + "/ask", new AskProjectAssistantRequest("What is blocked?")));
-        Assert.NotNull(result.RunId); Assert.Equal("COMPLETED", result.GenerationStatus);
+        Assert.NotNull(result.RunId); Assert.Equal("FALLBACK", result.GenerationStatus);
         var history = await Body<AiRunDto>(await leader.GetAsync(Url(x.S.ProjectId) + $"/runs/{result.RunId}"));
         Assert.Equal("GROUNDED_LOCAL_V1", history.ModelVersion); Assert.Equal(result.Answer, history.Answer!.Answer); Assert.NotEmpty(history.Evidence);
         Assert.Single((await Body<PagedResult<AiRunDto>>(await leader.GetAsync(Url(x.S.ProjectId) + "/runs"))).Items);
@@ -172,7 +173,20 @@ public sealed class AiHistoryTests(EvaluationDraftDatabaseFixture database) : IC
         Assert.Equal(HttpStatusCode.Forbidden, (await leader.GetAsync("/api/v1/dashboards/me")).StatusCode);
     }
 
-    private sealed class AuditFailureFactory(EvaluationDraftDatabaseFixture db) : EvaluationFactory(db)
+    private class LegacyAiFactory(EvaluationDraftDatabaseFixture db) : EvaluationFactory(db)
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AiAssistant:Enabled"] = "true",
+                ["AiAssistant:LegacyProjectAskEnabled"] = "true",
+                ["AiAssistant:Provider"] = "Grounded"
+            }));
+        }
+    }
+    private sealed class AuditFailureFactory(EvaluationDraftDatabaseFixture db) : LegacyAiFactory(db)
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         { base.ConfigureWebHost(builder); builder.ConfigureServices(s => { s.RemoveAll<IAuditTrail>(); s.AddSingleton<IAuditTrail, FailAudit>(); }); }
@@ -181,7 +195,7 @@ public sealed class AiHistoryTests(EvaluationDraftDatabaseFixture database) : IC
     {
         public Task RecordAsync(AuditEntry entry, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Injected audit failure");
     }
-    private sealed class Factory(EvaluationDraftDatabaseFixture db, Provider provider) : EvaluationFactory(db)
+    private sealed class Factory(EvaluationDraftDatabaseFixture db, Provider provider) : LegacyAiFactory(db)
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         { base.ConfigureWebHost(builder); builder.ConfigureServices(s => { s.RemoveAll<IAiTextGenerationProvider>(); s.AddSingleton<IAiTextGenerationProvider>(provider); }); }

@@ -191,6 +191,21 @@ public sealed class RubricApprovalWorkflowTests(RubricDatabaseFixture database) 
     public async Task Submitter_CannotApproveOwnRubric_Returns403()
     {
         var s = await database.Seed();
+        // Multi-staff department (>= 2 active DEPARTMENT_STAFF) enforces 403 RUBRIC_SELF_APPROVAL_FORBIDDEN.
+        await using (var db = database.CreateContext())
+        {
+            var staffRoleId = await db.Roles.Where(r => r.Code == AppRoles.DepartmentStaff).Select(r => r.Id).SingleAsync();
+            db.Users.Add(new M.User
+            {
+                Email = $"peer_staff_{Guid.NewGuid():N}@rubric.test",
+                FullName = "Second Department Staff",
+                PasswordHash = "unused",
+                Status = "ACTIVE",
+                DepartmentId = s.Users.DepartmentId,
+                UserRoleUsers = [new() { RoleId = staffRoleId }]
+            });
+            await db.SaveChangesAsync();
+        }
         using var app = new RubricFactory(database);
         using var client = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
 

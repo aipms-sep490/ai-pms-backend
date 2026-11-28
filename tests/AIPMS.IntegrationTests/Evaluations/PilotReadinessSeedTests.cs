@@ -30,7 +30,7 @@ public sealed class PilotReadinessSeedTests(EvaluationDraftDatabaseFixture datab
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "powershell",
+            FileName = OperatingSystem.IsWindows() ? "powershell" : "pwsh",
             Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{scriptPath}\" {args}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
