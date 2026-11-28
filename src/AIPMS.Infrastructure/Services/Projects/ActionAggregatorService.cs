@@ -65,52 +65,257 @@ internal sealed class ActionAggregatorService(AipmsDbContext db, ICurrentUser cu
     public async Task<SupervisorTriageQueueDto> SupervisorTriage(CancellationToken ct)
     {
         Require(AppRoles.Lecturer);
-        var projects = db.SupervisorAssignments.AsNoTracking().Where(a => a.SupervisorProfile.UserId == Actor && a.EndedAt == null)
-            .Select(a => a.ProjectId).Distinct();
-        var items = new List<ActionAggregatorItem>();
-        var reportCount = await db.ProgressReports.AsNoTracking().LongCountAsync(r => projects.Contains(r.ProjectId) && r.Status == "SUBMITTED", ct);
-        var reports = await db.ProgressReports.AsNoTracking().Where(r => projects.Contains(r.ProjectId) && r.Status == "SUBMITTED")
-            .OrderBy(r => r.SubmittedAt).Take(50).Select(r => new { r.Id, r.ProjectId, r.ReportType, r.SubmittedAt }).ToArrayAsync(ct);
-        items.AddRange(reports.Select(r => new ActionAggregatorItem("PROGRESS_REVIEW", r.Id, r.ProjectId,
-            $"Duyệt báo cáo {r.ReportType}", "SUBMITTED", "HIGH", r.SubmittedAt, $"/supervisor/progress-reports/{r.Id}")));
-        var requestCount = await db.SupervisorRequests.AsNoTracking().LongCountAsync(r => projects.Contains(r.ProjectId) && r.Status == "PENDING", ct);
-        var requests = await db.SupervisorRequests.AsNoTracking().Where(r => projects.Contains(r.ProjectId) && r.Status == "PENDING")
-            .OrderBy(r => r.RequestedAt).Take(50).Select(r => new { r.Id, r.ProjectId, r.AssignmentType, r.RequestedAt }).ToArrayAsync(ct);
-        items.AddRange(requests.Select(r => new ActionAggregatorItem("SUPERVISOR_REQUEST", r.Id, r.ProjectId,
-            $"Xử lý đề nghị {r.AssignmentType}", "PENDING", "NORMAL", r.RequestedAt, $"/supervisor/requests/{r.Id}")));
-        var meetingCount = await db.Meetings.AsNoTracking().LongCountAsync(m => projects.Contains(m.ProjectId) && m.Status == "COMPLETED" && m.MeetingNotes == null, ct);
-        var meetings = await db.Meetings.AsNoTracking().Where(m => projects.Contains(m.ProjectId) && m.Status == "COMPLETED" && m.MeetingNotes == null)
-            .OrderBy(m => m.StartAt).Take(50).Select(m => new { m.Id, m.ProjectId, m.Title, m.StartAt }).ToArrayAsync(ct);
-        items.AddRange(meetings.Select(m => new ActionAggregatorItem("MEETING_SIGN_OFF", m.Id, m.ProjectId,
-            $"Hoàn tất biên bản {m.Title}", "COMPLETED", "NORMAL", m.StartAt, $"/supervisor/meetings/{m.Id}")));
-
         var now = Now;
-        var evalAssigns = await db.Set<EvaluationAssignment>().AsNoTracking()
-            .Where(a => a.EvaluatorId == Actor && a.Status != "REVOKED" && a.Status != "FINALIZED"
-                && (a.ValidFrom == null || a.ValidFrom <= now) && (a.ValidUntil == null || now <= a.ValidUntil))
-            .OrderBy(a => a.Id).Take(50)
-            .Select(a => new { a.Id, a.ProjectId, a.Stage, a.Scope, a.Status }).ToArrayAsync(ct);
-        items.AddRange(evalAssigns.Select(a => new ActionAggregatorItem("EVALUATION_ASSIGNMENT", a.Id, a.ProjectId,
-            $"Chấm {a.Stage} ({a.Scope}) · #{a.Id}", a.Status, "HIGH", null, $"/evaluator/assignments/{a.Id}")));
 
+        // TK-W2-14: Separate Hat 1 (PRIMARY_SUPERVISOR) and Hat 2 (DISCIPLINE_MENTOR) cleanly.
+        var activeSupervisions = await db.SupervisorAssignments.AsNoTracking()
+            .Where(a => a.SupervisorProfile.UserId == Actor && a.EndedAt == null)
+            .Select(a => new { a.ProjectId, a.AssignmentType, a.IsPrimary, a.MajorId })
+            .ToArrayAsync(ct);
+
+        var primaryProjectIds = activeSupervisions
+            .Where(a => a.IsPrimary && a.AssignmentType == "PRIMARY")
+            .Select(a => a.ProjectId)
+            .Distinct()
+            .ToArray();
+
+        var mentorOnlyMap = activeSupervisions
+            .Where(a => a.AssignmentType == "DISCIPLINE_MENTOR" && a.MajorId.HasValue && !primaryProjectIds.Contains(a.ProjectId))
+            .GroupBy(a => a.ProjectId)
+            .ToDictionary(g => g.Key, g => g.First().MajorId!.Value);
+        var mentorOnlyProjectIds = mentorOnlyMap.Keys.ToArray();
+        var allSupervisedProjectIds = primaryProjectIds.Concat(mentorOnlyProjectIds).Distinct().ToArray();
+
+        var items = new List<ActionAggregatorItem>();
+
+        // 1. Progress reports awaiting review (Hat 1 + Hat 2 with role-accurate deep links)
+        var reportCount = allSupervisedProjectIds.Length == 0
+            ? 0L
+            : await db.ProgressReports.AsNoTracking()
+                .LongCountAsync(r => allSupervisedProjectIds.Contains(r.ProjectId) && r.Status == "SUBMITTED", ct);
+        if (reportCount > 0)
+        {
+            var reports = await db.ProgressReports.AsNoTracking()
+                .Where(r => allSupervisedProjectIds.Contains(r.ProjectId) && r.Status == "SUBMITTED")
+                .OrderBy(r => r.SubmittedAt).Take(50)
+                .Select(r => new { r.Id, r.ProjectId, r.ReportType, r.SubmittedAt })
+                .ToArrayAsync(ct);
+            items.AddRange(reports.Select(r =>
+            {
+                var link = primaryProjectIds.Contains(r.ProjectId)
+                    ? $"/supervisor/projects/{r.ProjectId}/reports/{r.Id}"
+                    : $"/mentor/projects/{r.ProjectId}/majors/{mentorOnlyMap[r.ProjectId]}/reports/{r.Id}";
+                return new ActionAggregatorItem("PROGRESS_REVIEW", r.Id, r.ProjectId,
+                    $"Duyệt báo cáo {r.ReportType}", "SUBMITTED", "HIGH", r.SubmittedAt, link);
+            }));
+        }
+
+        // 2. Incoming supervisor invitations addressed directly to Actor (non-expired PENDING)
+        var pendingRequestsQuery = db.SupervisorRequests.AsNoTracking()
+            .Where(r => r.SupervisorProfile.UserId == Actor
+                && r.Status == "PENDING"
+                && (r.ExpiresAt == null || r.ExpiresAt > now));
+        var requestCount = await pendingRequestsQuery.LongCountAsync(ct);
+        if (requestCount > 0)
+        {
+            var requests = await pendingRequestsQuery
+                .OrderBy(r => r.RequestedAt).Take(50)
+                .Select(r => new { r.Id, r.ProjectId, r.AssignmentType, r.RequestedAt, r.ExpiresAt })
+                .ToArrayAsync(ct);
+            items.AddRange(requests.Select(r => new ActionAggregatorItem("SUPERVISOR_REQUEST", r.Id, r.ProjectId,
+                $"Xử lý lời mời {r.AssignmentType}", "PENDING", "NORMAL", r.ExpiresAt ?? r.RequestedAt,
+                $"/supervisor/workspace?tab=requests&requestId={r.Id}")));
+        }
+
+        // 3. Completed meetings awaiting unlocked notes sign-off (Hat 1 Primary only; checks NotesLockedAt == null)
+        var meetingCount = primaryProjectIds.Length == 0
+            ? 0L
+            : await db.Meetings.AsNoTracking()
+                .LongCountAsync(m => primaryProjectIds.Contains(m.ProjectId) && m.Status == "COMPLETED" && m.NotesLockedAt == null, ct);
+        if (meetingCount > 0)
+        {
+            var meetings = await db.Meetings.AsNoTracking()
+                .Where(m => primaryProjectIds.Contains(m.ProjectId) && m.Status == "COMPLETED" && m.NotesLockedAt == null)
+                .OrderBy(m => m.StartAt).Take(50)
+                .Select(m => new { m.Id, m.ProjectId, m.Title, m.StartAt })
+                .ToArrayAsync(ct);
+            items.AddRange(meetings.Select(m => new ActionAggregatorItem("MEETING_SIGN_OFF", m.Id, m.ProjectId,
+                $"Khóa biên bản họp: {m.Title}", "COMPLETED", "NORMAL", m.StartAt,
+                $"/supervisor/projects/{m.ProjectId}/meetings/{m.Id}")));
+        }
+
+        // 4. Hat 3: Assigned Gate Reviews (PENDING_REVIEW / IN_REVIEW within valid window)
+        var gateAssignQuery = db.GateReviewerAssignments.AsNoTracking()
+            .Where(a => a.ReviewerId == Actor
+                && (a.Status == "PENDING_REVIEW" || a.Status == "IN_REVIEW")
+                && (a.ValidFrom == null || a.ValidFrom <= now)
+                && (a.ValidUntil == null || now <= a.ValidUntil));
+        var gateAssignCount = await gateAssignQuery.LongCountAsync(ct);
+        if (gateAssignCount > 0)
+        {
+            var gateAssigns = await gateAssignQuery
+                .OrderBy(a => a.GateInstance.ReviewWindowEndAt ?? a.GateInstance.WindowEnd ?? a.ValidUntil)
+                .Take(50)
+                .Select(a => new
+                {
+                    a.Id,
+                    a.GateInstance.ProjectId,
+                    a.GateInstance.Code,
+                    a.GateInstance.Title,
+                    a.Status,
+                    DueAt = a.GateInstance.ReviewWindowEndAt ?? a.GateInstance.WindowEnd ?? a.ValidUntil
+                })
+                .ToArrayAsync(ct);
+            items.AddRange(gateAssigns.Select(g => new ActionAggregatorItem("GATE_REVIEW_ASSIGNMENT", g.Id, g.ProjectId,
+                $"Thẩm định cổng {g.Code}: {g.Title}", g.Status, "HIGH", g.DueAt,
+                $"/review/gate-assignments?assignmentId={g.Id}")));
+        }
+
+        // 5. Hat 4: 80% Evaluation Assignments with real DueAt from ValidUntil or ProjectPeriod.EndAt
+        var evalQuery = db.Set<EvaluationAssignment>().AsNoTracking()
+            .Join(db.ProjectPeriods.AsNoTracking(), a => a.ProjectPeriodId, p => p.Id, (a, p) => new { Assignment = a, Period = p })
+            .Where(x => x.Assignment.EvaluatorId == Actor
+                && x.Assignment.Status != "REVOKED"
+                && x.Assignment.Status != "FINALIZED"
+                && (x.Assignment.ValidFrom == null || x.Assignment.ValidFrom <= now)
+                && (x.Assignment.ValidUntil == null || now <= x.Assignment.ValidUntil));
+        var evalCount = await evalQuery.LongCountAsync(ct);
+        if (evalCount > 0)
+        {
+            var evalAssigns = await evalQuery
+                .OrderBy(x => x.Assignment.ValidUntil ?? x.Period.EndAt)
+                .ThenBy(x => x.Assignment.Id)
+                .Take(50)
+                .Select(x => new
+                {
+                    x.Assignment.Id,
+                    x.Assignment.ProjectId,
+                    x.Assignment.Stage,
+                    x.Assignment.Scope,
+                    x.Assignment.Status,
+                    DueAt = (DateTime?)(x.Assignment.ValidUntil ?? x.Period.EndAt)
+                })
+                .ToArrayAsync(ct);
+            items.AddRange(evalAssigns.Select(a => new ActionAggregatorItem("EVALUATION_ASSIGNMENT", a.Id, a.ProjectId,
+                $"Chấm {a.Stage} ({a.Scope}) · #{a.Id}", a.Status, "HIGH", a.DueAt,
+                $"/evaluator/assignments/{a.Id}")));
+        }
+
+        // 6. Blocked tasks > 48h (Hat 1 whole project; Hat 2 scoped to mentor's own major + COMMON/INTEGRATION)
         var blockedCutoff = now.AddHours(-48);
-        var blockedTasks = await db.Tasks.AsNoTracking()
-            .Where(t => t.DeletedAt == null && projects.Contains(t.Milestone.ProjectId) && t.Status == "BLOCKED"
-                && t.BlockedSinceAt.HasValue && t.BlockedSinceAt.Value <= blockedCutoff)
-            .OrderBy(t => t.BlockedSinceAt).Take(30)
-            .Select(t => new { t.Id, t.Milestone.ProjectId, t.Title, t.BlockedSinceAt }).ToArrayAsync(ct);
-        items.AddRange(blockedTasks.Select(t => new ActionAggregatorItem("TASK_BLOCKED_48H", t.Id, t.ProjectId,
-            $"Task BLOCKED > 48h: {t.Title}", "BLOCKED", "HIGH", t.BlockedSinceAt, $"/project/tasks/{t.Id}")));
+        var primaryBlockedCount = primaryProjectIds.Length == 0
+            ? 0L
+            : await db.Tasks.AsNoTracking()
+                .LongCountAsync(t => t.DeletedAt == null && primaryProjectIds.Contains(t.Milestone.ProjectId)
+                    && t.Status == "BLOCKED" && t.BlockedSinceAt.HasValue && t.BlockedSinceAt.Value <= blockedCutoff, ct);
+        if (primaryBlockedCount > 0)
+        {
+            var primaryBlocked = await db.Tasks.AsNoTracking()
+                .Where(t => t.DeletedAt == null && primaryProjectIds.Contains(t.Milestone.ProjectId)
+                    && t.Status == "BLOCKED" && t.BlockedSinceAt.HasValue && t.BlockedSinceAt.Value <= blockedCutoff)
+                .OrderBy(t => t.BlockedSinceAt).Take(30)
+                .Select(t => new { t.Id, t.Milestone.ProjectId, t.Title, t.BlockedSinceAt })
+                .ToArrayAsync(ct);
+            items.AddRange(primaryBlocked.Select(t => new ActionAggregatorItem("TASK_BLOCKED_48H", t.Id, t.ProjectId,
+                $"Task BLOCKED > 48h: {t.Title}", "BLOCKED", "HIGH", t.BlockedSinceAt,
+                $"/supervisor/projects/{t.ProjectId}/tasks/{t.Id}")));
+        }
 
-        var pendingLocks = await db.Set<FinalSubmissionDraft>().AsNoTracking()
-            .Where(d => projects.Contains(d.ProjectId) && d.LockWorkflowStatus == "PENDING_SUPERVISOR_LOCK")
-            .OrderBy(d => d.LockRequestedAt).Take(20)
-            .Select(d => new { d.Id, d.ProjectId, d.LockRequestedAt }).ToArrayAsync(ct);
-        items.AddRange(pendingLocks.Select(d => new ActionAggregatorItem("FINAL_LOCK_APPROVAL", d.Id, d.ProjectId,
-            "Ký khóa hồ sơ Tiền-Defense (Final & Cold)", "PENDING_SUPERVISOR_LOCK", "HIGH", d.LockRequestedAt, $"/supervisor/projects/{d.ProjectId}/final-submission")));
+        var mentorBlockedCount = 0L;
+        if (mentorOnlyProjectIds.Length > 0)
+        {
+            var mentorCandidates = await db.Tasks.AsNoTracking()
+                .Where(t => t.DeletedAt == null && mentorOnlyProjectIds.Contains(t.Milestone.ProjectId)
+                    && t.Status == "BLOCKED" && t.BlockedSinceAt.HasValue && t.BlockedSinceAt.Value <= blockedCutoff)
+                .OrderBy(t => t.BlockedSinceAt)
+                .Select(t => new
+                {
+                    t.Id,
+                    t.Milestone.ProjectId,
+                    t.Title,
+                    t.BlockedSinceAt
+                })
+                .ToArrayAsync(ct);
 
-        var ordered = items.OrderByDescending(x => x.Severity == "HIGH").ThenBy(x => !x.DueAt.HasValue).ThenBy(x => x.DueAt).Take(100).ToArray();
-        var total = reportCount + requestCount + meetingCount + evalAssigns.Length + blockedTasks.Length + pendingLocks.Length;
+            var candidateTaskIds = mentorCandidates.Select(t => t.Id).ToArray();
+            var taskMajorLookup = candidateTaskIds.Length == 0
+                ? new Dictionary<long, long[]>()
+                : (await db.TaskDisciplines.AsNoTracking()
+                    .Where(d => candidateTaskIds.Contains(d.TaskId))
+                    .Select(d => new { d.TaskId, d.MajorId })
+                    .ToArrayAsync(ct))
+                    .GroupBy(x => x.TaskId)
+                    .ToDictionary(g => g.Key, g => g.Select(x => x.MajorId).ToArray());
+
+            var scopedMentorBlocked = mentorCandidates
+                .Where(t =>
+                {
+                    var majors = taskMajorLookup.GetValueOrDefault(t.Id);
+                    return majors is null || majors.Length == 0 || majors.Contains(mentorOnlyMap[t.ProjectId]);
+                })
+                .ToArray();
+            mentorBlockedCount = scopedMentorBlocked.LongLength;
+            items.AddRange(scopedMentorBlocked.Take(30).Select(t => new ActionAggregatorItem("TASK_BLOCKED_48H", t.Id, t.ProjectId,
+                $"Task BLOCKED > 48h: {t.Title}", "BLOCKED", "HIGH", t.BlockedSinceAt,
+                $"/mentor/projects/{t.ProjectId}/majors/{mentorOnlyMap[t.ProjectId]}/tasks/{t.Id}")));
+        }
+
+        // 7. Pending Final Lock approvals (Hat 1 Primary ONLY — never Mentor)
+        var pendingLockCount = primaryProjectIds.Length == 0
+            ? 0L
+            : await db.Set<FinalSubmissionDraft>().AsNoTracking()
+                .LongCountAsync(d => primaryProjectIds.Contains(d.ProjectId) && d.LockWorkflowStatus == "PENDING_SUPERVISOR_LOCK", ct);
+        if (pendingLockCount > 0)
+        {
+            var pendingLocks = await db.Set<FinalSubmissionDraft>().AsNoTracking()
+                .Where(d => primaryProjectIds.Contains(d.ProjectId) && d.LockWorkflowStatus == "PENDING_SUPERVISOR_LOCK")
+                .OrderBy(d => d.LockRequestedAt).Take(20)
+                .Select(d => new { d.Id, d.ProjectId, d.LockRequestedAt })
+                .ToArrayAsync(ct);
+            items.AddRange(pendingLocks.Select(d => new ActionAggregatorItem("FINAL_LOCK_APPROVAL", d.Id, d.ProjectId,
+                "Ký khóa hồ sơ Tiền-Defense (Final & Cold)", "PENDING_SUPERVISOR_LOCK", "HIGH", d.LockRequestedAt,
+                $"/supervisor/projects/{d.ProjectId}/final-submission")));
+        }
+
+        // 8. Hat 5: Confirmed Defense Committees (works both with room session and with POL-06 roomless mode)
+        var committeeQuery = db.Set<DefenseCommitteeMember>().AsNoTracking()
+            .Join(db.Set<DefenseCommittee>().AsNoTracking(), m => m.CommitteeId, c => c.Id, (m, c) => new { Member = m, Committee = c })
+            .Where(x => x.Member.UserId == Actor && x.Committee.Status == "CONFIRMED");
+        var committeeCount = await committeeQuery.LongCountAsync(ct);
+        if (committeeCount > 0)
+        {
+            var committees = await committeeQuery
+                .OrderBy(x => x.Committee.Id).Take(30)
+                .Select(x => new { x.Committee.Id, x.Committee.ProjectId, x.Committee.Name, x.Member.Role })
+                .ToArrayAsync(ct);
+            var committeeIds = committees.Select(c => c.Id).ToArray();
+            var scheduledSessions = await db.Set<DefenseSession>().AsNoTracking()
+                .Where(s => committeeIds.Contains(s.CommitteeId) && s.Status == "SCHEDULED")
+                .OrderBy(s => s.StartAt)
+                .Select(s => new { s.Id, s.CommitteeId, s.StartAt })
+                .ToArrayAsync(ct);
+            var sessionByCommittee = scheduledSessions
+                .GroupBy(s => s.CommitteeId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            items.AddRange(committees.Select(c =>
+            {
+                var hasSession = sessionByCommittee.TryGetValue(c.Id, out var session);
+                var deepLink = hasSession ? $"/lecturer/defense-sessions/{session!.Id}" : "/evaluator/workspace";
+                DateTime? dueAt = hasSession ? session!.StartAt : null;
+                return new ActionAggregatorItem("DEFENSE_COMMITTEE", c.Id, c.ProjectId,
+                    $"Hội đồng bảo vệ ({c.Role}): {c.Name}", "CONFIRMED", "HIGH", dueAt, deepLink);
+            }));
+        }
+
+        var ordered = items
+            .OrderByDescending(x => x.Severity == "HIGH")
+            .ThenBy(x => !x.DueAt.HasValue)
+            .ThenBy(x => x.DueAt)
+            .Take(100)
+            .ToArray();
+        var total = reportCount + requestCount + meetingCount + gateAssignCount + evalCount
+            + primaryBlockedCount + mentorBlockedCount + pendingLockCount + committeeCount;
         return new(Now, ordered, total, total > ordered.Length);
     }
 

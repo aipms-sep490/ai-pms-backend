@@ -13,9 +13,11 @@ using EmailDeliveryRow = AIPMS.Infrastructure.Persistence.Models.NotificationEma
 namespace AIPMS.Infrastructure.Persistence.Repositories;
 
 internal sealed class ScheduledNotificationService(
-    AipmsDbContext db, IProjectProgressDataReader progressReader, IProgressAnalysisService analysis)
+    AipmsDbContext db, IProjectProgressDataReader? progressReader = null, IProgressAnalysisService? analysis = null)
     : IScheduledNotificationService
 {
+    private readonly IProjectProgressDataReader? _unusedProgressReader = progressReader;
+    private readonly IProgressAnalysisService? _unusedAnalysis = analysis;
     public async Task<IReadOnlyList<long>> GetProjectIdsAsync(long afterId, int limit, CancellationToken ct) =>
         await db.Projects.AsNoTracking().Where(p => p.Id > afterId && p.Status == "ACTIVE")
             .OrderBy(p => p.Id).Select(p => p.Id).Take(limit).ToListAsync(ct);
@@ -87,21 +89,7 @@ internal sealed class ScheduledNotificationService(
                     students, warningRecipients, nowUtc, ct);
         }
 
-        var facts = await progressReader.GetProjectProgressFactsAsync(projectId, ct);
-        if (facts is not null)
-        {
-            var risk = analysis.Analyze(facts, nowUtc, ct);
-            // BE-06 may expose a strong blocker signal even when other features are incomplete.
-            if (risk.RiskLevel is "MEDIUM" or "HIGH" or "CRITICAL")
-            {
-                var riskLabel = RiskLevelLabel(risk.RiskLevel);
-                var riskTitle = Truncate($"Cảnh báo rủi ro tiến độ đồ án {project.Code}: Mức độ {riskLabel}");
-                var riskContent = $"Đồ án {FormatProject(project)} đang ở mức rủi ro tiến độ {riskLabel}. Vui lòng kiểm tra tiến độ công việc và các mốc quan trọng.";
-                await PublishAsync(projectId, $"RISK:{nowUtc.ToString("yyyyMMdd", CultureInfo.InvariantCulture)}:{risk.RiskLevel}",
-                    "PROJECT_RISK_" + risk.RiskLevel, riskTitle, riskContent,
-                    "PROJECT", projectId, warningRecipients, nowUtc, ct);
-            }
-        }
+        // TK-W2-13: Risk alerting is exclusively owned by RiskAlertWorker using the unified 4-signal Health Pulse.
         await db.SaveChangesAsync(ct);
         await QueueEmailsAsync(ct);
         await transaction.CommitAsync(ct);
@@ -188,15 +176,6 @@ internal sealed class ScheduledNotificationService(
 
     private static string FormatProject(M.Project project) =>
         string.IsNullOrWhiteSpace(project.Title) ? project.Code : $"{project.Code} - {project.Title}";
-
-    private static string RiskLevelLabel(string riskLevel) => riskLevel switch
-    {
-        "CRITICAL" => "Nghiêm trọng",
-        "HIGH" => "Cao",
-        "MEDIUM" => "Trung bình",
-        "LOW" => "Thấp",
-        _ => "Cần theo dõi"
-    };
 
     private static string Truncate(string value, int maxLength = 255) =>
         value.Length <= maxLength ? value : value[..maxLength];

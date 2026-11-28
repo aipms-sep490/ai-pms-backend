@@ -22,7 +22,7 @@ internal sealed class MeetingCollaborationService(AipmsDbContext db, ICurrentUse
     private static ValidationException Invalid(string message) => new(new Dictionary<string, string[]> { ["input"] = [message] });
     private static void Current(Guid current, string supplied)
     {
-        if (!Guid.TryParse(supplied, out var token) || token != current) throw new ConflictException("The resource changed. Reload before saving.");
+        if (!Guid.TryParse(supplied, out var token) || token != current) throw new ConflictException("The resource changed. Reload before saving.", WorkflowErrorCodes.StaleConcurrencyToken);
     }
     private async Task<M.Meeting> Read(long id, CancellationToken ct)
     {
@@ -79,9 +79,13 @@ internal sealed class MeetingCollaborationService(AipmsDbContext db, ICurrentUse
             .OrderByDescending(d => d.NotificationRecipientId).Take(101)
             .Select(d => new MeetingEmailDeliveryDto(d.NotificationRecipient.UserId, d.NotificationRecipient.Notification.NotificationType,
                 d.Status, d.AttemptCount, d.SentAt)).ToArrayAsync(ct);
+        var isActivePrimary = await db.SupervisorAssignments.AsNoTracking()
+            .AnyAsync(a => a.ProjectId == m.ProjectId && a.EndedAt == null && a.IsPrimary && a.AssignmentType == "PRIMARY"
+                && a.SupervisorProfile.UserId == Actor, ct);
         return new(m.Id, m.ConcurrencyToken.ToString("N"), m.SeriesId, m.OccurrenceNumber, m.Recurrence, m.NotesVersion,
             m.NotesLockedAt, m.NotesLockedBy, manager && active && m.Status == "COMPLETED" && !m.NotesLockedAt.HasValue,
-            mine is null ? null : Rsvp(mine), deliveries.Take(100).ToArray(), deliveries.Length > 100);
+            mine is null ? null : Rsvp(mine), deliveries.Take(100).ToArray(), deliveries.Length > 100,
+            CanUnlockNotes: isActivePrimary && active && m.NotesLockedAt.HasValue);
     }
     public async Task<MeetingRsvpDto> Respond(long meetingId, RespondMeetingRequest input, CancellationToken ct)
     {
@@ -111,9 +115,58 @@ internal sealed class MeetingCollaborationService(AipmsDbContext db, ICurrentUse
             throw new ConflictException("Only completed, unlocked meeting notes in an active project can be locked.");
         m.NotesLockedAt = clock.GetUtcNow().UtcDateTime; m.NotesLockedBy = Actor; m.UpdatedAt = m.NotesLockedAt.Value; m.ConcurrencyToken = Guid.NewGuid();
         await MeetingNotesHistory.Capture(db, m, Actor, m.UpdatedAt, ct);
+        // TK-W2-03: Auto-record locked meeting notes into read-only project evidence ledger.
+        await ProjectEvidenceAutoRecorder.TryRecordAsync(
+            db,
+            m.ProjectId,
+            majorId: null,
+            "MEETING",
+            m.Id,
+            $"Tự động ghi nhận khi khóa biên bản cuộc họp: {m.Title}",
+            Actor,
+            m.UpdatedAt,
+            ct);
         await audit.RecordAsync(new(Actor, "MEETING_NOTES_LOCKED", "MEETING", meetingId,
             new Dictionary<string, object?> { ["version"] = m.NotesVersion }), ct);
         await tx.CommitAsync(ct); return await Get(meetingId, ct);
+    }
+
+    public async Task<MeetingCollaborationDto> UnlockNotes(long meetingId, UnlockMeetingNotesRequest input, CancellationToken ct)
+    {
+        var reason = input.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason) || reason.Length < 10 || reason.Length > 1000)
+            throw new AIPMS.Domain.Exceptions.DomainException(
+                "Unlocking meeting notes requires a reason between 10 and 1000 characters.",
+                "MEETING_UNLOCK_REASON_REQUIRED");
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var initial = await Read(meetingId, ct);
+        var project = await LockProject(initial.ProjectId, ct);
+        var m = await db.Meetings.FromSqlInterpolated($"SELECT * FROM dbo.meetings WITH (UPDLOCK,HOLDLOCK) WHERE id={meetingId}").SingleAsync(ct);
+        await Read(meetingId, ct);
+
+        var isActivePrimary = await db.SupervisorAssignments.AsNoTracking()
+            .AnyAsync(a => a.ProjectId == m.ProjectId && a.EndedAt == null && a.IsPrimary && a.AssignmentType == "PRIMARY"
+                && a.SupervisorProfile.UserId == Actor, ct);
+        if (!isActivePrimary)
+            throw new ForbiddenException("Only the active primary supervisor can unlock locked meeting notes.", WorkflowErrorCodes.PrimarySupervisorRequired);
+
+        Current(m.ConcurrencyToken, input.ConcurrencyToken);
+        if (project.Status != "ACTIVE")
+            throw new ConflictException("Meeting notes can only be unlocked while the project is ACTIVE.", WorkflowErrorCodes.ProjectNotActive);
+        if (!m.NotesLockedAt.HasValue)
+            throw new ConflictException("Meeting notes are not currently locked.");
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        m.NotesLockedAt = null;
+        m.NotesLockedBy = null;
+        m.UpdatedAt = now;
+        m.ConcurrencyToken = Guid.NewGuid();
+        await MeetingNotesHistory.Capture(db, m, Actor, now, ct);
+        await audit.RecordAsync(new(Actor, "MEETING_NOTES_UNLOCKED", "MEETING", meetingId,
+            new Dictionary<string, object?> { ["version"] = m.NotesVersion, ["reason"] = reason }), ct);
+        await tx.CommitAsync(ct);
+        return await Get(meetingId, ct);
     }
     public async Task<PagedResult<MeetingNotesVersionDto>> NotesHistory(long meetingId, int page, int pageSize, CancellationToken ct)
     {

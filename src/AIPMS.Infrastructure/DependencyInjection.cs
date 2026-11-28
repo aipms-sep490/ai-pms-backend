@@ -310,6 +310,8 @@ public static class DependencyInjection
         services.AddScoped<AIPMS.Application.Features.AcademicTracking.Abstractions.IReviewGate3ScheduleService, ReviewGate3ScheduleService>();
         services.AddScoped<AIPMS.Application.Features.AcademicTracking.Abstractions.IDefenseChangeRequestService, DefenseChangeRequestService>();
         services.AddScoped<AIPMS.Application.Features.ReviewGates.Abstractions.IReviewGateService, ReviewGateService>();
+        services.AddScoped<AIPMS.Application.Features.ReviewGates.Abstractions.IDualDeptSlaService, DualDeptSlaService>();
+        services.AddScoped<AIPMS.Application.Features.Projects.Abstractions.IProjectHealthPulseCalculator, ProjectHealthPulseCalculator>();
         services.AddScoped<AIPMS.Application.Features.ReviewGates.Abstractions.IGateSessionScriptService, GateSessionScriptService>();
         services.AddScoped<Application.Features.WeeklyAssessments.Abstractions.IWeeklyAssessmentService, WeeklyAssessmentService>();
         services.AddScoped<Application.Features.WorkingAgreements.Abstractions.IWorkingAgreementService, WorkingAgreementService>();
@@ -345,6 +347,8 @@ public static class DependencyInjection
             Services.ExecutionCapabilities.ProjectCapabilityService>();
         services.AddScoped<IProgressReportRepository, ProgressReportRepository>();
         services.AddScoped<IReportingCycleRepository, ReportingCycleRepository>();
+        services.AddScoped<IBulkReportingCycleService, BulkReportingCycleService>();
+        services.AddScoped<IProjectScopeResolver, ProjectScopeResolver>();
         services.AddScoped<AIPMS.Application.Features.ActionItems.Abstractions.IProjectActionItemRepository, ProjectActionItemRepository>();
         services.AddScoped<IMeetingRepository, MeetingRepository>();
         services.AddScoped<IMeetingVideoMetadataRepository, MeetingVideoMetadataRepository>();

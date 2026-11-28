@@ -51,8 +51,9 @@ internal sealed partial class EvaluationSchemeService
         if (publicationForbidden)
         {
             var targetDepartment = target?.DepartmentId;
+            var componentRubricIds = components.Where(c => c.RubricId.HasValue).Select(c => c.RubricId!.Value).ToArray();
             var outsideReadScope = target is not null ? targetDepartment != actor.DepartmentId
-                : await db.Rubrics.AnyAsync(r => components.Select(c => c.RubricId).Contains(r.Id) && r.DepartmentId != actor.DepartmentId, ct);
+                : await db.Rubrics.AnyAsync(r => componentRubricIds.Contains(r.Id) && r.DepartmentId != actor.DepartmentId, ct);
             if (outsideReadScope || publishing || !AcademicAuthority.HasScope(actor, project))
                 throw new ForbiddenException("Only the frozen lead department may publish project or student results.");
         }
@@ -143,7 +144,7 @@ internal sealed partial class EvaluationSchemeService
                 foreach (var gw in configuredGates)
                 {
                     var row = studentGates.FirstOrDefault(g => gateNumbers.TryGetValue(g.GateInstanceId, out var num) && num == gw.GateNumber);
-                    if (row is null || row.Status != "FINALIZED")
+                    if (row is null || row.Status != "FINALIZED" || !row.Score.HasValue)
                     {
                         blockers.Add($"INDIVIDUAL_PROCESS_SCORE_MISSING:{forStudent.Value}:G{gw.GateNumber}");
                         continue;
@@ -152,7 +153,7 @@ internal sealed partial class EvaluationSchemeService
                 }
                 if (matched.Count == configuredGates.Count)
                 {
-                    var cumulative = matched.Sum(m => m.Row.Score * m.GateWeight / 100m);
+                    var cumulative = matched.Sum(m => m.Row.Score!.Value * m.GateWeight / 100m);
                     frozen.Add(new
                     {
                         Type = "GATE_INDIVIDUAL_PROCESS",

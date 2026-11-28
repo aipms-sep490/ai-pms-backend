@@ -3,7 +3,8 @@ using AIPMS.Application.Common.Models;
 namespace AIPMS.Application.Features.ReviewGates;
 
 public sealed record ReviewGateRequirementInput(string Code, string Title, string? Description, string Type,
-    string Scope, long? MajorId, long? TargetStudentId = null, string Verification = "HUMAN", bool Required = true);
+    string Scope, long? MajorId, long? TargetStudentId = null, string Verification = "HUMAN", bool Required = true,
+    string? TargetCardinality = null);
 public sealed record ReviewGateDefinitionInput(string Code, int Sequence, string Title, string Objective,
     bool Required, bool BlockNextGate, bool BlocksDefense, DateTime? Start, DateTime? End,
     string ReviewerPolicy, string ReviewScope, IReadOnlyList<ReviewGateRequirementInput> Requirements,
@@ -39,8 +40,12 @@ public sealed record SupervisorFeedbackDto(string GateCode, string Feedback, Dat
 public sealed record AddReviewGateFeedbackRequest(string Feedback);
 public sealed record ReviewGateBlockingReasonDto(string Code, string? RequirementCode, string Message);
 public sealed record ReviewGateCapabilitiesDto(bool CanSubmitPackage, bool CanSubmitRevision, IReadOnlyList<string> BlockingReasons);
+public sealed record GateEvidenceVerificationSummaryDto(long AssignmentId, long ReviewerId, string ReviewerName,
+    string Decision, string? Feedback, DateTime VerifiedAt);
 public sealed record StudentGateRequirementDto(string Id, string Code, string Title, string Type, string Scope, bool IsMandatory,
-    string VerificationStatus, ReviewGateArtifactDto? LatestArtifact, string? ReviewerFeedback);
+    string VerificationStatus, ReviewGateArtifactDto? LatestArtifact, string? ReviewerFeedback,
+    long? MajorId = null, long? TargetStudentId = null,
+    IReadOnlyList<GateEvidenceVerificationSummaryDto>? Verifications = null);
 public sealed record ReviewGateArtifactDto(int Version, string Filename, DateTime SubmittedAt, string SubmittedBy, string? Notes,
     string ContentType = "application/octet-stream", long SizeBytes = 0, string Sha256 = "", string DownloadUrl = "", string? LinkUrl = null,
     long? EvidenceId = null, string ScanStatus = "READY", string? ScanDetails = null,
@@ -62,6 +67,12 @@ public sealed record VerifyReviewGateEvidenceRequest(string RequirementId, strin
 public sealed record SubmitReviewGateDecisionRequest(string Decision, string Notes, string ConcurrencyToken, long? PackageId = null);
 public sealed record UpdateReviewGateDecisionRequest(string NewStatus, string? ConcurrencyToken);
 public sealed record OverrideReviewGateRequest(string Decision, string Reason, string ConcurrencyToken);
+public sealed record ReopenReviewGateRequest(string Reason, string ConcurrencyToken);
+public sealed record GateAssignmentSummaryDto(long Id, long ReviewerId, string ReviewerName, string Scope,
+    long? MajorId, string? MajorName, long? StudentId, string Status, string SessionRole,
+    string? LatestDecision, string? ReviewerNotes, DateTime? ValidFrom, DateTime? ValidUntil, string ConcurrencyToken);
+public sealed record GateReviewerCandidateDto(long UserId, string FullName, string Email,
+    long? DepartmentId, string? DepartmentName, bool IsOnFixedProjectPanel);
 public sealed record OverrideReviewGateDto(long ProjectId, string GateCode, string Status, string DecisionSource,
     string OverriddenBy, DateTime OverriddenAt, string Reason, string ConcurrencyToken);
 public sealed record ReviewGateUserCapabilitiesDto(long ProjectId,

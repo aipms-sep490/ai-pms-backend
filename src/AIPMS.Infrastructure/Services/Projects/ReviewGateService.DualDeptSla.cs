@@ -86,6 +86,20 @@ internal sealed partial class ReviewGateService
             await RequireScopeMutationAuthority(scope, normalized, token);
             if (input.Decision == "REVISION_REQUIRED" && string.IsNullOrWhiteSpace(input.Notes))
                 throw new ValidationException(new Dictionary<string, string[]> { ["notes"] = ["Revision feedback notes are required."] });
+            // TK-W2-06: Department scope sign-off cannot bypass the 2-reviewer panel to push gate PASSED.
+            if (input.Decision == "PASSED" && gate.Sequence is >= 1 and <= 3)
+            {
+                var panelAssignments = await db.GateReviewerAssignments.AsNoTracking()
+                    .Where(a => a.GateInstanceId == gate.Id && a.Status != "REVOKED")
+                    .ToArrayAsync(token);
+                var distinctReviewers = panelAssignments.Select(a => a.ReviewerId).Distinct().Count();
+                if (distinctReviewers < 2 || panelAssignments.Any(a => a.LatestDecision != "PASSED"))
+                {
+                    throw new ConflictException(
+                        "Gate 1–3 require both assigned reviewers to pass before recording a PASSED scope decision; use Lead Override for an audited exception.",
+                        WorkflowErrorCodes.GateReviewPanelRequired);
+                }
+            }
         }
 
         var existing = await db.Set<ProjectGateRoundScopeDecision>()
@@ -143,7 +157,7 @@ internal sealed partial class ReviewGateService
             gate.DecisionSource = consensus.Decisions.Any(d => d.Decision == "OVERRIDDEN_PASS") ? "OVERRIDE" : "REVIEW";
             gate.ConcurrencyToken = Guid.NewGuid();
             await db.SaveChangesAsync(token);
-            if (gate.BlockNextGate) await OpenNextGate(gate, token);
+            await OpenNextGate(gate, token);
         }
         else if (consensus.Decisions.Any(d => d.Decision == "REVISION_REQUIRED"))
         {
@@ -213,145 +227,8 @@ internal sealed partial class ReviewGateService
     public Task<SlaSweepResultDto> SweepSlaNotifications(CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
         await RequireStaff(token);
-        var now = Now;
-        var events = new List<SlaEventSummaryDto>();
-
-        // 1. Project dual-department reviews (latest snapshot per project only) pending >= 2 WD (REMINDER_48H) and >= 3 WD (ESCALATION_72H to LeadScope)
-        var allSnapshotsWithPending = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
-            .Include(s => s.Decisions)
-            .Where(s => s.Decisions.Any(d => d.Decision == "PENDING"))
-            .ToListAsync(token);
-
-        var latestSnapshotIds = allSnapshotsWithPending.Count == 0
-            ? new HashSet<long>()
-            : (await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
-                .Where(s => allSnapshotsWithPending.Select(x => x.ProjectId).Contains(s.ProjectId))
-                .GroupBy(s => s.ProjectId)
-                .Select(g => g.Max(x => x.Id))
-                .ToListAsync(token)).ToHashSet();
-
-        var pendingProjectReviews = allSnapshotsWithPending
-            .Where(s => latestSnapshotIds.Contains(s.Id))
-            .ToList();
-
-        var projectStatuses = pendingProjectReviews.Count == 0
-            ? new Dictionary<long, string>()
-            : await db.Projects.AsNoTracking()
-                .Where(p => pendingProjectReviews.Select(s => s.ProjectId).Contains(p.Id))
-                .ToDictionaryAsync(p => p.Id, p => p.Status, token);
-
-        var nowOffset = new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc));
-        foreach (var snap in pendingProjectReviews)
-        {
-            if (!projectStatuses.TryGetValue(snap.ProjectId, out var status) || status is not ("SUBMITTED" or "UNDER_REVIEW"))
-                continue;
-            var submittedOffset = new DateTimeOffset(DateTime.SpecifyKind(snap.SubmittedAt, DateTimeKind.Utc));
-            var elapsedWd = workingDayCalculator is not null
-                ? workingDayCalculator.CountElapsedWorkingDays(submittedOffset, nowOffset, snap.ProjectPeriodId)
-                : AIPMS.Application.Features.Semesters.WorkingDayMath.CountElapsedWorkingDays(submittedOffset, nowOffset, 62, []);
-            foreach (var dec in snap.Decisions.Where(d => d.Decision == "PENDING"))
-            {
-                if (elapsedWd >= 2)
-                    await TryEmitSlaAsync("PROJECT_REVIEW", snap.Id, 1, dec.DepartmentId, "REMINDER_48H",
-                        $"Nhắc SLA 2 ngày làm việc: Hồ sơ dự án #{snap.ProjectId} chờ thẩm định",
-                        $"Khoa của bạn có hồ sơ dự án #{snap.ProjectId} chờ duyệt quá 2 ngày làm việc.", now, events, token);
-                if (elapsedWd >= 3)
-                    await TryEmitSlaAsync("PROJECT_REVIEW", snap.Id, 1, snap.LeadDepartmentId, "ESCALATION_72H",
-                        $"Leo thang SLA 3 ngày làm việc: Hồ sơ dự án #{snap.ProjectId} quá hạn đồng duyệt",
-                        $"Đơn vị phối hợp (#{dec.DepartmentId}) chưa phản hồi dự án #{snap.ProjectId} quá 3 ngày làm việc; Khoa chủ trì có thể kích hoạt Lead Override.", now, events, token);
-            }
-        }
-
-        // 2. Submitted Gate packages pending consensus >= 48h / >= 72h
-        var openGatePackages = await db.Set<ReviewGatePackage>().AsNoTracking()
-            .Join(db.ProjectGateInstances.AsNoTracking().Where(g => g.Status == "SUBMITTED" || g.Status == "IN_REVIEW"),
-                p => p.GateInstanceId, g => g.Id,
-                (p, g) => new { Package = p, Gate = g })
-            .ToListAsync(token);
-
-        foreach (var entry in openGatePackages)
-        {
-            var elapsedHours = (now - entry.Package.SubmittedAt).TotalHours;
-            if (elapsedHours < 48.0) continue;
-
-            var projScope = await ProjectAcademicScopeReader.ReadAsync(db, entry.Gate.ProjectId, token, requireFrozenScope: false);
-            if (!projScope.LeadDepartmentId.HasValue) continue;
-
-            var decidedScopes = await db.Set<ProjectGateRoundScopeDecision>().AsNoTracking()
-                .Where(d => d.GateInstanceId == entry.Gate.Id && d.RoundNumber == entry.Package.RoundNumber && d.Decision != "PENDING")
-                .Select(d => d.Scope)
-                .ToListAsync(token);
-
-            var targetDepts = new HashSet<long>();
-            if (projScope.MajorDepartmentIds is { Count: > 0 })
-            {
-                foreach (var kv in projScope.MajorDepartmentIds)
-                    if (!decidedScopes.Contains(kv.Key.ToString()))
-                        targetDepts.Add(kv.Value);
-            }
-            if (targetDepts.Count == 0) targetDepts.Add(projScope.LeadDepartmentId.Value);
-
-            foreach (var deptId in targetDepts)
-            {
-                if (elapsedHours >= 48.0)
-                    await TryEmitSlaAsync("REVIEW_GATE", entry.Gate.Id, entry.Package.RoundNumber, deptId, "REMINDER_48H",
-                        $"Nhắc SLA 48h: Cổng {entry.Gate.Code} dự án #{entry.Gate.ProjectId}",
-                        $"Gói nộp vòng {entry.Package.RoundNumber} của cổng {entry.Gate.Code} đang chờ phản hồi quá 48 giờ.", now, events, token);
-                if (elapsedHours >= 72.0)
-                    await TryEmitSlaAsync("REVIEW_GATE", entry.Gate.Id, entry.Package.RoundNumber, projScope.LeadDepartmentId.Value, "ESCALATION_72H",
-                        $"Leo thang SLA 72h: Cổng {entry.Gate.Code} dự án #{entry.Gate.ProjectId}",
-                        $"Cổng {entry.Gate.Code} vòng {entry.Package.RoundNumber} quá 72 giờ chưa đủ đồng thuận 2 Khoa; đề nghị LeadScope xử lý.", now, events, token);
-            }
-        }
-
-        await db.SaveChangesAsync(token);
-        return new SlaSweepResultDto(
-            events.Count(e => e.SlaTier == "REMINDER_48H"),
-            events.Count(e => e.SlaTier == "ESCALATION_72H"),
-            events);
+        _ = workingDayCalculator;
+        var slaService = new DualDeptSlaService(db, clock);
+        return await slaService.SweepAsync(Actor, token);
     }, ct);
-
-    private async Task TryEmitSlaAsync(
-        string entityType,
-        long entityId,
-        int roundNumber,
-        long departmentId,
-        string slaTier,
-        string title,
-        string content,
-        DateTime now,
-        List<SlaEventSummaryDto> collector,
-        CancellationToken ct)
-    {
-        var exists = collector.Any(e => e.EntityType == entityType && e.EntityId == entityId
-                && e.RoundNumber == roundNumber && e.DepartmentId == departmentId && e.SlaTier == slaTier)
-            || await db.Set<WorkflowSlaNotification>().AsNoTracking()
-                .AnyAsync(x => x.EntityType == entityType && x.EntityId == entityId
-                    && x.RoundNumber == roundNumber && x.DepartmentId == departmentId && x.SlaTier == slaTier, ct);
-        if (exists) return;
-
-        db.Set<WorkflowSlaNotification>().Add(new WorkflowSlaNotification
-        {
-            EntityType = entityType,
-            EntityId = entityId,
-            RoundNumber = roundNumber,
-            DepartmentId = departmentId,
-            SlaTier = slaTier,
-            SentAt = now
-        });
-
-        var staffIds = await db.Users.AsNoTracking()
-            .Where(u => u.Status == "ACTIVE" && u.DepartmentId == departmentId
-                && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"))
-            .Select(u => u.Id)
-            .ToArrayAsync(ct);
-
-        if (staffIds.Length > 0)
-        {
-            await V4WorkflowNotificationHelper.EmitAsync(
-                db, Actor, $"SLA_{slaTier}", title, content, entityType, entityId, staffIds, now, enqueueEmail: true, ct, excludeActor: false);
-        }
-
-        collector.Add(new SlaEventSummaryDto(entityType, entityId, roundNumber, departmentId, slaTier, DateTime.SpecifyKind(now, DateTimeKind.Utc)));
-    }
 }

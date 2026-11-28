@@ -224,8 +224,9 @@ public sealed class MilestoneRepository(AipmsDbContext context) : IMilestoneRepo
         var result = new List<MilestoneProgressDto>();
         foreach (var milestone in milestones)
         {
-            var totalTasks = milestone.Tasks.Count();
-            var doneTasks = milestone.Tasks.Count(static t => t.Status == "DONE");
+            var effectiveTasks = milestone.Tasks.Where(static t => t.Status != "CANCELLED").ToArray();
+            var totalTasks = effectiveTasks.Length;
+            var doneTasks = effectiveTasks.Count(static t => t.Status == "DONE");
             var progressPercentage = totalTasks == 0
                 ? 0.0
                 : Math.Round((doneTasks * 100.0) / totalTasks, 2);

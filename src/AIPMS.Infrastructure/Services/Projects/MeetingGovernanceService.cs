@@ -91,7 +91,7 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var meeting = await Lock(meetingId, ct);
         if (!MeetingGovernanceRules.CanRecordDecision(meeting.Status)) throw new ConflictException("Complete the meeting before recording decisions.");
-        if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.");
+        if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.", WorkflowErrorCodes.MeetingNotesLocked);
         Current(meeting.ConcurrencyToken, input.ConcurrencyToken);
         var now = clock.GetUtcNow().UtcDateTime;
         var row = new MeetingDecision { MeetingId = meetingId, Content = input.Content.Trim(), DecidedBy = Actor, DecidedAt = now, CreatedAt = now };
@@ -113,6 +113,7 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var meeting = await Lock(meetingId, ct);
         if (!MeetingGovernanceRules.CanRecordDecision(meeting.Status)) throw new ConflictException("Complete the meeting before recording decisions.");
+        if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.", WorkflowErrorCodes.MeetingNotesLocked);
         Current(meeting.ConcurrencyToken, input.ConcurrencyToken);
 
         var original = await db.MeetingDecisions.SingleOrDefaultAsync(d => d.Id == decisionId && d.MeetingId == meetingId, ct)
@@ -151,7 +152,7 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
         }
         else
         {
-            if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.");
+            if (meeting.NotesLockedAt.HasValue) throw new ConflictException("Meeting notes are locked.", WorkflowErrorCodes.MeetingNotesLocked);
             Current(meeting.ConcurrencyToken, input.ConcurrencyToken);
             if (input.Status != "OPEN") throw new ConflictException("New actions must be OPEN.");
             row = new() { MeetingId = meetingId, CreatedBy = Actor, CreatedAt = now };
@@ -163,7 +164,7 @@ internal sealed class MeetingGovernanceService(AipmsDbContext db, ICurrentUser u
             throw Invalid("Due date must be in the future.");
         var definitionChanged = !actionId.HasValue || row.Title != input.Title.Trim() || row.Description != input.Description?.Trim()
             || row.AssigneeUserId != input.AssigneeUserId || row.DueAt != input.DueAt;
-        if (meeting.NotesLockedAt.HasValue && definitionChanged) throw new ConflictException("Locked action definitions cannot be changed; progress updates remain available.");
+        if (meeting.NotesLockedAt.HasValue && definitionChanged) throw new ConflictException("Locked action definitions cannot be changed; progress updates remain available.", WorkflowErrorCodes.MeetingNotesLocked);
         if (definitionChanged && input.AssigneeUserId.HasValue)
         {
             var assignee = input.AssigneeUserId.Value;

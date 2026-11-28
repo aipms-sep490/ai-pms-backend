@@ -19,6 +19,8 @@ public sealed class MeetingCollaborationController(IMeetingCollaborationService 
     public Task<MeetingRsvpDto> Respond(long meetingId, RespondMeetingRequest input, CancellationToken ct) => service.Respond(meetingId, input, ct);
     [HttpPost("meetings/{meetingId:long}/notes/lock"), ProducesResponseType<MeetingCollaborationDto>(200)]
     public Task<MeetingCollaborationDto> Lock(long meetingId, LockMeetingNotesRequest input, CancellationToken ct) => service.LockNotes(meetingId, input, ct);
+    [HttpPost("meetings/{meetingId:long}/notes/unlock"), ProducesResponseType<MeetingCollaborationDto>(200)]
+    public Task<MeetingCollaborationDto> Unlock(long meetingId, UnlockMeetingNotesRequest input, CancellationToken ct) => service.UnlockNotes(meetingId, input, ct);
     [HttpGet("meetings/{meetingId:long}/notes/history"), ProducesResponseType<PagedResult<MeetingNotesVersionDto>>(200)]
     public Task<PagedResult<MeetingNotesVersionDto>> History(long meetingId, CancellationToken ct, int page = 1, int pageSize = 20) => service.NotesHistory(meetingId, page, pageSize, ct);
 }

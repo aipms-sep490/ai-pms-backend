@@ -251,9 +251,11 @@ public sealed class ScheduledNotificationTests(FinalSubmissionDraftDatabaseFixtu
         }
         await Run(s.ProjectId);
         await Run(s.ProjectId, Now.AddMinutes(5));
-        Assert.Single((await Notifications(s.ProjectId)).Where(n => n.NotificationType == "PROJECT_RISK_CRITICAL"));
+        // TK-W2-13: Risk/Health Pulse alerts are exclusively owned by RiskAlertWorker/RiskAlertService;
+        // ScheduledNotificationService must not emit duplicate PROJECT_RISK_* notifications.
+        Assert.DoesNotContain(await Notifications(s.ProjectId), n => n.NotificationType.StartsWith("PROJECT_RISK_"));
         await Run(s.ProjectId, Now.AddDays(1));
-        Assert.Equal(2, (await Notifications(s.ProjectId)).Count(n => n.NotificationType == "PROJECT_RISK_CRITICAL"));
+        Assert.DoesNotContain(await Notifications(s.ProjectId), n => n.NotificationType.StartsWith("PROJECT_RISK_"));
     }
 
     [Fact]

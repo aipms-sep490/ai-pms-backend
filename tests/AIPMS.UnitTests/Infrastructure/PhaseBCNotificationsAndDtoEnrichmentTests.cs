@@ -376,7 +376,11 @@ public sealed class PhaseBCNotificationsAndDtoEnrichmentTests
         Assert.Equal("Nguyễn Trưởng Nhóm", artifact.SubmittedByName);
 
         var staffService = new ReviewGateService(db, new StubUser(3), PassthroughProjectRepo.Create(), new NullAudit(), new FixedClock(Now), null!, null!, null!, null!, null!);
-        await staffService.UpdateDecision(1, "G4", new("PASSED", gateToken.ToString("N")), Ct);
+        var bypassEx = await Assert.ThrowsAsync<AIPMS.Application.Common.Exceptions.ConflictException>(() =>
+            staffService.UpdateDecision(1, "G4", new("PASSED", gateToken.ToString("N")), Ct));
+        Assert.Equal("USE_OVERRIDE_OR_ROUND_DECISION", bypassEx.Code);
+
+        await staffService.OverrideDecision(1, "G4", new("PASSED", "Hòa giải học vụ chính thức có đầy đủ căn cứ.", gateToken.ToString("N")), Ct);
 
         var notice = Assert.Single(await db.Notifications.ToArrayAsync());
         Assert.Equal("REVIEW_GATE_UPDATED", notice.NotificationType);

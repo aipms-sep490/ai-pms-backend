@@ -37,9 +37,24 @@ internal static class DashboardMapping
         return user.UserId.Value;
     }
 
+    public static ProjectProgressAnalysisDto AnalyzeWithHealthPulse(DashboardProjectFacts project,
+        IProgressAnalysisService analysis, DateTime now, CancellationToken ct)
+    {
+        var result = analysis.Analyze(project.Facts, now, ct);
+        if (project.HealthPulse is not { } pulse) return result;
+        return result with
+        {
+            DataStatus = AIPMS.Application.Features.Projects.Abstractions.HealthPulseMapping.ToDataStatus(pulse.Status),
+            RiskLevel = AIPMS.Application.Features.Projects.Abstractions.HealthPulseMapping.ToRiskLevel(pulse.Status),
+            HealthPulseStatus = pulse.Status,
+            HealthPulseSignals = pulse.Signals,
+            Summary = pulse.Summary
+        };
+    }
+
     public static DashboardProjectDto Project(DashboardProjectFacts project, IProgressAnalysisService analysis,
         DateTime now, CancellationToken ct) => new(project.Id, project.Code, project.Title, project.Status,
-        project.TeamId, project.SemesterId, project.PendingProgressReviews, analysis.Analyze(project.Facts, now, ct));
+        project.TeamId, project.SemesterId, project.PendingProgressReviews, AnalyzeWithHealthPulse(project, analysis, now, ct));
 
     private static DashboardProjectDto PortfolioProject(DashboardProjectFacts project, ProjectProgressAnalysisDto result,
         DateTime now, CancellationToken ct) => new(project.Id, project.Code, project.Title, project.Status,
@@ -53,7 +68,7 @@ internal static class DashboardMapping
         DateTimeOffset now, DashboardPortfolioFilter filter, CancellationToken ct)
     {
         var analyzed = facts.Projects
-            .Select(project => (Project: project, Analysis: analysis.Analyze(project.Facts, now.UtcDateTime, ct)))
+            .Select(project => (Project: project, Analysis: AnalyzeWithHealthPulse(project, analysis, now.UtcDateTime, ct)))
             .ToArray();
         var states = analyzed.GroupBy(x => x.Project.Status).OrderBy(g => g.Key)
             .Select(g => new DashboardStatusCountDto(g.Key, checked((int)g.LongCount()))).ToArray();
@@ -288,7 +303,7 @@ public sealed class ExportPortfolioDashboardQueryHandler(IDashboardRepository re
             var facts = await repository.GetPortfolioAsync(actor, false, filter, now.UtcDateTime, token);
             if (facts.Projects.Count > 10000)
                 throw new DomainException("The export exceeds the bounded 10000-row limit.");
-            var analyzed = facts.Projects.Select(p => (Project: p, Analysis: analysis.Analyze(p.Facts, now.UtcDateTime, token))).ToArray();
+            var analyzed = facts.Projects.Select(p => (Project: p, Analysis: DashboardMapping.AnalyzeWithHealthPulse(p, analysis, now.UtcDateTime, token))).ToArray();
             var (content, extension, contentType) = format switch
             {
                 "xlsx" => (DashboardSpreadsheetWriter.Write(analyzed), "xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),

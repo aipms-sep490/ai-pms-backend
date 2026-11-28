@@ -39,8 +39,21 @@ internal static class ProgressRiskEnricher
             active.Count(t => t.UpdatedAt < now.AddDays(-7)), near.Length, active.Count(t => t.Returns >= 2), missed, active.Count(t => t.DueAt == null)));
         // A mentor's partial evidence must never be presented as the project's overall risk.
         if (!scope.Whole) updated = updated with { DataStatus = "INSUFFICIENT_DATA", RiskLevel = "INSUFFICIENT_DATA",
+            HealthPulseStatus = "INSUFFICIENT_DATA",
             RiskScore = null, Confidence = null, Summary = "Chỉ có dữ liệu ngành được phân công; chưa đủ căn cứ dự báo toàn đồ án.",
             Limitations = "Chỉ xem công việc và hạng mục thuộc ngành được phân công. Không suy diễn dữ liệu ngành khác." };
+        else
+        {
+            var pulse = await new ProjectHealthPulseCalculator(db).CalculateAsync(scope.ProjectId, now, ct);
+            updated = updated with
+            {
+                DataStatus = AIPMS.Application.Features.Projects.Abstractions.HealthPulseMapping.ToDataStatus(pulse.Status),
+                RiskLevel = AIPMS.Application.Features.Projects.Abstractions.HealthPulseMapping.ToRiskLevel(pulse.Status),
+                HealthPulseStatus = pulse.Status,
+                HealthPulseSignals = pulse.Signals,
+                Summary = pulse.Summary
+            };
+        }
         return updated with { ProjectEvidence = evidence.Take(50).ToArray() };
     }
 }

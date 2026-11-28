@@ -62,10 +62,27 @@ public sealed class UpdateTaskCommandHandler(
 
         var projectId = currentMilestone.ProjectId;
 
-        // Verify authorization: Student Leader or Assigned Supervisor
-        if (!await repository.IsProjectLeaderOrSupervisorAsync(projectId, actorUserId, cancellationToken))
+        // TK-W2-02: Student Leader / Assigned Primary Supervisor can update any task;
+        // active STUDENT_MEMBER can update non-core tasks they created or are assigned to within their own majorScope.
+        var isManager = await repository.IsProjectLeaderOrSupervisorAsync(projectId, actorUserId, cancellationToken);
+        if (!isManager)
         {
-            throw new ForbiddenException("You are not authorized to update tasks for this project.");
+            if (task.IsCoreGateTask || task.GateRequirementId.HasValue)
+                throw new ForbiddenException("Only the team leader or assigned primary supervisor can update core gate tasks.");
+
+            var isActiveMember = await repository.IsUserActiveTeamMemberAsync(projectId, actorUserId, cancellationToken);
+            var isCreatorOrAssignee = task.CreatedBy == actorUserId
+                || await repository.IsTaskAssigneeAsync(request.Id, actorUserId, cancellationToken);
+            if (!isActiveMember || !isCreatorOrAssignee)
+                throw new ForbiddenException("You are not authorized to update tasks for this project.");
+
+            var taskMajors = await repository.GetTaskMajorIdsAsync(request.Id, cancellationToken);
+            if (taskMajors.Count > 0)
+            {
+                var actorMajor = await repository.GetUserMajorIdAsync(projectId, actorUserId, cancellationToken);
+                if (actorMajor.HasValue && taskMajors.Any(majorId => majorId != actorMajor.Value))
+                    throw new ForbiddenException("Team members can only update tasks within their own major scope.");
+            }
         }
 
         // Verify new milestone (if changed) belongs to the same project

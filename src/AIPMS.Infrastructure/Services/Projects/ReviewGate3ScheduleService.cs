@@ -20,7 +20,7 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
     private DateTimeOffset Now => clock.GetUtcNow();
     private sealed record Candidate(long ProjectId, string ProjectCode, string ProjectTitle, long GateId, long? DepartmentId, int Seats,
-        long[] Reviewers, long[] Supervisors, DateTimeOffset WindowStart, DateTimeOffset WindowEnd);
+        long[] Reviewers, long[] Supervisors, DateTimeOffset WindowStart, DateTimeOffset WindowEnd, bool IsInterdisciplinary);
     private sealed record Occupied(long ProjectId, long? GateId, long? RoomId, string? RoomCode,
         DateTimeOffset Start, DateTimeOffset End, long[] Reviewers);
     private static ValidationException Invalid(string message) => new(new Dictionary<string, string[]> { ["reviewGate3Schedule"] = [message] });
@@ -65,7 +65,9 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
             .Where(s => s.ProjectPeriodId == periodId && (!departmentId.HasValue || s.LeadDepartmentId == departmentId))
             .OrderByDescending(s => s.Id).ToArrayAsync(ct);
         var ids = snapshots.Select(s => s.ProjectId).Distinct().ToArray();
-        var projects = await db.Projects.AsNoTracking().Include(p => p.Team).ThenInclude(t => t.TeamMembers)
+        var projects = await db.Projects.AsNoTracking()
+            .Include(p => p.Team).ThenInclude(t => t.TeamMembers)
+            .Include(p => p.ProjectMajors)
             .Where(p => ids.Contains(p.Id) && (p.Status == "ACTIVE" || p.Status == "FINAL_SUBMISSION"))
             .ToArrayAsync(ct);
         var gates = await db.ProjectGateInstances.AsNoTracking().Where(g => ids.Contains(g.ProjectId)
@@ -107,7 +109,8 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
                 project.Team.TeamMembers.Count(m => m.LeftAt == null) + idsForGate.Length + 5,
                 idsForGate, supervisorsForProject,
                 new(DateTime.SpecifyKind(gate.WindowStart.Value, DateTimeKind.Utc)),
-                new(DateTime.SpecifyKind(gate.WindowEnd.Value, DateTimeKind.Utc))));
+                new(DateTime.SpecifyKind(gate.WindowEnd.Value, DateTimeKind.Utc)),
+                string.Equals(project.TrackCode, "IT_MKT", StringComparison.OrdinalIgnoreCase) || project.ProjectMajors.Count > 1));
         }
         return (results, issues.ToArray());
     }
@@ -151,7 +154,7 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
         if (exclusions is null) return;
         if (exclusions.Count > 1000 || exclusions.Distinct().Count() != exclusions.Count
             || exclusions.Any(x => x.RoomId <= 0 || roomIds is not null && !roomIds.Contains(x.RoomId)
-                || x.SlotNumber is < 1 or > 6 || x.Date?.Year > 2200
+                || x.SlotNumber is < 1 or > 8 || x.Date?.Year > 2200
                 || x.Date.HasValue && start.HasValue && end.HasValue
                     && (x.Date < start || x.Date > end)))
             throw Invalid("Exclusions must name selected rooms and slots in this run only.");
@@ -191,16 +194,17 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
         if (input.StartDate > input.EndDate || input.EndDate.DayNumber - input.StartDate.DayNumber > 31
             || input.EndDate.Year > 2200 || input.RoomIds is null || input.RoomIds.Count is < 1 or > 100
             || input.RoomIds.Any(id => id <= 0) || input.RoomIds.Distinct().Count() != input.RoomIds.Count
-            || input.MaxSlotsPerDay is < 1 or > 6)
-            throw Invalid("Use up to 32 days, 1..100 unique rooms and 1..6 office slots per day.");
+            || input.MaxSlotsPerDay is < 1 or > 8
+            || input.SlotDurationMinutes is < 30 or > 120)
+            throw Invalid("Use up to 32 days, 1..100 unique rooms, 1..8 office slots per day, and 30..120 min slot duration.");
         ValidateExclusions(input.Exclusions, input.RoomIds, input.StartDate, input.EndDate);
-        var from = DefenseSchedulingRules.Slot(input.StartDate, 1).Start;
-        var to = DefenseSchedulingRules.Slot(input.EndDate, 6).End;
+        var from = new DateTimeOffset(input.StartDate.ToDateTime(new TimeOnly(8, 0)), TimeSpan.FromHours(7));
+        var to = new DateTimeOffset(input.EndDate.ToDateTime(new TimeOnly(17, 45)), TimeSpan.FromHours(7));
         if (from <= Now) throw Invalid("Review dates must be in the future.");
         var rooms = await db.Set<Room>().AsNoTracking().Where(r => input.RoomIds.Contains(r.Id)
-            && r.Status == "ACTIVE" && r.Floor >= 2 && r.Floor <= 4).ToDictionaryAsync(r => r.Id, ct);
+            && r.Status == "ACTIVE").ToDictionaryAsync(r => r.Id, ct);
         if (rooms.Count != input.RoomIds.Count)
-            throw new ConflictException("Only active rooms on floors 2–4 may be selected.", "REVIEW_GATE_3_ROOM_UNAVAILABLE");
+            throw new ConflictException("Only active rooms may be selected.", "REVIEW_GATE_3_ROOM_UNAVAILABLE");
         var (candidates, issues) = await Candidates(periodId, department, ct);
         var occupied = await Existing(from, to, ct);
         var already = (await db.Set<GateSessionScript>().AsNoTracking().Where(s => s.PublishedAt != null)
@@ -213,19 +217,22 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
         foreach (var c in candidates.Values.OrderBy(x => x.DepartmentId).ThenBy(x => x.ProjectId))
         {
             if (already.Contains(c.GateId)) continue;
+            var duration = input.SlotDurationMinutes ?? (c.IsInterdisciplinary ? 60 : 45);
             ReviewGate3Allocation? selected = null;
             for (var day = input.StartDate; day <= input.EndDate && selected is null; day = day.AddDays(1))
             {
                 if (!Working(day, calendar.Mask, calendar.Holidays)) continue;
-                for (var slot = 1; slot <= input.MaxSlotsPerDay && selected is null; slot++)
+                var daySlots = DefenseSchedulingRules.GenerateOfficeSlots(day, duration);
+                var maxSlots = Math.Min(input.MaxSlotsPerDay, daySlots.Count);
+                for (var idx = 0; idx < maxSlots && selected is null; idx++)
                 {
-                    var time = DefenseSchedulingRules.Slot(day, slot);
-                    if (time.Start < c.WindowStart || time.End > c.WindowEnd) continue;
+                    var slotInfo = daySlots[idx];
+                    if (slotInfo.Start < c.WindowStart || slotInfo.End > c.WindowEnd) continue;
                     foreach (var room in rooms.Values.Where(r => r.Capacity >= c.Seats).OrderBy(r => r.Id))
                     {
-                        if (Excluded(room.Id, day, slot, input.Exclusions) || Clash(c, room, time.Start, time.End, occupied)) continue;
-                        selected = new(c.ProjectId, c.GateId, room.Id, room.Code, day, slot, time.Start, time.End, c.ProjectCode, c.ProjectTitle);
-                        occupied.Add(new(c.ProjectId, c.GateId, room.Id, room.Code, time.Start, time.End, c.Reviewers));
+                        if (Excluded(room.Id, day, slotInfo.SlotNumber, input.Exclusions) || Clash(c, room, slotInfo.Start, slotInfo.End, occupied)) continue;
+                        selected = new(c.ProjectId, c.GateId, room.Id, room.Code, day, slotInfo.SlotNumber, slotInfo.Start, slotInfo.End, c.ProjectCode, c.ProjectTitle);
+                        occupied.Add(new(c.ProjectId, c.GateId, room.Id, room.Code, slotInfo.Start, slotInfo.End, c.Reviewers));
                         break;
                     }
                 }
@@ -251,8 +258,7 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
         if (input.ConcurrencyToken != await Revision(ct))
             throw new ConflictException("Review schedule changed; preview again.", "REVIEW_GATE_3_SCHEDULE_STALE");
         var (candidates, _) = await Candidates(periodId, department, ct);
-        var rooms = await db.Set<Room>().AsNoTracking().Where(r => roomIds.Contains(r.Id) && r.Status == "ACTIVE"
-            && r.Floor >= 2 && r.Floor <= 4).ToDictionaryAsync(r => r.Id, ct);
+        var rooms = await db.Set<Room>().AsNoTracking().Where(r => roomIds.Contains(r.Id) && r.Status == "ACTIVE").ToDictionaryAsync(r => r.Id, ct);
         var occupied = await Existing(input.Allocations.Min(x => x.StartAt), input.Allocations.Max(x => x.EndAt), ct);
         var calendar = await Calendar(periodId, ct);
         var gateIds = input.Allocations.Select(x => x.GateInstanceId).ToArray();
@@ -265,23 +271,26 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
         {
             if (!candidates.TryGetValue(a.ProjectId, out var c) || c.GateId != a.GateInstanceId
                 || !rooms.TryGetValue(a.RoomId, out var room) || room.Code != a.RoomCode
-                || room.Capacity < c.Seats || a.SlotNumber is < 1 or > 6 || a.StartAt <= Now
+                || room.Capacity < c.Seats || a.SlotNumber is < 1 or > 8 || a.StartAt <= Now
                 || !Working(a.Date, calendar.Mask, calendar.Holidays)
                 || Excluded(a.RoomId, a.Date, a.SlotNumber, input.Exclusions))
                 throw new ConflictException("Review allocation is ineligible.", "REVIEW_GATE_3_ALLOCATION_INVALID");
-            var slot = DefenseSchedulingRules.Slot(a.Date, a.SlotNumber);
-            if (a.StartAt != slot.Start || a.EndAt != slot.End || slot.Start < c.WindowStart || slot.End > c.WindowEnd
-                || Clash(c, room, slot.Start, slot.End, occupied))
+            var allocStart = a.StartAt;
+            var allocEnd = a.EndAt;
+            if (!DefenseSchedulingRules.IsValidOfficeWindow(allocStart, allocEnd)
+                || DateOnly.FromDateTime(allocStart.ToOffset(TimeSpan.FromHours(7)).Date) != a.Date
+                || allocStart < c.WindowStart || allocEnd > c.WindowEnd
+                || Clash(c, room, allocStart, allocEnd, occupied))
                 throw new ConflictException("Review allocation conflicts with the current timetable.", "REVIEW_GATE_3_SCHEDULE_CONFLICT");
             if (existingGateIds.Contains(c.GateId))
                 throw new ConflictException("A Gate 3 session already exists; change it through the schedule endpoint.",
                     "REVIEW_GATE_3_ALREADY_SCHEDULED");
             var gate = gates[c.GateId];
             var script = new GateSessionScript { ProjectGateInstanceId = c.GateId, Mode = "OFFLINE",
-                RoomId = room.Id, ScheduledStartAt = slot.Start, ScheduledEndAt = slot.End,
+                RoomId = room.Id, ScheduledStartAt = allocStart, ScheduledEndAt = allocEnd,
                 PublishedAt = Now, PublishedBy = Actor, CreatedAt = Now, UpdatedAt = Now };
             db.Add(script); created.Add((gate, script, room));
-            occupied.Add(new(c.ProjectId, c.GateId, room.Id, room.Code, slot.Start, slot.End, c.Reviewers));
+            occupied.Add(new(c.ProjectId, c.GateId, room.Id, room.Code, allocStart, allocEnd, c.Reviewers));
         }
         await db.SaveChangesAsync(ct);
         foreach (var (gate, script, _) in created)
@@ -341,14 +350,14 @@ internal sealed class ReviewGate3ScheduleService(AipmsDbContext db, ICurrentUser
         if (script.ScheduledStartAt <= Now || script.ActualStartAt.HasValue || script.Verdict != "PENDING")
             throw new ConflictException("A started or decided review cannot be moved.", "REVIEW_GATE_3_SESSION_STARTED");
         var day = DateOnly.FromDateTime(input.StartAt.ToOffset(TimeSpan.FromHours(7)).Date);
-        if (!Enumerable.Range(1, 6).Any(number => { var s = DefenseSchedulingRules.Slot(day, number);
-            return s.Start == input.StartAt && s.End == input.EndAt; })) throw Invalid("Use a full office slot.");
+        if (!DefenseSchedulingRules.IsValidOfficeWindow(input.StartAt, input.EndAt))
+            throw Invalid("Use a valid office slot (30..120 minutes within 08:00–11:30 or 13:30–17:00).");
         var calendar = await Calendar(periodId, ct);
         if (!Working(day, calendar.Mask, calendar.Holidays))
             throw new ConflictException("The date is not a working day.", "REVIEW_GATE_3_NON_WORKING_DAY");
         await OfflineGateEligibility.RequirePreviousGateAndWindow(db, gate.ProjectId, 3, input.StartAt, input.EndAt, ct);
         var room = await db.Set<Room>().AsNoTracking().SingleOrDefaultAsync(r => r.Id == input.RoomId
-            && r.Status == "ACTIVE" && r.Floor >= 2 && r.Floor <= 4, ct)
+            && r.Status == "ACTIVE", ct)
             ?? throw new ConflictException("The room is unavailable.", "REVIEW_GATE_3_ROOM_UNAVAILABLE");
         var (candidates, _) = await Candidates(periodId, department, ct);
         if (!candidates.TryGetValue(gate.ProjectId, out var c) || room.Capacity < c.Seats)

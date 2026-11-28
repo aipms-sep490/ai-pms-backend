@@ -21,18 +21,22 @@ public sealed partial class PolicyEvaluationEndpointTests
         var url = $"/api/v1/project-periods/{s.PeriodId}";
         var current = await Body<PeriodPolicyDto>(await staff.GetAsync(url + "/effective-policy"));
         var expiredAt = EvaluationDraftDatabaseFixture.Now.AddMinutes(-1);
-        await using (var db = database.CreateContext())
-        {
-            (await db.Set<PeriodPolicyVersion>().FindAsync(current.Id))!.EffectiveTo = expiredAt;
-            await db.SaveChangesAsync();
-        }
         var request = new UpdatePeriodPolicyRequest(current.Version, "SUCCESSOR", current.Policy,
             new(EvaluationDraftDatabaseFixture.Now), new(EvaluationDraftDatabaseFixture.Now.AddHours(1)));
         var draft = await Body<PeriodPolicyDto>(await staff.PutAsJsonAsync(url + "/policy", request));
+        long predecessorId;
+        await using (var db = database.CreateContext())
+        {
+            var predecessor = await db.Set<PeriodPolicyVersion>()
+                .SingleAsync(p => p.ProjectPeriodId == s.PeriodId && p.Version == current.Version);
+            predecessor.EffectiveTo = expiredAt;
+            predecessorId = predecessor.Id;
+            await db.SaveChangesAsync();
+        }
         await Body<PeriodPolicyDto>(await staff.PutAsJsonAsync(url + "/policy", request with {
             ExpectedVersion = draft.Version, Operation = "PUBLISH", ConcurrencyToken = draft.ConcurrencyToken }));
         var history = await Body<PeriodPolicyDto[]>(await staff.GetAsync(url + "/policy-versions"));
-        Assert.Equal(expiredAt, history.Single(p => p.Id == current.Id).EffectiveTo);
+        Assert.Equal(expiredAt, history.Single(p => p.Id == predecessorId).EffectiveTo);
         var gap = Uri.EscapeDataString(EvaluationDraftDatabaseFixture.Now.AddSeconds(-30).ToString("O"));
         Assert.Equal(HttpStatusCode.NotFound, (await staff.GetAsync(url + "/effective-policy?asOf=" + gap)).StatusCode);
     }
@@ -185,7 +189,8 @@ public sealed partial class PolicyEvaluationEndpointTests
         await Body<PeriodPolicyDto>(await staff.PutAsJsonAsync(url + "/policy", publish));
         Assert.Equal(HttpStatusCode.Conflict, (await staff.PutAsJsonAsync(url + "/policy", publish)).StatusCode);
         var prior = await Body<PeriodPolicyDto>(await staff.GetAsync(url + "/effective-policy?asOf=" + Uri.EscapeDataString(EvaluationDraftDatabaseFixture.Now.AddTicks(-1).ToString("O"))));
-        Assert.Equal(before.Id, prior.Id);
+        Assert.Equal(before.Version, prior.Version);
+        Assert.True(prior.Id > 0 && prior.Id != draft.Id);
         Assert.Equal(draft.Id, (await Body<PeriodPolicyDto>(await staff.GetAsync(url + "/effective-policy"))).Id);
         Assert.Equal(HttpStatusCode.NotFound, (await staff.GetAsync(url + "/effective-policy?asOf=" + Uri.EscapeDataString(input.EffectiveTo.ToString("O")))).StatusCode);
     }

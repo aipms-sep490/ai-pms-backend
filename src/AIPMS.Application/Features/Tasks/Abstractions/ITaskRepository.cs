@@ -146,4 +146,32 @@ public interface ITaskRepository
 
     Task<TaskDto> RestoreAsync(long id, long actorUserId, DateTime utcNow, CancellationToken cancellationToken) =>
         throw new AIPMS.Application.Common.Exceptions.NotFoundException("Task", id);
+
+    Task<IReadOnlyList<long>> GetTaskMajorIdsAsync(long taskId, CancellationToken cancellationToken) =>
+        System.Threading.Tasks.Task.FromResult<IReadOnlyList<long>>([]);
+
+    Task<PagedResult<TaskDto>> GetTasksScopedAsync(
+        long projectId,
+        long? milestoneId,
+        string? status,
+        string? priority,
+        long? assigneeUserId,
+        string? search,
+        DateTime? dueFrom,
+        DateTime? dueTo,
+        bool? isOverdue,
+        bool? isBlocked,
+        int page,
+        int pageSize,
+        long? majorId,
+        IReadOnlyCollection<long>? allowedMajorIds,
+        CancellationToken cancellationToken = default,
+        string? disciplineRole = null) =>
+        GetTasksAsync(projectId, milestoneId, status, priority, assigneeUserId, search, dueFrom, dueTo, isOverdue, isBlocked, page, pageSize, majorId, cancellationToken, disciplineRole);
+
+    Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedScopedAsync(
+        long projectId,
+        IReadOnlyCollection<long>? allowedMajorIds,
+        CancellationToken cancellationToken) =>
+        GetOverdueAndBlockedAsync(projectId, cancellationToken);
 }

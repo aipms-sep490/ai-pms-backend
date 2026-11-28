@@ -40,18 +40,27 @@ internal sealed class MeetingVideoService(AipmsDbContext db, ICurrentUser curren
         var valid = enabled && meeting.Project.Status == "ACTIVE" && meeting.Status == "SCHEDULED";
         var active = session is { Status: "CREATED" or "LIVE" };
         var activeReady = active && session!.StartedAt != null;
+        var windowWarnings = new List<string>();
         if (!activeReady)
         {
-            if (Now < window.AvailableFrom) reasons.Add("VIDEO_JOIN_TOO_EARLY");
-            if (window.AvailableUntil is DateTime end && Now > end) reasons.Add("VIDEO_JOIN_WINDOW_CLOSED");
+            if (Now < window.AvailableFrom)
+            {
+                reasons.Add("VIDEO_JOIN_TOO_EARLY");
+                windowWarnings.Add("VIDEO_JOIN_TOO_EARLY");
+            }
+            if (window.AvailableUntil is DateTime end && Now > end)
+            {
+                reasons.Add("VIDEO_JOIN_WINDOW_CLOSED");
+                windowWarnings.Add("VIDEO_JOIN_WINDOW_CLOSED");
+            }
         }
         var caps = new VideoCapabilities(valid && manager && !active,
             valid && participant && activeReady,
-            valid && manager && participant && active, false);
+            valid && manager && active, false);
         // Metadata reads must not require an online media provider. Count remains unknown until queried reliably.
         return new(meetingId, meeting.Status, meeting.MeetingDeliveryMode, meeting.VideoChannel,
             session is null ? null : new(session.Id, session.Status, session.Provider, session.StartedAt, session.EndedAt, null, session.ConcurrencyToken.ToString("N")),
-            caps, meeting.VideoChannel == "IN_APP_VIDEO" ? window : null, reasons);
+            caps, meeting.VideoChannel == "IN_APP_VIDEO" ? window : null, reasons, windowWarnings);
     }
 
     public async Task<VideoSessionDto> StartAsync(long meetingId, CancellationToken ct)
@@ -144,7 +153,7 @@ internal sealed class MeetingVideoService(AipmsDbContext db, ICurrentUser curren
         {
             var (meeting, actor) = await LockAndLoad(meetingId, ct);
             EnsureEnabled(); EnsureStartable(meeting);
-            if (!await CanManageAsync(meeting, actor, ct) || !await IsParticipant(meetingId, actor, ct)) throw Denied("VIDEO_END_FORBIDDEN");
+            if (!await CanManageAsync(meeting, actor, ct)) throw Denied("VIDEO_END_FORBIDDEN");
             var session = await Latest(meetingId, ct) ?? throw State("VIDEO_SESSION_NOT_STARTED");
             if (session.Status is "ENDED" or "FAILED") throw State(session.Status == "ENDED" ? "VIDEO_SESSION_ENDED" : "VIDEO_SESSION_FAILED");
             session.Status = "ENDED";
@@ -196,9 +205,18 @@ internal sealed class MeetingVideoService(AipmsDbContext db, ICurrentUser curren
     }
     private Task<MeetingVideoSession?> Latest(long id, CancellationToken ct) => db.MeetingVideoSessions.Where(x => x.MeetingId == id).OrderByDescending(x => x.Id).FirstOrDefaultAsync(ct);
     private Task<bool> IsParticipant(long id, long actor, CancellationToken ct) => db.MeetingParticipants.AnyAsync(x => x.MeetingId == id && x.UserId == actor, ct);
-    private async Task<bool> CanManageAsync(Meeting m, long actor, CancellationToken ct) => m.CreatedBy == actor
-        || await db.TeamMembers.AnyAsync(x => x.TeamId == m.Project.TeamId && x.UserId == actor && x.IsLeader && x.LeftAt == null && x.User.UserRoleUsers.Any(r => r.Role.Code == "STUDENT"), ct)
-        || await db.SupervisorAssignments.AnyAsync(x => x.ProjectId == m.ProjectId && x.EndedAt == null && x.IsPrimary && x.SupervisorProfile.UserId == actor, ct);
+    private async Task<bool> CanManageAsync(Meeting m, long actor, CancellationToken ct)
+    {
+        var isActiveLeader = await db.TeamMembers.AnyAsync(x => x.TeamId == m.Project.TeamId && x.UserId == actor && x.IsLeader && x.LeftAt == null && x.User.UserRoleUsers.Any(r => r.Role.Code == "STUDENT"), ct);
+        if (isActiveLeader) return true;
+        var isActivePrimary = await db.SupervisorAssignments.AnyAsync(x => x.ProjectId == m.ProjectId && x.EndedAt == null && x.IsPrimary && x.SupervisorProfile.UserId == actor, ct);
+        if (isActivePrimary) return true;
+        if (m.CreatedBy != actor) return false;
+        // TK-W2-04: Former members (LeftAt != null) or ended supervisors lose management authority even if they created the meeting.
+        var isActiveMember = await db.TeamMembers.AnyAsync(x => x.TeamId == m.Project.TeamId && x.UserId == actor && x.LeftAt == null, ct);
+        if (isActiveMember) return true;
+        return await db.SupervisorAssignments.AnyAsync(x => x.ProjectId == m.ProjectId && x.EndedAt == null && x.SupervisorProfile.UserId == actor, ct);
+    }
     private void EnsureEnabled() { if (!settings.Enabled || !settings.IsReady) throw new ServiceUnavailableException("Video is disabled.", "VIDEO_NOT_ENABLED"); }
     private static void EnsureStartable(Meeting m)
     {

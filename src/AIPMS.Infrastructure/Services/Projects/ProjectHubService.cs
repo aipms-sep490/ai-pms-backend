@@ -20,7 +20,8 @@ internal sealed partial class ProjectHubService(
     ICurrentUser current,
     IAuditTrail audit,
     TimeProvider clock,
-    IProjectAccessService projectAccess) : IProjectHubService
+    IProjectAccessService projectAccess,
+    AIPMS.Application.Features.Projects.Abstractions.IProjectHealthPulseCalculator? healthPulseCalculator = null) : IProjectHubService
 {
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;

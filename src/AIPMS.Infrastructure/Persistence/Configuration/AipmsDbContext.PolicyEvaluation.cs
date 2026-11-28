@@ -69,10 +69,12 @@ public partial class AipmsDbContext
             e.Property(x => x.CreatedAt).HasPrecision(0);
             e.Property(x => x.UpdatedAt).HasPrecision(0);
             e.Property(x => x.FinalizedAt).HasPrecision(0);
+            e.Property(x => x.MentorNoteUpdatedAt).HasPrecision(0);
             e.HasOne<Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<ProjectGateInstance>().WithMany().HasForeignKey(x => x.GateInstanceId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Models.User>().WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Models.SupervisorAssignment>().WithMany().HasForeignKey(x => x.SupervisorAssignmentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Models.User>().WithMany().HasForeignKey(x => x.MentorNoteUpdatedBy).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<StudentDefenseAbsence>(e =>
         {

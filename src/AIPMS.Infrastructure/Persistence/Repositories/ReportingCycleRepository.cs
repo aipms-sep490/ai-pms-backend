@@ -320,9 +320,19 @@ public sealed class ReportingCycleRepository(AipmsDbContext context) : IReportin
 
         return await context.ProjectPeriods
             .AsNoTracking()
-            .Where(pp => pp.AcademicSemesterId == semesterId && pp.Status == "ACTIVE")
+            .Where(pp => pp.AcademicSemesterId == semesterId && pp.PeriodType == "EXECUTION" && pp.Status == "ACTIVE")
             .Select(pp => (long?)pp.Id)
             .FirstOrDefaultAsync(cancellationToken)
+            ?? await context.ProjectPeriods
+                .AsNoTracking()
+                .Where(pp => pp.AcademicSemesterId == semesterId && pp.PeriodType == "EXECUTION")
+                .Select(pp => (long?)pp.Id)
+                .FirstOrDefaultAsync(cancellationToken)
+            ?? await context.ProjectPeriods
+                .AsNoTracking()
+                .Where(pp => pp.AcademicSemesterId == semesterId && pp.Status == "ACTIVE")
+                .Select(pp => (long?)pp.Id)
+                .FirstOrDefaultAsync(cancellationToken)
             ?? await context.ProjectPeriods
                 .AsNoTracking()
                 .Where(pp => pp.AcademicSemesterId == semesterId)

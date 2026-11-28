@@ -251,6 +251,19 @@ internal sealed class DeliverableRepository(AipmsDbContext db, IConfiguration co
         item.Status = "SUBMITTED";
         item.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
+
+        // TK-W2-03: Auto-record submitted deliverable into read-only project evidence ledger.
+        await ProjectEvidenceAutoRecorder.TryRecordAsync(
+            db,
+            item.ProjectId,
+            item.TargetMajorId,
+            "DELIVERABLE",
+            item.Id,
+            $"Tự động ghi nhận khi nộp phiên bản v{number} sản phẩm bàn giao: {item.Title}",
+            actorId,
+            now,
+            ct);
+
         if (!bool.TryParse(configuration["Deliverables:NotifyReviewer"], out var notify) || notify)
         {
             var reviewers = await db.SupervisorAssignments.Where(a => a.ProjectId == item.ProjectId && a.EndedAt == null

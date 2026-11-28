@@ -503,10 +503,10 @@ internal sealed class EvaluationAssignmentAccessService(
                 ? decimal.Round((decimal)userDone * 100m / totalDone, 1, MidpointRounding.AwayFromZero)
                 : (members.Count > 0 ? decimal.Round(100m / members.Count, 1, MidpointRounding.AwayFromZero) : 0m);
 
-            var userProcess = processRows.Where(r => r.StudentId == m.UserId).ToList();
+            var userProcess = processRows.Where(r => r.StudentId == m.UserId && r.Score.HasValue).ToList();
             var totalWeight = userProcess.Sum(r => r.GateWeightPercent);
             decimal? cumulativeProcess = totalWeight > 0
-                ? decimal.Round(userProcess.Sum(r => r.Score * r.GateWeightPercent) / totalWeight, 2, MidpointRounding.AwayFromZero)
+                ? decimal.Round(userProcess.Sum(r => r.Score!.Value * r.GateWeightPercent) / totalWeight, 2, MidpointRounding.AwayFromZero)
                 : null;
             var isComplete = totalWeight >= 99.99m;
 

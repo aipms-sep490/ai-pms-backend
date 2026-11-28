@@ -281,7 +281,11 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             throw new NotFoundException("ProgressReport", id);
 
         if (entity.Status != "DRAFT")
-            throw new ConflictException("Submitted or reviewed progress reports cannot be modified.", WorkflowErrorCodes.ReportNotEditable);
+            throw new ConflictException(
+                entity.Status == "REVIEWED"
+                    ? "Reviewed progress reports are permanently locked and cannot be modified."
+                    : "Submitted or reviewed progress reports cannot be modified.",
+                entity.Status == "REVIEWED" ? WorkflowErrorCodes.ReportLocked : WorkflowErrorCodes.ReportNotEditable);
 
         if (progressReportPeriodId.HasValue && progressReportPeriodId.Value != entity.ProgressReportPeriodId)
         {
@@ -400,9 +404,8 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             entity.IsLate = false;
         }
 
-        // All five canonical sections are required to submit under the new contract.
-        // Legacy fields (planned_work, issues_and_risks) are read-only compatibility columns;
-        // they must NOT be silently promoted into canonical fields at submit time.
+        // TK-W2-01: Summary, CompletedWork, InProgressWork, and NextActions are mandatory;
+        // Blockers and Risks are optional when no issues arose in the reporting window.
         var errors = new Dictionary<string, string[]>();
         if (string.IsNullOrWhiteSpace(entity.Summary))
             errors["summary"] = ["Summary is required to submit a progress report."];
@@ -410,10 +413,6 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
             errors["completedWork"] = ["Completed work is required to submit a progress report."];
         if (string.IsNullOrWhiteSpace(entity.InProgressWork))
             errors["inProgressWork"] = ["In-progress work is required to submit a progress report."];
-        if (string.IsNullOrWhiteSpace(entity.Blockers))
-            errors["blockers"] = ["Blockers is required to submit a progress report."];
-        if (string.IsNullOrWhiteSpace(entity.Risks))
-            errors["risks"] = ["Risks is required to submit a progress report."];
         if (string.IsNullOrWhiteSpace(entity.NextActions))
             errors["nextActions"] = ["Next actions is required to submit a progress report."];
 
@@ -427,6 +426,18 @@ public sealed class ProgressReportRepository(AipmsDbContext context) : IProgress
         entity.ConcurrencyToken = Guid.NewGuid();
 
         await context.SaveChangesAsync(cancellationToken);
+
+        // TK-W2-03: Auto-record submitted progress report into read-only project evidence ledger.
+        await AIPMS.Infrastructure.Services.Projects.ProjectEvidenceAutoRecorder.TryRecordAsync(
+            context,
+            entity.ProjectId,
+            majorId: null,
+            "PROGRESS_REPORT",
+            entity.Id,
+            $"Tự động ghi nhận khi nộp báo cáo tiến độ ({entity.PeriodStart:dd/MM/yyyy} - {entity.PeriodEnd:dd/MM/yyyy})",
+            actorId,
+            now,
+            cancellationToken);
 
         var result = (await GetByIdAsync(id, cancellationToken))!;
 

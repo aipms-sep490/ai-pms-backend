@@ -20,8 +20,22 @@ namespace AIPMS.Api.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-public sealed class ReportingCyclesController(ISender sender) : ControllerBase
+public sealed class ReportingCyclesController(
+    ISender sender,
+    AIPMS.Infrastructure.Services.Projects.IBulkReportingCycleService? bulkService = null) : ControllerBase
 {
+    [HttpPost("/api/v1/project-periods/{periodId:long}/reporting-cycles/generate")]
+    [ProducesResponseType<GenerateReportingCyclesResultDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<ActionResult<GenerateReportingCyclesResultDto>> BulkGenerate(
+        long periodId,
+        [FromBody] GenerateReportingCyclesRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (bulkService is null)
+            return Problem(statusCode: StatusCodes.Status500InternalServerError, detail: "Bulk reporting cycle service unavailable.");
+        return Ok(await bulkService.GenerateForPeriodAsync(periodId, request ?? new(), cancellationToken));
+    }
     [HttpGet]
     [ProducesResponseType<PagedResult<ReportingCycleDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<ReportingCycleDto>>> List(

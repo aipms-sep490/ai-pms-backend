@@ -57,6 +57,8 @@ public sealed class MilestonesAndTasksEndpointTests : IClassFixture<MilestonesAn
                 services.RemoveAll<IProjectAccessService>();
                 services.AddSingleton<IProjectAccessService, AllowAllProjectAccessService>();
 
+                services.RemoveAll<AIPMS.Application.Abstractions.Security.IProjectScopeResolver>();
+
                 services.RemoveAll<AIPMS.Application.Features.Projects.Abstractions.IExecutionWindowService>();
                 services.AddSingleton<AIPMS.Application.Features.Projects.Abstractions.IExecutionWindowService, NoOpExecutionWindowService>();
             });

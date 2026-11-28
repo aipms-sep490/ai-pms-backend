@@ -46,12 +46,12 @@ internal sealed partial class CalendarService(AipmsDbContext db, ICurrentUser cu
         if (from >= to || to - from > TimeSpan.FromDays(366)) throw Invalid("from/to must be a bounded range of at most 366 days.");
         if (pageSize is < 1 or > 100) throw Invalid("pageSize must be 1..100.");
         sourceType = sourceType?.Trim().ToUpperInvariant();
-        var sources = new[] { "TASK", "MILESTONE", "MEETING", "DELIVERABLE", "FINAL_SUBMISSION", "EVALUATION_ASSIGNMENT", "CHECKPOINT", "DEFENSE_SESSION", "PROGRESS_REPORT" };
+        var sources = new[] { "TASK", "MILESTONE", "MEETING", "DELIVERABLE", "FINAL_SUBMISSION", "EVALUATION_ASSIGNMENT", "CHECKPOINT", "DEFENSE_SESSION", "PROGRESS_REPORT", "REVIEW_GATE" };
         if (sourceType is not null && !sources.Contains(sourceType)) throw Invalid("Unknown sourceType.");
         var actor = currentUser.IsAuthenticated ? currentUser.UserId ?? throw new UnauthorizedException() : throw new UnauthorizedException();
         var queryKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{actor}|{from.UtcTicks}|{to.UtcTicks}|{sourceType}")));
         var after = Decode(cursor, queryKey, from.UtcDateTime, to.UtcDateTime);
-        await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
         var scope = await Scope(actor, ct); var rows = new List<CalendarRow>();
         for (var index = 0; index < sources.Length; index++)
         {
@@ -77,7 +77,7 @@ internal sealed partial class CalendarService(AipmsDbContext db, ICurrentUser cu
         {
             if (text.Length > 1024) throw Invalid("Invalid cursor.");
             var value = JsonSerializer.Deserialize<Cursor>(Convert.FromBase64String(text));
-            if (value is null || value.Version != 2 || value.Query != query || value.Id <= 0 || value.SourceOrder is < 0 or > 8
+            if (value is null || value.Version != 2 || value.Query != query || value.Id <= 0 || value.SourceOrder is < 0 or > 9
                 || value.DueAt < from || value.DueAt >= to) throw Invalid("The cursor does not match this actor/range/source; restart paging.");
             return value;
         }
@@ -100,7 +100,8 @@ internal sealed partial class CalendarService(AipmsDbContext db, ICurrentUser cu
             WHERE ({account.Student}=1 AND EXISTS(SELECT 1 FROM dbo.team_members m WHERE m.team_id=p.team_id AND m.user_id={actor} AND m.left_at IS NULL))
               OR ({account.Lecturer}=1 AND (EXISTS(SELECT 1 FROM dbo.supervisor_assignments a JOIN dbo.supervisor_profiles sp ON sp.id=a.supervisor_profile_id WHERE a.project_id=p.id AND a.ended_at IS NULL AND sp.user_id={actor})
                 OR EXISTS(SELECT 1 FROM dbo.evaluation_assignments a WHERE a.project_id=p.id AND a.evaluator_id={actor} AND a.status='ACTIVE')
-                OR EXISTS(SELECT 1 FROM dbo.defense_committees c JOIN dbo.defense_committee_members m ON m.committee_id=c.id WHERE c.project_id=p.id AND m.user_id={actor})))
+                OR EXISTS(SELECT 1 FROM dbo.defense_committees c JOIN dbo.defense_committee_members m ON m.committee_id=c.id WHERE c.project_id=p.id AND c.status='CONFIRMED' AND m.user_id={actor})
+                OR EXISTS(SELECT 1 FROM dbo.review_gate_assignments ga JOIN dbo.project_gate_instances pgi ON pgi.id=ga.gate_instance_id WHERE pgi.project_id=p.id AND ga.reviewer_id={actor} AND ga.status IN ('PENDING_REVIEW','IN_REVIEW'))))
               OR ({account.Staff}=1 AND EXISTS(SELECT 1 FROM OPENJSON(CASE WHEN ISJSON(snap.snapshot_json)=1 THEN snap.snapshot_json ELSE '[]' END,'$.DepartmentIds') d WHERE TRY_CONVERT(bigint,d.value)={account.DepartmentId}))
             ORDER BY p.id
             """).ToArrayAsync(ct);

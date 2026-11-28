@@ -26,7 +26,7 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current, IProjectAccessService access,
     ITeamEligibilityAccessService teamAccess, IProjectRepository projects, IDeliverableRepository files,
-    DeliverableWorkflow fileWorkflow, IAuditTrail audit, TimeProvider clock) : IDisciplineService
+    DeliverableWorkflow fileWorkflow, IAuditTrail audit, TimeProvider clock, IProjectScopeResolver? scopeResolver = null) : IDisciplineService
 {
     private long Actor => current.UserId ?? throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
@@ -188,11 +188,24 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
         await RequireAccess(projectId, ct); ProjectRequirementsValidation.ValidatePage(page, pageSize);
         if (sourceType is not null) DisciplineValidation.Source(sourceType);
         if (majorId is <= 0 || verificationStatus is not (null or "PENDING" or "UNKNOWN" or "VERIFIED" or "REJECTED")) DisciplineValidation.Invalid("filter", "Invalid evidence filter.");
+        // TK-W2-05: Discipline Mentor only sees COMMON/unclassified evidence (MajorId == null) and their assigned MajorId(s).
+        long[]? mentorAllowedMajors = null;
+        if (scopeResolver is not null)
+        {
+            var actorScope = await scopeResolver.ResolveAsync(Actor, projectId, ct);
+            if (actorScope is { IsFullProjectAccess: false, IsMentor: true })
+            {
+                if (majorId.HasValue && !actorScope.CanAccessMajor(majorId.Value))
+                    throw new ForbiddenException("The requested major is outside your assigned mentor scope.", WorkflowErrorCodes.ScopeAccessDenied);
+                mentorAllowedMajors = actorScope.AllowedMajorIds.ToArray();
+            }
+        }
         // Legacy rows may still carry PENDING after a review; project the latest decision at read time.
         var query = db.ProjectEvidence.AsNoTracking()
             .Where(x => x.ProjectId == projectId
                 && (sourceType == null || x.SourceType == sourceType)
-                && (majorId == null || x.MajorId == majorId))
+                && (majorId == null || x.MajorId == majorId)
+                && (mentorAllowedMajors == null || x.MajorId == null || mentorAllowedMajors.Contains(x.MajorId.Value)))
             .Select(x => new
             {
                 Evidence = x,
@@ -215,8 +228,28 @@ internal sealed class DisciplineService(AipmsDbContext db, ICurrentUser current,
         var rows = await query.OrderByDescending(x => x.Evidence.SubmittedAt).ThenByDescending(x => x.Evidence.Id)
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         // A ledger reference never substitutes for file metadata/download authorization.
-        foreach (var row in rows.Where(x => x.Evidence.FileId.HasValue)) await fileWorkflow.FileAsync(row.Evidence.FileId!.Value, ct);
-        return new(await MapEvidenceAsync(rows.Select(x => (x.Evidence, x.EffectiveStatus)).ToArray(), ct), page, pageSize, count);
+        // TK-W2-03: Never crash the whole ledger page with 403 when a single cross-scope FILE entry is inaccessible; filter it out safely.
+        var accessibleRows = new List<(AIPMS.Infrastructure.Persistence.Generated.Models.ProjectEvidence Evidence, string EffectiveStatus)>(rows.Count);
+        foreach (var row in rows)
+        {
+            if (row.Evidence.FileId.HasValue)
+            {
+                try
+                {
+                    await fileWorkflow.FileAsync(row.Evidence.FileId.Value, ct);
+                }
+                catch (ForbiddenException)
+                {
+                    continue;
+                }
+                catch (NotFoundException)
+                {
+                    continue;
+                }
+            }
+            accessibleRows.Add((row.Evidence, row.EffectiveStatus));
+        }
+        return new(await MapEvidenceAsync(accessibleRows, ct), page, pageSize, count);
     }
 
     private sealed record Source(long ProjectId, string Status, long? TaskId = null);

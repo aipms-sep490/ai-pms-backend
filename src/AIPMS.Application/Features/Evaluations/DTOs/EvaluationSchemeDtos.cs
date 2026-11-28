@@ -1,7 +1,7 @@
 namespace AIPMS.Application.Features.Evaluations.DTOs;
 
 public sealed record GateProcessWeightInput(int GateNumber, decimal WeightPercent);
-public sealed record SchemeComponentInput(string Name, string Scope, long? MajorId, long RubricId,
+public sealed record SchemeComponentInput(string Name, string Scope, long? MajorId, long? RubricId,
     decimal ProjectWeightPercent, decimal StudentWeightPercent, int RequiredEvaluators,
     IReadOnlyList<SchemeEvaluatorWeight>? EvaluatorWeights = null, string Stage = "DEFENSE",
     string? TargetScope = null, bool IsIntegration = false);
@@ -13,7 +13,7 @@ public sealed record SchemePolicyInput(bool IsDemo = true, string ApprovalStatus
 public sealed record SaveEvaluationSchemeRequest(long ProjectId, long ProjectPeriodId, string Name,
     decimal PassThreshold, IReadOnlyList<SchemeComponentInput> Components, string? ConcurrencyToken = null,
     SchemePolicyInput? Policy = null);
-public sealed record SchemeComponentDto(long Id, string Name, string Scope, long? MajorId, long RubricId,
+public sealed record SchemeComponentDto(long Id, string Name, string Scope, long? MajorId, long? RubricId,
     decimal ProjectWeightPercent, decimal StudentWeightPercent, int RequiredEvaluators,
     IReadOnlyList<SchemeEvaluatorWeight>? EvaluatorWeights = null, string? Stage = null,
     string? TargetScope = null, bool IsIntegration = false);

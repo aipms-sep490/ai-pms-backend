@@ -32,7 +32,7 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         return entity?.ToDto();
     }
 
-    public async Task<PagedResult<TaskDto>> GetTasksAsync(
+    public Task<PagedResult<TaskDto>> GetTasksAsync(
         long projectId,
         long? milestoneId,
         string? status,
@@ -47,6 +47,41 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         int pageSize,
         long? majorId = null,
         CancellationToken cancellationToken = default,
+        string? disciplineRole = null) =>
+        GetTasksScopedAsync(
+            projectId,
+            milestoneId,
+            status,
+            priority,
+            assigneeUserId,
+            search,
+            dueFrom,
+            dueTo,
+            isOverdue,
+            isBlocked,
+            page,
+            pageSize,
+            majorId,
+            allowedMajorIds: null,
+            cancellationToken,
+            disciplineRole);
+
+    public async Task<PagedResult<TaskDto>> GetTasksScopedAsync(
+        long projectId,
+        long? milestoneId,
+        string? status,
+        string? priority,
+        long? assigneeUserId,
+        string? search,
+        DateTime? dueFrom,
+        DateTime? dueTo,
+        bool? isOverdue,
+        bool? isBlocked,
+        int page,
+        int pageSize,
+        long? majorId,
+        IReadOnlyCollection<long>? allowedMajorIds,
+        CancellationToken cancellationToken = default,
         string? disciplineRole = null)
     {
         var query = context.Tasks
@@ -57,6 +92,13 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
                 .ThenInclude(static ta => ta.User)
             .Include(static t => t.TaskDependencyTasks)
             .Where(t => t.Milestone.ProjectId == projectId && t.DeletedAt == null);
+
+        if (allowedMajorIds is not null)
+        {
+            var allowed = allowedMajorIds.ToArray();
+            query = query.Where(t => !context.TaskDisciplines.Any(td => td.TaskId == t.Id)
+                || context.TaskDisciplines.Any(td => td.TaskId == t.Id && allowed.Contains(td.MajorId)));
+        }
 
         if (milestoneId.HasValue)
         {
@@ -410,6 +452,30 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
             SprintHistory.Record(context, task, sprint, "STATUS", true, actorUserId, now);
 
         await context.SaveChangesAsync(cancellationToken);
+
+        // TK-W2-03: Auto-record completed task with attached files into the read-only project evidence ledger.
+        if (newStatus == "DONE" && await context.Files.AsNoTracking().AnyAsync(f => f.TaskId == taskId, cancellationToken))
+        {
+            var projectId = await context.Milestones.AsNoTracking()
+                .Where(m => m.Id == task.MilestoneId)
+                .Select(m => m.ProjectId)
+                .SingleAsync(cancellationToken);
+            var taskMajorId = await context.TaskDisciplines.AsNoTracking()
+                .Where(td => td.TaskId == taskId)
+                .OrderBy(td => td.MajorId)
+                .Select(td => (long?)td.MajorId)
+                .FirstOrDefaultAsync(cancellationToken);
+            await ProjectEvidenceAutoRecorder.TryRecordAsync(
+                context,
+                projectId,
+                taskMajorId,
+                "TASK",
+                taskId,
+                $"Tự động ghi nhận khi hoàn thành công việc có tệp đính kèm: {task.Title}",
+                actorUserId,
+                now,
+                cancellationToken);
+        }
     }
 
     public async Task<IReadOnlyList<TaskStatusHistoryDto>> GetStatusHistoryAsync(
@@ -512,14 +578,29 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(
+    public Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedAsync(
         long projectId,
+        CancellationToken cancellationToken) =>
+        GetOverdueAndBlockedScopedAsync(projectId, allowedMajorIds: null, cancellationToken);
+
+    public async Task<(IReadOnlyList<TaskDto> Overdue, IReadOnlyList<TaskDto> Blocked)> GetOverdueAndBlockedScopedAsync(
+        long projectId,
+        IReadOnlyCollection<long>? allowedMajorIds,
         CancellationToken cancellationToken)
     {
-        var tasks = await context.Tasks
+        var query = context.Tasks
             .AsNoTracking()
             .Include(t => t.BoardLabels)
-            .Where(t => t.Milestone.ProjectId == projectId && t.DeletedAt == null)
+            .Where(t => t.Milestone.ProjectId == projectId && t.DeletedAt == null);
+
+        if (allowedMajorIds is not null)
+        {
+            var allowed = allowedMajorIds.ToArray();
+            query = query.Where(t => !context.TaskDisciplines.Any(td => td.TaskId == t.Id)
+                || context.TaskDisciplines.Any(td => td.TaskId == t.Id && allowed.Contains(td.MajorId)));
+        }
+
+        var tasks = await query
             .Include(static t => t.CreatedByNavigation)
             .Include(static t => t.TaskAssignees)
                 .ThenInclude(static ta => ta.User)
@@ -566,23 +647,57 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         long actorUserId,
         CancellationToken cancellationToken)
     {
-        var entity = await context.Tasks.Include(t => t.BoardLabels).SingleAsync(t => t.Id == taskId, cancellationToken);
+        var entity = await context.Tasks
+            .Include(t => t.BoardLabels)
+            .Include(t => t.Milestone)
+            .SingleAsync(t => t.Id == taskId, cancellationToken);
+        var taskProjectId = entity.Milestone.ProjectId;
         var now = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
 
         if (!string.IsNullOrWhiteSpace(initialStatus))
             entity.Status = initialStatus.Trim().ToUpperInvariant();
+
+        if (storyPoints.HasValue)
+        {
+            if (storyPoints.Value is not (1 or 2 or 3 or 5 or 8 or 13))
+                throw new AIPMS.Domain.Exceptions.DomainException(
+                    "Story points must be a valid Fibonacci number (1, 2, 3, 5, 8, or 13).",
+                    "INVALID_STORY_POINTS");
+            entity.StoryPoints = storyPoints.Value;
+        }
+
         if (sprintId.HasValue)
         {
             var sprint = await context.Set<AIPMS.Infrastructure.Persistence.Models.Sprint>()
                 .AsNoTracking().SingleOrDefaultAsync(s => s.Id == sprintId.Value, cancellationToken)
                 ?? throw new AIPMS.Application.Common.Exceptions.NotFoundException("Sprint", sprintId.Value);
+            if (sprint.ProjectId != taskProjectId)
+                throw new AIPMS.Application.Common.Exceptions.ConflictException(
+                    "Sprint does not belong to the task's project.",
+                    "SPRINT_PROJECT_MISMATCH");
             if (sprint.Status == "COMPLETED")
                 throw new AIPMS.Application.Common.Exceptions.ConflictException("Cannot add tasks to a completed sprint.");
+            var sprintTaskCount = await context.Tasks.CountAsync(t => t.SprintId == sprint.Id, cancellationToken);
+            if (sprintTaskCount >= 500)
+                throw new AIPMS.Application.Common.Exceptions.ConflictException(
+                    "A sprint cannot contain more than 500 tasks.",
+                    "SPRINT_TASK_LIMIT_EXCEEDED");
             entity.SprintId = sprintId.Value;
+            if (sprint.Status == "ACTIVE")
+                SprintHistory.Record(context, entity, sprint.Id, "SCOPE", true, actorUserId, now);
         }
-        if (storyPoints.HasValue) entity.StoryPoints = storyPoints.Value;
+
         if (gateRequirementId.HasValue)
         {
+            var gateProjectId = await context.ProjectGateRequirements.AsNoTracking()
+                .Where(r => r.Id == gateRequirementId.Value)
+                .Select(r => (long?)r.GateInstance.ProjectId)
+                .SingleOrDefaultAsync(cancellationToken)
+                ?? throw new AIPMS.Application.Common.Exceptions.NotFoundException("ReviewGateRequirement", gateRequirementId.Value);
+            if (gateProjectId != taskProjectId)
+                throw new AIPMS.Application.Common.Exceptions.ConflictException(
+                    "Gate requirement does not belong to the task's project.",
+                    "GATE_REQUIREMENT_PROJECT_MISMATCH");
             entity.GateRequirementId = gateRequirementId.Value;
             entity.IsCoreGateTask = true;
         }
@@ -615,6 +730,13 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
         return (await GetByIdAsync(taskId, cancellationToken))!;
     }
 
+    public async Task<IReadOnlyList<long>> GetTaskMajorIdsAsync(long taskId, CancellationToken cancellationToken) =>
+        await context.TaskDisciplines.AsNoTracking()
+            .Where(td => td.TaskId == taskId)
+            .Select(td => td.MajorId)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
     public async Task<long?> GetUserMajorIdAsync(long projectId, long userId, CancellationToken cancellationToken)
     {
         var snapJson = await context.Set<AIPMS.Infrastructure.Persistence.Models.ProjectRegistrationSnapshot>()
@@ -643,7 +765,7 @@ public sealed class TaskRepository(AipmsDbContext context, TimeProvider? clock =
 
     public async Task<TaskDto> RestoreAsync(long id, long actorUserId, DateTime utcNow, CancellationToken cancellationToken)
     {
-        var entity = await context.Tasks.SingleOrDefaultAsync(t => t.Id == id && t.DeletedAt != null, cancellationToken)
+        var entity = await context.Tasks.IgnoreQueryFilters().SingleOrDefaultAsync(t => t.Id == id && t.DeletedAt != null, cancellationToken)
             ?? throw new AIPMS.Application.Common.Exceptions.NotFoundException("DeletedTask", id);
         if (entity.DeletedBy != actorUserId)
             throw new AIPMS.Application.Common.Exceptions.ForbiddenException("Only the user who deleted this task can undo deletion.");

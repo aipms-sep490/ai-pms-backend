@@ -206,7 +206,8 @@ internal sealed class IndividualProcessScoringService(
                 existing.GateWeightPercent = gateWeight;
                 if (input.Comments is not null)
                     existing.Comments = string.IsNullOrWhiteSpace(input.Comments) ? null : input.Comments.Trim();
-                if (input.MentorReferenceNotes is not null)
+                // TK-W2-09: Protect Mentor-authored advisory notes from accidental overwrite by Primary Supervisor.
+                if (existing.MentorNoteUpdatedBy is null && existing.MentorReferenceNotes is null && input.MentorReferenceNotes is not null)
                     existing.MentorReferenceNotes = string.IsNullOrWhiteSpace(input.MentorReferenceNotes) ? null : input.MentorReferenceNotes.Trim();
                 existing.UpdatedAt = now;
                 existing.ConcurrencyToken = Guid.NewGuid();
@@ -230,6 +231,10 @@ internal sealed class IndividualProcessScoringService(
 
             if (existing.Status == "FINALIZED")
                 throw new ConflictException("Individual process score is already finalized.", WorkflowErrorCodes.ImmutableVersion);
+            if (!existing.Score.HasValue)
+                throw new AIPMS.Domain.Exceptions.DomainException(
+                    "Cannot finalize individual process score before entering a numeric score (0.00–10.00).",
+                    "INDIVIDUAL_PROCESS_SCORE_REQUIRED");
             if (!Guid.TryParse(input.ConcurrencyToken, out var parsed) || parsed != existing.ConcurrencyToken)
                 throw new ConflictException("Individual process score has changed. Reload before finalizing.", WorkflowErrorCodes.StaleConcurrencyToken);
 
@@ -282,17 +287,47 @@ internal sealed class IndividualProcessScoringService(
                 .SingleOrDefaultAsync(ct) ?? throw new NotFoundException("ProjectGateInstance", gateInstanceId);
 
             var existing = await db.Set<GateIndividualProcessScore>()
-                .SingleOrDefaultAsync(s => s.GateInstanceId == gateInstanceId && s.StudentId == studentId, ct)
-                ?? throw new ConflictException("Primary supervisor has not initialized the draft score for this gate yet.", "INDIVIDUAL_PROCESS_DRAFT_NOT_INITIALIZED");
-            if (existing.Status == "FINALIZED")
-                throw new ConflictException("Cannot add mentor reference notes after the primary supervisor has finalized this gate score.", WorkflowErrorCodes.ImmutableVersion);
-            if (!string.IsNullOrWhiteSpace(input.ConcurrencyToken)
-                && (!Guid.TryParse(input.ConcurrencyToken, out var parsed) || parsed != existing.ConcurrencyToken))
-                throw new ConflictException("Individual process score has changed. Reload before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);
+                .SingleOrDefaultAsync(s => s.GateInstanceId == gateInstanceId && s.StudentId == studentId, ct);
+            var now = Now;
+            if (existing is null)
+            {
+                // TK-W2-09: Allow Discipline Mentor to submit advisory notes independently before Primary creates draft score.
+                var weights = await LoadGateWeightsAsync(projectId, ct);
+                var gateWeight = weights.FirstOrDefault(w => w.GateNumber == gate.Sequence)?.WeightPercent
+                    ?? throw new ConflictException($"Gate G{gate.Sequence} is not configured in the individual process gate weights.");
+                existing = new GateIndividualProcessScore
+                {
+                    ProjectId = projectId,
+                    GateInstanceId = gateInstanceId,
+                    StudentId = studentId,
+                    SupervisorAssignmentId = null,
+                    Score = null,
+                    GateWeightPercent = gateWeight,
+                    MentorReferenceNotes = input.MentorReferenceNotes.Trim(),
+                    MentorNoteUpdatedBy = Actor,
+                    MentorNoteUpdatedAt = now,
+                    Comments = null,
+                    Status = "DRAFT",
+                    ConcurrencyToken = Guid.NewGuid(),
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+                db.Add(existing);
+            }
+            else
+            {
+                if (existing.Status == "FINALIZED")
+                    throw new ConflictException("Cannot add mentor reference notes after the primary supervisor has finalized this gate score.", WorkflowErrorCodes.ImmutableVersion);
+                if (!string.IsNullOrWhiteSpace(input.ConcurrencyToken)
+                    && (!Guid.TryParse(input.ConcurrencyToken, out var parsed) || parsed != existing.ConcurrencyToken))
+                    throw new ConflictException("Individual process score has changed. Reload before retrying.", WorkflowErrorCodes.StaleConcurrencyToken);
 
-            existing.MentorReferenceNotes = input.MentorReferenceNotes.Trim();
-            existing.UpdatedAt = Now;
-            existing.ConcurrencyToken = Guid.NewGuid();
+                existing.MentorReferenceNotes = input.MentorReferenceNotes.Trim();
+                existing.MentorNoteUpdatedBy = Actor;
+                existing.MentorNoteUpdatedAt = now;
+                existing.UpdatedAt = now;
+                existing.ConcurrencyToken = Guid.NewGuid();
+            }
             await db.SaveChangesAsync(ct);
 
             await audit.RecordAsync(new(Actor, "GATE_INDIVIDUAL_PROCESS_MENTOR_NOTE_SAVED", "GATE_INDIVIDUAL_PROCESS_SCORE", existing.Id,

@@ -172,6 +172,7 @@ public sealed class GateEvidenceVerification
     public long EvidenceId { get; set; }
     public long AssignmentId { get; set; }
     public long? PackageId { get; set; }
+    public long? RequirementId { get; set; }
     public string Decision { get; set; } = "ACCEPTED";
     public string? Feedback { get; set; }
     public long ReviewerId { get; set; }

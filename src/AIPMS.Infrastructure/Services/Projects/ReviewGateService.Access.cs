@@ -30,7 +30,8 @@ internal sealed partial class ReviewGateService
     private static bool CoversRequirement(GateReviewerAssignment assignment, ProjectGateRequirement requirement) =>
         (assignment.Scope == "COMMON" && requirement.Scope is "COMMON" or "INTEGRATION")
         || (assignment.Scope == "INTEGRATION" && requirement.Scope == "INTEGRATION")
-        || (assignment.Scope == "MAJOR_SPECIFIC" && requirement.Scope == "MAJOR_SPECIFIC" && assignment.MajorId == requirement.MajorId)
+        || (assignment.Scope == "MAJOR_SPECIFIC" && (requirement.Scope is "COMMON" or "INTEGRATION"
+            || (requirement.Scope == "MAJOR_SPECIFIC" && assignment.MajorId == requirement.MajorId)))
         || (assignment.Scope == "INDIVIDUAL" && requirement.Scope == "INDIVIDUAL" && assignment.StudentId == requirement.TargetStudentId);
 
     private async Task<bool> CanReadEvidence(

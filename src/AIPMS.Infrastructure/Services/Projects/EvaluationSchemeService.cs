@@ -32,12 +32,18 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var component = await db.Set<EvaluationSchemeComponent>().SingleOrDefaultAsync(c => c.Id == componentId, ct)
             ?? throw new NotFoundException("SchemeComponent", componentId);
         var scheme = await Row(component.SchemeId, ct);
+        if (IsPol03IndividualProcess(component.Scope, component.Stage)
+            && (scheme.CalculationRule == VersionedResultCalculator.PolV4Version || !component.RubricId.HasValue))
+            throw new ConflictException(
+                "The 20% individual process component (POL-03) is graded directly by the Primary Supervisor across Gates G1–G3 and cannot be assigned to external evaluators.",
+                WorkflowErrorCodes.IndividualProcessManagedBySupervisor);
         if (scheme.ProjectId != projectId || scheme.ProjectPeriodId != periodId) throw new NotFoundException("SchemeComponent", componentId);
         if (scheme.Status != "PUBLISHED" || scope != component.Scope || majorId != component.MajorId
             || (scope == "INDIVIDUAL") != studentId.HasValue) throw new ConflictException("Select a published component and matching target.");
         if (studentId.HasValue && !JsonSerializer.Deserialize<SchemeStudent[]>(scheme.StudentsJson)!.Any(s => s.StudentId == studentId && s.MajorId == majorId))
             throw new NotFoundException("Student", studentId);
-        await ComponentAuthority(component.RubricId, projectId, ct);
+        var rubricId = component.RubricId ?? throw new ConflictException("Component requires a published rubric.");
+        await ComponentAuthority(rubricId, projectId, ct);
         var period = await evaluations.GetPeriodAsync(periodId, Now, ct);
         var project = (await evaluations.GetProjectAsync(projectId, ct))!;
         if (period is null || !period.IsOpen || period.SemesterId != project.SemesterId)
@@ -48,7 +54,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         if ((component.Stage is "COLD" or "DEFENSE") && !await db.Set<DefenseCommittee>().AnyAsync(
             c => c.ProjectId == projectId && c.Status == "CONFIRMED", ct))
             throw new ConflictException("Confirm the defense committee before assigning evaluators.", "DEFENSE_COMMITTEE_REQUIRED");
-        var department = await db.Rubrics.Where(r => r.Id == component.RubricId).Select(r => r.DepartmentId!.Value).SingleAsync(ct);
+        var department = await db.Rubrics.Where(r => r.Id == rubricId).Select(r => r.DepartmentId!.Value).SingleAsync(ct);
         var slots = db.Set<EvaluationAssignment>().Where(a => a.ComponentId == componentId && a.StudentId == studentId && a.Status == "ACTIVE");
         if (await slots.CountAsync(ct) >= component.RequiredEvaluators) return new([], page, pageSize, 0);
         var query = db.Users.AsNoTracking().Where(u => u.Status == "ACTIVE" && u.DepartmentId == department
@@ -86,17 +92,37 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             throw new ForbiddenException("The frozen lead department manages this project's evaluation scheme.");
         if (project.Status is "COMPLETED" or "ARCHIVED") throw new ConflictException("Completed and archived projects are read-only.");
     }
-    private async Task ComponentAuthority(long rubricId, long projectId, CancellationToken ct, bool checkAuthority = true)
+    private static bool IsPol03IndividualProcess(string? scope, string? stage) =>
+        string.Equals(scope, "INDIVIDUAL", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(stage, "ON_GOING", StringComparison.OrdinalIgnoreCase);
+
+    private async Task ComponentAuthority(long? rubricId, long projectId, CancellationToken ct, bool checkAuthority = true, string? scope = null, string? stage = null, long? majorId = null)
     {
+        if (!rubricId.HasValue)
+        {
+            if (IsPol03IndividualProcess(scope, stage))
+            {
+                if (checkAuthority && majorId.HasValue)
+                {
+                    var actorCheck = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
+                    var projCheck = (await evaluations.GetProjectAsync(projectId, ct))!;
+                    var majorDept = await db.Majors.AsNoTracking().Where(m => m.Id == majorId.Value).Select(m => (long?)m.DepartmentId).SingleOrDefaultAsync(ct);
+                    if (majorDept.HasValue && !AcademicAuthority.ManagesComponent(actorCheck, projCheck, majorDept.Value))
+                        throw new ForbiddenException("Only the lead or responsible component department may manage this component.");
+                }
+                return;
+            }
+            throw new ConflictException("Each non-process component requires a published rubric.");
+        }
         var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
-        var rubric = await db.Rubrics.AsNoTracking().SingleOrDefaultAsync(x => x.Id == rubricId, ct)
-            ?? throw new NotFoundException("Rubric", rubricId);
+        var rubric = await db.Rubrics.AsNoTracking().SingleOrDefaultAsync(x => x.Id == rubricId.Value, ct)
+            ?? throw new NotFoundException("Rubric", rubricId.Value);
         var project = (await evaluations.GetProjectAsync(projectId, ct))!;
         if (!rubric.DepartmentId.HasValue || !project.DepartmentIds.Contains(rubric.DepartmentId.Value)
             || rubric.AcademicSemesterId != project.SemesterId) throw new ConflictException("Rubric outside project academic scope.");
         if (checkAuthority && !AcademicAuthority.ManagesComponent(actor, project, rubric.DepartmentId.Value))
             throw new ForbiddenException("Only the lead or responsible component department may manage this component.");
-        if (!await db.Set<RubricVersion>().AnyAsync(x => x.RubricId == rubricId && x.Status == "PUBLISHED", ct))
+        if (!await db.Set<RubricVersion>().AnyAsync(x => x.RubricId == rubricId.Value && x.Status == "PUBLISHED", ct))
             throw new ConflictException("Each component requires a published rubric.");
     }
     private async Task<EvaluationScheme> Row(long id, CancellationToken ct) =>
@@ -148,10 +174,13 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var dto = Map(row);
         if (actor.IsAdmin || AcademicAuthority.IsLead(actor, project)) return await EnrichSchemeAsync(dto, ct);
         if (!AcademicAuthority.HasScope(actor, project)) throw new ForbiddenException();
-        var rubricIds = row.Components.Select(c => c.RubricId).ToArray();
+        var rubricIds = row.Components.Where(c => c.RubricId.HasValue).Select(c => c.RubricId!.Value).ToArray();
         var ownRubrics = await db.Rubrics.Where(r => rubricIds.Contains(r.Id) && r.DepartmentId == actor.DepartmentId)
             .Select(r => r.Id).ToArrayAsync(ct);
-        return await EnrichSchemeAsync(dto with { Components = dto.Components.Where(c => ownRubrics.Contains(c.RubricId)).ToArray(),
+        var ownMajors = await db.Majors.AsNoTracking().Where(m => m.DepartmentId == actor.DepartmentId).Select(m => m.Id).ToArrayAsync(ct);
+        return await EnrichSchemeAsync(dto with { Components = dto.Components.Where(c =>
+            (c.RubricId.HasValue && ownRubrics.Contains(c.RubricId.Value))
+            || (!c.RubricId.HasValue && c.MajorId.HasValue && ownMajors.Contains(c.MajorId.Value))).ToArray(),
             Students = dto.Students.Where(s => s.DepartmentId == actor.DepartmentId).ToArray() }, ct);
     }
     private Task Audit(string action, string type, long id, object details, CancellationToken ct) =>
@@ -179,9 +208,9 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             c.RubricId, c.ProjectWeightPercent, c.StudentWeightPercent, c.RequiredEvaluators, Weights(c), c.Stage ?? "DEFENSE", c.TargetScope, c.IsIntegration)).ToArray(), majors);
         foreach (var component in row.Components)
         {
-            await ComponentAuthority(component.RubricId, row.ProjectId, ct, checkAuthority: false);
-            if (component.MajorId.HasValue && !await db.Majors.AnyAsync(m => m.Id == component.MajorId
-                && db.Rubrics.Any(r => r.Id == component.RubricId && r.DepartmentId == m.DepartmentId), ct))
+            await ComponentAuthority(component.RubricId, row.ProjectId, ct, checkAuthority: false, component.Scope, component.Stage, component.MajorId);
+            if (component.MajorId.HasValue && component.RubricId.HasValue && !await db.Majors.AnyAsync(m => m.Id == component.MajorId
+                && db.Rubrics.Any(r => r.Id == component.RubricId.Value && r.DepartmentId == m.DepartmentId), ct))
                 throw new ConflictException("Major-specific rubric must belong to the major department.");
         }
         var departments = await db.Majors.Where(m => majors.Contains(m.Id)).ToDictionaryAsync(m => m.Id, m => m.DepartmentId, ct);
@@ -213,7 +242,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         if (row.ProjectId != input.ProjectId) throw new NotFoundException("EvaluationScheme", id!);
         if (id.HasValue) Token(row, input.ConcurrencyToken);
         if (row.Status != "DRAFT") throw new ConflictException("Published schemes are immutable; create a new version.");
-        foreach (var c in row.Components) await ComponentAuthority(c.RubricId, row.ProjectId, ct);
+        foreach (var c in row.Components) await ComponentAuthority(c.RubricId, row.ProjectId, ct, scope: c.Scope, stage: c.Stage, majorId: c.MajorId);
         db.RemoveRange(row.Components); row.Components.Clear();
         row.Name = input.Name.Trim(); row.ProjectPeriodId = input.ProjectPeriodId; row.PassThreshold = input.PassThreshold;
         if (input.Policy is not null || !id.HasValue)
@@ -242,7 +271,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             await evaluations.LockProjectAsync(projectId, ct);
             var row = await Row(schemeId, ct);
             var component = row.Components.SingleOrDefault(c => c.Id == componentId) ?? throw new NotFoundException("SchemeComponent", componentId);
-            await ComponentAuthority(component.RubricId, projectId, ct);
+            await ComponentAuthority(component.RubricId, projectId, ct, scope: component.Scope, stage: component.Stage, majorId: component.MajorId);
             Token(row, input.ConcurrencyToken);
             if (row.Status != "DRAFT") throw new ConflictException("Published scheme components are immutable.");
             var change = input.Component ?? throw new ValidationException(new Dictionary<string, string[]> { ["component"] = ["A component is required."] });
@@ -250,7 +279,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
                 throw new ValidationException(new Dictionary<string, string[]> { ["stage"] = ["Specify ON_GOING, COLD or DEFENSE."] });
             if (change.Scope != component.Scope || change.MajorId != component.MajorId)
                 throw new ConflictException("Component targets are changed through the lead department scheme workflow.");
-            await ComponentAuthority(change.RubricId, projectId, ct);
+            await ComponentAuthority(change.RubricId, projectId, ct, scope: change.Scope, stage: change.Stage, majorId: change.MajorId);
             component.Name = change.Name;
             component.RubricId = change.RubricId;
             component.ProjectWeightPercent = change.ProjectWeightPercent;
@@ -274,11 +303,15 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var actor = (await evaluations.GetActorAsync(Actor, ct))!;
         var project = (await evaluations.GetProjectAsync(projectId, ct))!;
         if (actor.IsAdmin || AcademicAuthority.IsLead(actor, project)) return await EnrichSchemesAsync(rows.Select(Map).ToArray(), ct);
-        var rubricIds = rows.SelectMany(r => r.Components.Select(c => c.RubricId)).Distinct().ToArray();
+        var rubricIds = rows.SelectMany(r => r.Components.Where(c => c.RubricId.HasValue).Select(c => c.RubricId!.Value)).Distinct().ToArray();
         var ownRubrics = (await db.Rubrics.Where(r => rubricIds.Contains(r.Id) && r.DepartmentId == actor.DepartmentId)
             .Select(r => r.Id).ToArrayAsync(ct)).ToHashSet();
+        var ownMajors = (await db.Majors.AsNoTracking().Where(m => m.DepartmentId == actor.DepartmentId)
+            .Select(m => m.Id).ToArrayAsync(ct)).ToHashSet();
         var filtered = rows.Select(r => Map(r)).Select(r => r with {
-            Components = r.Components.Where(c => ownRubrics.Contains(c.RubricId)).ToArray(),
+            Components = r.Components.Where(c =>
+                (c.RubricId.HasValue && ownRubrics.Contains(c.RubricId.Value))
+                || (!c.RubricId.HasValue && c.MajorId.HasValue && ownMajors.Contains(c.MajorId.Value))).ToArray(),
             Students = r.Students.Where(s => s.DepartmentId == actor.DepartmentId).ToArray() }).ToArray();
         return await EnrichSchemesAsync(filtered, ct);
     }, ct);
@@ -302,7 +335,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
     {
         var source = await LockedRow(id, ct); Token(source, token);
         if (source.Status == "DRAFT") throw new ConflictException("Edit the draft directly.");
-        foreach (var c in source.Components) await ComponentAuthority(c.RubricId, source.ProjectId, ct);
+        foreach (var c in source.Components) await ComponentAuthority(c.RubricId, source.ProjectId, ct, scope: c.Scope, stage: c.Stage, majorId: c.MajorId);
         var row = new EvaluationScheme { RootId = source.RootId ?? source.Id, ProjectId = source.ProjectId, ProjectPeriodId = source.ProjectPeriodId,
             Version = await db.Set<EvaluationScheme>().Where(x => x.ProjectId == source.ProjectId).MaxAsync(x => x.Version, ct) + 1,
             Name = source.Name, PassThreshold = source.PassThreshold,
@@ -321,7 +354,7 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
     {
         var row = await LockedRow(id, ct); Token(row, token);
         if (row.Status != "DRAFT") throw new ConflictException("Only drafts can be deleted.");
-        foreach (var c in row.Components) await ComponentAuthority(c.RubricId, row.ProjectId, ct);
+        foreach (var c in row.Components) await ComponentAuthority(c.RubricId, row.ProjectId, ct, scope: c.Scope, stage: c.Stage, majorId: c.MajorId);
         db.Remove(row); await db.SaveChangesAsync(ct); await Audit("EVALUATION_SCHEME_DELETED", "EVALUATION_SCHEME", id, Map(row), ct); return true;
     }, ct);
     public async Task<ScopedAssignmentContext> ResolveAssignmentAsync(long projectId, AssignEvaluatorRequest input, CancellationToken ct)
@@ -331,6 +364,11 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
         var component = await db.Set<EvaluationSchemeComponent>().SingleOrDefaultAsync(c => c.Id == input.ComponentId, ct)
             ?? throw new NotFoundException("SchemeComponent", input.ComponentId);
         var scheme = await Row(component.SchemeId, ct);
+        if (IsPol03IndividualProcess(component.Scope, component.Stage)
+            && (scheme.CalculationRule == VersionedResultCalculator.PolV4Version || !component.RubricId.HasValue))
+            throw new ConflictException(
+                "The 20% individual process component (POL-03) is graded directly by the Primary Supervisor across Gates G1–G3 and cannot be assigned to external evaluators.",
+                WorkflowErrorCodes.IndividualProcessManagedBySupervisor);
         if (scheme.ProjectId != projectId || scheme.ProjectPeriodId != input.ProjectPeriodId) throw new NotFoundException("SchemeComponent", input.ComponentId);
         if (scheme.Status != "PUBLISHED" || scheme.PolicyVersionId is null) throw new ConflictException("Publish the scheme before assigning evaluators.");
         if (Weights(component) is { } weighted && weighted.All(w => w.EvaluatorId != input.EvaluatorId))
@@ -352,7 +390,8 @@ internal sealed partial class EvaluationSchemeService(AipmsDbContext db, IEvalua
             ? await DefenseCommitteeAuthority.RequireAsync(db, projectId, input.EvaluatorId, component.Scope, component.MajorId, ct) : null;
         var cold = component.Stage == "COLD" ? await ColdEvaluationBinding.Capture(db, projectId, component.Scope, component.MajorId, input.StudentId, ct) : null;
         var packageId = await db.Set<FinalSubmission>().Where(s => s.ProjectId == projectId).Select(s => s.Id).SingleAsync(ct);
-        return new(component.Id, scheme.Id, component.Scope, component.MajorId, input.StudentId, component.RubricId,
+        var resolvedRubricId = component.RubricId ?? throw new ConflictException("Component requires a published rubric.");
+        return new(component.Id, scheme.Id, component.Scope, component.MajorId, input.StudentId, resolvedRubricId,
             scheme.PolicyVersionId.Value, JsonSerializer.Serialize(new { Scheme = Map(scheme), component, input.StudentId,
                 FinalSubmissionId = packageId, EvaluatorSource = input.EvaluationType, Committee = committee, Cold = cold }), component.Stage, cold?.PackageId);
     }

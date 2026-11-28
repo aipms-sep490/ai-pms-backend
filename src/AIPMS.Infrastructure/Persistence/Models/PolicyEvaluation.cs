@@ -53,7 +53,7 @@ public sealed class EvaluationSchemeComponent
     public string Name { get; set; } = "";
     public string Scope { get; set; } = "";
     public long? MajorId { get; set; }
-    public long RubricId { get; set; }
+    public long? RubricId { get; set; }
     public decimal ProjectWeightPercent { get; set; }
     public decimal StudentWeightPercent { get; set; }
     public int RequiredEvaluators { get; set; }
@@ -87,10 +87,12 @@ public sealed class GateIndividualProcessScore
     public long ProjectId { get; set; }
     public long GateInstanceId { get; set; }
     public long StudentId { get; set; }
-    public long SupervisorAssignmentId { get; set; }
-    public decimal Score { get; set; }
+    public long? SupervisorAssignmentId { get; set; }
+    public decimal? Score { get; set; }
     public decimal GateWeightPercent { get; set; }
     public string? MentorReferenceNotes { get; set; }
+    public long? MentorNoteUpdatedBy { get; set; }
+    public DateTime? MentorNoteUpdatedAt { get; set; }
     public string? Comments { get; set; }
     public string Status { get; set; } = "DRAFT";
     public Guid ConcurrencyToken { get; set; }

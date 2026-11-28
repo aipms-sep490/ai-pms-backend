@@ -13,8 +13,11 @@ public static class EvaluationSchemeRules
             throw Invalid("A nonempty scheme, required majors and threshold between 0 and 10 are required.");
         foreach (var c in components)
         {
-            if (c is null || string.IsNullOrWhiteSpace(c.Name) || c.Name.Trim().Length > 200 || c.RubricId <= 0
-                || c.RequiredEvaluators is < 1 or > 20 || c.ProjectWeightPercent is < 0 or > 100
+            var isPol03IndividualProcess = c is not null && c.Scope == "INDIVIDUAL" && c.Stage == "ON_GOING";
+            var rubricValid = isPol03IndividualProcess ? (!c!.RubricId.HasValue || c.RubricId.Value > 0) : (c?.RubricId is > 0);
+            var evaluatorsValid = isPol03IndividualProcess ? (c!.RequiredEvaluators is >= 0 and <= 20) : (c?.RequiredEvaluators is >= 1 and <= 20);
+            if (c is null || string.IsNullOrWhiteSpace(c.Name) || c.Name.Trim().Length > 200 || !rubricValid
+                || !evaluatorsValid || c.ProjectWeightPercent is < 0 or > 100
                 || c.StudentWeightPercent is < 0 or > 100 || decimal.Round(c.ProjectWeightPercent, 4) != c.ProjectWeightPercent
                 || decimal.Round(c.StudentWeightPercent, 4) != c.StudentWeightPercent
                 || c.Stage is not ("ON_GOING" or "COLD" or "DEFENSE")

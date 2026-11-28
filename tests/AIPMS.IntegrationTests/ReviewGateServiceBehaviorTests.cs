@@ -1062,9 +1062,12 @@ public sealed class ReviewGateServiceBehaviorTests(ReviewGateBehaviorFixture fix
         Assert.NotNull(readiness);
         Assert.False(readiness.IsReady);
 
-        var scopeCondition = readiness.Conditions.FirstOrDefault(c => c.Id == "INTERDISCIPLINARY_SCOPE");
-        Assert.NotNull(scopeCondition);
-        Assert.False(scopeCondition.Satisfied);
+        // TK-W2-06: Dual-department consensus is unified into Gate 3 PASSED; legacy INTERDISCIPLINARY_SCOPE
+        // project_gate_scope_decisions blocker is no longer emitted, while REVIEW_GATE_3_PASSED blocks defense when G3 is missing.
+        Assert.DoesNotContain(readiness.Conditions, c => c.Id == "INTERDISCIPLINARY_SCOPE");
+        var gate3Condition = readiness.Conditions.FirstOrDefault(c => c.Id == "REVIEW_GATE_3_PASSED");
+        Assert.NotNull(gate3Condition);
+        Assert.False(gate3Condition.Satisfied);
     }
 
 

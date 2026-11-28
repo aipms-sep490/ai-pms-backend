@@ -91,6 +91,15 @@ public sealed class ReviewGatesController(IReviewGateService service) : Controll
     public async Task<ActionResult<ProjectReviewMatrixRowDto>> UpdateDecision(long projectId, string gateCode, UpdateReviewGateDecisionRequest request, CancellationToken ct) => Ok(await service.UpdateDecision(projectId, gateCode, request, ct));
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/override")]
     public async Task<ActionResult<OverrideReviewGateDto>> OverrideDecision(long projectId, string gateCode, OverrideReviewGateRequest request, CancellationToken ct) => Ok(await service.OverrideDecision(projectId, gateCode, request, ct));
+    [HttpPost("api/v1/projects/{projectId:long}/review-gates/{gateCode}/reopen")]
+    public async Task<ActionResult<StudentReviewTimelineDto>> ReopenGate(long projectId, string gateCode, ReopenReviewGateRequest request, CancellationToken ct) => Ok(await service.ReopenGate(projectId, gateCode, request, ct));
+    [HttpGet("api/v1/projects/{projectId:long}/review-gates/{gateCode}/assignments")]
+    public async Task<ActionResult<IReadOnlyList<GateAssignmentSummaryDto>>> GateAssignments(long projectId, string gateCode, CancellationToken ct) => Ok(await service.GateAssignments(projectId, gateCode, ct));
+    [HttpGet("api/v1/projects/{projectId:long}/review-gates/{gateCode}/reviewer-candidates")]
+    public async Task<ActionResult<PagedResult<GateReviewerCandidateDto>>> ReviewerCandidates(
+        long projectId, string gateCode, [FromQuery] long? majorId = null, [FromQuery] string? search = null,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) =>
+        Ok(await service.ReviewerCandidates(projectId, gateCode, majorId, search, page, pageSize, ct));
     [HttpGet("api/v1/users/me/capabilities")]
     public Task<ReviewGateUserCapabilitiesDto> OverrideCapability([FromQuery] long projectId, CancellationToken ct) => service.OverrideCapability(projectId, ct);
     [HttpPost("api/v1/projects/{projectId:long}/review-gates/scopes/{scope}")]
