@@ -86,6 +86,7 @@ INSERT @actors VALUES
 (N'smoke.staff.it@e2e.invalid',     N'Smoke IT Staff',        @deptIt,  NULL,      N'DEPARTMENT_STAFF', NULL),
 (N'smoke.staff.mkt@e2e.invalid',    N'Smoke MKT Staff',       @deptMkt, NULL,      N'DEPARTMENT_STAFF', NULL),
 (N'smoke.sup.it@e2e.invalid',       N'Smoke IT Supervisor',   @deptIt,  NULL,      N'LECTURER',         NULL),
+(N'smoke.mentor.it@e2e.invalid',    N'Smoke IT Mentor',       @deptIt,  NULL,      N'LECTURER',         NULL),
 (N'smoke.mentor.mkt@e2e.invalid',   N'Smoke MKT Mentor',      @deptMkt, NULL,      N'LECTURER',         NULL),
 (N'smoke.gate.rev1@e2e.invalid',    N'Smoke Gate Reviewer 1', @deptIt,  NULL,      N'LECTURER',         NULL),
 (N'smoke.gate.rev2@e2e.invalid',    N'Smoke Gate Reviewer 2', @deptMkt, NULL,      N'LECTURER',         NULL),
@@ -119,6 +120,30 @@ FROM @actors a
 JOIN dbo.users u ON u.email = a.email
 WHERE a.role_code = N'LECTURER'
   AND NOT EXISTS (SELECT 1 FROM dbo.supervisor_profiles sp WHERE sp.user_id = u.id);
+
+INSERT dbo.supervisor_expertise (supervisor_profile_id, expertise_name, proficiency_level)
+SELECT sp.id, CASE WHEN u.department_id = @deptMkt THEN N'Digital Marketing' ELSE N'Software Engineering' END, N'EXPERT'
+FROM @actors a
+JOIN dbo.users u ON u.email = a.email
+JOIN dbo.supervisor_profiles sp ON sp.user_id = u.id
+WHERE a.role_code = N'LECTURER'
+  AND NOT EXISTS (
+      SELECT 1 FROM dbo.supervisor_expertise se
+      WHERE se.supervisor_profile_id = sp.id
+        AND se.expertise_name = CASE WHEN u.department_id = @deptMkt THEN N'Digital Marketing' ELSE N'Software Engineering' END
+  );
+
+INSERT dbo.supervisor_expertise (supervisor_profile_id, expertise_name, proficiency_level)
+SELECT sp.id, CASE WHEN u.department_id = @deptMkt THEN N'MKT' ELSE N'SE' END, N'EXPERT'
+FROM @actors a
+JOIN dbo.users u ON u.email = a.email
+JOIN dbo.supervisor_profiles sp ON sp.user_id = u.id
+WHERE a.role_code = N'LECTURER'
+  AND NOT EXISTS (
+      SELECT 1 FROM dbo.supervisor_expertise se
+      WHERE se.supervisor_profile_id = sp.id
+        AND se.expertise_name = CASE WHEN u.department_id = @deptMkt THEN N'MKT' ELSE N'SE' END
+  );
 
 DECLARE @semId bigint = (SELECT id FROM dbo.academic_semesters WHERE organization_id = @orgId AND code = N'PILOT-FALL2026');
 DECLARE @nowUtc datetime2(0) = SYSUTCDATETIME();

@@ -64,7 +64,9 @@ public static class ResultRevisionCalculator
         catch (ValidationException) { throw Unknown(); }
         if (scheme.CalculationRule != VersionedResultCalculator.CalculationRuleFor(policy)
             || scheme.Components.Select(c => c.Id).Distinct().Count() != scheme.Components.Count
-            || scheme.Components.Any(c => c.RequiredEvaluators <= 0 || c.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL")
+            || scheme.Components.Any(c =>
+                (c.Scope == "INDIVIDUAL" && c.Stage == "ON_GOING" ? c.RequiredEvaluators < 0 : c.RequiredEvaluators <= 0)
+                || c.Scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INDIVIDUAL")
                 || (c.Scope == "COMMON") != (c.MajorId is null) || c.Scope == "INDIVIDUAL" && c.ProjectWeightPercent != 0
                 || c.ProjectWeightPercent < 0 || c.StudentWeightPercent < 0 || c.Stage is not ("COLD" or "DEFENSE" or "ON_GOING"))) throw Unknown();
         var target = root["Target"]?.Deserialize<SchemeStudent>(Options);
@@ -155,7 +157,7 @@ public static class ResultRevisionCalculator
                 || evaluation.Finalization.FinalizedBy != evaluation.EvaluatorId
                 || evaluation.Finalization.Evidence.ProjectPeriodId <= 0
                 || evaluation.Finalization.Evidence.FileCount <= 0 || evaluation.Finalization.Evidence.ArtifactCount <= 0
-                || evaluation.Finalization.Evidence.DeliverableVersionIds.Count == 0
+                || (component.Stage != "COLD" && evaluation.Finalization.Evidence.DeliverableVersionIds.Count == 0)
                 || original.EvaluationConcurrencyToken != evaluation.ConcurrencyToken
                 || EvaluationScoring.FinalTotal(evaluation.Scores) != evaluation.TotalScore) throw Unknown();
             if (component.Stage == "COLD")

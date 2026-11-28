@@ -23,4 +23,18 @@ public sealed class WorkingDayMathTests
         Assert.Equal(new DateTimeOffset(2026, 5, 4, 14, 30, 0, TimeSpan.FromHours(7)),
             WorkingDayMath.AddWorkingHours(from, 10, 62, holidays));
     }
+
+    [Fact]
+    public void ParseHolidaysJson_SupportsStructuredObjectsAndLegacyDateStringArrays()
+    {
+        var structured = AIPMS.Infrastructure.Services.Projects.PeriodCalendarService.ParseHolidaysJson(
+            """[{"Date":"2026-09-02","Name":"Quốc khánh 2/9","IsRecurring":true}]""");
+        var single = Assert.Single(structured);
+        Assert.Equal(new DateOnly(2026, 9, 2), single.Date);
+        Assert.True(single.IsRecurring);
+
+        var legacy = AIPMS.Infrastructure.Services.Projects.PeriodCalendarService.ParseHolidaysJson("""["2026-09-02"]""");
+        var legacySingle = Assert.Single(legacy);
+        Assert.Equal(new DateOnly(2026, 9, 2), legacySingle.Date);
+    }
 }

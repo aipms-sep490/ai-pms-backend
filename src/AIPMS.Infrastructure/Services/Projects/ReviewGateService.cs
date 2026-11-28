@@ -1343,18 +1343,19 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
                     .Include(x => x.Gates).ThenInclude(x => x.Requirements)
                     .Where(x => templateIds.Contains(x.Id))
                     .ToDictionaryAsync(x => x.Id, ct);
-                var activeMembers = await db.TeamMembers.AsNoTracking()
+                var healMembersRaw = await db.TeamMembers.AsNoTracking()
                     .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
                     .OrderBy(m => m.UserId)
-                    .Select(m => m.UserId)
+                    .Select(m => new { m.UserId, m.User.MajorId })
                     .ToArrayAsync(ct);
+                var healMembers = healMembersRaw.Select(m => (m.UserId, m.MajorId)).ToArray();
                 var healed = false;
                 foreach (var gate in current)
                 {
                     if (!templatesById.TryGetValue(gate.TemplateId, out var tpl)) continue;
                     var def = tpl.Gates.FirstOrDefault(g => string.Equals(g.Code, gate.Code, StringComparison.OrdinalIgnoreCase) || g.Sequence == gate.Sequence);
                     if (def is null || def.Requirements.Count == 0) continue;
-                    var cloned = CloneTemplateRequirements(def.Requirements, activeMembers);
+                    var cloned = CloneTemplateRequirements(def.Requirements, healMembers, scope.MajorIds);
                     foreach (var req in cloned) gate.Requirements.Add(req);
                     if (cloned.Count > 0) healed = true;
                 }
@@ -1415,11 +1416,12 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         }
         var template = scope.MajorIds.Count > 1 ? interdisciplinary : exact.FirstOrDefault() ?? (generic.Length == 1 ? generic[0] : null);
         if (template is null) return [];
-        var memberIds = await db.TeamMembers.AsNoTracking()
+        var activeMembersRaw = await db.TeamMembers.AsNoTracking()
             .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
             .OrderBy(m => m.UserId)
-            .Select(m => m.UserId)
+            .Select(m => new { m.UserId, m.User.MajorId })
             .ToArrayAsync(ct);
+        var activeMembers = activeMembersRaw.Select(m => (m.UserId, m.MajorId)).ToArray();
         var orderedDefs = template.Gates.OrderBy(x => x.Sequence).ToArray();
         var created = orderedDefs.Select((g, idx) =>
         {
@@ -1430,29 +1432,33 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
                 Title = g.Title, Objective = g.Objective, Status = openImmediately ? "PLANNED" : "LOCKED",
                 ReviewEligibility = openImmediately ? "READY" : "BLOCKED", Required = g.Required, BlockNextGate = g.BlockNextGate,
                 BlocksDefense = g.BlocksDefense, Weight = g.Weight, WindowStart = g.WindowStart, WindowEnd = g.WindowEnd,
-                CreatedAt = Now, Requirements = CloneTemplateRequirements(g.Requirements, memberIds)
+                CreatedAt = Now, Requirements = CloneTemplateRequirements(g.Requirements, activeMembers, scope.MajorIds)
             };
         }).ToArray();
         db.ProjectGateInstances.AddRange(created); await db.SaveChangesAsync(ct); return created;
     }
 
-    private static List<ProjectGateRequirement> CloneTemplateRequirements(IEnumerable<ReviewGateRequirement> source, IReadOnlyList<long> activeMemberIds)
+    private static List<ProjectGateRequirement> CloneTemplateRequirements(
+        IEnumerable<ReviewGateRequirement> source,
+        IReadOnlyList<(long UserId, long? MajorId)> activeMembers,
+        IReadOnlyList<long> scopeMajorIds)
     {
         var list = new List<ProjectGateRequirement>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        long? singleScopeMajorId = scopeMajorIds.Count == 1 ? scopeMajorIds[0] : null;
         foreach (var r in source.OrderBy(x => x.Id))
         {
-            if (string.Equals(r.TargetCardinality, "EACH_STUDENT", StringComparison.OrdinalIgnoreCase) && activeMemberIds.Count > 0)
+            if (string.Equals(r.TargetCardinality, "EACH_STUDENT", StringComparison.OrdinalIgnoreCase) && activeMembers.Count > 0)
             {
-                foreach (var memberId in activeMemberIds)
+                foreach (var member in activeMembers)
                 {
-                    var raw = $"{r.Code}-S{memberId}";
+                    var raw = $"{r.Code}-S{member.UserId}";
                     var code = raw.Length <= 50 ? raw : raw[..50];
                     if (!seen.Add(code)) continue;
                     list.Add(new ProjectGateRequirement
                     {
-                        Code = code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId,
-                        TargetStudentId = memberId, Required = r.Required, TargetCardinality = r.TargetCardinality,
+                        Code = code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId ?? member.MajorId ?? singleScopeMajorId,
+                        TargetStudentId = member.UserId, Required = r.Required, TargetCardinality = r.TargetCardinality,
                         DeliveryStage = r.DeliveryStage, FeedsCold = r.FeedsCold, FeedsDefense = r.FeedsDefense,
                         InputKind = r.InputKind, TemplateDocumentId = r.TemplateDocumentId,
                         CarryForwardFromCode = r.CarryForwardFromCode, PolicyTag = r.PolicyTag, RubricCriterionRef = r.RubricCriterionRef
@@ -1463,9 +1469,12 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             {
                 var code = r.Code.Length <= 50 ? r.Code : r.Code[..50];
                 if (!seen.Add(code)) continue;
+                var resolvedMajorId = r.MajorId;
+                if (!resolvedMajorId.HasValue && r.TargetStudentId.HasValue)
+                    resolvedMajorId = activeMembers.FirstOrDefault(m => m.UserId == r.TargetStudentId.Value).MajorId ?? singleScopeMajorId;
                 list.Add(new ProjectGateRequirement
                 {
-                    Code = code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId,
+                    Code = code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = resolvedMajorId,
                     TargetStudentId = r.TargetStudentId, Required = r.Required, TargetCardinality = r.TargetCardinality,
                     DeliveryStage = r.DeliveryStage, FeedsCold = r.FeedsCold, FeedsDefense = r.FeedsDefense,
                     InputKind = r.InputKind, TemplateDocumentId = r.TemplateDocumentId,

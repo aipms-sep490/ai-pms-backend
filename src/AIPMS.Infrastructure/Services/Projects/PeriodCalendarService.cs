@@ -16,8 +16,37 @@ internal sealed class PeriodCalendarService(AipmsDbContext db, ICurrentUser curr
     TimeProvider clock) : IPeriodCalendarService
 {
     private long Actor => current.IsAuthenticated && current.UserId.HasValue ? current.UserId.Value : throw new UnauthorizedException();
-    private static List<PeriodHoliday> Holidays(ProjectPeriodCalendar? row) => row is null ? []
-        : JsonSerializer.Deserialize<List<PeriodHoliday>>(row.HolidaysJson) ?? [];
+    private static readonly JsonSerializerOptions HolidayJsonOpts = new() { PropertyNameCaseInsensitive = true };
+
+    internal static List<PeriodHoliday> ParseHolidaysJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return [];
+            var result = new List<PeriodHoliday>();
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (el.ValueKind == JsonValueKind.String && DateOnly.TryParse(el.GetString(), out var d))
+                {
+                    result.Add(new PeriodHoliday(d, "Ngày nghỉ lễ", false));
+                }
+                else if (el.ValueKind == JsonValueKind.Object)
+                {
+                    var h = el.Deserialize<PeriodHoliday>(HolidayJsonOpts);
+                    if (h is not null) result.Add(h);
+                }
+            }
+            return result;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static List<PeriodHoliday> Holidays(ProjectPeriodCalendar? row) => row is null ? [] : ParseHolidaysJson(row.HolidaysJson);
     private static PeriodCalendarDto Dto(long id, ProjectPeriodCalendar? row) => new(id,
         row?.WorkingDaysOfWeek ?? 62, (row?.WorkingDaysOfWeek ?? 62) == 62 ? "Thứ 2 đến Thứ 6"
             : row?.WorkingDaysOfWeek == 126 ? "Thứ 2 đến Thứ 7" : "Ngày làm việc đã cấu hình",
@@ -98,7 +127,7 @@ internal sealed class WorkingDayCalculator(AipmsDbContext db, ILogger<WorkingDay
     {
         var row = db.Set<ProjectPeriodCalendar>().AsNoTracking().SingleOrDefault(c => c.ProjectPeriodId == periodId);
         if (row is null) { logger.LogWarning("No working calendar configured for project period {ProjectPeriodId}; using calendar time", periodId); return null; }
-        return (row.WorkingDaysOfWeek, JsonSerializer.Deserialize<PeriodHoliday[]>(row.HolidaysJson) ?? []);
+        return (row.WorkingDaysOfWeek, PeriodCalendarService.ParseHolidaysJson(row.HolidaysJson));
     }
     public DateTimeOffset AddWorkingDays(DateTimeOffset from, int workingDays, long projectPeriodId)
     {

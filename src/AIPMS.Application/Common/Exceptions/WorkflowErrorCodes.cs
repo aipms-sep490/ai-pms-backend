@@ -77,6 +77,7 @@ public static class WorkflowErrorCodes
     public const string AiFeatureDisabled = "AI_FEATURE_DISABLED";
     public const string AiDailyQuotaExceeded = "AI_DAILY_QUOTA_EXCEEDED";
     public const string RbacPermissionMatrixReadOnly = "RBAC_PERMISSION_MATRIX_READ_ONLY";
+    public const string RoleCombinationConflict = "ROLE_COMBINATION_CONFLICT";
     public const string AdminNotAcademicAuthority = "ADMIN_NOT_ACADEMIC_AUTHORITY";
     public const string ActiveObligationsAcknowledgementRequired = "ACTIVE_OBLIGATIONS_ACKNOWLEDGEMENT_REQUIRED";
     public const string StudentIdentityLocked = "STUDENT_IDENTITY_LOCKED";

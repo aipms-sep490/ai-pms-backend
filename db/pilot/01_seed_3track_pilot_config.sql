@@ -136,9 +136,12 @@ DECLARE @regPeriodId bigint = (SELECT id FROM dbo.project_periods WHERE academic
 DECLARE @revPeriodId bigint = (SELECT id FROM dbo.project_periods WHERE academic_semester_id = @semesterId AND code = N'PILOT-REV');
 DECLARE @execPeriodId bigint = (SELECT id FROM dbo.project_periods WHERE academic_semester_id = @semesterId AND code = N'PILOT-EXEC');
 
--- Period Calendars (Mon-Fri working days + VN holiday sample)
+-- Period Calendars (Mon-Fri working days + VN holiday sample matching PeriodHoliday JSON contract)
 MERGE dbo.project_period_calendars AS t
-USING (VALUES (@revPeriodId, 62, N'["2026-09-02"]'), (@execPeriodId, 62, N'["2026-09-02"]')) AS s(project_period_id, working_days_of_week, holidays_json)
+USING (VALUES
+    (@revPeriodId, 62, N'[{"Date":"2026-09-02","Name":"Quốc khánh 2/9","IsRecurring":true}]'),
+    (@execPeriodId, 62, N'[{"Date":"2026-09-02","Name":"Quốc khánh 2/9","IsRecurring":true}]')
+) AS s(project_period_id, working_days_of_week, holidays_json)
 ON t.project_period_id = s.project_period_id
 WHEN NOT MATCHED THEN
     INSERT (project_period_id, working_days_of_week, holidays_json)

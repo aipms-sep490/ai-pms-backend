@@ -86,19 +86,21 @@ internal sealed partial class AcademicBlueprintService
         BlueprintGateRule gr,
         AcademicBlueprintConfig config,
         ReviewGateDefinition? matchedDef,
-        IReadOnlyList<long> activeMemberIds)
+        IReadOnlyList<(long UserId, long? MajorId)> activeMembers,
+        IReadOnlyList<long> scopeMajorIds)
     {
         var seenCodes = new HashSet<string>(gate.Requirements.Select(r => r.Code), StringComparer.OrdinalIgnoreCase);
+        long? singleScopeMajorId = scopeMajorIds.Count == 1 ? scopeMajorIds[0] : null;
 
         if (matchedDef is not null && matchedDef.Requirements.Count > 0)
         {
             foreach (var r in matchedDef.Requirements.OrderBy(x => x.Id))
             {
-                if (string.Equals(r.TargetCardinality, "EACH_STUDENT", StringComparison.OrdinalIgnoreCase) && activeMemberIds.Count > 0)
+                if (string.Equals(r.TargetCardinality, "EACH_STUDENT", StringComparison.OrdinalIgnoreCase) && activeMembers.Count > 0)
                 {
-                    foreach (var memberId in activeMemberIds)
+                    foreach (var member in activeMembers)
                     {
-                        var code = TruncateReqCode($"{r.Code}-S{memberId}");
+                        var code = TruncateReqCode($"{r.Code}-S{member.UserId}");
                         if (!seenCodes.Add(code)) continue;
                         gate.Requirements.Add(new ProjectGateRequirement
                         {
@@ -106,8 +108,8 @@ internal sealed partial class AcademicBlueprintService
                             Title = r.Title,
                             Type = r.Type,
                             Scope = r.Scope,
-                            MajorId = r.MajorId,
-                            TargetStudentId = memberId,
+                            MajorId = r.MajorId ?? member.MajorId ?? singleScopeMajorId,
+                            TargetStudentId = member.UserId,
                             Required = r.Required,
                             VerificationStatus = "PENDING",
                             TargetCardinality = r.TargetCardinality,
@@ -126,13 +128,16 @@ internal sealed partial class AcademicBlueprintService
                 {
                     var code = TruncateReqCode(r.Code);
                     if (!seenCodes.Add(code)) continue;
+                    var resolvedMajorId = r.MajorId;
+                    if (!resolvedMajorId.HasValue && r.TargetStudentId.HasValue)
+                        resolvedMajorId = activeMembers.FirstOrDefault(m => m.UserId == r.TargetStudentId.Value).MajorId ?? singleScopeMajorId;
                     gate.Requirements.Add(new ProjectGateRequirement
                     {
                         Code = code,
                         Title = r.Title,
                         Type = r.Type,
                         Scope = r.Scope,
-                        MajorId = r.MajorId,
+                        MajorId = resolvedMajorId,
                         TargetStudentId = r.TargetStudentId,
                         Required = r.Required,
                         VerificationStatus = "PENDING",
@@ -372,11 +377,12 @@ internal sealed partial class AcademicBlueprintService
                 gateTemplateId = existingTpl.Id;
             }
 
-            var activeMemberIds = await db.TeamMembers.AsNoTracking()
+            var activeMembersRaw = await db.TeamMembers.AsNoTracking()
                 .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
                 .OrderBy(m => m.UserId)
-                .Select(m => m.UserId)
+                .Select(m => new { m.UserId, m.User.MajorId })
                 .ToArrayAsync(ct);
+            var activeMembers = activeMembersRaw.Select(m => (m.UserId, m.MajorId)).ToArray();
 
             var existingGates = await db.ProjectGateInstances
                 .Include(g => g.Requirements)
@@ -403,7 +409,7 @@ internal sealed partial class AcademicBlueprintService
                     existingGate.WindowEnd = fixDue;
                     existingGate.OffsetRuleJson = offsetJson;
                     if (existingGate.Requirements.Count == 0)
-                        PopulateGateRequirements(existingGate, gr, config, matchedDef, activeMemberIds);
+                        PopulateGateRequirements(existingGate, gr, config, matchedDef, activeMembers, scope.MajorIds);
                 }
                 else if (gateTemplateId.HasValue)
                 {
@@ -432,7 +438,7 @@ internal sealed partial class AcademicBlueprintService
                         OffsetRuleJson = offsetJson,
                         CreatedAt = activatedAtUtc
                     };
-                    PopulateGateRequirements(newGate, gr, config, matchedDef, activeMemberIds);
+                    PopulateGateRequirements(newGate, gr, config, matchedDef, activeMembers, scope.MajorIds);
                     db.ProjectGateInstances.Add(newGate);
                     trackedGates.Add(newGate);
                     gatesCreated++;

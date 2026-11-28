@@ -335,6 +335,39 @@ internal sealed class IndividualProcessScoringService(
             }
             await db.SaveChangesAsync(ct);
 
+            var primarySupervisorUserId = await db.SupervisorAssignments.AsNoTracking()
+                .Where(a => a.ProjectId == projectId && a.EndedAt == null && a.IsPrimary && a.AssignmentType == "PRIMARY")
+                .Select(a => (long?)a.SupervisorProfile.UserId)
+                .FirstOrDefaultAsync(ct);
+            if (primarySupervisorUserId.HasValue && primarySupervisorUserId.Value != Actor)
+            {
+                var studentName = await db.Users.AsNoTracking()
+                    .Where(u => u.Id == studentId)
+                    .Select(u => u.FullName)
+                    .FirstOrDefaultAsync(ct) ?? $"SV #{studentId}";
+                db.Notifications.Add(new AIPMS.Infrastructure.Persistence.Generated.Models.Notification
+                {
+                    CreatedBy = Actor,
+                    NotificationType = "MENTOR_REFERENCE_NOTE_SAVED",
+                    Title = $"Mentor đã cập nhật nhận xét tham khảo G{gate.Sequence}",
+                    Content = $"Mentor chuyên ngành đã ghi nhận xét tham khảo cho {studentName} tại cổng G{gate.Sequence} (20% POL-03).",
+                    RelatedEntityType = "PROJECT",
+                    RelatedEntityId = projectId,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                    NotificationRecipients =
+                    [
+                        new AIPMS.Infrastructure.Persistence.Generated.Models.NotificationRecipient
+                        {
+                            UserId = primarySupervisorUserId.Value,
+                            CreatedAt = now,
+                            UpdatedAt = now
+                        }
+                    ]
+                });
+                await db.SaveChangesAsync(ct);
+            }
+
             await audit.RecordAsync(new(Actor, "GATE_INDIVIDUAL_PROCESS_MENTOR_NOTE_SAVED", "GATE_INDIVIDUAL_PROCESS_SCORE", existing.Id,
                 new Dictionary<string, object?> { ["projectId"] = projectId, ["gateNumber"] = gate.Sequence, ["studentId"] = studentId }), ct);
             return Map(existing, gate.Sequence, false);
