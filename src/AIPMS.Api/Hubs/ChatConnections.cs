@@ -64,7 +64,8 @@ public sealed class ChatConnections(TimeProvider clock,IOptions<ChatSettings> op
     private void Prune()
     {
         var now=clock.GetUtcNow();
-        foreach(var c in connections.Values.Where(c=>c.Expires<=now || now-c.Touched>TimeSpan.FromSeconds(60)).ToArray())
+        // Allow up to 3 minutes between heartbeats so backgrounded browser tabs throttled to >=60s do not trigger spurious Ping errors.
+        foreach(var c in connections.Values.Where(c=>c.Expires<=now || now-c.Touched>TimeSpan.FromSeconds(180)).ToArray())
         { connections.Remove(c.Id);c.Abort(); }
         foreach(var key in rate.Where(x=>now-x.Value.At>TimeSpan.FromMinutes(2)).Select(x=>x.Key).ToArray()) rate.Remove(key);
         foreach(var key in typing.Where(x=>now-x.Value>TimeSpan.FromSeconds(10)).Select(x=>x.Key).ToArray()) typing.Remove(key);
