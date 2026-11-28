@@ -45,7 +45,7 @@ public partial class AipmsDbContext
         });
         b.Entity<StudentResult>(e =>
         {
-            e.ToTable("student_results"); e.HasKey(x => x.Id);
+            e.ToTable("student_results", t => t.UseSqlOutputClause(false)); e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.ProjectId, x.StudentId }).IsUnique();
             e.Property(x => x.TotalScore).HasPrecision(5, 2); e.Property(x => x.PassThreshold).HasPrecision(5, 2);
             e.Property(x => x.Outcome).HasMaxLength(20); e.Property(x => x.OutcomeDetail).HasMaxLength(40).IsUnicode(false);
@@ -79,13 +79,17 @@ public partial class AipmsDbContext
         b.Entity<StudentDefenseAbsence>(e =>
         {
             e.ToTable("student_defense_absences"); e.HasKey(x => x.Id);
-            e.HasIndex(x => new { x.ProjectId, x.StudentId }).IsUnique();
+            e.HasIndex(x => new { x.ProjectId, x.StudentId }).IsUnique().HasFilter("[revoked_at] IS NULL");
             e.Property(x => x.Reason).HasMaxLength(2000);
             e.Property(x => x.MinutesReference).HasMaxLength(500);
             e.Property(x => x.RecordedAt).HasPrecision(0);
+            e.Property(x => x.RevokedAt).HasPrecision(0);
+            e.Property(x => x.RevokedReason).HasMaxLength(2000);
             e.HasOne<Models.Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Models.User>().WithMany().HasForeignKey(x => x.StudentId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Models.User>().WithMany().HasForeignKey(x => x.RecordedBy).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Models.User>().WithMany().HasForeignKey(x => x.RevokedBy).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<ResultAppealRequest>().WithMany().HasForeignKey(x => x.RevokedByAppealId).OnDelete(DeleteBehavior.NoAction);
         });
         // These database-first extension entities use the same snake_case convention as their SQL script.
         var types = new[] { typeof(PeriodPolicyVersion), typeof(PeriodPolicyUsage), typeof(EvaluationScheme),

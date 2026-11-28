@@ -116,6 +116,41 @@ public sealed class PreSemesterRolloverServiceTests
         Assert.NotEmpty(diff.Findings);
     }
 
+    [Fact]
+    public async Task DepartmentStaff_ReadinessSeesPublishedMilestoneTemplates_AndRollsOverLockedRegistrationPolicyWithoutRubric()
+    {
+        await using var db = SeedTwoSemestersDb();
+        var now = DateTime.UtcNow;
+        db.MilestoneTemplates.Add(new M.MilestoneTemplate
+        {
+            Id = 701, Name = "Core IT Milestones", Status = "ACTIVE", CreatedBy = 1, CreatedAt = now, UpdatedAt = now,
+            Versions = [new M.MilestoneTemplateVersion { Id = 702, MilestoneTemplateId = 701, VersionNumber = 1, Status = "PUBLISHED", CreatedBy = 1, CreatedAt = now, UpdatedAt = now }]
+        });
+        var regSrc = new M.ProjectPeriod { Id = 411, AcademicSemesterId = 201, Code = "SP26_REG", Name = "Đăng ký SP26", PeriodType = "REGISTRATION", Status = "CLOSED", StartAt = new DateTime(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc), EndAt = new DateTime(2026, 1, 25, 0, 0, 0, DateTimeKind.Utc), RubricId = null, CreatedAt = now, UpdatedAt = now };
+        var regDst = new M.ProjectPeriod { Id = 412, AcademicSemesterId = 202, Code = "FA26_REG", Name = "Đăng ký FA26", PeriodType = "REGISTRATION", Status = "UPCOMING", StartAt = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc), EndAt = new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc), RubricId = null, CreatedAt = now, UpdatedAt = now };
+        db.ProjectPeriods.AddRange(regSrc, regDst);
+        db.Set<PeriodPolicyVersion>().Add(new PeriodPolicyVersion
+        {
+            Id = 801, ProjectPeriodId = 411, Version = 2, Status = "LOCKED",
+            EffectiveFrom = regSrc.StartAt, EffectiveTo = regSrc.EndAt,
+            SnapshotJson = JsonSerializer.Serialize(new PeriodPolicyFields("SINGLE_MAJOR,INTERDISCIPLINARY", "DEPARTMENT_TOPIC,STUDENT_PROPOSAL", 2, 5, 1, 6, true)),
+            ConcurrencyToken = Guid.NewGuid(), CreatedBy = 1, CreatedAt = now
+        });
+        await db.SaveChangesAsync(Ct);
+
+        var svc = new PreSemesterRolloverService(db, new TestUser(1, ["DEPARTMENT_STAFF"]),
+            new StubRubricSender(), new StubGateService(), new StubColdService(), new StubPolicyService(), new StubCalendarService(),
+            new LocalProvider(), new TestAudit(), new FixedClock(), new ConfigurationBuilder().Build());
+
+        var readiness = await svc.GetReadinessAsync(202, 10, Ct);
+        Assert.Contains(readiness.Items, i => i.Key == "MILESTONE_TEMPLATES" && i.Status == "READY" && i.PublishedCount == 1);
+
+        var preview = await svc.PreviewRolloverAsync(new RolloverPreviewRequest(201, 202, 10, false, false, false, true, false, false), Ct);
+        var regPolicyItem = Assert.Single(preview.Items, i => i.Category == "POLICY" && i.SourceId == 411);
+        Assert.False(regPolicyItem.WillSkip);
+        Assert.Equal(412, regPolicyItem.TargetPeriodId);
+    }
+
     private static AipmsDbContext SeedTwoSemestersDb()
     {
         var options = new DbContextOptionsBuilder<AipmsDbContext>()

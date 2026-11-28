@@ -33,14 +33,18 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
     private long Actor => current.UserId ?? throw new UnauthorizedException();
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
-    private async Task NotifyGateChanged(long projectId, long gateId, string gateCode, string eventName, CancellationToken ct)
+    private async Task NotifyGateChanged(long projectId, long gateId, string gateCode, string eventName, CancellationToken ct,
+        bool enqueueEmail = false, bool includeDepartmentStaff = false)
     {
-        var recipients = await db.Users.AsNoTracking()
+        var recipientsQuery = db.Users.AsNoTracking()
             .Where(u => u.Status == "ACTIVE" && u.Id != Actor &&
                 (u.TeamMembers.Any(m => m.Team.Project != null && m.Team.Project.Id == projectId && m.LeftAt == null) ||
                  db.SupervisorAssignments.Any(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == u.Id) ||
-                 db.GateReviewerAssignments.Any(a => a.GateInstanceId == gateId && a.ReviewerId == u.Id && a.Status != "REVOKED")))
-            .Select(u => u.Id).Distinct().ToArrayAsync(ct);
+                 db.GateReviewerAssignments.Any(a => a.GateInstanceId == gateId && a.ReviewerId == u.Id && a.Status != "REVOKED") ||
+                 (includeDepartmentStaff
+                    && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF")
+                    && db.ProjectMajors.Any(pm => pm.ProjectId == projectId && pm.Major.IsActive && pm.Major.DepartmentId == u.DepartmentId))));
+        var recipients = await recipientsQuery.Select(u => u.Id).Distinct().ToArrayAsync(ct);
         if (recipients.Length == 0) return;
         var project = await db.Projects.AsNoTracking().Where(p => p.Id == projectId)
             .Select(p => new { p.Code, p.Title }).FirstOrDefaultAsync(ct);
@@ -56,7 +60,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         var actorSuffix = string.IsNullOrWhiteSpace(actorName) ? "" : $" (Thực hiện bởi {actorName})";
         var content = $"{prefix}{eventName}{actorSuffix}";
         var now = Now;
-        db.Notifications.Add(new AIPMS.Infrastructure.Persistence.Generated.Models.Notification
+        var notification = new AIPMS.Infrastructure.Persistence.Generated.Models.Notification
         {
             CreatedBy = Actor,
             NotificationType = "REVIEW_GATE_UPDATED",
@@ -68,10 +72,20 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             UpdatedAt = now,
             NotificationRecipients = recipients.Select(id => new AIPMS.Infrastructure.Persistence.Generated.Models.NotificationRecipient
             {
-                UserId = id, CreatedAt = now, UpdatedAt = now
+                UserId = id, CreatedAt = now, UpdatedAt = now, DeliveredAt = now
             }).ToArray()
-        });
+        };
+        db.Notifications.Add(notification);
         await db.SaveChangesAsync(ct);
+        if (enqueueEmail)
+        {
+            db.AddRange(notification.NotificationRecipients.Select(r => new AIPMS.Infrastructure.Persistence.Models.NotificationEmailDelivery
+            {
+                NotificationRecipientId = r.Id,
+                NextAttemptAt = now
+            }));
+            await db.SaveChangesAsync(ct);
+        }
     }
 
     private static string GateStatusLabel(string status) => status switch
@@ -884,7 +898,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         row.GateInstance.Status = input.Decision == "REVISION_REQUIRED" || hasScopeVeto ? "REVISION_REQUIRED" : gatePassed ? "PASSED" : "IN_REVIEW";
         row.GateInstance.ReviewEligibility = row.GateInstance.Status == "REVISION_REQUIRED" ? "BLOCKED" : "READY";
         await db.SaveChangesAsync(token);
-        await NotifyGateChanged(row.GateInstance.ProjectId, row.GateInstance.Id, row.GateInstance.Code, $"Quyết định kiểm duyệt cổng {row.GateInstance.Code}: {GateStatusLabel(input.Decision)}.", token);
+        await NotifyGateChanged(row.GateInstance.ProjectId, row.GateInstance.Id, row.GateInstance.Code, $"Quyết định kiểm duyệt cổng {row.GateInstance.Code}: {GateStatusLabel(input.Decision)}.", token, enqueueEmail: true, includeDepartmentStaff: true);
         if (gatePassed) await OpenNextGate(row.GateInstance, token);
         await audit.RecordAsync(new(Actor, "REVIEW_GATE_DECISION_RECORDED", "REVIEW_GATE_ASSIGNMENT", row.Id, new Dictionary<string, object?> { ["decision"] = input.Decision }), token);
         var project = await db.Projects.AsNoTracking().SingleAsync(x => x.Id == row.GateInstance.ProjectId, token);
@@ -979,7 +993,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             db, Actor, "REVIEW_GATE_ASSIGNED",
             $"Bạn được phân công phản biện cổng {gate.Code} ({project.Code})",
             $"Bạn được Khoa phân công thẩm định cổng {gate.Code} cho đồ án {project.Code} - {project.Title} (Phạm vi: {input.Scope}).",
-            "REVIEW_GATE_ASSIGNMENT", row.Id, [reviewer.Id], Now, enqueueEmail: false, token);
+            "REVIEW_GATE_ASSIGNMENT", row.Id, [reviewer.Id], Now, enqueueEmail: true, token);
         await audit.RecordAsync(new(Actor, "REVIEW_GATE_ASSIGNMENT_CREATED", "REVIEW_GATE_ASSIGNMENT", row.Id, new Dictionary<string, object?> { ["projectId"] = projectId, ["gateCode"] = gate.Code, ["reviewerId"] = reviewer.Id, ["scope"] = input.Scope }), token);
         return AssignmentDto(row, project, await LoadSubmitterNamesAsync([gate], token));
     }, ct);
@@ -1002,7 +1016,7 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             db, Actor, "REVIEW_GATE_REVOKED",
             $"Phân công phản biện cổng {row.GateInstance.Code} ({project.Code}) đã bị thu hồi",
             $"Phân công thẩm định cổng {row.GateInstance.Code} cho đồ án {project.Code} đã được thu hồi. Lý do: {row.RevocationReason}",
-            "REVIEW_GATE_ASSIGNMENT", row.Id, [row.ReviewerId], Now, enqueueEmail: false, token);
+            "REVIEW_GATE_ASSIGNMENT", row.Id, [row.ReviewerId], Now, enqueueEmail: true, token);
         await audit.RecordAsync(new(Actor, "REVIEW_GATE_ASSIGNMENT_REVOKED", "REVIEW_GATE_ASSIGNMENT", row.Id,
             new Dictionary<string, object?> { ["projectId"] = row.GateInstance.ProjectId, ["reason"] = row.RevocationReason }), token);
         return AssignmentDto(row, project, await LoadSubmitterNamesAsync([row.GateInstance], token));
@@ -1329,18 +1343,19 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
                     .Include(x => x.Gates).ThenInclude(x => x.Requirements)
                     .Where(x => templateIds.Contains(x.Id))
                     .ToDictionaryAsync(x => x.Id, ct);
-                var activeMembers = await db.TeamMembers.AsNoTracking()
+                var healMembersRaw = await db.TeamMembers.AsNoTracking()
                     .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
                     .OrderBy(m => m.UserId)
-                    .Select(m => m.UserId)
+                    .Select(m => new { m.UserId, m.User.MajorId })
                     .ToArrayAsync(ct);
+                var healMembers = healMembersRaw.Select(m => (m.UserId, m.MajorId)).ToArray();
                 var healed = false;
                 foreach (var gate in current)
                 {
                     if (!templatesById.TryGetValue(gate.TemplateId, out var tpl)) continue;
                     var def = tpl.Gates.FirstOrDefault(g => string.Equals(g.Code, gate.Code, StringComparison.OrdinalIgnoreCase) || g.Sequence == gate.Sequence);
                     if (def is null || def.Requirements.Count == 0) continue;
-                    var cloned = CloneTemplateRequirements(def.Requirements, activeMembers);
+                    var cloned = CloneTemplateRequirements(def.Requirements, healMembers, scope.MajorIds);
                     foreach (var req in cloned) gate.Requirements.Add(req);
                     if (cloned.Count > 0) healed = true;
                 }
@@ -1401,11 +1416,12 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
         }
         var template = scope.MajorIds.Count > 1 ? interdisciplinary : exact.FirstOrDefault() ?? (generic.Length == 1 ? generic[0] : null);
         if (template is null) return [];
-        var memberIds = await db.TeamMembers.AsNoTracking()
+        var activeMembersRaw = await db.TeamMembers.AsNoTracking()
             .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)
             .OrderBy(m => m.UserId)
-            .Select(m => m.UserId)
+            .Select(m => new { m.UserId, m.User.MajorId })
             .ToArrayAsync(ct);
+        var activeMembers = activeMembersRaw.Select(m => (m.UserId, m.MajorId)).ToArray();
         var orderedDefs = template.Gates.OrderBy(x => x.Sequence).ToArray();
         var created = orderedDefs.Select((g, idx) =>
         {
@@ -1416,29 +1432,33 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
                 Title = g.Title, Objective = g.Objective, Status = openImmediately ? "PLANNED" : "LOCKED",
                 ReviewEligibility = openImmediately ? "READY" : "BLOCKED", Required = g.Required, BlockNextGate = g.BlockNextGate,
                 BlocksDefense = g.BlocksDefense, Weight = g.Weight, WindowStart = g.WindowStart, WindowEnd = g.WindowEnd,
-                CreatedAt = Now, Requirements = CloneTemplateRequirements(g.Requirements, memberIds)
+                CreatedAt = Now, Requirements = CloneTemplateRequirements(g.Requirements, activeMembers, scope.MajorIds)
             };
         }).ToArray();
         db.ProjectGateInstances.AddRange(created); await db.SaveChangesAsync(ct); return created;
     }
 
-    private static List<ProjectGateRequirement> CloneTemplateRequirements(IEnumerable<ReviewGateRequirement> source, IReadOnlyList<long> activeMemberIds)
+    private static List<ProjectGateRequirement> CloneTemplateRequirements(
+        IEnumerable<ReviewGateRequirement> source,
+        IReadOnlyList<(long UserId, long? MajorId)> activeMembers,
+        IReadOnlyList<long> scopeMajorIds)
     {
         var list = new List<ProjectGateRequirement>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        long? singleScopeMajorId = scopeMajorIds.Count == 1 ? scopeMajorIds[0] : null;
         foreach (var r in source.OrderBy(x => x.Id))
         {
-            if (string.Equals(r.TargetCardinality, "EACH_STUDENT", StringComparison.OrdinalIgnoreCase) && activeMemberIds.Count > 0)
+            if (string.Equals(r.TargetCardinality, "EACH_STUDENT", StringComparison.OrdinalIgnoreCase) && activeMembers.Count > 0)
             {
-                foreach (var memberId in activeMemberIds)
+                foreach (var member in activeMembers)
                 {
-                    var raw = $"{r.Code}-S{memberId}";
+                    var raw = $"{r.Code}-S{member.UserId}";
                     var code = raw.Length <= 50 ? raw : raw[..50];
                     if (!seen.Add(code)) continue;
                     list.Add(new ProjectGateRequirement
                     {
-                        Code = code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId,
-                        TargetStudentId = memberId, Required = r.Required, TargetCardinality = r.TargetCardinality,
+                        Code = code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId ?? member.MajorId ?? singleScopeMajorId,
+                        TargetStudentId = member.UserId, Required = r.Required, TargetCardinality = r.TargetCardinality,
                         DeliveryStage = r.DeliveryStage, FeedsCold = r.FeedsCold, FeedsDefense = r.FeedsDefense,
                         InputKind = r.InputKind, TemplateDocumentId = r.TemplateDocumentId,
                         CarryForwardFromCode = r.CarryForwardFromCode, PolicyTag = r.PolicyTag, RubricCriterionRef = r.RubricCriterionRef
@@ -1449,9 +1469,12 @@ internal sealed partial class ReviewGateService(AipmsDbContext db, ICurrentUser 
             {
                 var code = r.Code.Length <= 50 ? r.Code : r.Code[..50];
                 if (!seen.Add(code)) continue;
+                var resolvedMajorId = r.MajorId;
+                if (!resolvedMajorId.HasValue && r.TargetStudentId.HasValue)
+                    resolvedMajorId = activeMembers.FirstOrDefault(m => m.UserId == r.TargetStudentId.Value).MajorId ?? singleScopeMajorId;
                 list.Add(new ProjectGateRequirement
                 {
-                    Code = code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = r.MajorId,
+                    Code = code, Title = r.Title, Type = r.Type, Scope = r.Scope, MajorId = resolvedMajorId,
                     TargetStudentId = r.TargetStudentId, Required = r.Required, TargetCardinality = r.TargetCardinality,
                     DeliveryStage = r.DeliveryStage, FeedsCold = r.FeedsCold, FeedsDefense = r.FeedsDefense,
                     InputKind = r.InputKind, TemplateDocumentId = r.TemplateDocumentId,

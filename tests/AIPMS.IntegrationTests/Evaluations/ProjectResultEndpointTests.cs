@@ -75,7 +75,12 @@ public sealed partial class EvaluationDraftEndpointTests
             var notification = await db.Notifications.Include(n => n.NotificationRecipients).SingleAsync(n =>
                 n.NotificationType == "PROJECT_RESULT_PUBLISHED" && n.RelatedEntityId == s.ProjectId);
             Assert.Equal("PROJECT", notification.RelatedEntityType);
-            Assert.Equal(s.Scope.Users.Student, Assert.Single(notification.NotificationRecipients).UserId);
+            var primarySupUserId = await db.SupervisorAssignments
+                .Where(a => a.ProjectId == s.ProjectId && a.EndedAt == null && a.IsPrimary)
+                .Select(a => a.SupervisorProfile.UserId)
+                .SingleAsync();
+            Assert.Equal(new[] { s.Scope.Users.Student, primarySupUserId }.Order(),
+                notification.NotificationRecipients.Select(r => r.UserId).Order());
             Assert.Single(await db.AuditLogs.Where(audit => audit.Action == "PROJECT_RESULT_PUBLISHED" && audit.EntityId == result.Id.ToString()).ToListAsync());
             (await db.Set<EvaluationScheme>().FindAsync(result.SchemeId))!.PassThreshold = 0;
             await db.SaveChangesAsync();
@@ -209,7 +214,12 @@ public sealed partial class EvaluationDraftEndpointTests
         await using var verify = database.CreateContext();
         var notification = Assert.Single(await verify.Notifications.Include(n => n.NotificationRecipients).Where(n =>
             n.RelatedEntityId == s.ProjectId && n.NotificationType == "PROJECT_RESULT_PUBLISHED").ToListAsync());
-        Assert.Equal(s.Scope.Users.Student, Assert.Single(notification.NotificationRecipients).UserId);
+        var primarySupUserId = await verify.SupervisorAssignments
+            .Where(a => a.ProjectId == s.ProjectId && a.EndedAt == null && a.IsPrimary)
+            .Select(a => a.SupervisorProfile.UserId)
+            .SingleAsync();
+        Assert.Equal(new[] { s.Scope.Users.Student, primarySupUserId }.Order(),
+            notification.NotificationRecipients.Select(r => r.UserId).Order());
         using var leftClient = app.CreateAuthenticatedClient(leftId);
         using var inactiveClient = app.CreateAuthenticatedClient(inactiveId);
         Assert.Equal(HttpStatusCode.Forbidden, (await leftClient.GetAsync(ResultUrl(s.ProjectId))).StatusCode);

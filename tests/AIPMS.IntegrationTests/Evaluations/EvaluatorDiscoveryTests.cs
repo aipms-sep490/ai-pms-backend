@@ -92,7 +92,7 @@ public sealed partial class EvaluationDraftEndpointTests
     }
 
     [Fact]
-    public async Task Assignment_notifies_exact_recipient_once_without_email_even_on_replay()
+    public async Task Assignment_notifies_exact_recipient_once_and_enqueues_email_even_on_replay()
     {
         var s = await database.Seed();
         using var app = new EvaluationFactory(database);
@@ -111,7 +111,7 @@ public sealed partial class EvaluationDraftEndpointTests
         var notification = await verify.Notifications.Include(n => n.NotificationRecipients).SingleAsync(n => n.NotificationType == "EVALUATOR_ASSIGNED" && n.RelatedEntityId == assignment.Id);
         var recipient = Assert.Single(notification.NotificationRecipients);
         Assert.Equal(s.Scope.Users.Lecturer, recipient.UserId);
-        Assert.False(await verify.Set<AIPMS.Infrastructure.Persistence.Models.NotificationEmailDelivery>().AnyAsync(d => d.NotificationRecipientId == recipient.Id));
+        Assert.Single(await verify.Set<AIPMS.Infrastructure.Persistence.Models.NotificationEmailDelivery>().Where(d => d.NotificationRecipientId == recipient.Id).ToListAsync());
         Assert.Single(await verify.AuditLogs.Where(a => a.Action == "EVALUATOR_ASSIGNED" && a.EntityId == assignment.Id.ToString()).ToListAsync());
     }
 

@@ -115,7 +115,7 @@ internal sealed partial class EvaluationSchemeService
             .Select(g => new { g.Id, g.Sequence })
             .ToDictionaryAsync(g => g.Id, g => g.Sequence, ct);
         var absences = await db.Set<StudentDefenseAbsence>().AsNoTracking()
-            .Where(a => a.ProjectId == projectId)
+            .Where(a => a.ProjectId == projectId && a.RevokedAt == null)
             .ToDictionaryAsync(a => a.StudentId, ct);
         var contributions = new List<ResultContributionDto>();
         var componentResults = new List<ResultComponentScoreDto>();
@@ -130,7 +130,7 @@ internal sealed partial class EvaluationSchemeService
             // Explicit defense absence (Spec V4.0 §7.5): 0.00 for that individual student only without blocking teammates.
             if (forStudent.HasValue && component.Stage == "DEFENSE" && absences.TryGetValue(forStudent.Value, out var absence))
             {
-                frozen.Add(new { Type = "DEFENSE_ABSENT", absence.Id, absence.StudentId, absence.Reason, absence.MinutesReference, absence.RecordedAt });
+                frozen.Add(new { Type = "DEFENSE_ABSENT", ComponentId = component.Id, absence.Id, absence.StudentId, absence.Reason, absence.MinutesReference, absence.RecordedAt });
                 if (includeContributions)
                     publishedFeedback.Add(new(component.Id, component.Name, component.Stage, $"DEFENSE_ABSENT: {absence.Reason}"));
                 return new(component.Id, component.Name, component.Scope, component.MajorId, weight, 0.00m,
@@ -160,6 +160,7 @@ internal sealed partial class EvaluationSchemeService
                     frozen.Add(new
                     {
                         Type = "GATE_INDIVIDUAL_PROCESS",
+                        ComponentId = component.Id,
                         StudentId = forStudent.Value,
                         Gates = matched.Select(m => new { m.Row.Id, m.GateNumber, m.Row.Score, m.GateWeight, m.Row.SupervisorAssignmentId, m.Row.FinalizedAt }).ToArray()
                     });
@@ -431,7 +432,7 @@ internal sealed partial class EvaluationSchemeService
             var isMember = await db.TeamMembers.AnyAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId
                 && m.UserId == studentId && m.LeftAt == null, ct);
             if (!isMember) throw new NotFoundException("Student", studentId);
-            if (await db.Set<StudentDefenseAbsence>().AnyAsync(a => a.ProjectId == projectId && a.StudentId == studentId, ct))
+            if (await db.Set<StudentDefenseAbsence>().AnyAsync(a => a.ProjectId == projectId && a.StudentId == studentId && a.RevokedAt == null, ct))
                 throw new ConflictException("Defense absence has already been recorded for this student.", "DEFENSE_ABSENCE_ALREADY_RECORDED");
             var row = new StudentDefenseAbsence
             {

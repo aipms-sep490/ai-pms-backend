@@ -5,12 +5,16 @@ using Microsoft.Extensions.Options;
 namespace AIPMS.Api.Services;
 
 internal sealed class NotificationEmailWorker(IServiceScopeFactory scopes,
-    IOptions<NotificationEmailSettings> options, TimeProvider clock, ILogger<NotificationEmailWorker> logger) : BackgroundService
+    IOptions<NotificationEmailSettings> options, TimeProvider clock, ILogger<NotificationEmailWorker> logger,
+    IOptions<MeetingReminderSettings>? meetingReminderOptions = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var settings = options.Value;
         if (!settings.Enabled) return;
+        var excludeType = meetingReminderOptions?.Value.Enabled == true
+            ? IMeetingReminderService.NotificationType
+            : null;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -19,7 +23,7 @@ internal sealed class NotificationEmailWorker(IServiceScopeFactory scopes,
                 {
                     await using var scope = scopes.CreateAsyncScope();
                     var queue = scope.ServiceProvider.GetRequiredService<INotificationEmailQueue>();
-                    var delivery = await queue.ClaimNextAsync(clock.GetUtcNow().UtcDateTime, stoppingToken);
+                    var delivery = await queue.ClaimNextAsync(clock.GetUtcNow().UtcDateTime, stoppingToken, excludeNotificationType: excludeType);
                     if (delivery is null) break;
                     if (!delivery.ShouldSend) continue;
                     if (delivery.AttemptCount > settings.MaxAttempts)

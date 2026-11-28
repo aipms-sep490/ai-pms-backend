@@ -112,12 +112,21 @@ internal sealed partial class WorkflowContextReader
             }
         }
         var supervisorAccess = await projectAccess.CanAccessAsync(userId, projectId, ct);
+        var leadDepartmentId = snapshot?.Evidence?.Scope.LeadDepartmentId;
+        var archiveBlockers = project.Status == "COMPLETED"
+            ? await projects.GetArchiveBlockersAsync(project.Id, clock.GetUtcNow().UtcDateTime, ct)
+            : Array.Empty<AIPMS.Domain.Exceptions.BlockingRequirement>();
+        var firstArchiveBlocker = archiveBlockers.Count > 0 ? archiveBlockers[0] : null;
         var actions = new[]
         {
             Action("view_project"), Action("view_project_history"), Action("view_academic_review"),
             Action("archive_project",
-                (ProjectArchivePolicy.HasScope(actor.Admin, actor.Staff, staffDepartment, departmentIds), "ARCHIVE_SCOPE_REQUIRED"),
-                (ProjectArchivePolicy.HasState(project.Status), "ARCHIVE_NOT_ALLOWED")),
+                (ProjectArchivePolicy.HasLeadScope(actor.Staff, staffDepartment, leadDepartmentId, departmentIds), "ARCHIVE_SCOPE_REQUIRED"),
+                (ProjectArchivePolicy.HasState(project.Status), "ARCHIVE_NOT_ALLOWED"),
+                (firstArchiveBlocker is null, firstArchiveBlocker?.Code ?? "ARCHIVE_NOT_ALLOWED")),
+            Action("unarchive_project",
+                (ProjectArchivePolicy.HasLeadScope(actor.Staff, staffDepartment, leadDepartmentId, departmentIds), "ARCHIVE_SCOPE_REQUIRED"),
+                (project.Status == "ARCHIVED", "ARCHIVE_NOT_ALLOWED")),
             Action("edit_project_draft", leader, (project.Status is "DRAFT" or "REVISION_REQUIRED", "PROJECT_NOT_EDITABLE")),
             Action("set_project_majors", leader, (project.Status is "DRAFT" or "REVISION_REQUIRED", "PROJECT_NOT_EDITABLE")),
             WithIssues("submit_project", submissionIssues, leader, (project.Status == "DRAFT" && Transition(ProjectStatus.Submitted), "INVALID_PROJECT_STATE")),

@@ -10,7 +10,7 @@ public partial class AipmsDbContext
     {
         modelBuilder.Entity<EvaluationFinalization>(e =>
         {
-            e.ToTable("evaluation_finalizations");
+            e.ToTable("evaluation_finalizations", t => t.UseSqlOutputClause(false));
             e.HasKey(x => x.EvaluationId);
             e.Property(x => x.EvaluationId).HasColumnName("evaluation_id").ValueGeneratedNever();
             e.Property(x => x.FinalSubmissionId).HasColumnName("final_submission_id");

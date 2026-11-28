@@ -112,6 +112,8 @@ public sealed class RejectProjectCommandHandler(
 
         await publisher.Publish(new WorkflowNotificationEvent(
             WorkflowNotificationKind.ProjectRejected, updatedProject.Id, actorUserId, updatedProject.UpdatedAt, updatedProject.ConcurrencyToken), cancellationToken);
+        await publisher.Publish(new WorkflowNotificationEvent(
+            WorkflowNotificationKind.SupervisorSlotReleased, updatedProject.Id, actorUserId, updatedProject.UpdatedAt, updatedProject.ConcurrencyToken), cancellationToken);
 
         return updatedProject;
     }

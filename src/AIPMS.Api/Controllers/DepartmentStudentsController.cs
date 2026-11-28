@@ -101,6 +101,29 @@ public sealed class DepartmentStudentsController(IDepartmentStudentService servi
         return File(file.Content, file.ContentType, file.FileName);
     }
 
+    [Authorize(Roles = AppRoles.DepartmentStaff)]
+    [HttpGet("/api/v1/departments/me/emergency-contacts/export")]
+    [Produces("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/problem+json")]
+    public async Task<IActionResult> ExportEmergencyContacts(
+        [FromQuery] long? semesterId,
+        [FromQuery] string? search,
+        [FromQuery] long? majorId,
+        [FromQuery] long? specializationId,
+        [FromQuery] string? classCode,
+        [FromQuery] string? curriculumCode,
+        [FromQuery] string? profileStatus,
+        [FromQuery] string? qualificationStatus,
+        [FromQuery] string? teamStatus,
+        CancellationToken ct = default)
+    {
+        var file = await service.ExportEmergencyContactsAsync(
+            new(semesterId, search, majorId, specializationId, classCode, curriculumCode, profileStatus, qualificationStatus, teamStatus, 1, 100),
+            ct);
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return File(file.Content, file.ContentType, file.FileName);
+    }
+
     [Authorize(Roles = AppRoles.Student)]
     [HttpPut("/api/v1/users/me/academic-profile")]
     [ProducesResponseType<AcademicProfileDto>(200)]

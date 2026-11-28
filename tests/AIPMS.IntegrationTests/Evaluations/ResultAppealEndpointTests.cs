@@ -103,7 +103,7 @@ public sealed partial class PolicyEvaluationEndpointTests
             new AssignAppealReviewerRequest(row.ConcurrencyToken, s.Scope.Users.Lecturer))).StatusCode);
         long primary;
         await using (var db = database.CreateContext()) primary = await db.SupervisorAssignments.Where(a => a.ProjectId == s.ProjectId && a.EndedAt == null).Select(a => a.SupervisorProfile.UserId).SingleAsync();
-        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PostAsJsonAsync(requestUrl + "/reviewer", new AssignAppealReviewerRequest(row.ConcurrencyToken, primary))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync(requestUrl + "/reviewer", new AssignAppealReviewerRequest(row.ConcurrencyToken, primary))).StatusCode);
         row = await Body<CorrectionRequestDto>(await staff.PostAsJsonAsync(requestUrl + "/reviewer", new AssignAppealReviewerRequest(row.ConcurrencyToken, s.Scope.Users.NewLecturer)));
         Assert.Equal(HttpStatusCode.OK, (await reviewer.GetAsync(requestUrl)).StatusCode);
         var context = await Body<AppealReviewContextDto>(await reviewer.GetAsync(requestUrl + "/review"));
@@ -150,7 +150,7 @@ public sealed partial class PolicyEvaluationEndpointTests
         using var reviewer = app.CreateAuthenticatedClient(s.Scope.Users.NewLecturer);
         using var student = app.CreateAuthenticatedClient(s.Scope.Users.Student);
         var url = AppealUrl(s.ProjectId);
-        await using (var db = database.CreateContext()) { (await db.Projects.FindAsync(s.ProjectId))!.Status = "ARCHIVED"; await db.SaveChangesAsync(); }
+        await using (var db = database.CreateContext()) { (await db.Projects.FindAsync(s.ProjectId))!.Status = "COMPLETED"; await db.SaveChangesAsync(); }
         var policy = await Body<AppealPolicyDto>(await staff.PostAsJsonAsync(url + "/appeal-policy", new RecordAppealPolicyRequest(0, "SYNTHETIC-POLICY")));
         var window = await Body<AppealWindowDto>(await staff.PostAsJsonAsync(url + "/appeal-windows", AppealWindow(policy.Id, s.Scope.Users.Student)));
         var studentInput = new CreateCorrectionRequest("STUDENT_APPEAL", policy.Id, window.Id, "STUDENT", s.Scope.Users.Student, 1,
@@ -195,7 +195,7 @@ public sealed partial class PolicyEvaluationEndpointTests
         var rejected = await Body<CorrectionRequestDto>(await staff.PostAsJsonAsync(stalePath + "/decision", new AppealDecisionRequest(stale.ConcurrencyToken, "REJECTED", "Review new version explicitly", null)));
         Assert.Equal("REJECTED", rejected.Status);
         Assert.Equal(HttpStatusCode.Conflict, (await student.PostAsJsonAsync(url + "/correction-requests", studentInput)).StatusCode);
-        await using var check = database.CreateContext(); Assert.Equal("ARCHIVED", (await check.Projects.FindAsync(s.ProjectId))!.Status);
+        await using var check = database.CreateContext(); Assert.Equal("COMPLETED", (await check.Projects.FindAsync(s.ProjectId))!.Status);
         Assert.True(await check.Set<NotificationEmailDelivery>().AnyAsync());
     }
 

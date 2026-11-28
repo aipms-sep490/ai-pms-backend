@@ -164,6 +164,7 @@ public sealed partial class EvaluationDraftWorkflow(IEvaluationDraftRepository r
         var result = await repository.RevokeAsync(id, input.Reason.Trim(), clock.GetUtcNow().UtcDateTime, ct);
         await Audit(actor.Id, "EVALUATOR_REVOKED", "EVALUATION_ASSIGNMENT", id,
             new() { ["projectId"] = before.ProjectId, ["reason"] = input.Reason.Trim() }, ct);
+        await publisher.Publish(new WorkflowNotificationEvent(WorkflowNotificationKind.EvaluatorRevoked, id, actor.Id, clock.GetUtcNow().UtcDateTime), ct);
         return result.ToDto();
     }, ct);
 

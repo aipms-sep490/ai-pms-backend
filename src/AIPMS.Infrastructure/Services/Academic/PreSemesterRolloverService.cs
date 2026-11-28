@@ -187,8 +187,8 @@ internal sealed class PreSemesterRolloverService(
         var kbPub = kbRows.Count(s => s == "PUBLISHED");
         var kbDraft = kbRows.Count(s => s == "DRAFT");
 
-        // 8. Milestone Templates (Admin only)
-        var msVersions = actor.IsAdmin
+        // 8. Milestone Templates (Admin & Department Staff)
+        var msVersions = (actor.IsAdmin || actor.IsStaff)
             ? await db.MilestoneTemplateVersions.AsNoTracking().Select(v => v.Status).ToListAsync(ct)
             : [];
         var msPub = msVersions.Count(s => s == "PUBLISHED");
@@ -730,7 +730,7 @@ internal sealed class PreSemesterRolloverService(
             {
                 var tp = MatchTargetPeriod(sp.PeriodType);
                 var latestPolicyRow = await db.Set<PeriodPolicyVersion>().AsNoTracking()
-                    .Where(v => v.ProjectPeriodId == sp.Id && v.Status == "PUBLISHED")
+                    .Where(v => v.ProjectPeriodId == sp.Id && (v.Status == "PUBLISHED" || v.Status == "LOCKED"))
                     .OrderByDescending(v => v.Version).FirstOrDefaultAsync(ct);
                 var minTeam = sp.MinTeamSize is > 0 ? sp.MinTeamSize.Value : 3;
                 var maxTeam = sp.MaxTeamSize is int mx && mx >= minTeam ? mx : Math.Max(minTeam, 5);
@@ -748,11 +748,11 @@ internal sealed class PreSemesterRolloverService(
                 if (!willSkip && !actor.IsAdmin && actor.IsStaff)
                 {
                     var canManageTarget = await db.ProjectPeriods.AsNoTracking()
-                        .AnyAsync(p => p.Id == tp!.Id && p.Rubric != null && p.Rubric.DepartmentId == actor.DepartmentId, ct);
+                        .AnyAsync(p => p.Id == tp!.Id && p.AcademicSemester.OrganizationId == actor.OrganizationId, ct);
                     if (!canManageTarget)
                     {
                         willSkip = true;
-                        skipReason = "Kỳ đích chưa gắn Rubric của bộ môn nên chỉ Quản trị viên mới được nhân bản chính sách kỳ này.";
+                        skipReason = "Kỳ đích thuộc tổ chức khác phạm vi bộ môn nên không được nhân bản chính sách kỳ này.";
                     }
                 }
                 var preview = new RolloverPreviewItemDto("POLICY", sp.Id, sp.Code, $"Chính sách {sp.Name}",

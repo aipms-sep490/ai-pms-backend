@@ -23,6 +23,19 @@ public static class WebApplicationExtensions
                 if (string.IsNullOrEmpty(origin) || !cors.AllowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
                 { context.Response.StatusCode = StatusCodes.Status403Forbidden; return; }
             }
+            else if (context.Request.Path.StartsWithSegments("/hubs/notifications"))
+            {
+                var config = context.RequestServices.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
+                if (config.GetValue<bool?>("NotificationRealtime:Enabled") == false)
+                { context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable; return; }
+                var origin = context.Request.Headers.Origin.ToString();
+                if (!string.IsNullOrEmpty(origin))
+                {
+                    var cors = context.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<CorsSettings>>().Value;
+                    if (!cors.AllowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+                    { context.Response.StatusCode = StatusCodes.Status403Forbidden; return; }
+                }
+            }
             await next();
         });
         app.UseSerilogRequestLogging();

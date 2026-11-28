@@ -118,6 +118,8 @@ public sealed class ApproveProjectCommandHandler(
                 await auditTrail.RecordAsync(new AuditEntry(actorUserId, "PROJECT_ACTIVATED", "PROJECT", project.Id,
                     new Dictionary<string, object?> { ["oldStatus"] = "SUPERVISOR_PENDING", ["newStatus"] = "ACTIVE",
                         ["source"] = "PRE_APPROVAL_SUPERVISION" }), cancellationToken);
+                await publisher.Publish(new WorkflowNotificationEvent(
+                    WorkflowNotificationKind.ProjectActivated, project.Id, actorUserId, updatedProject.UpdatedAt), cancellationToken);
             }
         }
 

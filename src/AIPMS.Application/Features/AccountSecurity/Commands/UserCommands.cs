@@ -47,12 +47,15 @@ public sealed class CreateUserAccountCommandHandler(
         }
 
         var roleIds = request.RoleIds.Distinct().ToArray();
+        var roleCodes = new List<string>(roleIds.Length);
         foreach (var roleId in roleIds)
         {
             var role = await roleRepository.GetRoleAsync(roleId, cancellationToken)
                 ?? throw new NotFoundException("Role", roleId);
             GlobalAccountRoleGuard.RequireAssignable(role.Code);
+            roleCodes.Add(role.Code);
         }
+        GlobalAccountRoleGuard.RequireCompatibleCombination(roleCodes);
 
         var utcNow = timeProvider.GetUtcNow().UtcDateTime;
         var user = await userRepository.CreateUserAsync(
@@ -126,7 +129,7 @@ public sealed class ImportUserAccountsCommandHandler(
 
         EnsureBatchIdentifiersAreUnique(normalized);
 
-        var verifiedRoleIds = new HashSet<long>();
+        var verifiedRoleCodes = new Dictionary<long, string>();
         foreach (var account in normalized)
         {
             if (await userRepository.IdentityExistsAsync(
@@ -139,15 +142,20 @@ public sealed class ImportUserAccountsCommandHandler(
                     $"An account identifier in the import batch already exists for {account.Email}.");
             }
 
+            var accountRoleCodes = new List<string>(account.RoleIds.Count);
             foreach (var roleId in account.RoleIds)
             {
-                if (verifiedRoleIds.Add(roleId))
+                if (!verifiedRoleCodes.TryGetValue(roleId, out var roleCode))
                 {
                     var role = await roleRepository.GetRoleAsync(roleId, cancellationToken)
                         ?? throw new NotFoundException("Role", roleId);
                     GlobalAccountRoleGuard.RequireAssignable(role.Code);
+                    roleCode = role.Code;
+                    verifiedRoleCodes[roleId] = roleCode;
                 }
+                accountRoleCodes.Add(roleCode);
             }
+            GlobalAccountRoleGuard.RequireCompatibleCombination(accountRoleCodes);
         }
 
         var accounts = await userRepository.CreateUsersAsync(
@@ -268,13 +276,20 @@ public sealed class UpdateUserAccountCommandHandler(
     IUserAccountRepository userRepository,
     AccountSecurityAccessService accessService,
     IAuditTrail auditTrail,
-    TimeProvider timeProvider) : IRequestHandler<UpdateUserAccountCommand, UserAccountDto>
+    TimeProvider timeProvider,
+    Microsoft.Extensions.Options.IOptions<AIPMS.Application.Common.Options.ExecutionConcurrencySettings>? concurrencyOptions = null) : IRequestHandler<UpdateUserAccountCommand, UserAccountDto>
 {
     public async Task<UserAccountDto> Handle(
         UpdateUserAccountCommand request,
         CancellationToken cancellationToken)
     {
         accessService.EnsureAdministrator();
+        if (concurrencyOptions?.Value.RequireTokens == true && string.IsNullOrWhiteSpace(request.ConcurrencyToken))
+        {
+            throw new ConflictException(
+                "A current concurrencyToken is required. Reload before saving.",
+                WorkflowErrorCodes.StaleConcurrencyToken);
+        }
         var user = await userRepository.GetUserAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("User", request.UserId);
 
@@ -520,6 +535,19 @@ internal static class GlobalAccountRoleGuard
         if (code is not (AppRoles.Admin or AppRoles.DepartmentStaff or AppRoles.Lecturer or AppRoles.Student))
             throw new ConflictException("Resource roles must be assigned through their project or evaluation workflow.");
     }
+
+    internal static void RequireCompatibleCombination(IEnumerable<string> roleCodes)
+    {
+        var codes = roleCodes as IReadOnlyCollection<string> ?? roleCodes.ToArray();
+        var hasStudent = codes.Contains(AppRoles.Student, StringComparer.Ordinal);
+        var hasStaffRole = codes.Any(static c => c is AppRoles.Admin or AppRoles.DepartmentStaff or AppRoles.Lecturer);
+        if (hasStudent && hasStaffRole)
+        {
+            throw new ConflictException(
+                "A STUDENT account cannot simultaneously hold staff roles (ADMIN, DEPARTMENT_STAFF, LECTURER).",
+                WorkflowErrorCodes.RoleCombinationConflict);
+        }
+    }
 }
 
 public sealed class AssignUserRoleCommandHandler(
@@ -534,12 +562,13 @@ public sealed class AssignUserRoleCommandHandler(
         CancellationToken cancellationToken)
     {
         accessService.EnsureAdministrator();
-        _ = await userRepository.GetUserAsync(request.UserId, cancellationToken)
+        var user = await userRepository.GetUserAsync(request.UserId, cancellationToken)
             ?? throw new NotFoundException("User", request.UserId);
         var role = await roleRepository.GetRoleAsync(request.RoleId, cancellationToken)
             ?? throw new NotFoundException("Role", request.RoleId);
 
         GlobalAccountRoleGuard.RequireAssignable(role.Code);
+        GlobalAccountRoleGuard.RequireCompatibleCombination(user.Roles.Append(role.Code));
 
         if (await userRepository.UserHasRoleAsync(
             request.UserId, role.Code, cancellationToken))

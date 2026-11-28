@@ -172,6 +172,24 @@ public interface IProjectRepository
     Task<bool> HasOpenAppealsAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult(false);
 
+    Task<long?> GetLeadDepartmentIdAsync(long projectId, CancellationToken cancellationToken) =>
+        Task.FromResult<long?>(null);
+
+    Task<IReadOnlyList<AIPMS.Domain.Exceptions.BlockingRequirement>> GetArchiveBlockersAsync(
+        long projectId,
+        DateTime utcNow,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<AIPMS.Domain.Exceptions.BlockingRequirement>>([]);
+
+    Task<ProjectArchiveDossierDto?> GetArchiveDossierAsync(
+        long projectId,
+        long actorUserId,
+        bool isAdmin,
+        long? staffDepartmentId,
+        bool isLeadStaff,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<ProjectArchiveDossierDto?>(null);
+
     Task<bool> IsWorkingAgreementReadyForActivationAsync(long projectId, CancellationToken cancellationToken) =>
         Task.FromResult(true);
 

@@ -18,7 +18,7 @@ internal sealed class NotificationEmailQueue(
     IProjectAccessService? access = null,
     IOptions<EmailSettings>? emailOptions = null) : INotificationEmailQueue
 {
-    public async Task<AppDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct, string? notificationType = null)
+    public async Task<AppDelivery?> ClaimNextAsync(DateTime nowUtc, CancellationToken ct, string? notificationType = null, string? excludeNotificationType = null)
     {
         // READPAST is valid under READ COMMITTED and lets parallel workers skip claimed rows.
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
@@ -35,6 +35,9 @@ internal sealed class NotificationEmailQueue(
                   AND ({notificationType} IS NULL OR EXISTS (
                     SELECT 1 FROM dbo.notification_recipients r JOIN dbo.notifications n ON n.id=r.notification_id
                     WHERE r.id=d.notification_recipient_id AND n.notification_type={notificationType}))
+                  AND ({excludeNotificationType} IS NULL OR NOT EXISTS (
+                    SELECT 1 FROM dbo.notification_recipients r JOIN dbo.notifications n ON n.id=r.notification_id
+                    WHERE r.id=d.notification_recipient_id AND n.notification_type={excludeNotificationType}))
                 ORDER BY d.next_attempt_at, d.notification_recipient_id
                 """).SingleOrDefaultAsync(ct);
         if (row is null) return null;

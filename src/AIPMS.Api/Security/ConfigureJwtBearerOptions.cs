@@ -45,7 +45,8 @@ internal sealed class ConfigureJwtBearerOptions(IOptions<JwtSettings> settings)
             OnMessageReceived = context =>
             {
                 var token = context.Request.Query["access_token"];
-                if (context.HttpContext.Request.Path.Equals("/hubs/chat", StringComparison.OrdinalIgnoreCase)
+                if ((context.HttpContext.Request.Path.Equals("/hubs/chat", StringComparison.OrdinalIgnoreCase)
+                        || context.HttpContext.Request.Path.Equals("/hubs/notifications", StringComparison.OrdinalIgnoreCase))
                     && !string.IsNullOrWhiteSpace(token)) context.Token = token;
                 return Task.CompletedTask;
             },

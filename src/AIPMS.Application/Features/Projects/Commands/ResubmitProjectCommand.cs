@@ -211,6 +211,8 @@ public sealed class ResubmitProjectCommandHandler(
             null,
             cancellationToken);
 
+        await repository.NotifyProposalSubmittedAsync(updatedProject.Id, actorUserId, cancellationToken);
+
         // Audit the resubmission
         await auditTrail.RecordAsync(
             new AuditEntry(

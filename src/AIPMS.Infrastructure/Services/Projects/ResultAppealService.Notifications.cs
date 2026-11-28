@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using AIPMS.Application.Features.Appeals;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
@@ -7,13 +8,61 @@ namespace AIPMS.Infrastructure.Services.Projects;
 
 internal sealed partial class ResultAppealService
 {
+    private async Task NotifyWindowOpened(long projectId, ResultAppealWindow window, IReadOnlyList<AppealWindowTarget> targets, CancellationToken ct)
+    {
+        var studentIds = targets.Where(t => t.StudentId.HasValue && t.StudentId.Value > 0)
+            .Select(t => t.StudentId!.Value).Distinct().ToArray();
+        if (studentIds.Length == 0) return;
+
+        var recipients = await db.Users.AsNoTracking()
+            .Where(u => studentIds.Contains(u.Id) && u.Status == "ACTIVE" && u.Id != Actor)
+            .Select(u => u.Id).ToArrayAsync(ct);
+        if (recipients.Length == 0) return;
+
+        var projectInfo = await db.Projects.AsNoTracking().Where(p => p.Id == projectId)
+            .Select(p => new { p.Code, p.Title }).FirstOrDefaultAsync(ct);
+        var codeSuffix = string.IsNullOrWhiteSpace(projectInfo?.Code) ? "" : $" - Đồ án {projectInfo.Code}";
+        var projectFull = projectInfo is null ? "của bạn" : string.IsNullOrWhiteSpace(projectInfo.Title) ? projectInfo.Code : $"{projectInfo.Code} - {projectInfo.Title}";
+        var closesVn = window.ClosesAt.AddHours(7).ToString("dd/MM/yyyy HH:mm");
+        var rawTitle = $"Mở cửa sổ phúc khảo kết quả{codeSuffix}";
+        var safeTitle = rawTitle.Length <= 255 ? rawTitle : rawTitle[..255];
+        var content = $"Khoa chủ trì đã mở cửa sổ phúc khảo kết quả cho đồ án {projectFull} đến {closesVn} (GMT+7). Nếu có yêu cầu phúc khảo hoặc đính chính, vui lòng gửi trong thời hạn quy định.";
+
+        var inbox = new M.Notification
+        {
+            CreatedBy = Actor,
+            NotificationType = "APPEAL_WINDOW_OPENED",
+            Title = safeTitle,
+            Content = content,
+            RelatedEntityType = "PROJECT",
+            RelatedEntityId = projectId,
+            CreatedAt = Now,
+            UpdatedAt = Now,
+            NotificationRecipients = recipients.Select(id => new M.NotificationRecipient
+            {
+                UserId = id, CreatedAt = Now, UpdatedAt = Now, DeliveredAt = Now
+            }).ToArray()
+        };
+        db.Add(inbox);
+        await db.SaveChangesAsync(ct);
+        db.AddRange(inbox.NotificationRecipients.Select(r => new NotificationEmailDelivery { NotificationRecipientId = r.Id, NextAttemptAt = Now }));
+        await db.SaveChangesAsync(ct);
+    }
+
     private async Task Notify(ResultAppealRequest row, string action, CancellationToken ct)
     {
         var project = (await transactions.GetProjectAsync(row.ProjectId, ct))!;
         var ids = new HashSet<long>();
-        if (action is "APPEAL_REQUESTED" or "APPEAL_REVIEWED")
+        if (action is "APPEAL_REQUESTED" or "APPEAL_REVIEWED" or "APPEAL_SUPERVISOR_ERRATA")
             ids.UnionWith(await db.Users.Where(u => u.Status == "ACTIVE" && u.DepartmentId == project.LeadDepartmentId
                 && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF")).Select(u => u.Id).ToArrayAsync(ct));
+        // TK-W4-02/09: For PROCESS_20_ERRATA, notify active Primary Supervisor immediately upon request creation.
+        if (action == "APPEAL_REQUESTED" && row.AppealKind == "PROCESS_20_ERRATA")
+        {
+            ids.UnionWith(await db.SupervisorAssignments.AsNoTracking()
+                .Where(a => a.ProjectId == row.ProjectId && a.EndedAt == null && a.IsPrimary && a.AssignmentType == "PRIMARY")
+                .Select(a => a.SupervisorProfile.UserId).ToArrayAsync(ct));
+        }
         if (action == "APPEAL_REVIEWER_ASSIGNED" && row.ReviewerId is long reviewer) ids.Add(reviewer);
         if (action == "APPEAL_DECIDED")
         {
@@ -47,6 +96,9 @@ internal sealed partial class ResultAppealService
             "APPEAL_REVIEWED" => (
                 $"Đã hoàn tất đánh giá phúc khảo{codeSuffix}",
                 $"{(string.IsNullOrWhiteSpace(actorName) ? "Giảng viên phản biện" : actorName)} đã hoàn tất đánh giá yêu cầu phúc khảo kết quả cho đồ án {projectFull}. Vui lòng xem xét và ra quyết định cuối cùng."),
+            "APPEAL_SUPERVISOR_ERRATA" => (
+                $"GVHD Chính đã phản hồi đính chính 20%{codeSuffix}",
+                $"{(string.IsNullOrWhiteSpace(actorName) ? "GVHD Chính" : actorName)} đã gửi phản hồi đính chính điểm quá trình 20% cho đồ án {projectFull}. Vui lòng xem trước và phê duyệt."),
             "APPEAL_DECIDED" => (
                 $"Kết quả phúc khảo{(string.IsNullOrWhiteSpace(projectInfo?.Code) ? "" : $" đồ án {projectInfo.Code}")}: {statusLabel}",
                 $"Yêu cầu phúc khảo kết quả cho đồ án {projectFull} đã có quyết định: {statusLabel}. Vui lòng đăng nhập để xem chi tiết."),
@@ -55,10 +107,15 @@ internal sealed partial class ResultAppealService
                 $"Yêu cầu phúc khảo kết quả cho đồ án {projectFull} có cập nhật mới. Vui lòng đăng nhập để xem chi tiết.")
         };
         var safeTitle = rawTitle.Length <= 255 ? rawTitle : rawTitle[..255];
-        var inbox = new M.Notification { CreatedBy = Actor, NotificationType = action, Title = safeTitle,
+        var inbox = new M.Notification
+        {
+            CreatedBy = Actor, NotificationType = action, Title = safeTitle,
             Content = content, RelatedEntityType = "PROJECT", RelatedEntityId = row.ProjectId,
-            CreatedAt = Now, UpdatedAt = Now, NotificationRecipients = recipients.Select(id => new M.NotificationRecipient {
-                UserId = id, CreatedAt = Now, UpdatedAt = Now, DeliveredAt = Now }).ToArray() };
+            CreatedAt = Now, UpdatedAt = Now, NotificationRecipients = recipients.Select(id => new M.NotificationRecipient
+            {
+                UserId = id, CreatedAt = Now, UpdatedAt = Now, DeliveredAt = Now
+            }).ToArray()
+        };
         db.Add(inbox); await db.SaveChangesAsync(ct);
         db.AddRange(inbox.NotificationRecipients.Select(r => new NotificationEmailDelivery { NotificationRecipientId = r.Id, NextAttemptAt = Now }));
         await db.SaveChangesAsync(ct);

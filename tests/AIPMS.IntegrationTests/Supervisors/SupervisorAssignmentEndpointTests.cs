@@ -47,7 +47,9 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
         Assert.Equal(accepted.Id, assignment.SupervisorRequestId);
         var studentAssignment = Assert.Single((await Body<PagedResult<SupervisorAssignmentDto>>(await student.GetAsync(ProjectUrl(p.Id)))).Items);
         Assert.Equal(assignment.Id, studentAssignment.Id);
-        Assert.True(Assert.Single(assignment.AllowedActions!, a => a.Code == "END").Allowed);
+        Assert.False(Assert.Single(assignment.AllowedActions!, a => a.Code == "END").Allowed);
+        Assert.Contains("PRIMARY_SUPERVISOR_REPLACE_REQUIRED", assignment.Reasons!);
+        Assert.Equal(HttpStatusCode.Conflict, (await End(lecturer, assignment.Id)).StatusCode);
         Assert.All(studentAssignment.AllowedActions!, a => Assert.False(a.Allowed));
         var milestone = await Body<MilestoneDto>(await lecturer.PostAsJsonAsync("/api/v1/milestones", milestoneBody));
         var task = await Body<TaskDto>(await student.PostAsJsonAsync("/api/v1/tasks", new
@@ -64,14 +66,13 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
 
     [Theory]
     [InlineData("ACTIVE", "lecturer")]
-    [InlineData("ACTIVE", "admin")]
     [InlineData("ACTIVE", "staff")]
     public async Task End_records_reason_once_preserves_history_and_releases_both_capacity_limits(string status, string actor)
     {
         var s = await database.SeedAsync();
         var p = await SeedProject(s);
         using var app = new SupervisorFactory(database, clock: new Clock());
-        var accepted = await Accept(app, s, p.Id);
+        var accepted = await SeedMentorAssignment(app, s, p.Id);
         await using (var db = database.CreateContext())
         {
             (await db.Projects.FindAsync(p.Id))!.Status = status;
@@ -79,15 +80,17 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
             await db.SaveChangesAsync();
         }
         var next = await SeedProject(s, p.SemesterId);
-        using var admin = app.CreateAuthenticatedClient(s.Admin);
+        using var staffClient = app.CreateAuthenticatedClient(s.Staff, roles: AppRoles.DepartmentStaff);
         var candidateUrl = $"/api/v1/projects/{next.Id}/supervisor-candidates";
-        Assert.Empty((await Body<PagedResult<SupervisorCandidateDto>>(await admin.GetAsync(candidateUrl))).Items);
-        var actorId = actor == "lecturer" ? s.Lecturer : actor == "staff" ? s.Staff : s.Admin;
-        using var client = app.CreateAuthenticatedClient(actorId);
-        var ended = await Body<SupervisorAssignmentDto>(await End(client, accepted.AssignmentId!.Value));
+        Assert.Empty((await Body<PagedResult<SupervisorCandidateDto>>(await staffClient.GetAsync(candidateUrl))).Items);
+        using var admin = app.CreateAuthenticatedClient(s.Admin, roles: AppRoles.Admin);
+        Assert.Equal(HttpStatusCode.Forbidden, (await End(admin, accepted.Id)).StatusCode);
+        var actorId = actor == "lecturer" ? s.Lecturer : s.Staff;
+        using var client = app.CreateAuthenticatedClient(actorId, roles: actor == "lecturer" ? AppRoles.Lecturer : AppRoles.DepartmentStaff);
+        var ended = await Body<SupervisorAssignmentDto>(await End(client, accepted.Id));
         Assert.Equal(Now, ended.EndedAt);
         Assert.Equivalent(ended, await Body<SupervisorAssignmentDto>(await End(client, ended.Id, "Replay reason")));
-        var candidate = Assert.Single((await Body<PagedResult<SupervisorCandidateDto>>(await admin.GetAsync(candidateUrl))).Items);
+        var candidate = Assert.Single((await Body<PagedResult<SupervisorCandidateDto>>(await staffClient.GetAsync(candidateUrl))).Items);
         Assert.Equal(0, candidate.ActiveProjects);
         Assert.Equal(0, candidate.SemesterActiveProjects);
         Assert.Equal(1, candidate.RemainingSlots);
@@ -96,16 +99,13 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
         Assert.Equivalent(ended, Assert.Single((await Body<PagedResult<SupervisorAssignmentDto>>(await lecturer.GetAsync("/api/v1/supervisors/assignments?status=ENDED"))).Items));
         Assert.Empty((await Body<PagedResult<SupervisorAssignmentDto>>(await lecturer.GetAsync("/api/v1/supervisors/assignments?status=ACTIVE"))).Items);
         Assert.Equal(HttpStatusCode.Forbidden, (await lecturer.GetAsync($"/api/v1/milestones/project/{p.Id}")).StatusCode);
-        await Body<SupervisorRequestDto>(await lecturer.PostAsJsonAsync($"/api/v1/supervisor-requests/{accepted.Id}/accept", new RespondToSupervisorRequest(null)));
         await using var check = database.CreateContext();
         Assert.Equal(status, (await check.Projects.FindAsync(p.Id))!.Status);
-        Assert.Equal("ACCEPTED", (await check.SupervisorRequests.FindAsync(accepted.Id))!.Status);
         var audit = await check.AuditLogs.SingleAsync(a => a.Action == "SUPERVISOR_ASSIGNMENT_ENDED" && a.EntityId == ended.Id.ToString());
         Assert.Equal(actorId, audit.ActorUserId);
         Assert.Equal("SUPERVISOR_ASSIGNMENT", audit.EntityType);
         Assert.Contains("Guidance completed", audit.DetailsJson!);
         Assert.DoesNotContain("Replay reason", audit.DetailsJson!);
-        Assert.Equal(2, await check.ProjectStatusHistories.CountAsync(h => h.ProjectId == p.Id));
     }
 
     [Fact]
@@ -140,14 +140,16 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
         var s = await database.SeedAsync();
         var p = await SeedProject(s);
         using var app = new SupervisorFactory(database, clock: new Clock());
-        var a = await Accept(app, s, p.Id);
+        var a = await SeedMentorAssignment(app, s, p.Id, activate: false);
         await SetStatus(p.Id, status);
-        using var admin = app.CreateAuthenticatedClient(s.Admin);
-        var response = await End(admin, a.AssignmentId!.Value);
+        using var admin = app.CreateAuthenticatedClient(s.Admin, roles: AppRoles.Admin);
+        Assert.Equal(HttpStatusCode.Forbidden, (await End(admin, a.Id)).StatusCode);
+        using var staff = app.CreateAuthenticatedClient(s.Staff, roles: AppRoles.DepartmentStaff);
+        var response = await End(staff, a.Id);
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.True((await response.Content.ReadFromJsonAsync<ProblemDetails>())!.Extensions.ContainsKey("traceId"));
         await using var db = database.CreateContext();
-        Assert.Null((await db.SupervisorAssignments.FindAsync(a.AssignmentId.Value))!.EndedAt);
+        Assert.Null((await db.SupervisorAssignments.FindAsync(a.Id))!.EndedAt);
         Assert.Equal(status, (await db.Projects.FindAsync(p.Id))!.Status);
     }
 
@@ -160,10 +162,9 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
         var s = await database.SeedAsync();
         var p = await SeedProject(s);
         using var app = new SupervisorFactory(database, clock: new Clock());
-        var a = await Accept(app, s, p.Id);
-        await SetStatus(p.Id, "ACTIVE");
+        var a = await SeedMentorAssignment(app, s, p.Id);
         using var lecturer = app.CreateAuthenticatedClient(s.Lecturer, roles: AppRoles.Lecturer);
-        await Body<SupervisorAssignmentDto>(await End(lecturer, a.AssignmentId!.Value));
+        await Body<SupervisorAssignmentDto>(await End(lecturer, a.Id));
         await using (var db = database.CreateContext())
         {
             if (change == "role") db.UserRoles.RemoveRange(await db.UserRoles.Where(r => r.UserId == s.Lecturer).ToListAsync());
@@ -171,7 +172,7 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
             if (change == "account") (await db.Users.FindAsync(s.Lecturer))!.Status = "INACTIVE";
             await db.SaveChangesAsync();
         }
-        Assert.Equal(HttpStatusCode.Forbidden, (await End(lecturer, a.AssignmentId.Value)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await End(lecturer, a.Id)).StatusCode);
     }
 
     [Fact]
@@ -180,10 +181,9 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
         var s = await database.SeedAsync();
         var p = await SeedProject(s);
         using var app = new SupervisorFactory(database, clock: new Clock());
-        var a = await Accept(app, s, p.Id);
-        await SetStatus(p.Id, "ACTIVE");
+        var a = await SeedMentorAssignment(app, s, p.Id);
         await using var db = database.CreateContext();
-        var original = await db.SupervisorAssignments.AsNoTracking().SingleAsync(x => x.Id == a.AssignmentId);
+        var original = await db.SupervisorAssignments.AsNoTracking().SingleAsync(x => x.Id == a.Id);
         using var failing = new SupervisorFactory(database, failAudit: true, clock: new Clock());
         using var lecturer = failing.CreateAuthenticatedClient(s.Lecturer);
         Assert.Equal(HttpStatusCode.InternalServerError, (await End(lecturer, original.Id)).StatusCode);
@@ -199,11 +199,10 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
         var s = await database.SeedAsync();
         var p = await SeedProject(s);
         using var setup = new SupervisorFactory(database, clock: new Clock());
-        var a = await Accept(setup, s, p.Id);
-        await SetStatus(p.Id, "ACTIVE");
+        var a = await SeedMentorAssignment(setup, s, p.Id);
         using var app = new SupervisorFactory(database, saveInterceptor: new EndBarrier(), clock: new Clock());
         using var lecturer = app.CreateAuthenticatedClient(s.Lecturer);
-        var responses = await Task.WhenAll(End(lecturer, a.AssignmentId!.Value), End(lecturer, a.AssignmentId.Value));
+        var responses = await Task.WhenAll(End(lecturer, a.Id), End(lecturer, a.Id));
         var first = await Body<SupervisorAssignmentDto>(responses[0]);
         Assert.Equivalent(first, await Body<SupervisorAssignmentDto>(responses[1]));
         await using var db = database.CreateContext();
@@ -220,8 +219,7 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
         using var student = setup.CreateAuthenticatedClient(s.Student);
         var pending = await Body<SupervisorRequestDto>(await student.PostAsJsonAsync($"/api/v1/projects/{next.Id}/supervisor-requests",
             new SendSupervisorRequest(s.ProfileId, null)));
-        var accepted = await Accept(setup, s, p.Id);
-        await SetStatus(p.Id, "ACTIVE");
+        var accepted = await SeedMentorAssignment(setup, s, p.Id);
         await using (var db = database.CreateContext())
         {
             (await db.SupervisorProfiles.FindAsync(s.ProfileId))!.MaxActiveProjects = 1;
@@ -230,18 +228,18 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
         using var app = new SupervisorFactory(database, saveInterceptor: new EndBarrier("supervisor_profiles"), clock: new Clock());
         using var lecturer = app.CreateAuthenticatedClient(s.Lecturer);
         var acceptUrl = $"/api/v1/supervisor-requests/{pending.Id}/accept";
-        var results = await Task.WhenAll(End(lecturer, accepted.AssignmentId!.Value),
+        var results = await Task.WhenAll(End(lecturer, accepted.Id),
             lecturer.PostAsJsonAsync(acceptUrl, new RespondToSupervisorRequest(null)));
         Assert.All(results, r => Assert.Contains(r.StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict }));
         foreach (var conflict in results.Where(r => r.StatusCode == HttpStatusCode.Conflict))
             Assert.True((await conflict.Content.ReadFromJsonAsync<ProblemDetails>())!.Extensions.ContainsKey("traceId"));
         await using (var db = database.CreateContext())
             Assert.InRange(await db.SupervisorAssignments.CountAsync(a => a.SupervisorProfileId == s.ProfileId && a.EndedAt == null), 0, 1);
-        await Body<SupervisorAssignmentDto>(await End(lecturer, accepted.AssignmentId.Value));
+        await Body<SupervisorAssignmentDto>(await End(lecturer, accepted.Id));
         var newAssignment = await Body<SupervisorRequestDto>(await lecturer.PostAsJsonAsync(acceptUrl, new RespondToSupervisorRequest(null)));
         await using var check = database.CreateContext();
         Assert.Equal(newAssignment.AssignmentId, (await check.SupervisorAssignments.SingleAsync(a => a.SupervisorProfileId == s.ProfileId && a.EndedAt == null)).Id);
-        Assert.Equal(1, await check.AuditLogs.CountAsync(a => a.Action == "SUPERVISOR_ASSIGNMENT_ENDED" && a.EntityId == accepted.AssignmentId.Value.ToString()));
+        Assert.Equal(1, await check.AuditLogs.CountAsync(a => a.Action == "SUPERVISOR_ASSIGNMENT_ENDED" && a.EntityId == accepted.Id.ToString()));
     }
 
     [Fact]
@@ -315,6 +313,44 @@ public sealed class SupervisorAssignmentEndpointTests(SupervisorDatabaseFixture 
         using var lecturer = app.CreateAuthenticatedClient(s.Lecturer);
         var r = await Body<SupervisorRequestDto>(await student.PostAsJsonAsync($"/api/v1/projects/{projectId}/supervisor-requests", new SendSupervisorRequest(s.ProfileId, null)));
         return await Body<SupervisorRequestDto>(await lecturer.PostAsJsonAsync($"/api/v1/supervisor-requests/{r.Id}/accept", new RespondToSupervisorRequest(null)));
+    }
+
+    private async Task<SupervisorAssignmentDto> SeedMentorAssignment(SupervisorFactory app, SupervisorScenario s, long projectId, bool activate = true)
+    {
+        await using var db = database.CreateContext();
+        var project = await db.Projects.Include(p => p.ProjectMajors).SingleAsync(p => p.Id == projectId);
+        var majorId = project.ProjectMajors.First().MajorId;
+        if (activate) project.Status = "ACTIVE";
+        var req = new SupervisorRequest
+        {
+            ProjectId = projectId,
+            SupervisorProfileId = s.ProfileId,
+            RequestedBy = s.Student,
+            AssignmentType = "DISCIPLINE_MENTOR",
+            MajorId = majorId,
+            Status = "ACCEPTED",
+            RequestedAt = Now,
+            RespondedAt = Now,
+            CreatedAt = Now,
+            UpdatedAt = Now
+        };
+        var assignment = new SupervisorAssignment
+        {
+            ProjectId = projectId,
+            SupervisorProfileId = s.ProfileId,
+            SupervisorRequest = req,
+            IsPrimary = false,
+            AssignmentType = "DISCIPLINE_MENTOR",
+            MajorId = majorId,
+            AssignedBy = s.Staff,
+            AssignedAt = Now,
+            CreatedAt = Now,
+            UpdatedAt = Now
+        };
+        db.SupervisorAssignments.Add(assignment);
+        await db.SaveChangesAsync();
+        using var lecturer = app.CreateAuthenticatedClient(s.Lecturer);
+        return await Body<SupervisorAssignmentDto>(await lecturer.GetAsync(AssignmentUrl(assignment.Id)));
     }
 
     private async Task<(long Id, long TeamId, long SemesterId)> SeedProject(SupervisorScenario s, long? semesterId = null)

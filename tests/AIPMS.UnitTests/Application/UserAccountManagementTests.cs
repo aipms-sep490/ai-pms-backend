@@ -201,6 +201,39 @@ public sealed class UserAccountManagementTests
     }
 
     [Fact]
+    public async Task AssignRole_StudentCombinedWithStaffRole_ThrowsRoleCombinationConflict_WhileStaffPlusLecturerSucceeds()
+    {
+        var student = CreateUser(20, "stu@aipms.test", "Student One", null, "SE001", null, null, "tok-stu", [AppRoles.Student]);
+        var staff = CreateUser(21, "staff@aipms.test", "Dept Staff", null, null, "EMP-21", "Staff", "tok-staff", [AppRoles.DepartmentStaff]);
+        var repository = new InMemoryUserAccountRepository(student, staff);
+        var roleRepo = new StubRoleRepository(
+            new SecurityRole(1, AppRoles.Admin, "Admin", null, true, FixedNow.UtcDateTime, FixedNow.UtcDateTime, []),
+            new SecurityRole(2, AppRoles.DepartmentStaff, "Staff", null, true, FixedNow.UtcDateTime, FixedNow.UtcDateTime, []),
+            new SecurityRole(3, AppRoles.Lecturer, "Lecturer", null, true, FixedNow.UtcDateTime, FixedNow.UtcDateTime, []),
+            new SecurityRole(4, AppRoles.Student, "Student", null, true, FixedNow.UtcDateTime, FixedNow.UtcDateTime, []));
+        var handler = new AssignUserRoleCommandHandler(
+            repository,
+            roleRepo,
+            new AccountSecurityAccessService(new TestCurrentUser(1, AppRoles.Admin)),
+            new RecordingAuditTrail(),
+            new FixedTimeProvider(FixedNow));
+
+        // Negative Q-X-04: STUDENT + LECTURER / DEPARTMENT_STAFF / ADMIN -> 409 ROLE_COMBINATION_CONFLICT
+        foreach (var forbiddenRoleId in new long[] { 1, 2, 3 })
+        {
+            var ex = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new AssignUserRoleCommand(20, forbiddenRoleId), CancellationToken.None));
+            Assert.Equal(WorkflowErrorCodes.RoleCombinationConflict, ex.Code);
+        }
+
+        // Negative Q-X-04: DEPARTMENT_STAFF + STUDENT -> 409 ROLE_COMBINATION_CONFLICT
+        var exReverse = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new AssignUserRoleCommand(21, 4), CancellationToken.None));
+        Assert.Equal(WorkflowErrorCodes.RoleCombinationConflict, exReverse.Code);
+
+        // Positive: DEPARTMENT_STAFF + LECTURER (dual-hat staff lecturer) is allowed
+        await handler.Handle(new AssignUserRoleCommand(21, 3), CancellationToken.None);
+    }
+
+    [Fact]
     public void Validator_RejectsInvalidUserIdAndExcessiveLengths()
     {
         var validator = new UpdateUserAccountCommandValidator();
@@ -442,15 +475,15 @@ public sealed class UserAccountManagementTests
         public Task<AccountUser> CreateUserAsync(CreateAccountData data, long actorUserId, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<AccountUser>> CreateUsersAsync(IReadOnlyCollection<CreateAccountData> accounts, long actorUserId, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AccountUser> UpdateProfileAsync(long userId, UpdateProfileData data, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task AssignRoleAsync(long userId, long roleId, long actorUserId, DateTime utcNow, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task AssignRoleAsync(long userId, long roleId, long actorUserId, DateTime utcNow, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task RemoveRoleAsync(long userId, long roleId, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
     }
 
-    private sealed class StubRoleRepository(SecurityRole role) : IRolePermissionRepository
+    private sealed class StubRoleRepository(params SecurityRole[] roles) : IRolePermissionRepository
     {
         public Task<SecurityRole?> GetRoleAsync(long roleId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<SecurityRole?>(role.Id == roleId ? role : null);
+            Task.FromResult<SecurityRole?>(roles.FirstOrDefault(r => r.Id == roleId));
 
         public Task<PagedResult<SecurityRole>> GetRolesAsync(string? search, int page, int pageSize, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> RoleCodeExistsAsync(string code, long? excludedRoleId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

@@ -82,6 +82,7 @@ public static class WorkflowErrorCodes
     public const string AiFeatureDisabled = "AI_FEATURE_DISABLED";
     public const string AiDailyQuotaExceeded = "AI_DAILY_QUOTA_EXCEEDED";
     public const string RbacPermissionMatrixReadOnly = "RBAC_PERMISSION_MATRIX_READ_ONLY";
+    public const string RoleCombinationConflict = "ROLE_COMBINATION_CONFLICT";
     public const string AdminNotAcademicAuthority = "ADMIN_NOT_ACADEMIC_AUTHORITY";
     public const string ActiveObligationsAcknowledgementRequired = "ACTIVE_OBLIGATIONS_ACKNOWLEDGEMENT_REQUIRED";
     public const string StudentIdentityLocked = "STUDENT_IDENTITY_LOCKED";
@@ -123,6 +124,9 @@ public static class WorkflowErrorCodes
     public const string DefenseRoomCapacity = "DEFENSE_ROOM_CAPACITY";
     public const string DefenseAlreadyScheduled = "DEFENSE_ALREADY_SCHEDULED";
     public const string ChangeRequestWindowExpired = "CHANGE_REQUEST_WINDOW_EXPIRED";
+    public const string AppealProcess20NoExternalReviewer = "APPEAL_PROCESS_20_NO_EXTERNAL_REVIEWER";
+    public const string DefenseAbsenceNotFound = "DEFENSE_ABSENCE_NOT_FOUND";
+    public const string ProjectArchived = "PROJECT_ARCHIVED";
     public const string FeatureDisabled = "FEATURE_DISABLED";
     public const string InterdisciplinaryDefenseCommonBelowFloor = "INTERDISCIPLINARY_DEFENSE_COMMON_BELOW_FLOOR";
     public const string Unauthorized = "UNAUTHORIZED";

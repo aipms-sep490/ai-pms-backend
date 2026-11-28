@@ -16,15 +16,20 @@ internal sealed class ExecutionConcurrencyBehavior<TRequest, TResponse>(
     IConfiguration configuration,
     ICurrentUser actor,
     IProjectAccessService access,
-    ILogger<ExecutionConcurrencyBehavior<TRequest, TResponse>> logger)
+    ILogger<ExecutionConcurrencyBehavior<TRequest, TResponse>> logger,
+    Microsoft.Extensions.Options.IOptions<AIPMS.Application.Common.Options.ExecutionConcurrencySettings>? concurrencyOptions = null)
     : IPipelineBehavior<TRequest, TResponse> where TRequest : notnull
 {
     public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken ct)
     {
         if (request is not IExecutionMutation mutation) return await next();
         var writes = mutation.Writes;
-        var required = bool.TryParse(configuration["ExecutionConcurrency:RequireTokens"], out var configured) && configured;
-        var logMissingTokens = !bool.TryParse(configuration["ExecutionConcurrency:LogMissingTokens"], out var logCfg) || logCfg;
+        var required = bool.TryParse(configuration["ExecutionConcurrency:RequireTokens"], out var configured)
+            ? configured
+            : (concurrencyOptions?.Value.RequireTokens ?? false);
+        var logMissingTokens = bool.TryParse(configuration["ExecutionConcurrency:LogMissingTokens"], out var logCfg)
+            ? logCfg
+            : (concurrencyOptions?.Value.LogMissingTokens ?? true);
         // Legacy clients may omit tokens, but mutations and audit still commit together.
         var userId = actor.UserId ?? throw new UnauthorizedException();
         await using var tx = db.Database.CurrentTransaction is null

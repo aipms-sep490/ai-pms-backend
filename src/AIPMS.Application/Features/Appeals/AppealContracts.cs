@@ -15,11 +15,16 @@ public sealed record AppealWindowDto(long Id, long PolicyId, string Status, Date
     IReadOnlyList<AppealWindowTarget> Targets);
 public sealed record AppealTokenRequest(string ConcurrencyToken);
 public sealed record CreateCorrectionRequest(string Source, long PolicyId, long? WindowId, string TargetType, long? StudentId,
-    int ResultVersion, long ComponentId, string Reason);
+    int ResultVersion, long ComponentId, string Reason,
+    string? AppealKind = null, IReadOnlyList<long>? ComponentIds = null);
 public sealed record AssignAppealReviewerRequest(string ConcurrencyToken, long ReviewerId);
 public sealed record ReviewAppealRequest(string ConcurrencyToken, string Proposal, string Reason, IReadOnlyList<ScoreAmendmentInput> Amendments);
-public sealed record AppealDecisionRequest(string ConcurrencyToken, string Decision, string Reason, string? ConfirmationToken);
+public sealed record SupervisorErrataResponseRequest(string ConcurrencyToken, string Proposal, string Reason,
+    IReadOnlyList<GateProcessAmendmentInput> GateAmendments);
+public sealed record AppealDecisionRequest(string ConcurrencyToken, string Decision, string Reason, string? ConfirmationToken,
+    IReadOnlyList<DefenseRecoveredScoreInput>? RecoveredDefenseScores = null);
 public sealed record WithdrawAppealRequest(string ConcurrencyToken, string Reason);
+public sealed record EligibleAppealReviewerDto(long UserId, string FullName, string? Email, long DepartmentId, string? DepartmentName);
 public sealed record AppealFileDto(long FileId, string FileName, string ContentType, long SizeBytes, string Sha256, string DownloadUrl);
 public sealed record AppealEventDto(long Id, string Action, long ActorId, DateTime At, string? Reason,
     long? BundleId, IReadOnlyList<ScoreAmendmentInput> Amendments, string? ActorName = null);
@@ -28,9 +33,19 @@ public sealed record CorrectionRequestDto(long Id, long ProjectId, string Source
     string Reason, string? Proposal, string? ReviewReason, string? DecisionReason, string ConcurrencyToken,
     IReadOnlyList<string> AllowedActions, IReadOnlyList<string> Blockers, IReadOnlyList<AppealFileDto> Files,
     string? RequestedByName = null, string? ReviewerName = null, string? StudentName = null,
-    string? ComponentName = null, string? MajorName = null);
+    string? ComponentName = null, string? MajorName = null,
+    string AppealKind = "INDEPENDENT_80",
+    IReadOnlyList<long>? ComponentIds = null,
+    IReadOnlyList<string>? ComponentNames = null,
+    string? SupervisorNote = null,
+    DateTime? SupervisorRespondedAt = null);
 public sealed record AppealPreviewDto(string ConfirmationToken, IReadOnlyList<ResultRevisionSummary> AffectedResults);
+public sealed record AppealReviewGateScoreDto(long GateScoreId, int GateNumber, decimal Score, decimal GateWeightPercent);
 public sealed record AppealReviewContextDto(long RequestId, long ComponentId, string Scope, long? MajorId, long? StudentId,
-    string CalculationVersion, IReadOnlyList<AppealReviewEvaluationDto> Evaluations, IReadOnlyList<ScoreAmendmentInput> Amendments);
+    string CalculationVersion, IReadOnlyList<AppealReviewEvaluationDto> Evaluations, IReadOnlyList<ScoreAmendmentInput> Amendments,
+    string AppealKind = "INDEPENDENT_80",
+    IReadOnlyList<long>? ComponentIds = null,
+    IReadOnlyList<AppealReviewGateScoreDto>? GateScores = null,
+    IReadOnlyList<GateProcessAmendmentInput>? GateAmendments = null);
 public sealed record AppealReviewEvaluationDto(long Id, long AssignmentId, long EvaluatorId, long RubricId, string RubricName,
     int RubricVersion, decimal? TotalScore, IReadOnlyList<EvaluationScoreRecord> Scores, string? EvaluatorName = null);

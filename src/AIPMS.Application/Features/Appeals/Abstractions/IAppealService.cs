@@ -19,6 +19,8 @@ public interface IAppealService
     Task<AppealReviewContextDto> ReviewContext(long projectId, long id, CancellationToken ct);
     Task<CorrectionRequestDto> Decide(long projectId, long id, AppealDecisionRequest input, CancellationToken ct);
     Task<CorrectionRequestDto> Withdraw(long projectId, long id, WithdrawAppealRequest input, CancellationToken ct);
+    Task<IReadOnlyList<EligibleAppealReviewerDto>> GetEligibleReviewers(long projectId, long id, CancellationToken ct);
+    Task<CorrectionRequestDto> SubmitSupervisorErrata(long projectId, long id, SupervisorErrataResponseRequest input, CancellationToken ct);
     Task<CorrectionRequestDto> Upload(long projectId, long id, string token, UploadContent content, CancellationToken ct);
     Task<FileDownload> Download(long projectId, long id, long fileId, CancellationToken ct);
     Task<IReadOnlyList<AppealFileDto>> Evidence(long projectId, long id, CancellationToken ct);

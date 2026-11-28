@@ -302,6 +302,11 @@ public static class DependencyInjection
         services.AddScoped<IResultHistoryService, ResultHistoryService>();
         services.AddScoped<ResultRevisionStore>();
         services.AddScoped<Application.Features.Appeals.Abstractions.IAppealService, ResultAppealService>();
+        services.AddScoped<Application.Features.Results.Abstractions.IResultReconciliationExportService, Services.Projects.ResultReconciliationExportService>();
+        services.AddScoped<IDepartmentDailyDigestService, DepartmentDailyDigestService>();
+        services.AddScoped<INotificationEmailAdminService, NotificationEmailAdminService>();
+        services.AddOptions<Application.Common.Options.ExecutionConcurrencySettings>().BindConfiguration(Application.Common.Options.ExecutionConcurrencySettings.SectionName);
+        services.AddOptions<Application.Common.Options.DepartmentDigestSettings>().BindConfiguration(Application.Common.Options.DepartmentDigestSettings.SectionName);
         services.AddOptions<Application.Features.Appeals.AppealSettings>().BindConfiguration("Appeals");
         services.AddOptions<AIPMS.Application.Features.Evaluations.Models.RubricOptions>().BindConfiguration(AIPMS.Application.Features.Evaluations.Models.RubricOptions.SectionName);
         services.AddScoped<Application.Features.AcademicTracking.Abstractions.IAcademicTrackingService, AcademicTrackingService>();

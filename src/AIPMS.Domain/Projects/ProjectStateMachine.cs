@@ -24,4 +24,7 @@ public static class ProjectStateMachine
 
     public static bool CanTransition(ProjectStatus currentStatus, ProjectStatus nextStatus) =>
         AllowedTransitions[currentStatus].Contains(nextStatus);
+
+    public static bool CanUnarchive(ProjectStatus currentStatus) =>
+        currentStatus == ProjectStatus.Archived;
 }

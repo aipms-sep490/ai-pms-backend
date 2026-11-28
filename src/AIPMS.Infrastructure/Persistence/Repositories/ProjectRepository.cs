@@ -617,7 +617,7 @@ public sealed partial class ProjectRepository(
             }
             else if (newStatus == "COMPLETED")
             {
-                project.CompletedAt = utcNow;
+                project.CompletedAt ??= utcNow;
             }
 
             // Write status history
@@ -633,7 +633,10 @@ public sealed partial class ProjectRepository(
             context.ProjectStatusHistories.Add(history);
 
             if (newStatus == "ACTIVE")
+            {
+                await context.SaveChangesAsync(cancellationToken);
                 await (activationService ?? new AIPMS.Infrastructure.Services.Projects.ProjectActivationService(context)).ApplyMilestoneTemplateAsync(projectId, actorUserId, utcNow, cancellationToken);
+            }
 
             if (newStatus == "REVISION_REQUIRED")
             {
@@ -816,10 +819,10 @@ public sealed partial class ProjectRepository(
 
         if (belongsToTeam) return true;
 
-        var isSupervisor = await context.SupervisorAssignments.AnyAsync(sa => 
-            sa.ProjectId == projectId 
+        var isSupervisor = await context.SupervisorAssignments.AnyAsync(sa =>
+            sa.ProjectId == projectId
             && sa.SupervisorProfile.UserId == userId
-            && sa.EndedAt == null, 
+            && (sa.EndedAt == null || context.Projects.Any(p => p.Id == projectId && p.Status == "ARCHIVED")),
             cancellationToken);
 
         if (isSupervisor) return true;
