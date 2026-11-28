@@ -11,11 +11,15 @@ public sealed class FileStorageReadinessHealthCheck(IConfiguration configuration
         var provider = (configuration["FileStorage:Provider"] ?? "Local").Trim();
         if (string.Equals(provider, "GoogleDrive", StringComparison.OrdinalIgnoreCase))
         {
-            var hasCredentials = !string.IsNullOrWhiteSpace(configuration["FileStorage:GoogleDrive:CredentialsPath"])
+            var hasCanonicalOAuth = !string.IsNullOrWhiteSpace(configuration["GoogleDrive:ClientId"])
+                && !string.IsNullOrWhiteSpace(configuration["GoogleDrive:ClientSecret"])
+                && !string.IsNullOrWhiteSpace(configuration["GoogleDrive:RefreshToken"]);
+            var hasLegacyCredentials = !string.IsNullOrWhiteSpace(configuration["FileStorage:GoogleDrive:CredentialsPath"])
                 || !string.IsNullOrWhiteSpace(configuration["FileStorage:GoogleDrive:CredentialsJson"])
                 || !string.IsNullOrWhiteSpace(configuration["FileStorage:GoogleDrive:RefreshToken"]);
-            var hasFolder = !string.IsNullOrWhiteSpace(configuration["FileStorage:GoogleDrive:RootFolderId"]);
-            return hasCredentials && hasFolder
+            var hasFolder = !string.IsNullOrWhiteSpace(configuration["GoogleDrive:FolderId"])
+                || !string.IsNullOrWhiteSpace(configuration["FileStorage:GoogleDrive:RootFolderId"]);
+            return (hasCanonicalOAuth || hasLegacyCredentials) && hasFolder
                 ? HealthCheckResult.Healthy("configured")
                 : HealthCheckResult.Unhealthy("misconfigured");
         }

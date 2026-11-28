@@ -156,4 +156,63 @@ public sealed class HealthReadinessEndpointTests
             if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task FileStorageHealthCheck_WhenCanonicalGoogleDriveConfigured_ReturnsHealthy()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["FileStorage:Provider"] = "GoogleDrive",
+                ["GoogleDrive:ClientId"] = "client-id",
+                ["GoogleDrive:ClientSecret"] = "client-secret",
+                ["GoogleDrive:RefreshToken"] = "refresh-token",
+                ["GoogleDrive:FolderId"] = "folder-123"
+            })
+            .Build();
+
+        var result = await new FileStorageReadinessHealthCheck(config)
+            .CheckHealthAsync(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext());
+
+        Assert.Equal(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy, result.Status);
+        Assert.Equal("configured", result.Description);
+    }
+
+    [Fact]
+    public async Task FileStorageHealthCheck_WhenLegacyFileStorageGoogleDriveConfigured_ReturnsHealthy()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["FileStorage:Provider"] = "GoogleDrive",
+                ["FileStorage:GoogleDrive:RefreshToken"] = "legacy-refresh-token",
+                ["FileStorage:GoogleDrive:RootFolderId"] = "legacy-folder-123"
+            })
+            .Build();
+
+        var result = await new FileStorageReadinessHealthCheck(config)
+            .CheckHealthAsync(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext());
+
+        Assert.Equal(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy, result.Status);
+    }
+
+    [Fact]
+    public async Task FileStorageHealthCheck_WhenGoogleDriveMissingFolderOrCredentials_ReturnsUnhealthy()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["FileStorage:Provider"] = "GoogleDrive",
+                ["GoogleDrive:ClientId"] = "client-id",
+                ["GoogleDrive:ClientSecret"] = "client-secret",
+                ["GoogleDrive:RefreshToken"] = "refresh-token"
+            })
+            .Build();
+
+        var result = await new FileStorageReadinessHealthCheck(config)
+            .CheckHealthAsync(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext());
+
+        Assert.Equal(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy, result.Status);
+        Assert.Equal("misconfigured", result.Description);
+    }
 }
