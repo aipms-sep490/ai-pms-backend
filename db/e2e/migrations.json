@@ -107,5 +107,6 @@
   "20261208_topic_max_teams_and_metadata.sql",
   "20261209_proposal_pol02_consolidated_and_override.sql",
   "20261210_review_gate_per_assignment_verification.sql",
-  "20261211_pol03_individual_process_relax_and_mentor_note.sql"
+  "20261211_pol03_individual_process_relax_and_mentor_note.sql",
+  "20261212_allow_force_lock_after_deadline_and_final_reopen.sql"
 ]

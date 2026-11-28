@@ -50,6 +50,11 @@ public sealed class EvaluationDraftsController(ISender sender, IEvaluationAssign
     public async Task<ActionResult<EvaluationAssignmentDto>> Revoke(long id, RevokeEvaluatorRequest request, CancellationToken ct) =>
         Ok(await sender.Send(new RevokeEvaluatorCommand(id, request), ct));
 
+    [HttpPost("api/v1/evaluation-assignments/{id:long}/replace")]
+    [ProducesResponseType<ReplaceEvaluatorResponse>(200)]
+    public async Task<ActionResult<ReplaceEvaluatorResponse>> Replace(long id, ReplaceEvaluatorRequest request, CancellationToken ct) =>
+        Ok(await sender.Send(new ReplaceEvaluatorCommand(id, request), ct));
+
     [HttpGet("api/v1/evaluation-assignments/{id:long}")]
     public Task<EvaluationAssignmentDetailDto> AssignmentDetail(long id, CancellationToken ct) => assignmentAccess.GetAsync(id, ct);
 

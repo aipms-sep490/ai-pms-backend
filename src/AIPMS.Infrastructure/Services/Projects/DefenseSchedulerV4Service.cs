@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Threading.Tasks;
 using AIPMS.Application.Abstractions.Auditing;
 using AIPMS.Application.Abstractions.Security;
@@ -5,6 +6,7 @@ using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Common.Security;
 using AIPMS.Application.Features.AcademicTracking;
 using AIPMS.Application.Features.AcademicTracking.Abstractions;
+using AIPMS.Application.Features.Semesters;
 using AIPMS.Domain.Exceptions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
@@ -58,6 +60,52 @@ internal sealed partial class DefenseSchedulerV4Service(
             .AnyAsync(pm => pm.ProjectId == projectId && pm.Major.DepartmentId == staffDepartmentId, ct);
         if (!inScope)
             throw new ForbiddenException("This project is outside your department scope.", WorkflowErrorCodes.ScopeAccessDenied);
+    }
+
+    private async Task RequireLeadDepartmentScopeAsync(long projectId, long staffDepartmentId, CancellationToken ct)
+    {
+        var leadDeptId = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
+            .Where(s => s.ProjectId == projectId)
+            .OrderByDescending(s => s.Id)
+            .Select(s => (long?)s.LeadDepartmentId)
+            .FirstOrDefaultAsync(ct);
+        if (leadDeptId.HasValue)
+        {
+            if (leadDeptId.Value != staffDepartmentId)
+                throw new ForbiddenException("Only the Lead Department staff can schedule defense rooms for this project.", WorkflowErrorCodes.ScopeAccessDenied);
+            return;
+        }
+        await RequireProjectInDepartmentScopeAsync(projectId, staffDepartmentId, ct);
+    }
+
+    public async Task<PeriodDefenseRoomSchedulingDto> GetPeriodSchedulingConfigAsync(long periodId, CancellationToken ct)
+    {
+        if (!current.IsAuthenticated || !current.UserId.HasValue) throw new UnauthorizedException();
+        var period = await db.ProjectPeriods.AsNoTracking()
+            .Where(p => p.Id == periodId)
+            .Select(p => new
+            {
+                p.Id,
+                p.EnableDefenseRoomScheduling,
+                p.ColdWindowEndAt,
+                p.DefenseBufferHours,
+                OrganizationId = p.AcademicSemester.OrganizationId
+            })
+            .SingleOrDefaultAsync(ct)
+            ?? throw new NotFoundException("ProjectPeriod", periodId);
+
+        if (!current.Roles.Contains(AppRoles.Admin))
+        {
+            var isOrgStaff = await db.Users.AsNoTracking()
+                .AnyAsync(u => u.Id == Actor && u.Status == "ACTIVE"
+                    && u.UserRoleUsers.Any(r => r.Role.Code == AppRoles.DepartmentStaff)
+                    && u.Department != null && u.Department.IsActive
+                    && u.Department.OrganizationId == period.OrganizationId, ct);
+            if (!isOrgStaff)
+                throw new ForbiddenException("Only Administrators or active Department Staff can read defense room scheduling settings.", WorkflowErrorCodes.ScopeAccessDenied);
+        }
+
+        return new(period.Id, period.EnableDefenseRoomScheduling, period.ColdWindowEndAt, period.DefenseBufferHours);
     }
 
     public async Task<PeriodDefenseRoomSchedulingDto> UpdatePeriodSchedulingConfigAsync(
@@ -133,23 +181,50 @@ internal sealed partial class DefenseSchedulerV4Service(
             .Include(p => p.Team).ThenInclude(t => t.TeamMembers)
             .SingleOrDefaultAsync(p => p.Id == input.ProjectId, ct)
             ?? throw new NotFoundException("Project", input.ProjectId);
-        if (!project.ProjectMajors.Any(pm => pm.Major.DepartmentId == staffDeptId))
-            throw new ForbiddenException("This project is outside your department scope.", WorkflowErrorCodes.ScopeAccessDenied);
+        await RequireLeadDepartmentScopeAsync(project.Id, staffDeptId, ct);
 
-        var periodId = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
+        if (project.Status != "FINAL_SUBMISSION")
+            throw new ConflictException("Defense room scheduling requires a project in FINAL_SUBMISSION status.", WorkflowErrorCodes.FinalPackageRequired);
+
+        var projectGates = await db.ProjectGateInstances.AsNoTracking()
+            .Where(g => g.ProjectId == input.ProjectId)
+            .Select(g => new { g.Sequence, g.BlocksDefense, g.Status })
+            .ToArrayAsync(ct);
+        if (projectGates.Length > 0 && projectGates.Any(g => (g.Sequence == 3 || g.BlocksDefense) && g.Status != "PASSED"))
+            throw new ConflictException("Gate 3 (and all defense-blocking gates) must be PASSED before scheduling defense.", WorkflowErrorCodes.Gate3NotPassed);
+
+        var snapshotPeriodId = await db.Set<ProjectRegistrationSnapshot>().AsNoTracking()
             .Where(s => s.ProjectId == input.ProjectId)
             .OrderByDescending(s => s.Id)
             .Select(s => (long?)s.ProjectPeriodId)
             .FirstOrDefaultAsync(ct);
 
-        var period = periodId.HasValue
-            ? await db.ProjectPeriods.AsNoTracking().SingleOrDefaultAsync(p => p.Id == periodId.Value, ct)
-            : await db.ProjectPeriods.AsNoTracking()
-                .Where(p => p.AcademicSemesterId == project.Team.AcademicSemesterId && p.PeriodType == "EVALUATION")
-                .OrderByDescending(p => p.Id).FirstOrDefaultAsync(ct);
+        var period = await db.ProjectPeriods.AsNoTracking()
+            .Where(p => p.AcademicSemesterId == project.Team.AcademicSemesterId && p.PeriodType == "EVALUATION")
+            .OrderByDescending(p => p.EnableDefenseRoomScheduling)
+            .ThenByDescending(p => p.Status == "ACTIVE")
+            .ThenByDescending(p => p.Id)
+            .FirstOrDefaultAsync(ct);
+        if (period is null && snapshotPeriodId.HasValue)
+            period = await db.ProjectPeriods.AsNoTracking().SingleOrDefaultAsync(p => p.Id == snapshotPeriodId.Value, ct);
 
         if (period is null || !period.EnableDefenseRoomScheduling)
-            throw new ConflictException("Optional defense room scheduling is disabled for this project period.", "DEFENSE_ROOM_SCHEDULING_DISABLED");
+            throw new ConflictException("Optional defense room scheduling is disabled for this project period.", WorkflowErrorCodes.DefenseRoomSchedulingDisabled);
+
+        if (await db.Set<DefenseSession>().AsNoTracking().AnyAsync(s => s.ProjectId == input.ProjectId && s.Status == "SCHEDULED", ct))
+            throw new ConflictException("This project already has a scheduled defense session.", WorkflowErrorCodes.DefenseAlreadyScheduled);
+
+        if (input.Date.DayOfWeek == DayOfWeek.Sunday)
+            throw new ConflictException("Defense sessions cannot be scheduled on Sunday.", WorkflowErrorCodes.DefenseNonWorkingDay);
+
+        var calendar = await db.Set<ProjectPeriodCalendar>().AsNoTracking()
+            .SingleOrDefaultAsync(c => c.ProjectPeriodId == period.Id, ct)
+            ?? (snapshotPeriodId.HasValue
+                ? await db.Set<ProjectPeriodCalendar>().AsNoTracking().SingleOrDefaultAsync(c => c.ProjectPeriodId == snapshotPeriodId.Value, ct)
+                : null);
+        if (calendar is not null && !WorkingDayMath.IsWorkingDay(input.Date, calendar.WorkingDaysOfWeek,
+            JsonSerializer.Deserialize<PeriodHoliday[]>(calendar.HolidaysJson) ?? []))
+            throw new ConflictException("The selected date is configured as a non-working day.", WorkflowErrorCodes.DefenseNonWorkingDay);
 
         var projectMajorIds = project.ProjectMajors.Select(m => m.MajorId).Distinct().ToArray();
         var isInterdisciplinary = string.Equals(project.TrackCode, "IT_MKT", StringComparison.OrdinalIgnoreCase)
@@ -196,12 +271,13 @@ internal sealed partial class DefenseSchedulerV4Service(
         var memberUserIds = committee.Members.Select(m => m.UserId).Distinct().ToArray();
         var memberMajorIds = committee.Members.Select(m => m.MajorId).Distinct().ToArray();
 
-        // D17 COI check
-        if (await db.SupervisorAssignments.AsNoTracking().AnyAsync(a => a.ProjectId == input.ProjectId
-            && ((a.IsPrimary && a.AssignmentType == "PRIMARY") || a.EndedAt == null)
-            && memberUserIds.Contains(a.SupervisorProfile.UserId), ct))
+        // D17 / QD-06 COI check (primary/former primary supervisors and active/ended discipline mentors)
+        foreach (var memberUserId in memberUserIds)
         {
-            throw new ConflictException("Primary/former primary supervisors and active mentors cannot sit on the defense committee.", WorkflowErrorCodes.EvaluatorRoleConflict);
+            if (await AcademicAssignmentGuard.HasSupervisorOrMentorConflictAsync(db, input.ProjectId, memberUserId, ct))
+            {
+                throw new ConflictException("Primary/former primary supervisors and discipline mentors cannot sit on the defense committee (D17).", WorkflowErrorCodes.EvaluatorRoleConflict);
+            }
         }
 
         // Quorum check
@@ -213,6 +289,9 @@ internal sealed partial class DefenseSchedulerV4Service(
                     : "Defense committee must cover the project's major.",
                 WorkflowErrorCodes.CouncilQuorumUnmet);
 
+        if (committee.Status != "CONFIRMED")
+            throw new ConflictException("The defense committee must be CONFIRMED before scheduling a defense session.", WorkflowErrorCodes.DefenseCommitteeRequired);
+
         var room = await db.Set<Room>().AsNoTracking()
             .SingleOrDefaultAsync(r => r.Id == input.RoomId && r.Status == "ACTIVE", ct)
             ?? throw new NotFoundException("Room", input.RoomId);
@@ -220,6 +299,10 @@ internal sealed partial class DefenseSchedulerV4Service(
         if (isInterdisciplinary && !string.IsNullOrWhiteSpace(room.RoomClusterType)
             && !string.Equals(room.RoomClusterType, "INTERDISCIPLINARY", StringComparison.OrdinalIgnoreCase))
             throw new DomainException("Interdisciplinary defense requires an INTERDISCIPLINARY cluster room.", WorkflowErrorCodes.ValidationFailed);
+
+        var activeStudentCount = project.Team.TeamMembers.Count(m => m.LeftAt == null);
+        if (room.Capacity < activeStudentCount + memberUserIds.Length)
+            throw new ConflictException("The selected room has insufficient capacity for the team and defense committee.", WorkflowErrorCodes.DefenseRoomCapacity);
 
         // 3D conflict check: Room, Evaluator, Student
         var overlapping = await db.Set<DefenseSession>().AsNoTracking()

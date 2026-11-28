@@ -44,12 +44,19 @@ public sealed record BlueprintIntegrationDeliverableRule(
     string Title,
     IReadOnlyList<string> Stages);
 
+public sealed record BlueprintEvaluationSchemeTemplate(
+    string Name,
+    decimal PassThreshold,
+    AIPMS.Application.Features.Evaluations.DTOs.SchemePolicyInput Policy,
+    IReadOnlyList<AIPMS.Application.Features.Evaluations.DTOs.SchemeComponentInput> Components);
+
 public sealed record AcademicBlueprintConfig(
     IReadOnlyList<BlueprintGateRule>? GateRules = null,
     IReadOnlyList<BlueprintSprintRule>? SprintRules = null,
     IReadOnlyList<BlueprintMilestoneRule>? MilestoneRules = null,
     IReadOnlyList<BlueprintIntegrationDeliverableRule>? IntegrationDeliverables = null,
-    string? EvaluationSchemePreset = null);
+    string? EvaluationSchemePreset = null,
+    BlueprintEvaluationSchemeTemplate? EvaluationSchemeTemplate = null);
 
 public sealed record AcademicBlueprintApprovalDto(
     long DepartmentId,

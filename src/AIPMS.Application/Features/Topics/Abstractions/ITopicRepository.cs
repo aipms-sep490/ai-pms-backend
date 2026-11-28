@@ -18,7 +18,8 @@ public interface ITopicRepository
     Task<TopicDto> SetStatusAsync(long id, bool publish, string? reason, TopicActor actor, DateTime now, CancellationToken ct);
     Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken ct);
     Task<TopicSimilarityResultDto> CheckSimilarityAsync(long organizationId, long? leadDepartmentId, string? title,
-        IReadOnlyList<string>? keywords, string? domain, int periodWindow, long? excludeTopicId, long? excludeProjectId, CancellationToken ct) =>
+        IReadOnlyList<string>? keywords, string? domain, int periodWindow, long? excludeTopicId, long? excludeProjectId, CancellationToken ct,
+        IReadOnlyCollection<long>? departmentIds = null) =>
         Task.FromResult(new TopicSimilarityResultDto(null, []));
 }
 

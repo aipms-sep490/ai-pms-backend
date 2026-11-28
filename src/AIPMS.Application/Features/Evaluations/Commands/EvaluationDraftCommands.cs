@@ -6,6 +6,7 @@ namespace AIPMS.Application.Features.Evaluations.Commands;
 
 public sealed record AssignEvaluatorCommand(long ProjectId, AssignEvaluatorRequest Input) : IRequest<EvaluationAssignmentDto>;
 public sealed record RevokeEvaluatorCommand(long Id, RevokeEvaluatorRequest Input) : IRequest<EvaluationAssignmentDto>;
+public sealed record ReplaceEvaluatorCommand(long Id, ReplaceEvaluatorRequest Input) : IRequest<ReplaceEvaluatorResponse>;
 public sealed record CreateEvaluationDraftCommand(long AssignmentId) : IRequest<EvaluationDraftDto>;
 public sealed record SaveEvaluationDraftCommand(long Id, SaveEvaluationDraftRequest Input) : IRequest<EvaluationDraftDto>;
 
@@ -16,6 +17,10 @@ public sealed class AssignEvaluatorCommandHandler(EvaluationDraftWorkflow workfl
 public sealed class RevokeEvaluatorCommandHandler(EvaluationDraftWorkflow workflow) : IRequestHandler<RevokeEvaluatorCommand, EvaluationAssignmentDto>
 {
     public Task<EvaluationAssignmentDto> Handle(RevokeEvaluatorCommand r, CancellationToken ct) => workflow.Revoke(r.Id, r.Input, ct);
+}
+public sealed class ReplaceEvaluatorCommandHandler(EvaluationDraftWorkflow workflow) : IRequestHandler<ReplaceEvaluatorCommand, ReplaceEvaluatorResponse>
+{
+    public Task<ReplaceEvaluatorResponse> Handle(ReplaceEvaluatorCommand r, CancellationToken ct) => workflow.Replace(r.Id, r.Input, ct);
 }
 public sealed class CreateEvaluationDraftCommandHandler(EvaluationDraftWorkflow workflow) : IRequestHandler<CreateEvaluationDraftCommand, EvaluationDraftDto>
 {

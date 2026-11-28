@@ -6,6 +6,7 @@ public interface IProjectResultRepository
 {
     Task<ResultPolicyDto?> PolicyAsync(long projectId, CancellationToken ct);
     Task<bool> AnyFinalizedAsync(long projectId, CancellationToken ct);
+    Task<bool> HasPublishedResultAsync(long projectId, CancellationToken ct) => Task.FromResult(false);
     Task<ResultPolicyDto> ConfigureAsync(long projectId, ConfigureResultPolicyRequest input, long actorId, DateTime now, CancellationToken ct);
     Task<ProjectResultDto?> GetAsync(long projectId, CancellationToken ct);
     Task<ProjectResultDto> PublishAsync(ProjectResultDto result, CancellationToken ct);

@@ -5,6 +5,9 @@ namespace AIPMS.Application.Features.Evaluations.DTOs;
 public sealed record AssignEvaluatorRequest(long EvaluatorId, long ProjectPeriodId, string EvaluationType,
     string? Scope = null, long? MajorId = null, long? StudentId = null, long? ComponentId = null);
 public sealed record RevokeEvaluatorRequest(string ConcurrencyToken, string Reason);
+public sealed record ReplaceEvaluatorRequest(long ReplacementEvaluatorId, string ConcurrencyToken, string Reason,
+    bool UpdateCommitteeIfNeeded = false);
+public sealed record ReplaceEvaluatorResponse(EvaluationAssignmentDto RevokedAssignment, EvaluationAssignmentDto ReplacementAssignment);
 public sealed record SaveEvaluationDraftRequest(string ConcurrencyToken, string? Comments,
     IReadOnlyList<EvaluationScoreInput> Scores);
 
@@ -16,7 +19,8 @@ public sealed record EvaluationAssignmentDto(long Id, long ProjectId, long Evalu
     DateTime? DueAt = null,
     decimal? ComponentStudentWeightPercent = null,
     string? SchemeApprovalStatus = null,
-    bool? SchemeIsDemo = null);
+    bool? SchemeIsDemo = null,
+    bool HasFinalizedEvaluation = false);
 
 public sealed record EvaluationScoreDto(long RubricCriterionId, string Name, string? Description, decimal WeightPercent,
     decimal MaxScore, int SortOrder, bool IsRequired, decimal? Score, string? Comments,
@@ -74,7 +78,8 @@ public sealed record ProjectScoringWorkbenchDto(
     string ProjectStatus,
     decimal FailingComponentThreshold,
     IReadOnlyList<ScoringWorkbenchRosterMemberDto> Roster,
-    IReadOnlyList<WorkbenchAssignmentSummaryDto> ProjectLevelAssignments);
+    IReadOnlyList<WorkbenchAssignmentSummaryDto> ProjectLevelAssignments,
+    string? CalculationFormula = null);
 
 public static class EvaluationDraftDtoMapper
 {
@@ -83,7 +88,7 @@ public static class EvaluationDraftDtoMapper
         a.Status, a.AssignedBy, Utc(a.AssignedAt), a.RevokedAt.HasValue ? Utc(a.RevokedAt.Value) : null,
         a.ConcurrencyToken, a.Scope, a.MajorId, a.StudentId, a.ComponentId, a.PolicyVersionId, a.Stage, a.ColdPackageId, a.ProjectTitle, a.ComponentName, a.RubricName, a.MajorName, a.StudentName,
         a.DueAt.HasValue ? Utc(a.DueAt.Value) : null,
-        a.ComponentStudentWeightPercent, a.SchemeApprovalStatus, a.SchemeIsDemo);
+        a.ComponentStudentWeightPercent, a.SchemeApprovalStatus, a.SchemeIsDemo, a.HasFinalizedEvaluation);
 
     public static EvaluationDraftDto ToDto(this EvaluationDraftRecord e) => new(e.Id, e.AssignmentId,
         e.ProjectId, e.EvaluatorId, e.RubricId, e.RubricName, e.RootRubricId, e.RubricVersion, e.EvaluationType, e.Status, e.Comments, e.TotalScore,

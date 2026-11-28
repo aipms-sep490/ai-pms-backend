@@ -74,13 +74,6 @@ internal sealed partial class EvaluationSchemeService
             : await db.Set<StudentResult>().AnyAsync(r => r.ProjectId == projectId && r.StudentId == studentId, ct)) blockers.Add("ALREADY_PUBLISHED");
         var allAssignments = await db.Set<EvaluationAssignment>().AsNoTracking().Where(a => a.ProjectId == projectId && a.Status == "ACTIVE"
             && a.ComponentId != null).OrderBy(a => a.Id).ToListAsync(ct);
-        var invalidCommitteeAssignments = new HashSet<long>();
-        foreach (var assignment in allAssignments.Where(a => a.Stage is "COLD" or "DEFENSE"))
-        {
-            try { await DefenseCommitteeAuthority.RequirePinnedAsync(db, assignment, ct); }
-            catch (ConflictException) { invalidCommitteeAssignments.Add(assignment.Id); blockers.Add($"COMMITTEE_BINDING_INVALID:{assignment.Id}"); }
-            catch (ForbiddenException) { invalidCommitteeAssignments.Add(assignment.Id); blockers.Add($"COMMITTEE_MEMBER_INVALID:{assignment.Id}"); }
-        }
         // Batch immutable finalizations once. Never recompute history from mutable rubric/detail rows.
         var finalizations = await (from state in db.Set<EvaluationDraftState>().AsNoTracking()
             join finalization in db.Set<EvaluationFinalization>().AsNoTracking() on state.EvaluationId equals finalization.EvaluationId
@@ -89,6 +82,16 @@ internal sealed partial class EvaluationSchemeService
             select new { state.AssignmentId, finalization.SnapshotJson }).ToListAsync(ct);
         var finalized = finalizations.ToDictionary(f => f.AssignmentId,
             f => JsonSerializer.Deserialize<EvaluationDraftRecord>(f.SnapshotJson));
+        var invalidCommitteeAssignments = new HashSet<long>();
+        foreach (var assignment in allAssignments.Where(a => a.Stage is "COLD" or "DEFENSE"))
+        {
+            // Already-finalized evaluations were verified at finalization time; preserve immutable history
+            // when another evaluator on the committee is replaced later (TK-W3-07).
+            if (finalized.ContainsKey(assignment.Id)) continue;
+            try { await DefenseCommitteeAuthority.RequirePinnedAsync(db, assignment, ct); }
+            catch (ConflictException) { invalidCommitteeAssignments.Add(assignment.Id); blockers.Add($"COMMITTEE_BINDING_INVALID:{assignment.Id}"); }
+            catch (ForbiddenException) { invalidCommitteeAssignments.Add(assignment.Id); blockers.Add($"COMMITTEE_MEMBER_INVALID:{assignment.Id}"); }
+        }
         var coldBindings = new Dictionary<long, ColdEvidenceBinding>();
         var coldAssignments = allAssignments.Where(a => a.Stage == "COLD" && scheme.Components.Any(c => c.Id == a.ComponentId
             && (target is null ? c.ProjectWeightPercent > 0 || c.StudentWeightPercent > 0
@@ -288,12 +291,34 @@ internal sealed partial class EvaluationSchemeService
                 majorScores, componentResults, formula,
                 evaluated.OutcomeDetail,
                 publishedFeedback.Count > 0 ? publishedFeedback : null);
+        var warnings = new List<ResultWarningDto>();
+        if (calculation?.Formula == "POL_INTER_40_40_20")
+        {
+            var floor = VersionedResultCalculator.EffectiveFailingFloor(calculation);
+            if (floor.HasValue)
+            {
+                foreach (var comp in componentResults.Where(c => c.Scope == "COMMON" && c.Stage == "DEFENSE" && c.Score.HasValue))
+                {
+                    var roundedScore = decimal.Round(comp.Score!.Value, 2, MidpointRounding.AwayFromZero);
+                    if (roundedScore < floor.Value)
+                    {
+                        warnings.Add(new ResultWarningDto(
+                            WorkflowErrorCodes.InterdisciplinaryDefenseCommonBelowFloor,
+                            $"Điểm Bảo vệ phần Chung ({comp.Name}: {roundedScore:0.00}) dưới ngưỡng {floor.Value:0.00}. Theo POL-01 liên ngành, điều kiện điểm liệt được xét trên tổng khối 40% Chung (không chặn công bố nếu tổng khối Chung đạt >= {floor.Value:0.00}). Hội đồng cần rà soát kỹ trước khi công bố.",
+                            comp.ComponentId,
+                            roundedScore,
+                            floor.Value));
+                    }
+                }
+            }
+        }
+
         var inputs = JsonSerializer.Serialize(new { SnapshotVersion = 2, Breakdown = breakdown, Scheme = Map(scheme), scheme.RegistrationSnapshotJson, Target = target,
             Policy = frozenPolicy is null ? null : new { frozenPolicy.Id, frozenPolicy.Version, frozenPolicy.Status, frozenPolicy.SnapshotJson },
             PackageId = package.Id, project.Status, Contributions = contributions, Evaluations = frozen, Blockers = blockers });
         var token = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(inputs)));
         var preview = new ProjectResultPreviewDto(projectId, final.HasValue && blockers.Count == 0, blockers.Distinct().ToArray(), final, scheme.PassThreshold,
-            evaluated.Outcome, token, contributions, breakdown, evaluated.OutcomeDetail);
+            evaluated.Outcome, token, contributions, breakdown, evaluated.OutcomeDetail, warnings.Count > 0 ? warnings : null);
         return new(preview, scheme, package.Id, target?.MajorId, inputs);
     }
     public Task<ProjectResultPreviewDto> PreviewAsync(long projectId, long? studentId, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
@@ -427,19 +452,36 @@ internal sealed partial class EvaluationSchemeService
     private static StudentResultDto StudentDto(StudentResult r) => new(r.Id, r.ProjectId, r.StudentId, r.MajorId, r.SchemeId,
         r.TotalScore, r.PassThreshold, r.Outcome, r.CalculationRule, r.PublishedBy, DateTime.SpecifyKind(r.PublishedAt, DateTimeKind.Utc), r.SnapshotJson,
         ResultSnapshotReader.Read(r.SnapshotJson, r.CalculationRule, r.StudentId, r.MajorId), OutcomeDetail: r.OutcomeDetail);
+    private Task<bool> IsActivePrimarySupervisorAsync(long projectId, long userId, CancellationToken ct) =>
+        db.SupervisorAssignments.AsNoTracking().AnyAsync(a => a.ProjectId == projectId
+            && a.IsPrimary && a.AssignmentType == "PRIMARY" && a.EndedAt == null
+            && a.SupervisorProfile.UserId == userId, ct);
+
     public Task<StudentResultDto> GetStudentAsync(long projectId, long studentId, CancellationToken ct) => evaluations.InTransactionAsync(async () =>
     {
         var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
-        if (Actor != studentId) await Manage(projectId, ct);
+        var isPrimarySupervisor = false;
+        if (Actor != studentId)
+        {
+            if (actor.IsAdmin || actor.IsStaff)
+            {
+                await Manage(projectId, ct);
+            }
+            else
+            {
+                isPrimarySupervisor = await IsActivePrimarySupervisorAsync(projectId, Actor, ct);
+                if (!isPrimarySupervisor) throw new ForbiddenException();
+            }
+        }
         var row = await PublishedResultResolver.Student(db, projectId, studentId, ct);
         if (row is null)
         {
-            if (Actor == studentId && !actor.IsAdmin && !actor.IsStaff)
+            if ((Actor == studentId || isPrimarySupervisor) && !actor.IsAdmin && !actor.IsStaff)
                 throw new ForbiddenException("Results have not been published yet.", "RESULT_NOT_PUBLISHED");
             throw new NotFoundException("StudentResult", studentId);
         }
         var canReadAuditSnapshot = Actor != studentId && actor.IsAdmin;
-        if (Actor != studentId && !actor.IsAdmin)
+        if (Actor != studentId && !actor.IsAdmin && !isPrimarySupervisor)
         {
             var project = (await evaluations.GetProjectAsync(projectId, ct))!;
             canReadAuditSnapshot = AcademicAuthority.IsLead(actor, project);
@@ -449,4 +491,49 @@ internal sealed partial class EvaluationSchemeService
         // The publication audit snapshot contains the entire scheme roster, including other departments.
         return row with { SnapshotJson = canReadAuditSnapshot ? row.SnapshotJson : "{}" };
     }, ct);
+
+    public Task<IReadOnlyList<StudentResultDto>> ListPublishedStudentsAsync(long projectId, CancellationToken ct) =>
+        evaluations.InTransactionAsync<IReadOnlyList<StudentResultDto>>(async () =>
+        {
+            var actor = await evaluations.GetActorAsync(Actor, ct) ?? throw new ForbiddenException();
+            var isPrimarySupervisor = false;
+            var isAdminOrLead = false;
+            if (actor.IsAdmin || actor.IsStaff)
+            {
+                await Manage(projectId, ct);
+                var project = (await evaluations.GetProjectAsync(projectId, ct))!;
+                isAdminOrLead = actor.IsAdmin || AcademicAuthority.IsLead(actor, project);
+            }
+            else
+            {
+                isPrimarySupervisor = await IsActivePrimarySupervisorAsync(projectId, Actor, ct);
+                if (!isPrimarySupervisor) throw new ForbiddenException();
+            }
+
+            var studentIds = await db.Set<StudentResult>().AsNoTracking()
+                .Where(r => r.ProjectId == projectId)
+                .Select(r => r.StudentId)
+                .Distinct()
+                .OrderBy(id => id)
+                .ToArrayAsync(ct);
+
+            if (studentIds.Length == 0)
+            {
+                if (isPrimarySupervisor)
+                    throw new ForbiddenException("Results have not been published yet.", "RESULT_NOT_PUBLISHED");
+                return [];
+            }
+
+            var list = new List<StudentResultDto>(studentIds.Length);
+            foreach (var sid in studentIds)
+            {
+                var resolved = await PublishedResultResolver.Student(db, projectId, sid, ct);
+                if (resolved is null) continue;
+                if (!isAdminOrLead && !isPrimarySupervisor
+                    && ResultSnapshotReader.StudentDepartment(resolved.SnapshotJson, sid) != actor.DepartmentId)
+                    continue;
+                list.Add(resolved with { SnapshotJson = isAdminOrLead ? resolved.SnapshotJson : "{}" });
+            }
+            return list;
+        }, ct);
 }

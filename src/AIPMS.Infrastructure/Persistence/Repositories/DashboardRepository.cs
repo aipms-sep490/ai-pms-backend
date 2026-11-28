@@ -165,10 +165,9 @@ public sealed class DashboardRepository(
         var snapshots = db.Set<ProjectRegistrationSnapshot>();
         var latest = snapshots.Where(s => !snapshots.Any(newer => newer.ProjectId == s.ProjectId && newer.Id > s.Id));
         return db.Projects.Where(p =>
-            ((p.Status == "DRAFT" || p.Status == "REVISION_REQUIRED" || !latest.Any(s => s.ProjectId == p.Id))
-                && p.ProjectMajors.Any(m => m.Major.DepartmentId == departmentId))
-            || (p.Status != "DRAFT" && p.Status != "REVISION_REQUIRED" && latest.Any(s => s.ProjectId == p.Id
-                && s.LeadDepartmentId == departmentId)))
+            p.ProjectMajors.Any(m => m.Major.DepartmentId == departmentId)
+            || latest.Any(s => s.ProjectId == p.Id
+                && (s.LeadDepartmentId == departmentId || s.Decisions.Any(d => d.DepartmentId == departmentId))))
             .Select(p => p.Id);
     }
 }

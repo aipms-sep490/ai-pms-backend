@@ -25,7 +25,7 @@ public sealed partial class EvaluationDraftWorkflow
             throw new ConflictException("Only a draft evaluation can be finalized.", WorkflowErrorCodes.FinalizedAssignment);
         await Window(project, assignment.PeriodId, ct);
         await schemes.EnsureWritableAsync(assignment, ct);
-        await Rubric(before.RubricId, project, assignment.DepartmentId, false, ct);
+        await Rubric(before.RubricId, project, assignment.DepartmentId, false, ct, assignment.Scope);
         var package = await submissions.GetAsync(project.Id, ct)
             ?? throw new ConflictException("A locked final-submission package is required.", WorkflowErrorCodes.FinalPackageRequired);
         if (package.Items.Count == 0 || package.Items.Any(i => i.Files.Count == 0))
@@ -73,7 +73,7 @@ public sealed partial class EvaluationDraftWorkflow
                 throw new ConflictException($"Evaluation #{before.Id} is already finalized.", WorkflowErrorCodes.FinalizedAssignment);
             await Window(project, assignment.PeriodId, ct);
             await schemes.EnsureWritableAsync(assignment, ct);
-            await Rubric(before.RubricId, project, assignment.DepartmentId, false, ct);
+            await Rubric(before.RubricId, project, assignment.DepartmentId, false, ct, assignment.Scope);
 
             var preview = EvaluationScoring.Preview(before.Scores, 10m);
             if (preview.Total is not decimal total)

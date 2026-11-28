@@ -468,7 +468,12 @@ public sealed partial class FinalSubmissionEndpointTests(FinalSubmissionDraftDat
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
-            builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = database.ConnectionString }));
+            builder.ConfigureAppConfiguration((_, c) => c.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = database.ConnectionString,
+                // Legacy 1-step rollback contract suite; default false (2-step lock) is verified in Wave3FinalDefenseResultsIntegrationTests.
+                ["FinalSubmissions:AllowLegacyOneStepLock"] = "true"
+            }));
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<TimeProvider>();

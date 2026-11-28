@@ -13,6 +13,9 @@ internal sealed class ProjectResultRepository(AipmsDbContext db) : IProjectResul
 {
     public Task<bool> AnyFinalizedAsync(long projectId, CancellationToken ct) => db.Evaluations.AnyAsync(e => e.ProjectId == projectId
         && (e.Status != "DRAFT" || db.Set<EvaluationFinalization>().Any(f => f.EvaluationId == e.Id)), ct);
+    public async Task<bool> HasPublishedResultAsync(long projectId, CancellationToken ct) =>
+        await db.Set<ProjectResult>().AsNoTracking().AnyAsync(r => r.ProjectId == projectId, ct)
+        || await db.Set<StudentResult>().AsNoTracking().AnyAsync(r => r.ProjectId == projectId, ct);
     public Task<bool> IsRequiredAsync(long assignmentId, CancellationToken ct) =>
         db.Set<ProjectResultPolicyItem>().AnyAsync(i => i.AssignmentId == assignmentId, ct);
     public async Task<ResultPolicyDto?> PolicyAsync(long projectId, CancellationToken ct)

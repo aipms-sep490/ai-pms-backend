@@ -32,6 +32,9 @@ public sealed class PolicyEvaluationController(IPeriodPolicyService policies, IE
     [HttpPost("api/v1/evaluation-schemes")]
     public async Task<ActionResult<EvaluationSchemeDto>> Create(SaveEvaluationSchemeRequest input, CancellationToken ct)
     { var row = await schemes.SaveAsync(null, input, ct); return CreatedAtAction(nameof(Scheme), new { id = row.Id }, row); }
+    [HttpPost("api/v1/evaluation-schemes/bulk-apply")]
+    public Task<BulkApplyEvaluationSchemeResultDto> BulkApply(BulkApplyEvaluationSchemeRequest input, CancellationToken ct) =>
+        schemes.BulkApplyByTrackAsync(input, ct);
     [HttpPut("api/v1/evaluation-schemes/{id:long}")]
     public Task<EvaluationSchemeDto> Update(long id, SaveEvaluationSchemeRequest input, CancellationToken ct) => schemes.SaveAsync(id, input, ct);
     /// <summary>Updates a draft component within the actor's frozen department scope; target changes require the lead department scheme workflow.</summary>
@@ -54,6 +57,9 @@ public sealed class PolicyEvaluationController(IPeriodPolicyService policies, IE
     /// <summary>Returns an authorized published result with historical typed breakdown. Students only read their own result; private audit snapshots are redacted.</summary>
     [HttpGet("api/v1/projects/{projectId:long}/students/{studentId:long}/result")]
     public Task<StudentResultDto> Student(long projectId, long studentId, CancellationToken ct) => schemes.GetStudentAsync(projectId, studentId, ct);
+    /// <summary>Lists all published individual student results for a project (accessible to Lead/Participating Staff, Admin, and active Primary Supervisor after PUBLISHED).</summary>
+    [HttpGet("api/v1/projects/{projectId:long}/student-results")]
+    public Task<IReadOnlyList<StudentResultDto>> PublishedStudents(long projectId, CancellationToken ct) => schemes.ListPublishedStudentsAsync(projectId, ct);
     /// <summary>Atomically publishes ProjectResult and all StudentResults for the project in one transaction.</summary>
     [HttpPost("api/v1/projects/{projectId:long}/results/publish-batch")]
     public Task<BatchPublishResultDto> PublishBatch(long projectId, BatchPublishResultRequest input, CancellationToken ct) =>

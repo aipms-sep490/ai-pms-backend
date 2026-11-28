@@ -21,7 +21,9 @@ public interface IProjectChecklistService
     Task<ExpandStudentRequirementsResultDto> ExpandEachStudentRequirementsAsync(long projectId, string gateCode, CancellationToken ct = default);
     Task<WithdrawRosterMemberResultDto> WithdrawRosterMemberAsync(long projectId, WithdrawRosterMemberRequest request, CancellationToken ct = default);
 
-    Task<PreDefenseLockStatusDto> RequestFinalLockAsync(long projectId, CancellationToken ct = default);
+    Task<PreDefenseLockStatusDto> GetPreDefenseLockStatusAsync(long projectId, CancellationToken ct = default);
+    Task<PreDefenseLockStatusDto> RequestFinalLockAsync(long projectId, string? concurrencyToken = null, CancellationToken ct = default);
     Task<PreDefenseLockStatusDto> SupervisorDecideFinalLockAsync(long projectId, SupervisorFinalLockDecisionRequest request, CancellationToken ct = default);
     Task<PreDefenseLockStatusDto> ForceLockFinalAsync(long projectId, ForceLockFinalRequest request, CancellationToken ct = default);
+    Task<PreDefenseLockStatusDto> ReopenFinalLockAsync(long projectId, ReopenFinalLockRequest request, CancellationToken ct = default);
 }

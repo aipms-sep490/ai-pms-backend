@@ -30,7 +30,8 @@ public sealed record EvaluationAssignmentRecord(long Id, long ProjectId, long Ev
     string? SchemeApprovalStatus = null,
     bool? SchemeIsDemo = null,
     DateTime? ValidFrom = null,
-    DateTime? ValidUntil = null);
+    DateTime? ValidUntil = null,
+    bool HasFinalizedEvaluation = false);
 
 public sealed record EvaluationDraftRecord(long Id, long AssignmentId, long ProjectId, long EvaluatorId,
     long RubricId, string RubricName, long RootRubricId, int RubricVersion, string EvaluationType, string Status, string? Comments, decimal? TotalScore,

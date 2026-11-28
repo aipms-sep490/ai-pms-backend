@@ -10,7 +10,12 @@ public sealed record FinalDraftPeriod(long Id, long SemesterId, string Name, str
 
 public sealed record FinalDraftRecord(long Id, long ProjectId, long ProjectPeriodId, string? Notes,
     long CreatedBy, long UpdatedBy, DateTime CreatedAt, DateTime UpdatedAt, string ConcurrencyToken,
-    IReadOnlyList<long> VersionIds);
+    IReadOnlyList<long> VersionIds,
+    string LockWorkflowStatus = "OPEN", long? LockRequestedBy = null, DateTime? LockRequestedAt = null,
+    long? LockedBySupervisorId = null, long? ForceLockedBy = null, string? ForceLockReason = null);
+
+public sealed record FinalReadScope(bool FullAccess, IReadOnlySet<long> AllowedMajorIds,
+    IReadOnlySet<long> AllowedStudentIds, bool IncludeCommon);
 
 public sealed record FinalDraftVersion(long Id, long ProjectId, long DeliverableId, string Title,
     int VersionNumber, string Status, bool FilesValid, IReadOnlyList<ProjectFileDto> Files);

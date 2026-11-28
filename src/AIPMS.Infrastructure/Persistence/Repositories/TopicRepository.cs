@@ -209,7 +209,8 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
     }
 
     public async Task<TopicSimilarityResultDto> CheckSimilarityAsync(long organizationId, long? leadDepartmentId, string? title,
-        IReadOnlyList<string>? keywords, string? domain, int periodWindow, long? excludeTopicId, long? excludeProjectId, CancellationToken ct)
+        IReadOnlyList<string>? keywords, string? domain, int periodWindow, long? excludeTopicId, long? excludeProjectId, CancellationToken ct,
+        IReadOnlyCollection<long>? departmentIds = null)
     {
         var window = Math.Max(1, periodWindow);
         var recentPeriods = await db.ProjectPeriods.AsNoTracking()
@@ -225,10 +226,18 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
         var recentPeriodIds = recentPeriods.Select(p => p.Id).ToArray();
         var recentSemesterIds = recentPeriods.Select(p => p.AcademicSemesterId).Distinct().ToArray();
 
+        var scopeDepts = new HashSet<long>();
+        if (leadDepartmentId.HasValue) scopeDepts.Add(leadDepartmentId.Value);
+        if (departmentIds is not null)
+        {
+            foreach (var did in departmentIds) if (did > 0) scopeDepts.Add(did);
+        }
+
         var topicsQuery = db.Set<ProjectTopic>().AsNoTracking()
             .Where(t => t.Status == "PUBLISHED" && recentPeriodIds.Contains(t.ProjectPeriodId));
-        if (leadDepartmentId.HasValue)
-            topicsQuery = topicsQuery.Where(t => t.LeadDepartmentId == leadDepartmentId.Value);
+        if (scopeDepts.Count > 0)
+            topicsQuery = topicsQuery.Where(t => scopeDepts.Contains(t.LeadDepartmentId)
+                || t.Requirements.Any(r => scopeDepts.Contains(r.DepartmentId)));
         if (excludeTopicId.HasValue)
             topicsQuery = topicsQuery.Where(t => t.Id != excludeTopicId.Value);
 
@@ -246,11 +255,12 @@ internal sealed class TopicRepository(AipmsDbContext db) : ITopicRepository
         var publishedTopicIds = publishedTopics.Select(t => t.Id).ToHashSet();
 
         var projectsQuery = db.Projects.AsNoTracking()
-            .Where(p => (p.Status == "APPROVED" || p.Status == "ACTIVE" || p.Status == "COMPLETED")
+            .Where(p => (p.Status == "APPROVED" || p.Status == "ACTIVE" || p.Status == "FINAL_SUBMISSION" || p.Status == "COMPLETED" || p.Status == "ARCHIVED")
                 && recentSemesterIds.Contains(p.Team.AcademicSemesterId));
-        if (leadDepartmentId.HasValue)
-            projectsQuery = projectsQuery.Where(p => p.ProjectMajors.Any(pm => pm.Major.DepartmentId == leadDepartmentId.Value)
-                || db.Set<ProjectRegistrationSnapshot>().Any(s => s.ProjectId == p.Id && s.LeadDepartmentId == leadDepartmentId.Value));
+        if (scopeDepts.Count > 0)
+            projectsQuery = projectsQuery.Where(p => p.ProjectMajors.Any(pm => scopeDepts.Contains(pm.Major.DepartmentId))
+                || db.Set<ProjectRegistrationSnapshot>().Any(s => s.ProjectId == p.Id
+                    && (scopeDepts.Contains(s.LeadDepartmentId) || s.Decisions.Any(d => scopeDepts.Contains(d.DepartmentId)))));
         if (excludeProjectId.HasValue)
             projectsQuery = projectsQuery.Where(p => p.Id != excludeProjectId.Value);
 
