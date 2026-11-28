@@ -38,14 +38,17 @@ public sealed class CreateReportingCycleCommandHandler(
         var isAdmin = await repository.HasAdminRoleInDbAsync(actorId, cancellationToken);
         var isStaff = await repository.HasStaffRoleInDbAsync(actorId, cancellationToken);
 
-        if (!isAdmin && !isStaff)
-            throw new ForbiddenException("Only Admin or Department Staff can create reporting cycles.");
-
-        if (isStaff && !isAdmin)
+        if (!isStaff)
         {
-            if (!await projectAccess.CanAccessAsync(actorId, projectId, cancellationToken))
-                throw new ForbiddenException("You can only create reporting cycles for projects in your department.");
+            throw new ForbiddenException(
+                isAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot create reporting cycles."
+                    : "Only Department Staff can create reporting cycles.",
+                isAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
         }
+
+        if (!await projectAccess.CanAccessAsync(actorId, projectId, cancellationToken))
+            throw new ForbiddenException("You can only create reporting cycles for projects in your department.");
 
         var req = command.Request;
         var reportType = req.ReportType?.Trim().ToUpperInvariant() ?? "";

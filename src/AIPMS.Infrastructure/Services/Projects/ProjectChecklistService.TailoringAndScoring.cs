@@ -26,8 +26,14 @@ internal sealed partial class ProjectChecklistService
     {
         var actor = await GetActorAsync(ct);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
-        if (!actor.IsAdmin && !(actor.IsStaff && actor.DepartmentId == scope.LeadDepartmentId))
-            throw new ForbiddenException("Only LeadScope department staff or admin can initialize a tailored project checklist.");
+        if (!actor.IsStaff)
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot initialize a tailored project checklist."
+                    : "Only LeadScope department staff can initialize a tailored project checklist.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.ScopeAccessDenied);
+        if (actor.DepartmentId != scope.LeadDepartmentId)
+            throw new ForbiddenException("Only LeadScope department staff can initialize a tailored project checklist.", WorkflowErrorCodes.ScopeAccessDenied);
 
         var tpl = await db.ReviewGateChecklistTemplates.AsNoTracking().SingleOrDefaultAsync(t => t.Id == templateId, ct)
             ?? throw new NotFoundException("ReviewGateChecklistTemplate", templateId);
@@ -176,8 +182,14 @@ internal sealed partial class ProjectChecklistService
     {
         var actor = await GetActorAsync(ct);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
-        if (!actor.IsAdmin && !(actor.IsStaff && actor.DepartmentId == scope.LeadDepartmentId))
-            throw new ForbiddenException("Only LeadScope department head/staff or admin can tailor a project checklist.");
+        if (!actor.IsStaff)
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot tailor a project checklist."
+                    : "Only LeadScope department staff can tailor a project checklist.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.ScopeAccessDenied);
+        if (actor.DepartmentId != scope.LeadDepartmentId)
+            throw new ForbiddenException("Only LeadScope department staff can tailor a project checklist.", WorkflowErrorCodes.ScopeAccessDenied);
 
         var checklist = await db.ProjectGateChecklists.Include(c => c.Items)
             .SingleOrDefaultAsync(c => c.Id == checklistId && c.ProjectId == projectId, ct)
@@ -261,8 +273,14 @@ internal sealed partial class ProjectChecklistService
     {
         var actor = await GetActorAsync(ct);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
-        if (!actor.IsAdmin && !(actor.IsStaff && actor.DepartmentId == scope.LeadDepartmentId))
-            throw new ForbiddenException("Only LeadScope department head/staff or admin can publish a project checklist.");
+        if (!actor.IsStaff)
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot publish a project checklist."
+                    : "Only LeadScope department staff can publish a project checklist.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.ScopeAccessDenied);
+        if (actor.DepartmentId != scope.LeadDepartmentId)
+            throw new ForbiddenException("Only LeadScope department staff can publish a project checklist.", WorkflowErrorCodes.ScopeAccessDenied);
 
         var checklist = await db.ProjectGateChecklists.Include(c => c.Items)
             .SingleOrDefaultAsync(c => c.Id == checklistId && c.ProjectId == projectId, ct)

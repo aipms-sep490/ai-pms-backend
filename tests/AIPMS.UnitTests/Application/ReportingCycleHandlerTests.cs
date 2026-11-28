@@ -146,8 +146,8 @@ public sealed class ReportingCycleHandlerTests
         public Task<bool> HasLinkedReportAsync(long cycleId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
 
-        public bool IsAdmin { get; set; } = true;
-        public bool IsStaff { get; set; } = false;
+        public bool IsAdmin { get; set; } = false;
+        public bool IsStaff { get; set; } = true;
         public Task<bool> HasAdminRoleInDbAsync(long userId, CancellationToken cancellationToken = default) =>
             Task.FromResult(IsAdmin);
         public Task<bool> HasStaffRoleInDbAsync(long userId, CancellationToken cancellationToken = default) =>

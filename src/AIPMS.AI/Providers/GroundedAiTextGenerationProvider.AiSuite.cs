@@ -42,6 +42,10 @@ public sealed partial class GroundedAiTextGenerationProvider
             return GenerateWorkingAgreementFallback(root);
         if (systemPrompt.Contains("AI_SUITE_DEPARTMENT_BRIEF", StringComparison.Ordinal))
             return GenerateDepartmentBriefFallback(root);
+        if (systemPrompt.Contains("AI_SUITE_EVAL_SCHEME_SUGGEST", StringComparison.Ordinal))
+            return GenerateEvalSchemeSuggestFallback(root);
+        if (systemPrompt.Contains("AI_SUITE_PRE_SEMESTER_DIFF", StringComparison.Ordinal))
+            return GeneratePreSemesterDiffFallback(root);
 
         return "{}";
     }
@@ -227,15 +231,14 @@ public sealed partial class GroundedAiTextGenerationProvider
             foreach (var c in arr.EnumerateArray())
             {
                 var cid = c.TryGetProperty("rubricCriterionId", out var idp) ? idp.GetInt64() : 0L;
-                var max = c.TryGetProperty("maxScore", out var mp) && mp.ValueKind == JsonValueKind.Number ? mp.GetDecimal() : 10m;
                 var name = ReadStr(c, "name", "Tiêu chí");
                 criteria.Add(new
                 {
                     rubricCriterionId = cid,
-                    suggestedLevel = "Khá / Đạt yêu cầu",
-                    suggestedScoreMin = Math.Round(max * 0.70m, 2),
-                    suggestedScoreMax = Math.Round(max * 0.85m, 2),
-                    suggestedComment = $"Nhóm có minh chứng triển khai cho tiêu chí \"{name}\". Giám khảo nên kiểm chứng thêm độ hoàn thiện và kiểm thử thực tế khi chấm.",
+                    suggestedLevel = "Cần giám khảo tự đánh giá",
+                    suggestedScoreMin = (decimal?)null,
+                    suggestedScoreMax = (decimal?)null,
+                    suggestedComment = $"Nhóm có minh chứng triển khai cho tiêu chí \"{name}\". Giám khảo cần trực tiếp kiểm chứng độ hoàn thiện và quyết định điểm độc lập (Anti-Anchoring).",
                     evidenceCitations = new[] { "Dựa trên hồ sơ đồ án, deliverables và báo cáo tiến độ hiện có" },
                     confidence = "MEDIUM"
                 });
@@ -244,7 +247,7 @@ public sealed partial class GroundedAiTextGenerationProvider
 
         return JsonSerializer.Serialize(new
         {
-            overallSummary = "AI đã đối chiếu bằng chứng hiện có của đồ án với từng tiêu chí trong Rubric để hỗ trợ giám khảo tham khảo nhận xét.",
+            overallSummary = "AI đã đối chiếu bằng chứng hiện có của đồ án với từng tiêu chí trong Rubric ở chế độ Chống neo điểm (chỉ tổng hợp bằng chứng, không đề xuất điểm số).",
             criteria,
             verificationQuestions = new[] { "Kiểm chứng trực tiếp demo và bằng chứng kiểm thử ở các tiêu chí có trọng số cao nhất." }
         });
@@ -377,7 +380,7 @@ public sealed partial class GroundedAiTextGenerationProvider
                 new { title = "1. Mục tiêu & Nguyên tắc phối hợp", body = "Cả nhóm cam kết minh bạch tiến độ trên AI-PMS, cập nhật trạng thái task ít nhất 2 lần/tuần và tôn trọng kỷ luật học thuật." },
                 new { title = "2. Lịch họp & Kênh giao tiếp", body = "Họp nhóm định kỳ tối thiểu 1 buổi/tuần qua phòng họp trực tuyến AI-PMS (bật Phụ đề & Biên bản AI). Phản hồi tin nhắn quan trọng trong vòng 12 giờ." },
                 new { title = "3. Phân công liên ngành & Review chéo", body = "Mỗi task phải có tiêu chí hoàn thành rõ ràng (Task Criteria) và được tối thiểu 1 thành viên review trước khi chuyển DONE." },
-                new { title = "4. Xử lý trễ hạn & Giải quyết xung đột", body = "Nếu có nguy cơ trễ hạn quá 24 giờ phải báo trước cho Trưởng nhóm. Trễ hạn lặp lại 2 lần không lý do sẽ được ghi nhận vào đánh giá đồng đẳng và báo cáo GVHD." }
+                new { title = "4. Xử lý trễ hạn & Giải quyết xung đột", body = "Nếu có nguy cơ trễ hạn quá 24 giờ phải báo trước cho Trưởng nhóm. Trễ hạn lặp lại 2 lần không lý do sẽ được ghi nhận vào báo cáo tiến độ tuần và xem xét khi GVHD đánh giá điểm quá trình cá nhân qua 3 Gate (POL-03)." }
             }
         });
     }
@@ -390,14 +393,37 @@ public sealed partial class GroundedAiTextGenerationProvider
         return JsonSerializer.Serialize(new
         {
             headline = $"Bản tin điều hành tuần — {scope}",
-            executiveSummary = $"Hiện đang theo dõi {total} đồ án hoạt động, trong đó có {atRisk} đồ án có dấu hiệu rủi ro tiến độ cần ưu tiên kiểm tra.",
+            executiveSummary = $"Hiện đang theo dõi {total} đồ án hoạt động, trong đó có {atRisk} đồ án có tín hiệu Health Pulse RED cần ưu tiên kiểm tra.",
             riskInsights = Array.Empty<object>(),
             supervisorNotes = Array.Empty<object>(),
             weeklyPriorityActions = new[]
             {
-                "Nhắc nhở ngay các nhóm có nhiều công việc quá hạn hoặc trên 14 ngày chưa tổ chức họp.",
+                "Nhắc nhở ngay các nhóm có nhiều công việc bị chặn > 48 giờ hoặc trên 10 ngày chưa tổ chức họp.",
                 "Kiểm tra tiến độ xử lý đơn khiếu nại và lịch phân công hội đồng kiểm duyệt sắp tới."
             }
+        });
+    }
+
+    private static string GenerateEvalSchemeSuggestFallback(JsonElement root)
+    {
+        var code = ReadStr(root, "projectCode", "PROJECT");
+        return JsonSerializer.Serialize(new
+        {
+            suggestedName = $"Phương án đánh giá {code} (POL_V4_DECIMAL)",
+            suggestedPassThreshold = 5.0m,
+            summary = $"Bản dự phòng POL_V4_DECIMAL cho đồ án {code}; hệ thống áp dụng cấu trúc chuẩn từ danh sách Rubric đã công bố.",
+            components = Array.Empty<object>(),
+            warnings = new[] { "Sử dụng cấu trúc chuẩn POL_V4_DECIMAL (POL-01/POL-03/POL-05) từ các Rubric đã công bố." }
+        });
+    }
+
+    private static string GeneratePreSemesterDiffFallback(JsonElement root)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            summary = "Đã chạy đối chiếu dự phòng cục bộ với checklist sẵn sàng đầu kỳ.",
+            findings = Array.Empty<object>(),
+            warnings = new[] { "Mô hình LLM cục bộ dự phòng đang hoạt động; đối chiếu chi tiết theo danh sách trạng thái sẵn sàng của học kỳ." }
         });
     }
 }

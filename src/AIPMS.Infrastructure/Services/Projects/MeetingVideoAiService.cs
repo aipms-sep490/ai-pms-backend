@@ -19,6 +19,7 @@ using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 using Task = System.Threading.Tasks.Task;
 
@@ -31,7 +32,10 @@ internal sealed class MeetingVideoAiService(
     TimeProvider clock,
     IConfiguration configuration,
     IHttpClientFactory httpClientFactory,
-    IAiTextGenerationProvider? aiProvider = null) : IMeetingVideoAiService
+    IAiTextGenerationProvider? aiProvider = null,
+    IProjectScopeResolver? scopeResolver = null,
+    ILogger<MeetingVideoAiService>? logger = null,
+    IFileSecurityScanner? fileScanner = null) : IMeetingVideoAiService
 {
     private const string MeetingAiIdentity =
         "Bạn là Trợ lý AI Cuộc họp của hệ thống AI-PMS (Hệ thống Quản lý Đồ án Tốt nghiệp). " +
@@ -219,10 +223,29 @@ internal sealed class MeetingVideoAiService(
         if (ms.Length == 0 || ms.Length > 15 * 1024 * 1024)
             throw Invalid("Tệp âm thanh phải có dung lượng từ 1 byte đến 15 MB.");
 
+        var safeFileName = string.IsNullOrWhiteSpace(fileName) ? "clip.webm" : fileName;
+        var rawContentType = string.IsNullOrWhiteSpace(contentType) ? "audio/webm" : contentType.Trim();
+        if (!MediaTypeHeaderValue.TryParse(rawContentType, out var parsedMediaType)
+            || (!parsedMediaType.MediaType!.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
+                && !parsedMediaType.MediaType!.StartsWith("video/", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(parsedMediaType.MediaType, "application/octet-stream", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw Invalid("Định dạng Content-Type của đoạn âm thanh không hợp lệ.");
+        }
+
+        if (fileScanner is not null)
+        {
+            ms.Position = 0;
+            var scan = await fileScanner.ScanAsync(ms, safeFileName, parsedMediaType.MediaType!, ct);
+            if (!scan.IsSafe)
+                throw new ConflictException($"Tệp âm thanh không vượt qua kiểm duyệt an toàn ({scan.Details ?? scan.Status}).", WorkflowErrorCodes.FileQuarantined);
+            ms.Position = 0;
+        }
+
         using var form = new MultipartFormDataContent();
         var fileContent = new ByteArrayContent(ms.ToArray());
-        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(string.IsNullOrWhiteSpace(contentType) ? "audio/webm" : contentType);
-        form.Add(fileContent, "file", string.IsNullOrWhiteSpace(fileName) ? "clip.webm" : fileName);
+        fileContent.Headers.ContentType = parsedMediaType;
+        form.Add(fileContent, "file", safeFileName);
         form.Add(new StringContent(model), "model");
 
         var isoLang = (language ?? "vi-VN").Split('-', '_')[0].ToLowerInvariant();
@@ -301,8 +324,7 @@ internal sealed class MeetingVideoAiService(
             .SingleOrDefaultAsync(x => x.Id == segmentId && x.MeetingId == meeting.Id, ct)
             ?? throw new NotFoundException("MeetingTranscriptSegment", segmentId);
 
-        var canManage = currentUser.Roles.Contains(AppRoles.Admin)
-            || await MeetingGovernanceAuthority.CanManage(db, meeting, actor, ct);
+        var canManage = await MeetingGovernanceAuthority.CanManage(db, meeting, actor, ct);
 
         if (segment.CreatedBy != actor && !canManage)
             throw new ForbiddenException("Bạn chỉ có thể xóa đoạn lời nói do mình ghi nhận hoặc khi là người quản lý cuộc họp.");
@@ -611,6 +633,13 @@ internal sealed class MeetingVideoAiService(
     private async Task<(M.Meeting Meeting, long Actor)> RequireReadableMeetingAsync(long meetingId, CancellationToken ct)
     {
         var actor = currentUser.UserId ?? throw new UnauthorizedException();
+        if (currentUser.Roles.Contains(AppRoles.Admin) && !currentUser.Roles.Contains(AppRoles.DepartmentStaff))
+        {
+            throw new ForbiddenException(
+                "Quản trị viên hệ thống (ADMIN) không có thẩm quyền truy cập trợ lý AI cuộc họp đồ án.",
+                WorkflowErrorCodes.AdminNotAcademicAuthority);
+        }
+
         var meeting = await db.Meetings.AsNoTracking()
             .Include(x => x.Project)
             .SingleOrDefaultAsync(x => x.Id == meetingId, ct)
@@ -633,8 +662,7 @@ internal sealed class MeetingVideoAiService(
 
         var isParticipant = await db.MeetingParticipants.AsNoTracking()
             .AnyAsync(x => x.MeetingId == meeting.Id && x.UserId == actor, ct);
-        var canManage = currentUser.Roles.Contains(AppRoles.Admin)
-            || await MeetingGovernanceAuthority.CanManage(db, meeting, actor, ct);
+        var canManage = await MeetingGovernanceAuthority.CanManage(db, meeting, actor, ct);
 
         if (!isParticipant && !canManage)
             throw new ForbiddenException("Chỉ thành viên tham gia hoặc người quản lý cuộc họp mới có thể ghi lời nói/đánh dấu.");
@@ -710,11 +738,20 @@ internal sealed class MeetingVideoAiService(
             .Select(m => new { m.Id, m.Title, m.Status, DueDate = m.DueDate.HasValue ? m.DueDate.Value.ToString("yyyy-MM-dd") : null })
             .ToListAsync(ct);
 
+        var actorScope = await (scopeResolver ?? new ProjectScopeResolver(db)).ResolveAsync(actor, meeting.ProjectId, ct);
         var milestoneIds = milestones.Select(m => m.Id).ToArray();
+        var tasksQuery = db.Tasks.AsNoTracking()
+            .Where(t => t.DeletedAt == null && milestoneIds.Contains(t.MilestoneId) && t.Status != "DONE" && t.Status != "CANCELLED");
+        if (actorScope is { IsFullProjectAccess: false })
+        {
+            var allowedMajors = actorScope.AllowedMajorIds.ToArray();
+            tasksQuery = tasksQuery.Where(t => !db.TaskDisciplines.Any(td => td.TaskId == t.Id)
+                || db.TaskDisciplines.Any(td => td.TaskId == t.Id && allowedMajors.Contains(td.MajorId)));
+        }
+
         var tasks = milestoneIds.Length == 0
             ? []
-            : await db.Tasks.AsNoTracking()
-                .Where(t => milestoneIds.Contains(t.MilestoneId) && t.Status != "DONE" && t.Status != "CANCELLED")
+            : await tasksQuery
                 .OrderBy(t => t.DueAt ?? DateTime.MaxValue)
                 .Take(25)
                 .Select(t => new
@@ -730,18 +767,27 @@ internal sealed class MeetingVideoAiService(
                 .ToListAsync(ct);
 
         var existingDecisions = await db.MeetingDecisions.AsNoTracking()
-            .Where(d => d.MeetingId == meeting.Id)
+            .Where(d => d.MeetingId == meeting.Id && d.SupersededByDecisionId == null)
             .OrderByDescending(d => d.Id)
             .Take(15)
             .Select(d => d.Content)
             .ToArrayAsync(ct);
 
-        var existingActions = await db.MeetingActionItems.AsNoTracking()
-            .Where(a => a.MeetingId == meeting.Id)
+        // V4.0: Prefer unified ProjectActionItems table, falling back to legacy MeetingActionItems
+        var projectActions = await db.Set<ProjectActionItem>().AsNoTracking()
+            .Where(a => a.ProjectId == meeting.ProjectId && a.MeetingId == meeting.Id)
             .OrderByDescending(a => a.Id)
             .Take(15)
             .Select(a => new { a.Title, a.Status })
             .ToArrayAsync(ct);
+        var existingActions = projectActions.Length > 0
+            ? projectActions
+            : await db.MeetingActionItems.AsNoTracking()
+                .Where(a => a.MeetingId == meeting.Id)
+                .OrderByDescending(a => a.Id)
+                .Take(15)
+                .Select(a => new { a.Title, a.Status })
+                .ToArrayAsync(ct);
 
         return new MeetingAiContext(
             meeting,
@@ -805,12 +851,14 @@ internal sealed class MeetingVideoAiService(
         {
             return await aiProvider!.GenerateTextAsync(systemPrompt, userPayload, aiCts.Token);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
+            logger?.LogWarning(ex, "Meeting AI provider call timed out after {TimeoutSeconds}s.", ResolveAiTimeoutSeconds());
             return null;
         }
-        catch (Exception) when (!ct.IsCancellationRequested)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
+            logger?.LogWarning(ex, "Meeting AI provider call failed; returning fallback.");
             return null;
         }
     }

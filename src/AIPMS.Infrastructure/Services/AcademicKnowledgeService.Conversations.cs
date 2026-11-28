@@ -217,12 +217,13 @@ internal sealed partial class AcademicKnowledgeService
             }
         }
 
-        // 3. Department staff projects (within own department)
+        // 3. Department staff projects (within own department or lead department)
         if (roles.Contains(AppRoles.DepartmentStaff) && actor.DepartmentId.HasValue)
         {
             var deptId = actor.DepartmentId.Value;
             var deptProjects = await db.Projects.AsNoTracking()
-                .Where(p => p.ProjectMajors.Any(pm => pm.Major.DepartmentId == deptId))
+                .Where(p => p.ProjectMajors.Any(pm => pm.Major.DepartmentId == deptId)
+                    || db.Set<ProjectRegistrationSnapshot>().Any(s => s.ProjectId == p.Id && s.LeadDepartmentId == deptId))
                 .OrderByDescending(p => p.Status == "ACTIVE" || p.Status == "FINAL_SUBMISSION")
                 .ThenByDescending(p => p.Id)
                 .Select(p => new { p.Id, p.Code, p.Title, p.Status })
@@ -230,19 +231,6 @@ internal sealed partial class AcademicKnowledgeService
                 .ToArrayAsync(ct);
             foreach (var p in deptProjects)
                 results.TryAdd(p.Id, new(p.Id, p.Code, p.Title, p.Status, "Cán bộ bộ môn"));
-        }
-
-        // 4. Admin overview projects
-        if (roles.Contains(AppRoles.Admin))
-        {
-            var adminProjects = await db.Projects.AsNoTracking()
-                .OrderByDescending(p => p.Status == "ACTIVE" || p.Status == "FINAL_SUBMISSION")
-                .ThenByDescending(p => p.Id)
-                .Select(p => new { p.Id, p.Code, p.Title, p.Status })
-                .Take(40)
-                .ToArrayAsync(ct);
-            foreach (var p in adminProjects)
-                results.TryAdd(p.Id, new(p.Id, p.Code, p.Title, p.Status, "Quản trị viên"));
         }
 
         return results.Values

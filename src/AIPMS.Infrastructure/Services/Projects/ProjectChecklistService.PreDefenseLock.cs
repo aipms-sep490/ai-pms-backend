@@ -27,8 +27,14 @@ internal sealed partial class ProjectChecklistService
     {
         var actor = await GetActorAsync(ct);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
-        if (!actor.IsAdmin && !(actor.IsStaff && actor.DepartmentId == scope.LeadDepartmentId))
-            throw new ForbiddenException("Only LeadScope department staff or admin can expand EACH_STUDENT gate requirements.");
+        if (!actor.IsStaff)
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot expand EACH_STUDENT gate requirements."
+                    : "Only LeadScope department staff can expand EACH_STUDENT gate requirements.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.ScopeAccessDenied);
+        if (actor.DepartmentId != scope.LeadDepartmentId)
+            throw new ForbiddenException("Only LeadScope department staff can expand EACH_STUDENT gate requirements.", WorkflowErrorCodes.ScopeAccessDenied);
 
         var normalizedGate = gateCode.Trim().ToUpperInvariant();
         var gate = await db.ProjectGateInstances.Include(g => g.Requirements)
@@ -99,8 +105,14 @@ internal sealed partial class ProjectChecklistService
 
         var actor = await GetActorAsync(ct);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct);
-        if (!actor.IsAdmin && !(actor.IsStaff && actor.DepartmentId == scope.LeadDepartmentId))
-            throw new ForbiddenException("Only LeadScope department staff or admin can record a mid-semester student withdrawal.");
+        if (!actor.IsStaff)
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot record a mid-semester student withdrawal."
+                    : "Only LeadScope department staff can record a mid-semester student withdrawal.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : WorkflowErrorCodes.ScopeAccessDenied);
+        if (actor.DepartmentId != scope.LeadDepartmentId)
+            throw new ForbiddenException("Only LeadScope department staff can record a mid-semester student withdrawal.", WorkflowErrorCodes.ScopeAccessDenied);
 
         var member = await db.TeamMembers
             .FirstOrDefaultAsync(m => m.Team.Project != null && m.Team.Project.Id == projectId && m.UserId == request.StudentUserId && m.LeftAt == null, ct)

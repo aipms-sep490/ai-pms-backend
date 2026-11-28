@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using AIPMS.Application.Common.Exceptions;
 using AIPMS.Application.Features.AiSuite;
 using AIPMS.Infrastructure.Persistence.Models;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.EntityFrameworkCore;
 
 namespace AIPMS.Infrastructure.Services.AiSuite;
@@ -18,10 +19,9 @@ internal sealed partial class AiSuiteService
     public async Task<DepartmentExecutiveBriefDto?> GetLatestDepartmentBriefAsync(long? departmentId, CancellationToken ct)
     {
         var actor = RequireActor();
-        if (!IsStaffOrAdmin) throw new ForbiddenException("Chỉ Cán bộ Khoa hoặc Quản trị viên mới có quyền xem Bản tin điều hành.");
+        RequireDepartmentStaffOnly("Chỉ Cán bộ Khoa mới có quyền xem Bản tin điều hành Khoa.");
         var resolvedDeptId = await ResolveDepartmentScopeAsync(actor, departmentId, ct);
-        var scopeId = resolvedDeptId ?? 0L;
-        var snap = await LoadLatestSnapshotAsync(FeatureDepartmentBrief, "DEPARTMENT", scopeId, ct);
+        var snap = await LoadLatestSnapshotAsync(FeatureDepartmentBrief, "DEPARTMENT", resolvedDeptId, ct);
         if (snap is null) return null;
         try
         {
@@ -38,28 +38,24 @@ internal sealed partial class AiSuiteService
     {
         if (aiProvider is null) throw new ServiceUnavailableException("Dịch vụ AI hiện chưa sẵn sàng.", "AI_UNAVAILABLE");
         var actor = RequireActor();
-        if (!IsStaffOrAdmin) throw new ForbiddenException("Chỉ Cán bộ Khoa hoặc Quản trị viên mới có quyền tạo Bản tin điều hành Khoa.");
+        RequireDepartmentStaffOnly("Chỉ Cán bộ Khoa mới có quyền tạo Bản tin điều hành Khoa.");
 
         var actorName = await db.Users.AsNoTracking().Where(u => u.Id == actor).Select(u => u.FullName).FirstOrDefaultAsync(ct) ?? $"Cán bộ #{actor}";
         var resolvedDeptId = await ResolveDepartmentScopeAsync(actor, request.DepartmentId, ct);
 
-        var scopeName = "Toàn hệ thống";
-        if (resolvedDeptId is long deptId)
-        {
-            scopeName = await db.Departments.AsNoTracking()
-                .Where(d => d.Id == deptId)
-                .Select(d => d.Name)
-                .FirstOrDefaultAsync(ct) ?? $"Khoa #{deptId}";
-        }
+        var scopeName = await db.Departments.AsNoTracking()
+            .Where(d => d.Id == resolvedDeptId)
+            .Select(d => d.Name)
+            .FirstOrDefaultAsync(ct) ?? $"Khoa #{resolvedDeptId}";
 
-        var projectsQuery = db.Projects.AsNoTracking().Where(p => p.Status == "ACTIVE");
-        if (resolvedDeptId is long filterDeptId)
-        {
-            var deptTeamIds = db.TeamMembers.AsNoTracking()
-                .Where(tm => tm.LeftAt == null && tm.User.DepartmentId == filterDeptId)
-                .Select(tm => tm.TeamId);
-            projectsQuery = projectsQuery.Where(p => deptTeamIds.Contains(p.TeamId));
-        }
+        // Scope department projects accurately via ProjectMajors or LeadDepartmentId snapshot (supports interdisciplinary projects)
+        var projectsQuery = db.Projects.AsNoTracking()
+            .Where(p => p.Status == "ACTIVE"
+                && (p.ProjectMajors.Any(pm => pm.Major.DepartmentId == resolvedDeptId)
+                    || db.Set<ProjectRegistrationSnapshot>().Any(s => s.ProjectId == p.Id && s.LeadDepartmentId == resolvedDeptId)));
+
+        if (request.SemesterId is long semId && semId > 0)
+            projectsQuery = projectsQuery.Where(p => p.Team.AcademicSemesterId == semId);
 
         var projects = await projectsQuery
             .OrderByDescending(p => p.UpdatedAt)
@@ -73,7 +69,7 @@ internal sealed partial class AiSuiteService
         var taskStats = projectIds.Length == 0
             ? []
             : await db.Tasks.AsNoTracking()
-                .Where(t => projectIds.Contains(t.Milestone.ProjectId) && t.Status != "DONE" && t.Status != "CANCELLED")
+                .Where(t => t.DeletedAt == null && projectIds.Contains(t.Milestone.ProjectId) && t.Status != "DONE" && t.Status != "CANCELLED")
                 .GroupBy(t => t.Milestone.ProjectId)
                 .Select(g => new
                 {
@@ -94,7 +90,7 @@ internal sealed partial class AiSuiteService
         var supervisorLoads = projectIds.Length == 0
             ? []
             : await db.SupervisorAssignments.AsNoTracking()
-                .Where(a => projectIds.Contains(a.ProjectId) && a.EndedAt == null)
+                .Where(a => projectIds.Contains(a.ProjectId) && a.EndedAt == null && a.AssignmentType == "PRIMARY" && a.IsPrimary)
                 .GroupBy(a => new { a.SupervisorProfile.UserId, a.SupervisorProfile.User.FullName })
                 .Select(g => new { g.Key.UserId, g.Key.FullName, Count = g.Count() })
                 .OrderByDescending(x => x.Count)
@@ -102,7 +98,12 @@ internal sealed partial class AiSuiteService
                 .ToListAsync(ct);
 
         var pendingAppealsCount = await db.Set<ResultAppealRequest>().AsNoTracking()
-            .CountAsync(a => a.Status == "PENDING" && (!resolvedDeptId.HasValue || a.ResponsibleDepartmentId == resolvedDeptId.Value), ct);
+            .CountAsync(a => (a.Status == "PENDING" || a.Status == "UNDER_REVIEW") && a.ResponsibleDepartmentId == resolvedDeptId, ct);
+
+        // Unified 4-signal Health Pulse (ProjectHealthPulseCalculator)
+        var pulses = projectIds.Length == 0
+            ? new Dictionary<long, AIPMS.Application.Features.ProjectHub.ProjectHealthPulseDto>()
+            : await new ProjectHealthPulseCalculator(db).CalculateBatchAsync(projectIds, now, ct);
 
         var riskCandidates = projects.Select(p =>
         {
@@ -112,22 +113,32 @@ internal sealed partial class AiSuiteService
             var daysSilent = lastMeetings.TryGetValue(p.Id, out var lastMtg)
                 ? Math.Max(0, (int)Math.Floor((now - lastMtg).TotalDays))
                 : 30;
-            var riskScore = overdue * 3 + blocked * 4 + (daysSilent >= 14 ? 5 : 0);
-            var level = riskScore >= 12 ? "CRITICAL" : riskScore >= 6 ? "HIGH" : riskScore >= 3 ? "MEDIUM" : "LOW";
-            return new { p.Id, p.Code, p.Title, Overdue = overdue, Blocked = blocked, DaysSilent = daysSilent, RiskScore = riskScore, Level = level };
+            pulses.TryGetValue(p.Id, out var pulse);
+            var pulseStatus = pulse?.Status ?? "INSUFFICIENT_DATA";
+            var level = pulseStatus == "RED"
+                ? (blocked >= 2 || overdue >= 3 ? "CRITICAL" : "HIGH")
+                : pulseStatus == "YELLOW" ? "MEDIUM" : "LOW";
+            var riskScore = pulseStatus switch
+            {
+                "RED" => 80 + overdue * 2 + blocked * 3,
+                "YELLOW" => 45 + overdue + blocked * 2,
+                "GREEN" => 15,
+                _ => 0
+            };
+            return new { p.Id, p.Code, p.Title, Overdue = overdue, Blocked = blocked, DaysSilent = daysSilent, PulseStatus = pulseStatus, PulseSummary = pulse?.Summary, RiskScore = riskScore, Level = level };
         }).ToList();
 
         var topRisks = riskCandidates
-            .Where(x => x.RiskScore >= 3)
+            .Where(x => x.Level is "CRITICAL" or "HIGH" or "MEDIUM")
             .OrderByDescending(x => x.RiskScore)
             .Take(8)
             .ToList();
 
-        var silentTeamCount = riskCandidates.Count(x => x.DaysSilent >= 14);
+        var silentTeamCount = riskCandidates.Count(x => x.DaysSilent >= 10);
         var atRiskCount = riskCandidates.Count(x => x.Level is "CRITICAL" or "HIGH");
 
         var systemPrompt = AiSuiteIdentity + " " +
-            "[AI_SUITE_DEPARTMENT_BRIEF] Soạn Bản tin Điều hành Tuần (Executive Brief) ngắn gọn, sắc bén cho Chủ nhiệm Khoa / Giáo vụ từ số liệu vận hành thực tế. " +
+            "[AI_SUITE_DEPARTMENT_BRIEF] Soạn Bản tin Điều hành Tuần (Executive Brief) ngắn gọn, sắc bén cho Chủ nhiệm Khoa / Giáo vụ từ số liệu Health Pulse 4 tín hiệu thực tế. " +
             "Trả ONLY raw JSON (không bọc code fence): " +
             "{\"headline\":string,\"executiveSummary\":string,\"riskInsights\":[{\"projectId\":number,\"reason\":string,\"recommendedAction\":string}],\"supervisorNotes\":[{\"userId\":number,\"note\":string}],\"weeklyPriorityActions\":string[]}.";
 
@@ -145,7 +156,7 @@ internal sealed partial class AiSuiteService
 
         var status = ResolveGenerationStatus(true);
         var headline = $"Bản tin điều hành tuần — {scopeName}";
-        var execSummary = $"Đang theo dõi {projects.Count} đồ án hoạt động ({atRiskCount} đồ án rủi ro cao, {silentTeamCount} nhóm > 14 ngày chưa họp, {pendingAppealsCount} khiếu nại chờ xử lý).";
+        var execSummary = $"Đang theo dõi {projects.Count} đồ án hoạt động ({atRiskCount} đồ án rủi ro cao/RED, {silentTeamCount} nhóm > 10 ngày chưa họp, {pendingAppealsCount} khiếu nại đang mở).";
         var reasonMap = new Dictionary<long, (string Reason, string Action)>();
         var supNoteMap = new Dictionary<long, string>();
         string[] weeklyActions = [];
@@ -185,15 +196,15 @@ internal sealed partial class AiSuiteService
             var found = reasonMap.TryGetValue(x.Id, out var pair);
             return new DepartmentRiskProjectDto(
                 x.Id, x.Code, x.Title, x.Level, x.Overdue, x.Blocked, x.DaysSilent,
-                found && !string.IsNullOrWhiteSpace(pair.Reason) ? pair.Reason : $"{x.Overdue} task quá hạn, {x.Blocked} task bị chặn, {x.DaysSilent} ngày chưa họp.",
-                found && !string.IsNullOrWhiteSpace(pair.Action) ? pair.Action : "Nhắc Trưởng nhóm và GVHD rà soát lại mốc và mở khóa các task bị chặn.");
+                found && !string.IsNullOrWhiteSpace(pair.Reason) ? pair.Reason : (x.PulseSummary ?? $"{x.Overdue} task quá hạn, {x.Blocked} task bị chặn, {x.DaysSilent} ngày chưa họp."),
+                found && !string.IsNullOrWhiteSpace(pair.Action) ? pair.Action : "Nhắc Trưởng nhóm và GVHD chính rà soát lại mốc và mở khóa các task bị chặn.");
         }).ToArray();
 
         var finalSupAlerts = supervisorLoads
             .Where(s => s.Count >= 4 || supNoteMap.ContainsKey(s.UserId))
             .Select(s => new DepartmentSupervisorLoadDto(
                 s.UserId, s.FullName, s.Count,
-                supNoteMap.GetValueOrDefault(s.UserId, $"Đang hướng dẫn {s.Count} đồ án hoạt động.")))
+                supNoteMap.GetValueOrDefault(s.UserId, $"Đang hướng dẫn chính {s.Count} đồ án hoạt động.")))
             .ToArray();
 
         var preliminary = new DepartmentExecutiveBriefDto(
@@ -201,19 +212,20 @@ internal sealed partial class AiSuiteService
             headline, execSummary, finalRisks, finalSupAlerts, weeklyActions,
             BuildSnapshotMeta(null, FeatureDepartmentBrief, status, aiProvider.ModelVersion, Now, actorName));
 
-        var meta = await SaveSnapshotAsync(FeatureDepartmentBrief, "DEPARTMENT", resolvedDeptId ?? 0L, null, resolvedDeptId, status, headline, preliminary, actor, actorName, ct);
+        var meta = await SaveSnapshotAsync(FeatureDepartmentBrief, "DEPARTMENT", resolvedDeptId, null, resolvedDeptId, status, headline, preliminary, actor, actorName, ct);
         return preliminary with { Meta = meta };
     }
 
-    private async Task<long?> ResolveDepartmentScopeAsync(long actor, long? requestedDepartmentId, CancellationToken ct)
+    private async Task<long> ResolveDepartmentScopeAsync(long actor, long? requestedDepartmentId, CancellationToken ct)
     {
-        if (IsAdmin) return requestedDepartmentId;
         var staffDept = await db.Users.AsNoTracking()
-            .Where(u => u.Id == actor)
+            .Where(u => u.Id == actor && u.Status == "ACTIVE")
             .Select(u => u.DepartmentId)
             .FirstOrDefaultAsync(ct);
-        if (requestedDepartmentId.HasValue && staffDept.HasValue && requestedDepartmentId.Value != staffDept.Value)
-            throw new ForbiddenException("Bạn chỉ có thể xem bản tin điều hành thuộc Khoa mình phụ trách.");
-        return staffDept ?? requestedDepartmentId;
+        if (!staffDept.HasValue)
+            throw new ForbiddenException("Tài khoản Cán bộ Khoa chưa được gắn đơn vị Khoa/Bộ môn quản lý.", WorkflowErrorCodes.ScopeAccessDenied);
+        if (requestedDepartmentId.HasValue && requestedDepartmentId.Value != staffDept.Value)
+            throw new ForbiddenException("Bạn chỉ có thể xem bản tin điều hành thuộc Khoa mình phụ trách.", WorkflowErrorCodes.ScopeAccessDenied);
+        return staffDept.Value;
     }
 }

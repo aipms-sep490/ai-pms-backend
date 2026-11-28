@@ -23,6 +23,11 @@ internal sealed class ScopedProgressAnalysisService(AipmsDbContext db, AiActorSc
     public async Task<ProjectProgressAnalysisDto> AnalyzeAsync(long projectId, bool record, CancellationToken ct)
     {
         if (projectId <= 0) throw new ArgumentException("Project ID must be positive.");
+        var preScope = await access.Read(projectId, ct);
+        if (preScope.IsStudent)
+            throw new ForbiddenException(
+                "Students are not permitted to access project risk analysis or health pulse (N6).",
+                WorkflowErrorCodes.ScopeAccessDenied);
         long? runId = record ? await runs.BeginAsync(projectId, "PROGRESS_ANALYSIS", null, ct) : null;
         try
         {
@@ -30,6 +35,10 @@ internal sealed class ScopedProgressAnalysisService(AipmsDbContext db, AiActorSc
             await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct))
             {
                 var scope = await access.Read(projectId, ct);
+                if (scope.IsStudent)
+                    throw new ForbiddenException(
+                        "Students are not permitted to access project risk analysis or health pulse (N6).",
+                        WorkflowErrorCodes.ScopeAccessDenied);
                 var now = clock.GetUtcNow().UtcDateTime;
                 var tasks = await access.Tasks(scope).OrderBy(t => t.Id).Take(SourceLimit + 1)
                     .Select(t => new TaskFact(t.Id, t.MilestoneId, "", t.Status, t.Priority,

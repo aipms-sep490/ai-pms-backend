@@ -1,3 +1,4 @@
+using AIPMS.Api.Filters;
 using AIPMS.Application.Features.Files;
 using AIPMS.Application.Common.Models;
 using System.Diagnostics;
@@ -14,46 +15,47 @@ namespace AIPMS.Api.Controllers;
 [ApiController]
 [Route("api/v1/academic")]
 [Authorize]
+[EnableRateLimiting("ai-assistant")]
 [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
 public sealed class AcademicKnowledgeController(IAcademicKnowledgeService service, ILogger<AcademicKnowledgeController> logger, IRequestContext requestContext) : ControllerBase
 {
     [HttpGet("/api/v1/projects/{projectId:long}/ai/workflow-assistance")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.WorkflowAssistance)]
     [ProducesResponseType<WorkflowAssistanceDto>(200)]
     public Task<WorkflowAssistanceDto> WorkflowAssistance(long projectId, [FromQuery] string mode,
         [FromQuery] long? meetingId, [FromServices] IWorkflowAssistanceService assistance, CancellationToken ct) =>
         assistance.GetAsync(projectId, mode, meetingId, ct);
 
     [HttpPost("/api/v1/projects/{projectId:long}/ai/setup/apply")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [ProducesResponseType<ApplyProjectSetupResultDto>(200)]
     public Task<ApplyProjectSetupResultDto> ApplyProjectSetup(long projectId, [FromBody] ApplyProjectSetupRequest request,
         [FromServices] IAiSetupService setup, CancellationToken ct) =>
         setup.ApplyProjectSetupAsync(projectId, request, ct);
 
     [HttpPost("ai/rubric-setup/apply")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [ProducesResponseType<ApplyRubricSetupResultDto>(200)]
     public Task<ApplyRubricSetupResultDto> ApplyRubricSetup([FromBody] ApplyRubricSetupRequest request,
         [FromServices] IAiSetupService setup, CancellationToken ct) =>
         setup.ApplyRubricSetupAsync(request, ct);
 
     [HttpPost("ai/review-gate-setup/apply")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [ProducesResponseType<ApplyReviewGateSetupResultDto>(200)]
     public Task<ApplyReviewGateSetupResultDto> ApplyReviewGateSetup([FromBody] ApplyReviewGateSetupRequest request,
         [FromServices] IAiSetupService setup, CancellationToken ct) =>
         setup.ApplyReviewGateSetupAsync(request, ct);
 
     [HttpPost("ai/topic-batch-setup/apply")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [ProducesResponseType<ApplyTopicBatchSetupResultDto>(200)]
     public Task<ApplyTopicBatchSetupResultDto> ApplyTopicBatchSetup([FromBody] ApplyTopicBatchSetupRequest request,
         [FromServices] IAiSetupService setup, CancellationToken ct) =>
         setup.ApplyTopicBatchSetupAsync(request, ct);
 
     [HttpPost("ai/cold-template-setup/apply")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [ProducesResponseType<ApplyColdTemplateSetupResultDto>(200)]
     public Task<ApplyColdTemplateSetupResultDto> ApplyColdTemplateSetup([FromBody] ApplyColdTemplateSetupRequest request,
         [FromServices] IAiSetupService setup, CancellationToken ct) =>
@@ -61,38 +63,42 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
 
     [HttpPost("ai/milestone-template-setup/apply")]
     [Authorize(Roles = AppRoles.DepartmentStaff)]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [ProducesResponseType<ApplyMilestoneTemplateSetupResultDto>(200)]
     public Task<ApplyMilestoneTemplateSetupResultDto> ApplyMilestoneTemplateSetup([FromBody] ApplyMilestoneTemplateSetupRequest request,
         [FromServices] IAiSetupService setup, CancellationToken ct) =>
         setup.ApplyMilestoneTemplateSetupAsync(request, ct);
 
     [HttpGet("assistant/review-rubrics")]
+    [AiFeatureGate(AiFeatureArea.DeliverableReview)]
     public Task<IReadOnlyList<AssistantRubricOption>> ReviewRubrics([FromQuery] long projectId, CancellationToken ct) => service.ReviewRubricsAsync(projectId, ct);
     [HttpPost("/api/v1/projects/{projectId:long}/ai/deliverables/{deliverableVersionId:long}/review")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.DeliverableReview)]
     public Task<DeliverableReviewResponseDto> ReviewDeliverable(long projectId, long deliverableVersionId, DeliverableReviewRequest request,
         [FromServices] IDeliverableReviewService reviews, CancellationToken ct) => reviews.ReviewAsync(projectId, deliverableVersionId, request, ct);
 
     [HttpGet("/api/v1/projects/{projectId:long}/ai/deliverables/{deliverableVersionId:long}/review-options")]
+    [AiFeatureGate(AiFeatureArea.DeliverableReview)]
     public Task<DeliverableReviewOptions> ReviewOptions(long projectId, long deliverableVersionId,
         [FromServices] IDeliverableReviewService reviews, CancellationToken ct) => reviews.OptionsAsync(projectId, deliverableVersionId, ct);
 
     [HttpGet("/api/v1/projects/{projectId:long}/ai/deliverable-reviews")]
+    [AiFeatureGate(AiFeatureArea.DeliverableReview)]
     public Task<PagedResult<DeliverableReviewResponseDto>> ReviewHistory(long projectId,
         [FromServices] IDeliverableReviewService reviews, CancellationToken ct, long? deliverableVersionId = null, int page = 1, int pageSize = 20) =>
         reviews.ListAsync(projectId, deliverableVersionId, page, pageSize, ct);
 
     [HttpGet("/api/v1/projects/{projectId:long}/ai/deliverable-reviews/{runId:long}")]
+    [AiFeatureGate(AiFeatureArea.DeliverableReview)]
     public Task<DeliverableReviewResponseDto> ReviewRun(long projectId, long runId,
         [FromServices] IDeliverableReviewService reviews, CancellationToken ct) => reviews.GetAsync(projectId, runId, ct);
     [HttpPost("assistant/ask")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [ProducesResponseType<AcademicAssistantResponseDto>(200)]
     public Task<AcademicAssistantResponseDto> Ask(AcademicAssistantAskRequest request, CancellationToken ct) => service.AskAsync(request, ct);
 
     [HttpPost("assistant/ask-with-files")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
     [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]
@@ -112,22 +118,24 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     }
 
     [HttpPost("assistant/conversations")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public Task<AssistantConversationDto> CreateConversation(CreateAssistantConversationRequest request, CancellationToken ct) => service.CreateConversationAsync(request, ct);
 
     [HttpGet("assistant/conversations")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public Task<IReadOnlyList<AssistantConversationDto>> Conversations([FromQuery] long? projectId, [FromQuery] long? beforeId, [FromQuery] string? search, CancellationToken ct) => service.ConversationsAsync(projectId, beforeId, ct, search);
 
     [HttpGet("assistant/conversations/{id:long}")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public Task<AssistantConversationDetailDto> Conversation(long id, [FromQuery] long? beforeTurnId, CancellationToken ct) => service.ConversationAsync(id, beforeTurnId, ct);
 
     [HttpPatch("assistant/conversations/{id:long}")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [ProducesResponseType<AssistantConversationDto>(200)]
     public Task<AssistantConversationDto> UpdateConversation(long id, [FromBody] UpdateAssistantConversationRequest request, CancellationToken ct) => service.UpdateConversationAsync(id, request, ct);
 
     [HttpGet("assistant/conversations/{id:long}/download")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public async Task<IActionResult> DownloadConversation(long id, [FromQuery] string format = "md", CancellationToken ct = default)
     {
         var file = await service.ExportConversationAsync(id, format, ct);
@@ -137,18 +145,21 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     }
 
     [HttpDelete("assistant/conversations/{id:long}")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public async Task<IActionResult> DeleteConversation(long id, CancellationToken ct) { await service.DeleteConversationAsync(id, ct); return NoContent(); }
 
     [HttpPost("assistant/runs/{id:long}/feedback")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [ProducesResponseType<AssistantFeedbackDto>(200)]
     public Task<AssistantFeedbackDto> SubmitFeedback(long id, [FromBody] SubmitAssistantFeedbackRequest request, CancellationToken ct) => service.SubmitFeedbackAsync(id, request, ct);
 
     [HttpGet("assistant/projects")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [ProducesResponseType<IReadOnlyList<AssistantProjectOptionDto>>(200)]
     public Task<IReadOnlyList<AssistantProjectOptionDto>> AccessibleProjects(CancellationToken ct) => service.AccessibleProjectsAsync(ct);
 
     [HttpGet("assistant/runs/{id:long}/citations/{index:int}")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public async Task<KnowledgeCitationDto> Citation(long id, int index, CancellationToken ct)
     {
         Response.Headers.CacheControl = "no-store";
@@ -156,7 +167,7 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     }
 
     [HttpPost("assistant/stream")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [Consumes("multipart/form-data")]
     [Produces("application/x-ndjson")]
     [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
@@ -207,7 +218,7 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
     }
 
     [HttpGet("assistant/runs/{id:long}/download")]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public async Task<IActionResult> Download(long id, [FromQuery] string format = "md", CancellationToken ct = default)
     {
         var file = await service.ExportAsync(id, format, ct);
@@ -218,35 +229,42 @@ public sealed class AcademicKnowledgeController(IAcademicKnowledgeService servic
 
     [HttpGet("knowledge-documents")]
     [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public Task<PagedResult<KnowledgeDocumentDto>> List([FromQuery] long? departmentId, [FromQuery] string? status, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) => service.ListAsync(departmentId, status, page, pageSize, ct);
 
     [HttpPost("knowledge-documents")]
     [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public async Task<ActionResult<KnowledgeDocumentDto>> Create(CreateKnowledgeDocumentRequest request, CancellationToken ct) => CreatedAtAction(nameof(List), await service.CreateAsync(request, ct));
 
     [HttpPost("knowledge-documents/{id:long}/versions")]
     [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public Task<KnowledgeVersionDto> AddVersion(long id, CreateKnowledgeVersionRequest request, CancellationToken ct) => service.AddVersionAsync(id, request, ct);
 
     [HttpPost("knowledge-documents/{id:long}/publish")]
     [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public Task<KnowledgeVersionDto> Publish(long id, CancellationToken ct) => service.PublishAsync(id, ct);
 
     [HttpPost("knowledge-documents/{id:long}/retire")]
     [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public Task<KnowledgeDocumentDto> Retire(long id, CancellationToken ct) => service.RetireAsync(id, ct);
 
     [HttpGet("knowledge-documents/{id:long}/history")]
     [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public Task<IReadOnlyList<KnowledgeVersionDto>> History(long id, CancellationToken ct) => service.HistoryAsync(id, ct);
 
     [HttpPost("knowledge-documents/{id:long}/reindex")]
     [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     public Task<KnowledgeVersionDto> Reindex(long id, CancellationToken ct) => service.ReindexAsync(id, ct);
 
     [HttpPost("knowledge-documents/extract-preview")]
     [Authorize(Policy = AuthorizationPolicies.AcademicManagement)]
-    [EnableRateLimiting("ai-assistant")]
+    [AiFeatureGate(AiFeatureArea.Knowledge)]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(UploadPolicies.MultipartTransportCeiling)]
     [RequestFormLimits(MultipartBodyLengthLimit = UploadPolicies.MultipartTransportCeiling)]

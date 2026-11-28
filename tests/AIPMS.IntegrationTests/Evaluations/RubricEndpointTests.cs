@@ -133,7 +133,12 @@ public sealed partial class RubricEndpointTests(RubricDatabaseFixture database) 
         }
         using var app = new RubricFactory(database);
         using var admin = app.CreateAuthenticatedClient(s.Users.Admin, roles: [AppRoles.Admin]);
-        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync("/api/v1/rubrics", Input(s))).StatusCode);
+        var adminCreate = await admin.PostAsJsonAsync("/api/v1/rubrics", Input(s));
+        Assert.Equal(HttpStatusCode.Forbidden, adminCreate.StatusCode);
+        Assert.Contains("ADMIN_NOT_ACADEMIC_AUTHORITY", await adminCreate.Content.ReadAsStringAsync());
+        using var staff = app.CreateAuthenticatedClient(s.Users.Staff, roles: [AppRoles.DepartmentStaff]);
+        var expected = reason is "INACTIVE_DEPARTMENT" or "INACTIVE_ORGANIZATION" ? HttpStatusCode.Forbidden : HttpStatusCode.Conflict;
+        Assert.Equal(expected, (await staff.PostAsJsonAsync("/api/v1/rubrics", Input(s))).StatusCode);
     }
 
     [Theory]

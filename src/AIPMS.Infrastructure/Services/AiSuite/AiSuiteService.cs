@@ -16,8 +16,10 @@ using AIPMS.Application.Features.AiSuite;
 using AIPMS.Application.Features.AiSuite.Abstractions;
 using AIPMS.Infrastructure.Persistence.Generated;
 using AIPMS.Infrastructure.Persistence.Models;
+using AIPMS.Infrastructure.Services.Projects;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using UglyToad.PdfPig;
 using M = AIPMS.Infrastructure.Persistence.Generated.Models;
 using Task = System.Threading.Tasks.Task;
@@ -31,7 +33,9 @@ internal sealed partial class AiSuiteService(
     IFileStorage fileStorage,
     TimeProvider clock,
     IConfiguration configuration,
-    IAiTextGenerationProvider? aiProvider = null) : IAiSuiteService
+    IAiTextGenerationProvider? aiProvider = null,
+    IProjectScopeResolver? scopeResolver = null,
+    ILogger<AiSuiteService>? logger = null) : IAiSuiteService
 {
     private const string AiSuiteIdentity =
         "Bạn là Trợ lý AI chuyên sâu của hệ thống AI-PMS (Hệ thống Quản lý Đồ án Tốt nghiệp Đại học). " +
@@ -41,6 +45,7 @@ internal sealed partial class AiSuiteService(
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
 
+    private IProjectScopeResolver ScopeResolver => scopeResolver ?? new ProjectScopeResolver(db);
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
     private string VietnamNowIso => clock.GetUtcNow().ToOffset(VietnamOffset).ToString("O");
 
@@ -48,11 +53,29 @@ internal sealed partial class AiSuiteService(
 
     private bool IsAdmin => currentUser.Roles.Contains(AppRoles.Admin);
     private bool IsDepartmentStaff => currentUser.Roles.Contains(AppRoles.DepartmentStaff);
-    private bool IsStaffOrAdmin => IsAdmin || IsDepartmentStaff;
+    private bool IsPureAdmin => IsAdmin && !IsDepartmentStaff;
 
-    private async Task<(M.Project Project, long Actor, string ActorName)> RequireProjectAccessAsync(long projectId, CancellationToken ct)
+    private void EnsureNotPureAdmin(string? message = null)
+    {
+        if (IsPureAdmin)
+        {
+            throw new ForbiddenException(
+                message ?? "Quản trị viên hệ thống (ADMIN) không có thẩm quyền thực thi nghiệp vụ học thuật.",
+                WorkflowErrorCodes.AdminNotAcademicAuthority);
+        }
+    }
+
+    private void RequireDepartmentStaffOnly(string? message = null)
+    {
+        EnsureNotPureAdmin(message);
+        if (!IsDepartmentStaff)
+            throw new ForbiddenException(message ?? "Chỉ Cán bộ Khoa / Bộ môn mới có quyền thực hiện thao tác học thuật này.");
+    }
+
+    private async Task<(M.Project Project, long Actor, string ActorName, ProjectActorScope Scope)> RequireProjectAccessAsync(long projectId, CancellationToken ct)
     {
         var actor = RequireActor();
+        EnsureNotPureAdmin();
         var user = await db.Users.AsNoTracking()
             .Where(u => u.Id == actor && u.Status == "ACTIVE")
             .Select(u => new { u.Id, u.FullName })
@@ -64,18 +87,62 @@ internal sealed partial class AiSuiteService(
             .SingleOrDefaultAsync(p => p.Id == projectId, ct)
             ?? throw new NotFoundException("Project", projectId);
 
-        if (!IsAdmin && !await projectAccess.CanAccessAsync(actor, projectId, ct))
-            throw new ForbiddenException("Bạn không có quyền truy cập đồ án này.");
+        var scope = await ScopeResolver.ResolveAsync(actor, projectId, ct)
+            ?? throw new ForbiddenException("Bạn không có quyền truy cập đồ án này.");
 
-        return (project, actor, user.FullName);
+        return (project, actor, user.FullName, scope);
     }
 
     private async Task<bool> IsSupervisorOrStaffForProjectAsync(long projectId, long actor, CancellationToken ct)
     {
-        if (IsStaffOrAdmin) return true;
+        if (IsPureAdmin) return false;
+        if (IsDepartmentStaff)
+        {
+            var deptId = await db.Users.AsNoTracking()
+                .Where(u => u.Id == actor && u.Status == "ACTIVE")
+                .Select(u => u.DepartmentId)
+                .FirstOrDefaultAsync(ct);
+            if (!deptId.HasValue) return false;
+            var projectScope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, ct, requireFrozenScope: false);
+            return deptId == projectScope.LeadDepartmentId || projectScope.DepartmentIds.Contains(deptId.Value);
+        }
         return await db.SupervisorAssignments.AsNoTracking()
-            .AnyAsync(a => a.ProjectId == projectId && a.EndedAt == null && a.SupervisorProfile.UserId == actor, ct);
+            .AnyAsync(a => a.ProjectId == projectId
+                && a.EndedAt == null
+                && a.AssignmentType == "PRIMARY"
+                && a.IsPrimary
+                && a.SupervisorProfile.UserId == actor, ct);
     }
+
+    private IQueryable<M.Task> ScopedTasksQuery(long projectId, ProjectActorScope scope)
+    {
+        var q = db.Tasks.AsNoTracking()
+            .Where(t => t.DeletedAt == null && t.Milestone.ProjectId == projectId && t.Status != "CANCELLED");
+        if (!scope.IsFullProjectAccess)
+        {
+            var allowed = scope.AllowedMajorIds.ToArray();
+            q = q.Where(t => db.TaskDisciplines.Any(td => td.TaskId == t.Id && allowed.Contains(td.MajorId)));
+        }
+        return q;
+    }
+
+    private IQueryable<M.Deliverable> ScopedDeliverablesQuery(long projectId, ProjectActorScope scope)
+    {
+        var q = db.Deliverables.AsNoTracking()
+            .Where(d => d.ProjectId == projectId || (d.Milestone != null && d.Milestone.ProjectId == projectId));
+        if (!scope.IsFullProjectAccess)
+        {
+            var allowed = scope.AllowedMajorIds.ToArray();
+            q = q.Where(d => d.EvidenceScope == null
+                || d.EvidenceScope == "COMMON"
+                || d.EvidenceScope == "INTEGRATION"
+                || (d.TargetMajorId.HasValue && allowed.Contains(d.TargetMajorId.Value)));
+        }
+        return q;
+    }
+
+    private static bool IsGateDecided(string? status) =>
+        status is "PASSED" or "REVISION_REQUIRED" or "FAILED" or "OVERRIDDEN_PASSED" or "OVERRIDDEN_FAILED";
 
     private int ResolveTimeoutSeconds() =>
         int.TryParse(configuration["AiAssistant:TimeoutSeconds"], out var sec)
@@ -92,12 +159,14 @@ internal sealed partial class AiSuiteService(
         {
             return await aiProvider.GenerateTextAsync(systemPrompt, json, cts.Token);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
+            logger?.LogWarning(ex, "AI Suite provider call timed out after {TimeoutSeconds}s.", ResolveTimeoutSeconds());
             return null;
         }
-        catch (Exception) when (!ct.IsCancellationRequested)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
+            logger?.LogWarning(ex, "AI Suite provider call failed; falling back to deterministic baseline.");
             return null;
         }
     }

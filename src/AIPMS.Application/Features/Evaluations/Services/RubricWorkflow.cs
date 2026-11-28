@@ -24,7 +24,15 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
 
     private async Task Scope(RubricActor actor, long department, long semester, CancellationToken ct)
     {
-        if (!actor.IsAdmin && actor.DepartmentId != department) throw new ForbiddenException();
+        if (!actor.IsStaff)
+        {
+            throw new ForbiddenException(
+                actor.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot manage rubrics."
+                    : "Only active department staff can manage rubrics.",
+                actor.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
+        if (actor.DepartmentId != department) throw new ForbiddenException();
         var scope = await repository.GetScopeAsync(department, semester, ct)
             ?? throw new ConflictException("Rubric department and semester must belong to the same active organization and department.");
         if (scope.SemesterStatus is "CLOSED" or "ARCHIVED")
@@ -100,7 +108,7 @@ public sealed class RubricWorkflow(IRubricRepository repository, ICurrentUser cu
         {
             if (rubric.DepartmentId.HasValue && rubric.AcademicSemesterId.HasValue && !string.IsNullOrWhiteSpace(rubric.EvaluationScope))
             {
-                if (actor.IsStaff && (actor.DepartmentId == rubric.DepartmentId || actor.IsAdmin))
+                if (actor.IsStaff && actor.DepartmentId == rubric.DepartmentId)
                 {
                     canSubmit = true;
                 }

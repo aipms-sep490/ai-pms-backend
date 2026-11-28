@@ -28,10 +28,18 @@ internal sealed class StudentRosterService(AipmsDbContext db, ICurrentUser curre
                     && u.Department != null && u.Department.IsActive && u.Department.Organization.IsActive
             })
             .SingleOrDefaultAsync(ct);
-        if (caller is null || (!caller.IsAdmin && !caller.IsStaff)) throw new ForbiddenException();
-        if (!caller.IsAdmin && !caller.DepartmentId.HasValue)
+        if (caller is null) throw new ForbiddenException();
+        if (!caller.IsStaff)
+        {
+            throw new ForbiddenException(
+                caller.IsAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot import student curriculum records."
+                    : "An active department staff account is required to import student curriculum records.",
+                caller.IsAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
+        }
+        if (!caller.DepartmentId.HasValue)
             throw new ForbiddenException("Department staff must be assigned to an active department.", WorkflowErrorCodes.ScopeAccessDenied);
-        return (actor, caller.IsAdmin ? null : caller.DepartmentId);
+        return (actor, caller.DepartmentId);
     }
 
     public async Task<CurriculumPreviewDto> PreviewAsync(Stream file, string fileName, CancellationToken ct)

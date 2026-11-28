@@ -55,7 +55,7 @@ internal static class AssistantSetupPlanParser
                 var rawType = Text(item, "deliverableType", 32)?.ToUpperInvariant() ?? "DOCUMENT";
                 var deliverableType = ValidDeliverableTypes.Contains(rawType) ? rawType : "DOCUMENT";
                 var scope = Text(item, "evidenceScope", 24)?.ToUpperInvariant();
-                if (scope is not ("COMMON" or "MAJOR_SPECIFIC")) scope = "COMMON";
+                if (scope is not ("COMMON" or "MAJOR_SPECIFIC" or "INTEGRATION")) scope = "COMMON";
                 deliverables.Add(new(
                     tempKey, title, Text(item, "description", 2000), deliverableType,
                     Text(item, "milestoneRef", 40), scope, Text(item, "targetMajorName", 255),
@@ -138,9 +138,12 @@ internal static class AssistantSetupPlanParser
                         order++;
                     }
                 }
+                var isIntegration = item.TryGetProperty("isIntegration", out var intEl) && intEl.ValueKind == JsonValueKind.True;
+                var targetScope = Text(item, "targetScope", 24)?.ToUpperInvariant();
+                if (targetScope is not (null or "COMMON" or "MAJOR_SPECIFIC" or "INTEGRATION" or "INDIVIDUAL")) targetScope = null;
                 criteria.Add(new(tempKey, parentKey, Text(item, "criterionCode", 32), cName, Text(item, "description", 1000),
                     Math.Round(weight, 2), maxScore, required, Text(item, "learningOutcome", 300),
-                    Text(item, "evidenceGuidance", 500), levels));
+                    Text(item, "evidenceGuidance", 500), levels, isIntegration, targetScope));
             }
         }
         if (criteria.Count == 0) return null;
@@ -165,7 +168,7 @@ internal static class AssistantSetupPlanParser
         if (value.TryGetProperty("gates", out var gateArr) && gateArr.ValueKind == JsonValueKind.Array)
         {
             var seq = 0;
-            foreach (var item in gateArr.EnumerateArray().Take(10))
+            foreach (var item in gateArr.EnumerateArray().Take(3))
             {
                 if (item.ValueKind != JsonValueKind.Object) continue;
                 var title = Text(item, "title", 200);
@@ -174,7 +177,7 @@ internal static class AssistantSetupPlanParser
                 var gCodeRaw = Text(item, "code", 32) ?? $"G{seq}";
                 var gCode = Regex.Replace(gCodeRaw.ToUpperInvariant(), @"[^A-Z0-9_\-]", "_");
                 if (string.IsNullOrWhiteSpace(gCode)) gCode = $"G{seq}";
-                var gSeq = item.TryGetProperty("sequence", out var seqEl) && seqEl.ValueKind == JsonValueKind.Number && seqEl.TryGetInt32(out var s) && s > 0 ? s : seq;
+                var gSeq = item.TryGetProperty("sequence", out var seqEl) && seqEl.ValueKind == JsonValueKind.Number && seqEl.TryGetInt32(out var s) && s is >= 1 and <= 3 ? s : seq;
                 var weight = DecimalVal(item, "weight");
                 if (weight is < 0 or > 100) weight = null;
                 var startDate = Day(Text(item, "startDate", 10));
@@ -184,7 +187,8 @@ internal static class AssistantSetupPlanParser
                 var blockNext = item.TryGetProperty("blockNextGate", out var bnEl) && bnEl.ValueKind == JsonValueKind.True;
                 var blocksDefense = item.TryGetProperty("blocksDefense", out var bdEl) && bdEl.ValueKind == JsonValueKind.True;
                 var reviewerPolicy = Text(item, "reviewerPolicy", 40)?.ToUpperInvariant();
-                if (reviewerPolicy is not ("SUPERVISOR" or "LECTURER" or "COUNCIL" or "DEPARTMENT_STAFF")) reviewerPolicy = "COUNCIL";
+                // QD-09: Independent gate reviewers only (SUPERVISOR is retired as gate reviewer)
+                if (reviewerPolicy is not ("ASSIGNED_REVIEWER" or "LECTURER" or "COUNCIL" or "DEPARTMENT_STAFF")) reviewerPolicy = "COUNCIL";
                 var reviewScope = Text(item, "reviewScope", 32)?.ToUpperInvariant();
                 if (reviewScope is not ("COMMON" or "MAJOR_SPECIFIC" or "HYBRID")) reviewScope = mode == "INTERDISCIPLINARY" ? "HYBRID" : "COMMON";
 
@@ -204,12 +208,14 @@ internal static class AssistantSetupPlanParser
                         var rType = Text(r, "type", 24)?.ToUpperInvariant();
                         if (rType is not ("FILE" or "EXTERNAL_LINK" or "TEXT" or "ARTIFACT")) rType = "FILE";
                         var rScope = Text(r, "scope", 24)?.ToUpperInvariant();
-                        if (rScope is not ("COMMON" or "MAJOR_SPECIFIC")) rScope = "COMMON";
+                        if (rScope is not ("COMMON" or "MAJOR_SPECIFIC" or "INTEGRATION")) rScope = "COMMON";
                         var rVer = Text(r, "verification", 24)?.ToUpperInvariant();
                         if (rVer is not ("HUMAN" or "AUTO")) rVer = "HUMAN";
                         var rRequired = !r.TryGetProperty("required", out var rrEl) || rrEl.ValueKind != JsonValueKind.False;
+                        var targetCard = Text(r, "targetCardinality", 24)?.ToUpperInvariant();
+                        if (targetCard is not (null or "PROJECT" or "TEAM" or "EACH_STUDENT")) targetCard = null;
                         reqs.Add(new(rCode, rTitle, Text(r, "description", 600), rType, rScope,
-                            rScope == "MAJOR_SPECIFIC" ? Text(r, "majorName", 160) : null, rVer, rRequired));
+                            rScope == "MAJOR_SPECIFIC" ? Text(r, "majorName", 160) : null, rVer, rRequired, targetCard));
                     }
                 }
                 if (reqs.Count == 0)
@@ -263,6 +269,11 @@ internal static class AssistantSetupPlanParser
                     }
                 }
 
+                var trackCode = Text(item, "trackCode", 24)?.ToUpperInvariant();
+                if (trackCode is not (null or "IT_ONLY" or "MKT_ONLY" or "IT_MKT")) trackCode = null;
+                var maxTeams = item.TryGetProperty("maxTeams", out var mtEl) && mtEl.ValueKind == JsonValueKind.Number && mtEl.TryGetInt32(out var mt) && mt >= 1
+                    ? Math.Min(mt, 10) : 1;
+
                 topics.Add(new(
                     tempKey, code, title,
                     Text(item, "description", 2000),
@@ -272,7 +283,9 @@ internal static class AssistantSetupPlanParser
                     Text(item, "domain", 120),
                     StringList(item, "technologies", 12, 80),
                     StringList(item, "keywords", 12, 80),
-                    mode, primaryMajorId, primaryMajorName, reqs));
+                    mode, primaryMajorId, primaryMajorName, reqs,
+                    TrackCode: trackCode,
+                    MaxTeams: maxTeams));
             }
         }
         if (topics.Count == 0) return null;

@@ -143,6 +143,9 @@ public sealed class HealthReadinessEndpointTests
             var badSql = "Server=127.0.0.1,14999;Database=NO_SUCH_DB;User Id=fake;Password=SuperSecretPassword123!;Connect Timeout=1;TrustServerCertificate=True;";
             using var appBadSql = new HealthTestFactory(badSql, tempRoot, null, false, HttpStatusCode.OK);
             using var client2 = appBadSql.CreateClient();
+            var liveness = await client2.GetAsync("/health");
+            Assert.Equal(HttpStatusCode.OK, liveness.StatusCode);
+            Assert.Contains("\"status\":\"Healthy\"", await liveness.Content.ReadAsStringAsync());
             var res2 = await client2.GetAsync("/health/ready");
             var body2 = await res2.Content.ReadAsStringAsync();
             Assert.Equal(HttpStatusCode.ServiceUnavailable, res2.StatusCode);

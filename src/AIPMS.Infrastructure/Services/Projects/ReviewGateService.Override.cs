@@ -25,6 +25,7 @@ internal sealed partial class ReviewGateService
     public Task<OverrideReviewGateDto> OverrideDecision(long projectId, string gateCode,
         OverrideReviewGateRequest input, CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
+        await RequireDepartmentStaff(token);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, token, true);
         if (!scope.LeadDepartmentId.HasValue || !await db.Users.AsNoTracking().AnyAsync(u =>
                 u.Id == Actor && u.Status == "ACTIVE" && u.DepartmentId == scope.LeadDepartmentId
@@ -74,6 +75,7 @@ internal sealed partial class ReviewGateService
     public Task<StudentReviewTimelineDto> ReopenGate(long projectId, string gateCode,
         ReopenReviewGateRequest input, CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
+        await RequireDepartmentStaff(token);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, token, true);
         if (!scope.LeadDepartmentId.HasValue || !await db.Users.AsNoTracking().AnyAsync(u =>
                 u.Id == Actor && u.Status == "ACTIVE" && u.DepartmentId == scope.LeadDepartmentId

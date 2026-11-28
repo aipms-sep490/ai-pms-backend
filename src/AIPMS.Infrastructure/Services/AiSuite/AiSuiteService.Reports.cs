@@ -16,7 +16,7 @@ internal sealed partial class AiSuiteService
     public async Task<ProgressReportDraftDto> GenerateProgressReportDraftAsync(long projectId, ProgressReportDraftRequest request, CancellationToken ct)
     {
         if (aiProvider is null) throw new ServiceUnavailableException("Dịch vụ AI hiện chưa sẵn sàng.", "AI_UNAVAILABLE");
-        var (project, actor, actorName) = await RequireProjectAccessAsync(projectId, ct);
+        var (project, actor, actorName, scope) = await RequireProjectAccessAsync(projectId, ct);
 
         var reportType = string.IsNullOrWhiteSpace(request.ReportType) ? "WEEKLY" : request.ReportType.Trim().ToUpperInvariant();
         if (reportType is not ("WEEKLY" or "BIWEEKLY" or "MILESTONE" or "MONTHLY")) reportType = "WEEKLY";
@@ -30,8 +30,7 @@ internal sealed partial class AiSuiteService
         var startUtc = periodStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc).AddHours(-7);
         var endUtc = periodEnd.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc).AddHours(-7);
 
-        var tasks = await db.Tasks.AsNoTracking()
-            .Where(t => t.Milestone.ProjectId == projectId && t.Status != "CANCELLED")
+        var tasks = await ScopedTasksQuery(projectId, scope)
             .Select(t => new
             {
                 t.Id,
@@ -80,8 +79,8 @@ internal sealed partial class AiSuiteService
             .Select(i => new { i.Meeting.Title, Summary = Clip(i.SummaryText, 500), i.CreatedAt })
             .ToListAsync(ct);
 
-        var deliverables = await db.Deliverables.AsNoTracking()
-            .Where(d => d.Milestone != null && d.Milestone.ProjectId == projectId && d.UpdatedAt >= startUtc && d.UpdatedAt <= endUtc)
+        var deliverables = await ScopedDeliverablesQuery(projectId, scope)
+            .Where(d => d.UpdatedAt >= startUtc && d.UpdatedAt <= endUtc)
             .OrderByDescending(d => d.UpdatedAt)
             .Take(8)
             .Select(d => new { d.Title, d.Status })

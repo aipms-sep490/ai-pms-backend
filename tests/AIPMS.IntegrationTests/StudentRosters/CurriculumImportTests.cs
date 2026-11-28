@@ -25,6 +25,21 @@ public sealed class CurriculumImportTests(TeamDatabaseFixture database) : IClass
         return admin.Id;
     }
 
+    internal static async Task<long> SeedStaff(TeamDatabaseFixture database, TeamScenario scenario)
+    {
+        await using var db = database.CreateContext();
+        var role = await db.Roles.SingleOrDefaultAsync(r => r.Code == "DEPARTMENT_STAFF");
+        role ??= new Role { Code = "DEPARTMENT_STAFF", Name = "Department Staff", IsSystemRole = true };
+        var deptId = await db.Users.Where(u => u.Id == scenario.Students[0]).Select(u => u.DepartmentId).SingleAsync();
+        var staff = new User { Email = $"staff-{Guid.NewGuid():N}@example.test", FullName = "Dept Staff",
+            PasswordHash = "unused", Status = "ACTIVE", DepartmentId = deptId, UserRoleUsers = [new() { Role = role }] };
+        db.Users.Add(staff);
+        foreach (var id in scenario.Students)
+            (await db.Users.SingleAsync(u => u.Id == id)).StudentCode = $"S{id}";
+        await db.SaveChangesAsync();
+        return staff.Id;
+    }
+
     private static async Task<CurriculumPreviewDto> Preview(HttpClient client, string csv)
     {
         using var form = new MultipartFormDataContent();
@@ -42,9 +57,9 @@ public sealed class CurriculumImportTests(TeamDatabaseFixture database) : IClass
     public async Task Preview_commit_reimport_and_profile_preserve_other_fields()
     {
         var s = await database.SeedAsync();
-        var admin = await SeedAdmin(database, s);
+        var staff = await SeedStaff(database, s);
         using var app = new TeamTestFactory(database, s);
-        using var client = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        using var client = app.CreateAuthenticatedClient(staff, roles: ["DEPARTMENT_STAFF"]);
         var csv = $"MSSV,Khung\nS{s.Students[0]},BIT_SE_18D_Java\nS{s.Students[1]},";
         var preview = await Preview(client, csv);
         Assert.True(preview.CanCommit);
@@ -60,7 +75,7 @@ public sealed class CurriculumImportTests(TeamDatabaseFixture database) : IClass
         Assert.Equal("BIT_SE_18D_Java", user!.CurriculumCode);
         Assert.Equal("unused-test-hash", user.PasswordHash);
         Assert.Equal(s.SeMajorId, user.MajorId);
-        Assert.True(await db.AuditLogs.AnyAsync(a => a.ActorUserId == admin && a.Action == "STUDENT_CURRICULA_IMPORTED"));
+        Assert.True(await db.AuditLogs.AnyAsync(a => a.ActorUserId == staff && a.Action == "STUDENT_CURRICULA_IMPORTED"));
         using var student = app.CreateAuthenticatedClient(s.Students[0]);
         var profile = await student.GetAsync("/api/v1/users/me/profile");
         Assert.Equal(HttpStatusCode.OK, profile.StatusCode);
@@ -71,14 +86,19 @@ public sealed class CurriculumImportTests(TeamDatabaseFixture database) : IClass
     public async Task Duplicate_unknown_and_invalid_rows_do_not_commit_and_roles_are_enforced()
     {
         var s = await database.SeedAsync();
+        var staff = await SeedStaff(database, s);
         var admin = await SeedAdmin(database, s);
         using var app = new TeamTestFactory(database, s);
-        using var client = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        using var client = app.CreateAuthenticatedClient(staff, roles: ["DEPARTMENT_STAFF"]);
         var preview = await Preview(client, $"MSSV,Khung\nS{s.Students[0]},SE\ns{s.Students[0]},IS\nUNKNOWN,SE");
         Assert.False(preview.CanCommit);
         Assert.Contains("DUPLICATE_STUDENT_CODE", preview.Rows[0].Errors);
         Assert.Contains("STUDENT_NOT_FOUND", preview.Rows[2].Errors);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v1/users/curriculum-import/commit", new { rows = new object[] { } })).StatusCode);
+        using var pureAdmin = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        var adminRes = await pureAdmin.PostAsJsonAsync("/api/v1/users/curriculum-import/commit", new { rows = new object[] { } });
+        Assert.Equal(HttpStatusCode.Forbidden, adminRes.StatusCode);
+        Assert.Contains("ADMIN_NOT_ACADEMIC_AUTHORITY", await adminRes.Content.ReadAsStringAsync());
         using var student = app.CreateAuthenticatedClient(s.Students[0]);
         Assert.Equal(HttpStatusCode.Forbidden, (await student.PostAsJsonAsync("/api/v1/users/curriculum-import/commit", new { rows = new object[] { } })).StatusCode);
         using var forged = app.CreateAuthenticatedClient(s.Students[0], roles: ["ADMIN"]);
@@ -93,9 +113,9 @@ public sealed class CurriculumImportTests(TeamDatabaseFixture database) : IClass
     public async Task Audit_failure_or_stale_second_row_rolls_back_entire_batch(bool auditFailure)
     {
         var s = await database.SeedAsync();
-        var admin = await SeedAdmin(database, s);
+        var staff = await SeedStaff(database, s);
         using var app = new TeamTestFactory(database, s, failAuditAction: auditFailure ? "STUDENT_CURRICULA_IMPORTED" : null);
-        using var client = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        using var client = app.CreateAuthenticatedClient(staff, roles: ["DEPARTMENT_STAFF"]);
         var preview = await Preview(client, $"MSSV,Khung\nS{s.Students[0]},SE\nS{s.Students[1]},IS");
         if (!auditFailure)
         {
@@ -108,16 +128,16 @@ public sealed class CurriculumImportTests(TeamDatabaseFixture database) : IClass
         Assert.Equal(auditFailure ? HttpStatusCode.InternalServerError : HttpStatusCode.Conflict, response.StatusCode);
         await using var db = database.CreateContext();
         Assert.All(await db.Users.Where(u => s.Students.Contains(u.Id)).ToArrayAsync(), u => Assert.Null(u.CurriculumCode));
-        Assert.False(await db.AuditLogs.AnyAsync(a => a.ActorUserId == admin && a.Action == "STUDENT_CURRICULA_IMPORTED"));
+        Assert.False(await db.AuditLogs.AnyAsync(a => a.ActorUserId == staff && a.Action == "STUDENT_CURRICULA_IMPORTED"));
     }
 
     [Fact]
     public async Task Concurrent_import_has_one_winner()
     {
         var s = await database.SeedAsync();
-        var admin = await SeedAdmin(database, s);
+        var staff = await SeedStaff(database, s);
         using var app = new TeamTestFactory(database, s);
-        using var client = app.CreateAuthenticatedClient(admin, roles: ["ADMIN"]);
+        using var client = app.CreateAuthenticatedClient(staff, roles: ["DEPARTMENT_STAFF"]);
         var request = Request(await Preview(client, $"MSSV,Khung\nS{s.Students[0]},SE"));
         var responses = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => client.PostAsJsonAsync("/api/v1/users/curriculum-import/commit", request)));
         Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);

@@ -41,7 +41,7 @@ public sealed class VerifyAcademicProfileHandler(
         var profile = await repository.GetAsync(userId, ct) ?? throw new NotFoundException("AcademicProfile", userId);
         if (!profile.DepartmentId.HasValue || !profile.MajorId.HasValue || profile.Status == "VERIFIED" && status == "VERIFIED")
             throw new ConflictException("The student academic profile is incomplete or already verified.");
-        await access.EnsureCanManageDepartmentAsync(profile.DepartmentId.Value, ct);
+        await access.EnsureDepartmentStaffInDepartmentAsync(profile.DepartmentId.Value, ct);
         var result = await repository.SetStatusAsync(userId, status, access.ActorUserId, reason, clock.GetUtcNow().UtcDateTime, ct);
         await audit.RecordAsync(new AuditEntry(access.ActorUserId, "ACADEMIC_PROFILE_VERIFIED", "USER", userId,
             new Dictionary<string, object?> { ["status"] = status }), ct);
@@ -62,7 +62,7 @@ public sealed class RejectAcademicProfileHandler(
         await repository.LockAsync(request.UserId, ct);
         var profile = await repository.GetAsync(request.UserId, ct) ?? throw new NotFoundException("AcademicProfile", request.UserId);
         if (!profile.DepartmentId.HasValue) throw new ConflictException("The student academic profile has no department.");
-        await access.EnsureCanManageDepartmentAsync(profile.DepartmentId.Value, ct);
+        await access.EnsureDepartmentStaffInDepartmentAsync(profile.DepartmentId.Value, ct);
         var result = await repository.SetStatusAsync(request.UserId, "REJECTED", access.ActorUserId, request.Reason.Trim(), clock.GetUtcNow().UtcDateTime, ct);
         await audit.RecordAsync(new AuditEntry(access.ActorUserId, "ACADEMIC_PROFILE_REJECTED", "USER", request.UserId,
             new Dictionary<string, object?> { ["reason"] = request.Reason.Trim() }), ct);

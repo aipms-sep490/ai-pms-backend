@@ -35,6 +35,8 @@ public sealed class AcademicAssistantStreamEndpointTests
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
+            builder.UseSetting("AiAssistant:Enabled", "true");
+            builder.UseSetting("AiAssistant:KnowledgeEnabled", "true");
             builder.ConfigureServices(services => {
                 services.RemoveAll<IAcademicKnowledgeService>();
                 services.AddScoped<IAcademicKnowledgeService>(sp => {

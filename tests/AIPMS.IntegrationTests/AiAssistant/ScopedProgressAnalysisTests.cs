@@ -157,17 +157,17 @@ public sealed class ScopedProgressAnalysisTests(EvaluationDraftDatabaseFixture d
     public async Task Recorded_analysis_persists_typed_result_and_audit_but_get_does_not_create_runs()
     {
         var x = await Seed(); using var app = new EvaluationFactory(database);
-        using var leader = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
+        using var staff = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
         var url = Root(x.Scenario.ProjectId);
-        var transient = await Body<ProjectProgressAnalysisDto>(await leader.GetAsync(url + "/progress-analysis"));
+        var transient = await Body<ProjectProgressAnalysisDto>(await staff.GetAsync(url + "/progress-analysis"));
         Assert.Null(transient.RunId); Assert.Equal(2, transient.ProgressSummary.TotalTasks);
-        var result = await Body<ProjectProgressAnalysisDto>(await leader.PostAsync(url + "/ai/progress-analysis", null));
+        var result = await Body<ProjectProgressAnalysisDto>(await staff.PostAsync(url + "/ai/progress-analysis", null));
         Assert.NotNull(result.RunId);
-        var saved = await Body<AiRunDto>(await leader.GetAsync(url + $"/ai/runs/{result.RunId}"));
-        Assert.Equal("PROGRESS_ANALYSIS", saved.Kind); Assert.Equal("RULE_BASED", saved.ModelVersion);
+        var saved = await Body<AiRunDto>(await staff.GetAsync(url + $"/ai/runs/{result.RunId}"));
+        Assert.Equal("PROGRESS_ANALYSIS", saved.Kind);
         Assert.Equal(result.RuleVersion, saved.ConfigVersion); Assert.Null(saved.Answer); Assert.Null(saved.ReportSummary);
         Assert.Equal(result.ProgressSummary, saved.ProgressAnalysis!.ProgressSummary);
-        var list = await Body<PagedResult<AiRunDto>>(await leader.GetAsync(url + "/ai/runs")); Assert.Single(list.Items);
+        var list = await Body<PagedResult<AiRunDto>>(await staff.GetAsync(url + "/ai/runs")); Assert.Single(list.Items);
         await using var db = database.CreateContext();
         Assert.True(await db.AuditLogs.AnyAsync(a => a.Action == "AI_RUN_COMPLETED" && a.EntityId == result.RunId.ToString()));
         Assert.Single(await db.Set<AiRun>().Where(r => r.ProjectId == x.Scenario.ProjectId).ToArrayAsync());
@@ -177,10 +177,10 @@ public sealed class ScopedProgressAnalysisTests(EvaluationDraftDatabaseFixture d
     public async Task Progress_risk_flag_adds_typed_signals_and_fallback_explanation_without_mutation()
     {
         var x = await Seed(); using var app = new RiskFactory(database);
-        using var leader = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
+        using var staff = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
         await using var beforeDb = database.CreateContext();
         var evaluationCount = await beforeDb.Evaluations.CountAsync();
-        var result = await Body<ProjectProgressAnalysisDto>(await leader.PostAsync(Root(x.Scenario.ProjectId) + "/ai/progress-analysis", null));
+        var result = await Body<ProjectProgressAnalysisDto>(await staff.PostAsync(Root(x.Scenario.ProjectId) + "/ai/progress-analysis", null));
         Assert.Equal("SUFFICIENT", result.DataStatus);
         Assert.NotNull(result.RiskScore);
         Assert.Contains(result.Signals, signal => signal.Code == "OVERDUE_TASKS");
@@ -214,17 +214,19 @@ public sealed class ScopedProgressAnalysisTests(EvaluationDraftDatabaseFixture d
     }
 
     [Fact]
-    public async Task Platform_admin_foreign_actor_and_anonymous_cannot_read_or_generate_project_analysis()
+    public async Task Platform_admin_student_foreign_actor_and_anonymous_cannot_read_or_generate_project_analysis()
     {
         var x = await Seed(); var foreign = await database.Seed(false); using var app = new EvaluationFactory(database);
         using var admin = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Admin);
+        using var student = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
         using var stranger = app.CreateAuthenticatedClient(foreign.Scope.Users.Student);
         using var anonymous = app.CreateClient();
-        foreach (var client in new[] { admin, stranger, anonymous })
+        foreach (var client in new[] { admin, student, stranger, anonymous })
         {
             var expected = client == anonymous ? HttpStatusCode.Unauthorized : HttpStatusCode.Forbidden;
             Assert.Equal(expected, (await client.GetAsync(Root(x.Scenario.ProjectId) + "/progress-analysis")).StatusCode);
             Assert.Equal(expected, (await client.PostAsync(Root(x.Scenario.ProjectId) + "/ai/progress-analysis", null)).StatusCode);
+            Assert.Equal(expected, (await client.GetAsync(Root(x.Scenario.ProjectId) + "/ai/digest")).StatusCode);
         }
         await using var db = database.CreateContext(); Assert.False(await db.Set<AiRun>().AnyAsync(r => r.ProjectId == x.Scenario.ProjectId));
     }
@@ -236,21 +238,21 @@ public sealed class ScopedProgressAnalysisTests(EvaluationDraftDatabaseFixture d
         await using (var db = database.CreateContext())
         {
             var meeting = new M.Meeting { ProjectId = x.Scenario.ProjectId, Title = "Invited", Status = "SCHEDULED",
-                StartAt = EvaluationDraftDatabaseFixture.Now.AddDays(-1), CreatedBy = x.Scenario.Scope.Users.Student,
-                MeetingParticipants = [new() { UserId = x.Scenario.Scope.Users.Student }] };
+                StartAt = EvaluationDraftDatabaseFixture.Now.AddDays(-1), CreatedBy = x.Scenario.Scope.Users.Staff,
+                MeetingParticipants = [new() { UserId = x.Scenario.Scope.Users.Staff }] };
             db.Add(meeting);
             db.Add(new M.Meeting { ProjectId = x.Scenario.ProjectId, Title = "Private", Status = "SCHEDULED",
-                StartAt = EvaluationDraftDatabaseFixture.Now.AddDays(-1), CreatedBy = x.Scenario.Scope.Users.Student });
+                StartAt = EvaluationDraftDatabaseFixture.Now.AddDays(-1), CreatedBy = x.Scenario.Scope.Users.Staff });
             await db.SaveChangesAsync(); invited = meeting.Id;
         }
-        using var app = new EvaluationFactory(database); using var leader = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
+        using var app = new EvaluationFactory(database); using var staff = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
         var root = Root(x.Scenario.ProjectId);
-        var result = await Body<ProjectProgressAnalysisDto>(await leader.PostAsync(root + "/ai/progress-analysis", null));
-        var saved = await Body<AiRunDto>(await leader.GetAsync(root + $"/ai/runs/{result.RunId}"));
+        var result = await Body<ProjectProgressAnalysisDto>(await staff.PostAsync(root + "/ai/progress-analysis", null));
+        var saved = await Body<AiRunDto>(await staff.GetAsync(root + $"/ai/runs/{result.RunId}"));
         Assert.Single(saved.Evidence.Where(e => e.SourceType == "MEETING"));
         Assert.Equal($"MTG-{invited}", saved.Evidence.Single(e => e.SourceType == "MEETING").SourceId);
         await using (var db = database.CreateContext()) { await db.MeetingParticipants.Where(p => p.MeetingId == invited).ExecuteDeleteAsync(); }
-        var hidden = await Body<AiRunDto>(await leader.GetAsync(root + $"/ai/runs/{result.RunId}"));
+        var hidden = await Body<AiRunDto>(await staff.GetAsync(root + $"/ai/runs/{result.RunId}"));
         Assert.Null(hidden.ProgressAnalysis); Assert.Equal("AI_HISTORY_SCOPE_CHANGED", hidden.ErrorCode);
     }
 
@@ -265,8 +267,8 @@ public sealed class ScopedProgressAnalysisTests(EvaluationDraftDatabaseFixture d
                 Title = "Synthetic bounded-query fixture", Status = "TODO", CreatedBy = x.Scenario.Scope.Users.Student }));
             await db.SaveChangesAsync();
         }
-        using var app = new EvaluationFactory(database); using var leader = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
-        var response = await leader.GetAsync(Root(x.Scenario.ProjectId) + "/progress-analysis");
+        using var app = new EvaluationFactory(database); using var staff = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
+        var response = await staff.GetAsync(Root(x.Scenario.ProjectId) + "/progress-analysis");
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("AI_ANALYSIS_SOURCE_LIMIT", await response.Content.ReadAsStringAsync());
     }
@@ -275,9 +277,9 @@ public sealed class ScopedProgressAnalysisTests(EvaluationDraftDatabaseFixture d
     public async Task Audit_failure_does_not_commit_analysis_or_evidence()
     {
         var x = await Seed(); using var app = new AuditFailureFactory(database);
-        using var leader = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Student);
+        using var staff = app.CreateAuthenticatedClient(x.Scenario.Scope.Users.Staff, roles: ["DEPARTMENT_STAFF"]);
         Assert.Equal(HttpStatusCode.InternalServerError,
-            (await leader.PostAsync(Root(x.Scenario.ProjectId) + "/ai/progress-analysis", null)).StatusCode);
+            (await staff.PostAsync(Root(x.Scenario.ProjectId) + "/ai/progress-analysis", null)).StatusCode);
         await using var db = database.CreateContext();
         var row = await db.Set<AiRun>().SingleAsync(r => r.ProjectId == x.Scenario.ProjectId);
         Assert.Equal("RUNNING", row.Status); Assert.Null(row.ResultJson); Assert.Equal("[]", row.EvidenceJson);

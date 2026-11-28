@@ -17,8 +17,10 @@ internal sealed partial class AiSuiteService
     {
         if (aiProvider is null) throw new ServiceUnavailableException("Dịch vụ AI hiện chưa sẵn sàng.", "AI_UNAVAILABLE");
         var actor = RequireActor();
+        EnsureNotPureAdmin("Quản trị viên không có thẩm quyền phân tích năng lực học thuật của nhóm.");
 
         var team = await db.Teams.AsNoTracking()
+            .Include(t => t.AcademicSemester)
             .SingleOrDefaultAsync(t => t.Id == teamId, ct)
             ?? throw new NotFoundException("Team", teamId);
 
@@ -30,9 +32,30 @@ internal sealed partial class AiSuiteService
             .OrderByDescending(p => p.Id)
             .FirstOrDefaultAsync(ct);
 
-        var canSee = IsStaffOrAdmin || isMember
+        var academicConfig = await db.Set<TeamAcademicConfiguration>().AsNoTracking()
+            .Include(c => c.Requirements)
+            .SingleOrDefaultAsync(c => c.TeamId == teamId, ct);
+
+        var staffInScope = false;
+        if (IsDepartmentStaff)
+        {
+            var staffDept = await db.Users.AsNoTracking()
+                .Where(u => u.Id == actor && u.Status == "ACTIVE")
+                .Select(u => u.DepartmentId)
+                .FirstOrDefaultAsync(ct);
+            if (staffDept.HasValue)
+            {
+                var reqMajorIds = academicConfig?.Requirements.Select(r => r.MajorId).ToArray() ?? [];
+                staffInScope = (academicConfig?.LeadDepartmentId == staffDept.Value)
+                    || await db.TeamMembers.AsNoTracking().AnyAsync(m => m.TeamId == teamId && m.LeftAt == null && m.User.DepartmentId == staffDept.Value, ct)
+                    || (reqMajorIds.Length > 0 && await db.Majors.AsNoTracking().AnyAsync(m => reqMajorIds.Contains(m.Id) && m.DepartmentId == staffDept.Value, ct));
+            }
+        }
+
+        var canSee = staffInScope || isMember
             || (teamProject is not null && await projectAccess.CanAccessAsync(actor, teamProject.Id, ct));
-        if (!canSee) throw new ForbiddenException("Bạn không có quyền phân tích năng lực nhóm này.");
+        if (!canSee)
+            throw new ForbiddenException("Bạn không có quyền phân tích năng lực nhóm này.", WorkflowErrorCodes.ScopeAccessDenied);
 
         var actorName = await db.Users.AsNoTracking().Where(u => u.Id == actor).Select(u => u.FullName).FirstOrDefaultAsync(ct) ?? $"Người dùng #{actor}";
 
@@ -54,16 +77,18 @@ internal sealed partial class AiSuiteService
             .Select(q => new { q.UserId, q.QualificationType, q.TrainingStatus, q.VerificationStatus })
             .ToListAsync(ct);
 
-        var academicConfig = await db.Set<TeamAcademicConfiguration>().AsNoTracking()
-            .Include(c => c.Requirements)
-            .SingleOrDefaultAsync(c => c.TeamId == teamId, ct);
-
         var majorMap = await db.Majors.AsNoTracking().ToDictionaryAsync(m => m.Id, m => m.Name, ct);
 
         string topicContext = Clip(request.CustomTopicDescription, 1200);
         if (request.TopicId is long topicId && topicId > 0)
         {
-            var topic = await db.Set<ProjectTopic>().AsNoTracking().SingleOrDefaultAsync(t => t.Id == topicId, ct);
+            var teamOrgId = team.AcademicSemester?.OrganizationId;
+            var topic = await db.Set<ProjectTopic>().AsNoTracking()
+                .Where(t => t.Id == topicId
+                    && t.Status == "PUBLISHED"
+                    && (!teamOrgId.HasValue || t.Period.AcademicSemester.OrganizationId == teamOrgId.Value))
+                .Select(t => new { t.Title, t.Description })
+                .SingleOrDefaultAsync(ct);
             if (topic is not null) topicContext = $"{topic.Title}\n{Clip(topic.Description, 1000)}";
         }
         else if (teamProject is not null && string.IsNullOrWhiteSpace(topicContext))
@@ -154,7 +179,7 @@ internal sealed partial class AiSuiteService
     public async Task<WorkingAgreementDraftDto> DraftWorkingAgreementAsync(long projectId, WorkingAgreementDraftRequest request, CancellationToken ct)
     {
         if (aiProvider is null) throw new ServiceUnavailableException("Dịch vụ AI hiện chưa sẵn sàng.", "AI_UNAVAILABLE");
-        var (project, actor, actorName) = await RequireProjectAccessAsync(projectId, ct);
+        var (project, actor, actorName, _) = await RequireProjectAccessAsync(projectId, ct);
 
         var members = await db.TeamMembers.AsNoTracking()
             .Where(m => m.TeamId == project.TeamId && m.LeftAt == null)

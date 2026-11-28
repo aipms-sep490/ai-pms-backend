@@ -27,8 +27,8 @@ internal sealed partial class ProjectAiSetupService
             throw new ArgumentException("Thiếu mã xác thực chống trùng (idempotencyKey).");
         if (request.Gates is null || request.Gates.Count == 0)
             throw new ArgumentException("Khung cổng thẩm định cần tối thiểu một cổng.");
-        if (request.Gates.Count > 10)
-            throw new ArgumentException("Tối đa 10 cổng thẩm định cho mỗi mẫu.");
+        if (request.Gates.Count > 3)
+            throw new ArgumentException("Quy chế V4.0 cố định tối đa 3 cổng thẩm định (G1–G3) cho mỗi mẫu.");
         if (reviewGates is null)
             throw new ConflictException("Dịch vụ cổng thẩm định chưa sẵn sàng.");
 
@@ -82,7 +82,8 @@ internal sealed partial class ProjectAiSetupService
                 if (string.IsNullOrWhiteSpace(rCode)) rCode = $"{gCode}_REQ_{rIndex}";
                 var rType = r.Type?.Trim().ToUpperInvariant();
                 if (rType is not ("FILE" or "EXTERNAL_LINK" or "TEXT" or "ARTIFACT")) rType = "FILE";
-                var rScope = r.Scope?.Trim().ToUpperInvariant() == "MAJOR_SPECIFIC" ? "MAJOR_SPECIFIC" : "COMMON";
+                var rawRScope = r.Scope?.Trim().ToUpperInvariant();
+                var rScope = rawRScope is "MAJOR_SPECIFIC" or "INTEGRATION" ? rawRScope : "COMMON";
                 long? majorId = null;
                 if (rScope == "MAJOR_SPECIFIC")
                 {
@@ -100,7 +101,9 @@ internal sealed partial class ProjectAiSetupService
                     }
                 }
                 var rVer = r.Verification?.Trim().ToUpperInvariant() == "AUTO" ? "AUTO" : "HUMAN";
-                reqInputs.Add(new ReviewGateRequirementInput(rCode, r.Title.Trim(), r.Description?.Trim(), rType, rScope, majorId, null, rVer, r.Required));
+                var targetCard = r.TargetCardinality?.Trim().ToUpperInvariant();
+                if (targetCard is not (null or "PROJECT" or "TEAM" or "EACH_STUDENT")) targetCard = null;
+                reqInputs.Add(new ReviewGateRequirementInput(rCode, r.Title.Trim(), r.Description?.Trim(), rType, rScope, majorId, null, rVer, r.Required, targetCard));
             }
             if (reqInputs.Count == 0)
             {
@@ -108,7 +111,9 @@ internal sealed partial class ProjectAiSetupService
             }
 
             var reviewerPolicy = g.ReviewerPolicy?.Trim().ToUpperInvariant();
-            if (reviewerPolicy is not ("SUPERVISOR" or "LECTURER" or "COUNCIL" or "DEPARTMENT_STAFF")) reviewerPolicy = "COUNCIL";
+            if (reviewerPolicy == "SUPERVISOR")
+                throw new ArgumentException($"Cổng {gCode}: GVHD chính không được làm người phản biện cổng (QĐ-09). Hãy dùng COUNCIL, ASSIGNED_REVIEWER, LECTURER hoặc DEPARTMENT_STAFF.");
+            if (reviewerPolicy is not ("ASSIGNED_REVIEWER" or "LECTURER" or "COUNCIL" or "DEPARTMENT_STAFF")) reviewerPolicy = "COUNCIL";
             var reviewScope = g.ReviewScope?.Trim().ToUpperInvariant();
             if (reviewScope is not ("COMMON" or "MAJOR_SPECIFIC" or "HYBRID")) reviewScope = mode == "INTERDISCIPLINARY" ? "HYBRID" : "COMMON";
 
@@ -290,6 +295,11 @@ internal sealed partial class ProjectAiSetupService
                 primaryMajorId = mode == "INTERDISCIPLINARY" ? null : primaryMajorId;
             }
 
+            var normalizedTrackCode = item.TrackCode?.Trim().ToUpperInvariant();
+            if (normalizedTrackCode is not ("IT_ONLY" or "MKT_ONLY" or "IT_MKT"))
+                normalizedTrackCode = mode == "INTERDISCIPLINARY" ? "IT_MKT" : null;
+            var maxTeams = Math.Clamp(item.MaxTeams, 1, 10);
+
             var content = new TopicContentRequest(
                 title,
                 string.IsNullOrWhiteSpace(item.Description) ? null : item.Description.Trim(),
@@ -301,7 +311,9 @@ internal sealed partial class ProjectAiSetupService
                 (item.Keywords ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(12).ToArray(),
                 mode,
                 primaryMajorId,
-                reqList);
+                reqList,
+                MaxTeams: maxTeams,
+                TrackCode: normalizedTrackCode);
 
             try
             {

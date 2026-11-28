@@ -46,14 +46,17 @@ public sealed class UpdateReportingCycleCommandHandler(
         var isAdmin = await repository.HasAdminRoleInDbAsync(actorId, cancellationToken);
         var isStaff = await repository.HasStaffRoleInDbAsync(actorId, cancellationToken);
 
-        if (!isAdmin && !isStaff)
-            throw new ForbiddenException("Only Admin or Department Staff can update reporting cycles.");
-
-        if (isStaff && !isAdmin)
+        if (!isStaff)
         {
-            if (!await projectAccess.CanAccessAsync(actorId, projectId, cancellationToken))
-                throw new ForbiddenException("You can only update reporting cycles for projects in your department.");
+            throw new ForbiddenException(
+                isAdmin
+                    ? "Platform administrators without DEPARTMENT_STAFF role cannot update reporting cycles."
+                    : "Only Department Staff can update reporting cycles.",
+                isAdmin ? WorkflowErrorCodes.AdminNotAcademicAuthority : null);
         }
+
+        if (!await projectAccess.CanAccessAsync(actorId, projectId, cancellationToken))
+            throw new ForbiddenException("You can only update reporting cycles for projects in your department.");
 
         Guid? expectedToken = null;
         if (!string.IsNullOrWhiteSpace(command.Request.ConcurrencyToken))

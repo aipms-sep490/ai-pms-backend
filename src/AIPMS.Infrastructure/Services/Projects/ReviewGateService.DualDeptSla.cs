@@ -35,7 +35,7 @@ internal sealed partial class ReviewGateService
         RecordRoundScopeDecisionRequest input,
         CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
-        await RequireStaff(token);
+        await RequireDepartmentStaff(token);
         var scope = await ProjectAcademicScopeReader.ReadAsync(db, projectId, token, true);
         await RequireProjectRead(projectId, scope, token);
 
@@ -68,7 +68,8 @@ internal sealed partial class ReviewGateService
                 : throw new ValidationException(new Dictionary<string, string[]> { ["scope"] = ["Scope is outside the frozen project scope."] });
 
         var actorDept = await db.Users.AsNoTracking()
-            .Where(u => u.Id == Actor && u.Status == "ACTIVE" && u.Department != null && u.Department.IsActive)
+            .Where(u => u.Id == Actor && u.Status == "ACTIVE" && u.Department != null && u.Department.IsActive
+                && u.UserRoleUsers.Any(r => r.Role.Code == "DEPARTMENT_STAFF"))
             .Select(u => u.DepartmentId)
             .SingleOrDefaultAsync(token);
 
@@ -226,7 +227,7 @@ internal sealed partial class ReviewGateService
 
     public Task<SlaSweepResultDto> SweepSlaNotifications(CancellationToken ct) => transactions.InTransactionAsync(async token =>
     {
-        await RequireStaff(token);
+        await RequireDepartmentStaff(token);
         _ = workingDayCalculator;
         var slaService = new DualDeptSlaService(db, clock);
         return await slaService.SweepAsync(Actor, token);

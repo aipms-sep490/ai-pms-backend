@@ -400,8 +400,11 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         await manager.PublishAsync(expired.Id, default);
         var other = new Department { Code = Guid.NewGuid().ToString("N"), Name = "Other", OrganizationId = department.OrganizationId, IsActive = true };
         db.Departments.Add(other); await db.SaveChangesAsync();
-        var wrongScope = await manager.CreateAsync(Request(word, other.Id), default);
-        await manager.PublishAsync(wrongScope.Id, default);
+        var staffRoleId = (await db.Roles.SingleAsync(r => r.Code == "DEPARTMENT_STAFF")).Id;
+        var otherStaff = new User { Email = Guid.NewGuid() + "@example.test", FullName = "Other Dept Staff", PasswordHash = "unused", Status = "ACTIVE", DepartmentId = other.Id, UserRoleUsers = [new() { RoleId = staffRoleId }] };
+        db.Users.Add(otherStaff); await db.SaveChangesAsync();
+        var wrongScope = await Service(db, otherStaff).CreateAsync(Request(word, other.Id), default);
+        await Service(db, otherStaff).PublishAsync(wrongScope.Id, default);
         Assert.True((await reader.AskAsync(new(word), default)).InsufficientEvidence);
     }
 
@@ -417,9 +420,15 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         db.ChangeTracker.Clear();
         Assert.False(await db.AcademicKnowledgeDocuments.AnyAsync(d => d.Title == title));
         var role = await db.Roles.SingleAsync(r => r.Code == "DEPARTMENT_STAFF");
+        var adminRole = await db.Roles.SingleAsync(r => r.Code == "ADMIN");
+        var pureAdmin = new User { Email = Guid.NewGuid() + "@example.test", FullName = "Pure Admin", PasswordHash = "unused", Status = "ACTIVE", DepartmentId = department.Id, UserRoleUsers = [new() { RoleId = adminRole.Id }] };
+        db.Users.Add(pureAdmin); await db.SaveChangesAsync();
+        var adminEx = await Assert.ThrowsAsync<ForbiddenException>(() => Service(db, pureAdmin).CreateAsync(Request("admin-blocked", department.Id), default));
+        Assert.Equal(WorkflowErrorCodes.AdminNotAcademicAuthority, adminEx.Code);
         db.UserRoles.Add(new UserRole { UserId = student.Id, RoleId = role.Id }); await db.SaveChangesAsync();
         await Assert.ThrowsAsync<ForbiddenException>(() => Service(db, student).CreateAsync(Request("global", null), default));
-        student.Status = "INACTIVE"; db.Users.Update(student); await db.SaveChangesAsync();
+        var trackedStudent = await db.Users.SingleAsync(u => u.Id == student.Id);
+        trackedStudent.Status = "INACTIVE"; await db.SaveChangesAsync();
         await Assert.ThrowsAsync<ForbiddenException>(() => Service(db, student).AskAsync(new("rubric"), default));
     }
 
@@ -602,9 +611,9 @@ public sealed class AcademicKnowledgeTests(KnowledgeDatabaseFixture fixture) : I
         var dep = new Department { Code = "IT", Name = "IT", Organization = org, IsActive = true };
         User Make(string role) => new() { Email = Guid.NewGuid() + "@example.test", FullName = "Knowledge test", PasswordHash = "unused", Status = "ACTIVE", Department = dep,
             UserRoleUsers = [new() { RoleId = db.Roles.Single(r => r.Code == role).Id }] };
-        var admin = Make("ADMIN"); var student = Make("STUDENT");
-        db.Users.AddRange(admin, student); await db.SaveChangesAsync();
-        return (admin, student, dep);
+        var staff = Make("DEPARTMENT_STAFF"); var student = Make("STUDENT");
+        db.Users.AddRange(staff, student); await db.SaveChangesAsync();
+        return (staff, student, dep);
     }
     private sealed class Current(User user) : ICurrentUser
     {

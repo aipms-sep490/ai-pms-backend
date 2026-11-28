@@ -76,8 +76,19 @@ public sealed partial class GroundedAiTextGenerationProvider(AiAssistantOptions?
             return GenerateMeetingCoachJson(userPrompt);
         }
 
-        if (systemPrompt.Contains("actionItems", StringComparison.OrdinalIgnoreCase) &&
-            systemPrompt.Contains("openQuestions", StringComparison.OrdinalIgnoreCase))
+        if (systemPrompt.Contains("KNOWLEDGE_DOC_INGEST", StringComparison.Ordinal))
+        {
+            return GenerateKnowledgeIngestFallback(userPrompt);
+        }
+
+        if (systemPrompt.Contains("CHAT_AI_ASSIST", StringComparison.Ordinal))
+        {
+            return GenerateChatAssistJson(userPrompt);
+        }
+
+        if (systemPrompt.Contains("CHAT_AI_SUMMARY", StringComparison.Ordinal) ||
+            (systemPrompt.Contains("actionItems", StringComparison.OrdinalIgnoreCase) &&
+             systemPrompt.Contains("openQuestions", StringComparison.OrdinalIgnoreCase)))
         {
             return GenerateChatSummaryJson(userPrompt);
         }
@@ -86,17 +97,196 @@ public sealed partial class GroundedAiTextGenerationProvider(AiAssistantOptions?
         return GenerateProjectAnswer(userPrompt);
     }
 
+    private sealed record GroundedChatMessage(string Id, string Sender, string Body);
+
+    private static List<GroundedChatMessage> ParseChatMessages(string payload)
+    {
+        var list = new List<GroundedChatMessage>();
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("messages", out var arr)
+                && arr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in arr.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object) continue;
+                    var id = item.TryGetProperty("messageId", out var idEl) && idEl.ValueKind == JsonValueKind.String ? idEl.GetString()?.Trim() ?? "" : "";
+                    var sender = item.TryGetProperty("sender", out var sEl) && sEl.ValueKind == JsonValueKind.String ? sEl.GetString()?.Trim() ?? "Thành viên" : "Thành viên";
+                    var body = item.TryGetProperty("body", out var bEl) && bEl.ValueKind == JsonValueKind.String ? bEl.GetString()?.Trim() ?? "" : "";
+                    if (!string.IsNullOrWhiteSpace(body))
+                        list.Add(new(id, sender, body));
+                }
+                if (list.Count > 0) return list;
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall through to legacy line-format parser
+        }
+
+        return Regex.Matches(payload, @"messageId=(?<id>[^;]+);\s*time=(?<time>[^;]+);\s*sender=(?<sender>[^;]+);\s*body=(?<body>.*)", RegexOptions.Multiline)
+            .Cast<Match>()
+            .Select(m => new GroundedChatMessage(m.Groups["id"].Value.Trim(), m.Groups["sender"].Value.Trim(), m.Groups["body"].Value.Trim()))
+            .ToList();
+    }
+
     private static string GenerateChatSummaryJson(string transcript)
     {
-        var messages = Regex.Matches(transcript, @"messageId=(?<id>[^;]+);\s*time=(?<time>[^;]+);\s*sender=(?<sender>[^;]+);\s*body=(?<body>.*)", RegexOptions.Multiline)
-            .Cast<Match>().Select(m => new { Id = m.Groups["id"].Value.Trim(), Sender = m.Groups["sender"].Value.Trim(), Body = m.Groups["body"].Value.Trim() }).ToList();
-        if (messages.Count == 0) return JsonSerializer.Serialize(new { summary = "Chưa có đủ dữ liệu để tóm tắt.", decisions = Array.Empty<string>(), openQuestions = Array.Empty<string>(), actionItems = Array.Empty<object>() });
-        var decisions = messages.Where(m => m.Body.Contains("đồng ý", StringComparison.OrdinalIgnoreCase) || m.Body.Contains("thống nhất", StringComparison.OrdinalIgnoreCase)).Select(m => m.Body).Take(5).ToArray();
+        var messages = ParseChatMessages(transcript);
+        if (messages.Count == 0)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                summary = "Chưa có đủ dữ liệu để tóm tắt.",
+                decisions = Array.Empty<string>(),
+                blockers = Array.Empty<string>(),
+                openQuestions = Array.Empty<string>(),
+                actionItems = Array.Empty<object>(),
+                smartReplies = Array.Empty<string>(),
+                suggestedMeeting = (object?)null
+            });
+        }
+
+        var decisions = messages
+            .Where(m => Regex.IsMatch(m.Body, @"(đồng ý|thống nhất|chốt|quyết định|xác nhận)", RegexOptions.IgnoreCase))
+            .Select(m => m.Body)
+            .Take(5)
+            .ToArray();
+        var blockers = messages
+            .Where(m => Regex.IsMatch(m.Body, @"(lỗi|vướng|chặn|chậm|khó khăn|rủi ro|bug|block)", RegexOptions.IgnoreCase))
+            .Select(m => m.Body)
+            .Take(5)
+            .ToArray();
         var questions = messages.Where(m => m.Body.Contains('?')).Select(m => m.Body).Take(5).ToArray();
-        var actions = messages.Where(m => Regex.IsMatch(m.Body, @"\b(cần|hãy|phải|sẽ|làm|hoàn thành|kiểm tra)\b", RegexOptions.IgnoreCase)).Take(10)
-            .Select(m => new { title = m.Body.Length > 240 ? m.Body[..240] : m.Body, ownerName = m.Sender, dueAt = (string?)null, sourceMessageId = m.Id }).ToArray();
-        var summary = $"Đã phân tích {messages.Count} tin nhắn. " + (decisions.Length > 0 ? $"Có {decisions.Length} quyết định được nêu. " : "") + (actions.Length > 0 ? $"Có {actions.Length} việc cần theo dõi." : "");
-        return JsonSerializer.Serialize(new { summary, decisions, openQuestions = questions, actionItems = actions });
+        var actions = messages
+            .Where(m => Regex.IsMatch(m.Body, @"\b(cần|hãy|phải|sẽ|làm|hoàn thành|kiểm tra|nộp|sửa)\b", RegexOptions.IgnoreCase))
+            .Take(10)
+            .Select(m => new
+            {
+                title = m.Body.Length > 240 ? m.Body[..240] : m.Body,
+                ownerName = m.Sender,
+                dueAt = (string?)null,
+                sourceMessageId = string.IsNullOrWhiteSpace(m.Id) ? null : m.Id
+            })
+            .ToArray();
+        var summary = $"Đã phân tích {messages.Count} tin nhắn. "
+            + (decisions.Length > 0 ? $"Có {decisions.Length} quyết định được nêu. " : "")
+            + (actions.Length > 0 ? $"Có {actions.Length} việc cần theo dõi." : "");
+        return JsonSerializer.Serialize(new
+        {
+            summary,
+            decisions,
+            blockers,
+            openQuestions = questions,
+            actionItems = actions,
+            smartReplies = new[]
+            {
+                "Mình đã nắm được thông tin và sẽ cập nhật tiến độ sớm nhất.",
+                "Nhóm mình chốt rõ người phụ trách và hạn hoàn thành cho các đầu việc trên nhé.",
+                "Nếu có vướng mắc kỹ thuật nào, mọi người báo ngay để cùng tháo gỡ."
+            },
+            suggestedMeeting = (object?)null
+        });
+    }
+
+    private static string GenerateChatAssistJson(string userPrompt)
+    {
+        var messages = ParseChatMessages(userPrompt);
+        var mode = "SUGGEST_REPLIES";
+        var query = "";
+        var draftText = "";
+        try
+        {
+            using var doc = JsonDocument.Parse(userPrompt);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("mode", out var m) && m.ValueKind == JsonValueKind.String) mode = m.GetString()?.Trim().ToUpperInvariant() ?? mode;
+            if (root.TryGetProperty("query", out var q) && q.ValueKind == JsonValueKind.String) query = q.GetString()?.Trim() ?? "";
+            if (root.TryGetProperty("draftText", out var d) && d.ValueKind == JsonValueKind.String) draftText = d.GetString()?.Trim() ?? "";
+        }
+        catch (JsonException) { }
+
+        if (mode == "POLISH_DRAFT")
+        {
+            var clean = string.IsNullOrWhiteSpace(draftText) ? "Chào mọi người, mình xin cập nhật tiến độ công việc hiện tại." : draftText;
+            return JsonSerializer.Serialize(new
+            {
+                answer = "Đã đề xuất 3 phiên bản diễn đạt rõ ràng, lịch sự hơn nhưng vẫn giữ nguyên ý chính của bản nháp.",
+                suggestions = new[]
+                {
+                    $"Chào mọi người, {clean}",
+                    $"{clean} Nhờ mọi người xem và phản hồi giúp mình nhé.",
+                    $"Em chào thầy/cô và nhóm, em xin trao đổi ngắn gọn như sau: {clean} Rất mong nhận được góp ý của thầy/cô."
+                },
+                references = Array.Empty<object>()
+            });
+        }
+
+        if (mode == "ASK_THREAD")
+        {
+            var keywords = Regex.Split(query.ToLowerInvariant(), @"[^\p{L}\p{N}]+").Where(w => w.Length >= 2).Distinct().ToArray();
+            var matched = messages
+                .Select(m => new { Msg = m, Score = keywords.Count(k => m.Body.Contains(k, StringComparison.OrdinalIgnoreCase) || m.Sender.Contains(k, StringComparison.OrdinalIgnoreCase)) })
+                .OrderByDescending(x => x.Score)
+                .Take(3)
+                .ToArray();
+            var answer = matched.Length == 0
+                ? "Chưa thấy nội dung liên quan trong lịch sử tin nhắn gần đây."
+                : "Dựa trên lịch sử trò chuyện gần đây:\n" + string.Join("\n", matched.Select(x => $"- **{x.Msg.Sender}**: {x.Msg.Body}"));
+            return JsonSerializer.Serialize(new
+            {
+                answer,
+                suggestions = new[] { "Có đầu việc nào cần chốt hạn hoàn thành từ trao đổi này không?" },
+                references = matched.Where(x => !string.IsNullOrWhiteSpace(x.Msg.Id)).Select(x => new
+                {
+                    messageId = x.Msg.Id,
+                    excerpt = x.Msg.Body.Length > 160 ? x.Msg.Body[..160] : x.Msg.Body
+                }).ToArray()
+            });
+        }
+
+        var latest = messages.LastOrDefault();
+        return JsonSerializer.Serialize(new
+        {
+            answer = latest is null
+                ? "Chưa có tin nhắn gần đây để gợi ý phản hồi."
+                : $"Phản hồi cho trao đổi gần nhất của {latest.Sender}.",
+            suggestions = new[]
+            {
+                "Cảm ơn bạn đã cập nhật, mình đã nắm thông tin nhé!",
+                "Bạn cho mình hỏi thêm chi tiết mốc hoàn thành cho phần này nhé?",
+                "Mình đề xuất cập nhật đầu việc này lên bảng Task để cả nhóm cùng theo dõi."
+            },
+            references = latest is not null && !string.IsNullOrWhiteSpace(latest.Id)
+                ? new object[] { new { messageId = latest.Id, excerpt = latest.Body.Length > 160 ? latest.Body[..160] : latest.Body } }
+                : Array.Empty<object>()
+        });
+    }
+
+    private static string GenerateKnowledgeIngestFallback(string userPrompt)
+    {
+        var fileName = "Tài liệu học vụ";
+        var text = "";
+        try
+        {
+            using var doc = JsonDocument.Parse(userPrompt);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("fileName", out var fn) && fn.ValueKind == JsonValueKind.String) fileName = fn.GetString() ?? fileName;
+            if (root.TryGetProperty("text", out var tx) && tx.ValueKind == JsonValueKind.String) text = tx.GetString() ?? "";
+        }
+        catch (JsonException) { }
+        var snippet = text.Length > 1500 ? text[..1500] : text;
+        return JsonSerializer.Serialize(new
+        {
+            suggestedTitle = Path.GetFileNameWithoutExtension(fileName),
+            suggestedDocumentType = "PROCESS",
+            summary = $"Trích xuất cục bộ từ tệp {fileName}.",
+            chunks = string.IsNullOrWhiteSpace(snippet)
+                ? Array.Empty<object>()
+                : new object[] { new { heading = "Nội dung chính", pageNumber = (int?)null, content = snippet } },
+            warnings = new[] { "Đang sử dụng bộ trích xuất cục bộ dự phòng." }
+        });
     }
 
     private sealed record GroundedMeetingSegment(long SegmentId, string Speaker, string Time, string Text, bool Highlighted);
@@ -589,7 +779,10 @@ public sealed partial class GroundedAiTextGenerationProvider(AiAssistantOptions?
         // Check if query is about status/progress
         if (query.Contains("progress", StringComparison.OrdinalIgnoreCase) ||
             query.Contains("status", StringComparison.OrdinalIgnoreCase) ||
-            query.Contains("overview", StringComparison.OrdinalIgnoreCase))
+            query.Contains("overview", StringComparison.OrdinalIgnoreCase) ||
+            query.Contains("tiến độ", StringComparison.OrdinalIgnoreCase) ||
+            query.Contains("trạng thái", StringComparison.OrdinalIgnoreCase) ||
+            query.Contains("tổng quan", StringComparison.OrdinalIgnoreCase))
         {
             answerBuilder.AppendLine("Based on current project evidence:");
             if (milestones.Count > 0)
@@ -626,7 +819,11 @@ public sealed partial class GroundedAiTextGenerationProvider(AiAssistantOptions?
         // Check if query is about blockers or risks
         if (query.Contains("block", StringComparison.OrdinalIgnoreCase) ||
             query.Contains("risk", StringComparison.OrdinalIgnoreCase) ||
-            query.Contains("issue", StringComparison.OrdinalIgnoreCase))
+            query.Contains("issue", StringComparison.OrdinalIgnoreCase) ||
+            query.Contains("bị chặn", StringComparison.OrdinalIgnoreCase) ||
+            query.Contains("vướng", StringComparison.OrdinalIgnoreCase) ||
+            query.Contains("rủi ro", StringComparison.OrdinalIgnoreCase) ||
+            query.Contains("lỗi", StringComparison.OrdinalIgnoreCase))
         {
             var blockedTasks = tasks
                 .Where(t => string.Equals(t.Status, "BLOCKED", StringComparison.OrdinalIgnoreCase))
@@ -659,7 +856,8 @@ public sealed partial class GroundedAiTextGenerationProvider(AiAssistantOptions?
         }
 
         // Check if query mentions tasks or milestones
-        if (query.Contains("task", StringComparison.OrdinalIgnoreCase) && tasks.Count > 0)
+        if ((query.Contains("task", StringComparison.OrdinalIgnoreCase) ||
+             query.Contains("công việc", StringComparison.OrdinalIgnoreCase)) && tasks.Count > 0)
         {
             answerBuilder.AppendLine("Relevant project tasks include:");
             foreach (var t in tasks.Take(3))
@@ -669,7 +867,8 @@ public sealed partial class GroundedAiTextGenerationProvider(AiAssistantOptions?
             return answerBuilder.ToString().Trim();
         }
 
-        if (query.Contains("milestone", StringComparison.OrdinalIgnoreCase) && milestones.Count > 0)
+        if ((query.Contains("milestone", StringComparison.OrdinalIgnoreCase) ||
+             query.Contains("mốc", StringComparison.OrdinalIgnoreCase)) && milestones.Count > 0)
         {
             answerBuilder.AppendLine("Project milestones recorded:");
             foreach (var m in milestones.Take(3))
@@ -679,7 +878,9 @@ public sealed partial class GroundedAiTextGenerationProvider(AiAssistantOptions?
             return answerBuilder.ToString().Trim();
         }
 
-        if (query.Contains("meeting", StringComparison.OrdinalIgnoreCase) && meetings.Count > 0)
+        if ((query.Contains("meeting", StringComparison.OrdinalIgnoreCase) ||
+             query.Contains("cuộc họp", StringComparison.OrdinalIgnoreCase) ||
+             query.Contains("họp", StringComparison.OrdinalIgnoreCase)) && meetings.Count > 0)
         {
             answerBuilder.AppendLine("Recent meetings recorded:");
             foreach (var mtg in meetings.Take(3))

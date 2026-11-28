@@ -121,7 +121,9 @@ public sealed record AssistantRubricCriterionDraftDto(
     bool IsRequired,
     string? LearningOutcome,
     string? EvidenceGuidance,
-    IReadOnlyList<AssistantRubricLevelDraftDto> Levels);
+    IReadOnlyList<AssistantRubricLevelDraftDto> Levels,
+    bool IsIntegration = false,
+    string? TargetScope = null);
 
 public sealed record AssistantRubricSetupPlanDto(
     string Code,
@@ -189,7 +191,8 @@ public sealed record AssistantReviewGateRequirementDraftDto(
     string Scope,
     string? MajorName,
     string Verification,
-    bool Required);
+    bool Required,
+    string? TargetCardinality = null);
 
 public sealed record AssistantReviewGateDraftDto(
     string Code,
@@ -260,7 +263,9 @@ public sealed record AssistantTopicDraftDto(
     bool DuplicateTitleConflict = false,
     string? DuplicateTitleDetail = null,
     string? SimilarityWarning = null,
-    double? HighestSimilarityScore = null);
+    double? HighestSimilarityScore = null,
+    string? TrackCode = null,
+    int MaxTeams = 1);
 
 public sealed record AssistantTopicBatchPlanDto(
     string Summary,

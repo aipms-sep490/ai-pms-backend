@@ -531,15 +531,18 @@ internal sealed class PauseBeforeEvaluationRead : DbCommandInterceptor
 }
 
 internal class EvaluationFactory(EvaluationDraftDatabaseFixture database, bool failAudit = false,
-    DbCommandInterceptor? interceptor = null, bool progressRiskEnabled = false) : AipmsWebApplicationFactory
+    DbCommandInterceptor? interceptor = null, bool progressRiskEnabled = true) : AipmsWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
-            { ["ConnectionStrings:DefaultConnection"] = database.ConnectionString }));
-        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
-            { ["AiAssistant:ProgressRiskEnabled"] = progressRiskEnabled.ToString() }));
+        {
+            ["ConnectionStrings:DefaultConnection"] = database.ConnectionString,
+            ["AiAssistant:Enabled"] = "true",
+            ["AiAssistant:WorkflowAssistanceEnabled"] = "true",
+            ["AiAssistant:ProgressRiskEnabled"] = progressRiskEnabled.ToString()
+        }));
         builder.ConfigureServices(services =>
         {
             if (interceptor is not null)

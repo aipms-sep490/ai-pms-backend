@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using AIPMS.Api.Filters;
 using AIPMS.Application.Features.AiAssistant.DTOs;
 using AIPMS.Application.Features.AiAssistant.Queries;
 using AIPMS.Application.Features.Projects.Abstractions;
@@ -29,6 +30,7 @@ public sealed class AiAssistantController(
     IConfiguration configuration) : ControllerBase
 {
     [HttpGet("/api/v1/projects/{projectId:long}/ai/digest")]
+    [AiFeatureGate(AiFeatureArea.ProgressRisk)]
     [ProducesResponseType<ProjectAiDigestDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ProjectAiDigestDto>> Digest(
         long projectId,
@@ -55,18 +57,22 @@ public sealed class AiAssistantController(
     }
 
     [HttpPost("/api/v1/projects/{projectId:long}/ai/progress-analysis")]
+    [AiFeatureGate(AiFeatureArea.ProgressRisk)]
     [ProducesResponseType<AIPMS.Application.Features.Projects.DTOs.ProjectProgressAnalysisDto>(200)]
     public Task<AIPMS.Application.Features.Projects.DTOs.ProjectProgressAnalysisDto> AnalyzeProgress(long projectId,
         [FromServices] AIPMS.Application.Features.Projects.Abstractions.IScopedProgressAnalysisService analysis, CancellationToken ct)
         => analysis.AnalyzeAsync(projectId, true, ct);
     [HttpGet("/api/v1/projects/{projectId:long}/ai/runs")]
+    [AiFeatureGate(AiFeatureArea.Assistant)]
     [ProducesResponseType<AIPMS.Application.Common.Models.PagedResult<AiRunDto>>(200)]
     public Task<AIPMS.Application.Common.Models.PagedResult<AiRunDto>> History(long projectId, CancellationToken ct, int page = 1, int pageSize = 20) => runs.ListAsync(projectId, page, pageSize, ct);
     [HttpGet("/api/v1/projects/{projectId:long}/ai/runs/{id:long}")]
+    [AiFeatureGate(AiFeatureArea.Assistant)]
     [ProducesResponseType<AiRunDto>(200)]
     public Task<AiRunDto> Run(long projectId, long id, CancellationToken ct) => runs.GetAsync(projectId, id, ct);
     [HttpGet("/api/v1/projects/{projectId:long}/reports/{reportId:long}/summary")]
     [HttpGet("/api/v1/projects/{projectId:long}/ai/reports/{reportId:long}/summary")]
+    [AiFeatureGate(AiFeatureArea.Assistant)]
     [ProducesResponseType<ReportSummaryDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ReportSummaryDto>> SummarizeReport(
         long projectId,
@@ -79,6 +85,7 @@ public sealed class AiAssistantController(
 
     [HttpPost("/api/v1/projects/{projectId:long}/ai/assistant/ask")]
     [HttpPost("/api/v1/projects/{projectId:long}/ai/ask")]
+    [AiFeatureGate(AiFeatureArea.Assistant)]
     [ProducesResponseType<ProjectAssistantResponseDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ProjectAssistantResponseDto>> Ask(
         long projectId,
@@ -87,10 +94,16 @@ public sealed class AiAssistantController(
     {
         if (request.ProjectId.HasValue && request.ProjectId != projectId)
             return BadRequest(new ProblemDetails { Title = "ProjectId must match the route project." });
-        if (!string.IsNullOrWhiteSpace(request.Scope) && !string.Equals(request.Scope, "PROJECT", StringComparison.OrdinalIgnoreCase))
-            return Ok(await knowledge.AskAsync(new AcademicAssistantAskRequest(request.Query, request.Scope, projectId), cancellationToken));
         var opts = configuration.GetSection(AIPMS.AI.Configuration.AiAssistantOptions.SectionName).Get<AIPMS.AI.Configuration.AiAssistantOptions>()
             ?? new AIPMS.AI.Configuration.AiAssistantOptions();
+        if (!string.IsNullOrWhiteSpace(request.Scope) && !string.Equals(request.Scope, "PROJECT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!opts.Enabled || !opts.KnowledgeEnabled)
+                throw new AIPMS.Application.Common.Exceptions.ServiceUnavailableException(
+                    "Academic knowledge AI is disabled by system configuration.",
+                    AIPMS.Application.Common.Exceptions.WorkflowErrorCodes.AiFeatureDisabled);
+            return Ok(await knowledge.AskAsync(new AcademicAssistantAskRequest(request.Query, request.Scope, projectId), cancellationToken));
+        }
         if (!opts.Enabled || !opts.LegacyProjectAskEnabled)
             throw new AIPMS.Application.Common.Exceptions.ServiceUnavailableException(
                 "Legacy project AI ask is disabled by system configuration.",
