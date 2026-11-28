@@ -116,7 +116,7 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
         if (startAt.HasValue && dueAt.HasValue && dueAt.Value < startAt.Value)
         {
             throw new ConflictException(
-                "Task deadline cannot be earlier than task start date.",
+                "Hạn hoàn thành công việc không được sớm hơn ngày bắt đầu.",
                 WorkflowErrorCodes.TaskOutsideMilestone);
         }
 
@@ -124,7 +124,7 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
             .AsNoTracking()
             .FirstOrDefaultAsync(m => m.Id == milestoneId && m.ProjectId == projectId, ct)
             ?? throw new ConflictException(
-                "The milestone does not belong to this project.",
+                "Mốc đồ án đã chọn không thuộc đồ án này.",
                 WorkflowErrorCodes.MilestoneNotInProject);
 
         // Milestone date boundaries
@@ -134,14 +134,14 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
             if (startAt.HasValue && AcademicDate(startAt.Value) < mStart)
             {
                 throw new ConflictException(
-                    $"Task start date ({startAt.Value:yyyy-MM-dd}) cannot be earlier than milestone start date ({mStart:yyyy-MM-dd}).",
+                    $"Ngày bắt đầu công việc ({AcademicDate(startAt.Value):dd/MM/yyyy}) không được sớm hơn ngày bắt đầu của mốc ({mStart:dd/MM/yyyy}).",
                     WorkflowErrorCodes.TaskOutsideMilestone);
             }
 
             if (dueAt.HasValue && AcademicDate(dueAt.Value) < mStart)
             {
                 throw new ConflictException(
-                    $"Task deadline ({dueAt.Value:yyyy-MM-dd}) cannot be earlier than milestone start date ({mStart:yyyy-MM-dd}).",
+                    $"Hạn hoàn thành công việc ({AcademicDate(dueAt.Value):dd/MM/yyyy}) không được sớm hơn ngày bắt đầu của mốc ({mStart:dd/MM/yyyy}).",
                     WorkflowErrorCodes.TaskOutsideMilestone);
             }
         }
@@ -152,14 +152,14 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
             if (startAt.HasValue && AcademicDate(startAt.Value) > mDue)
             {
                 throw new ConflictException(
-                    $"Task start date ({startAt.Value:yyyy-MM-dd}) cannot be later than milestone due date ({mDue:yyyy-MM-dd}).",
+                    $"Ngày bắt đầu công việc ({AcademicDate(startAt.Value):dd/MM/yyyy}) không được muộn hơn hạn của mốc ({mDue:dd/MM/yyyy}).",
                     WorkflowErrorCodes.TaskOutsideMilestone);
             }
 
             if (dueAt.HasValue && AcademicDate(dueAt.Value) > mDue)
             {
                 throw new ConflictException(
-                    $"Task deadline ({dueAt.Value:yyyy-MM-dd}) cannot be later than milestone due date ({mDue:yyyy-MM-dd}).",
+                    $"Hạn hoàn thành công việc ({AcademicDate(dueAt.Value):dd/MM/yyyy}) không được muộn hơn hạn của mốc ({mDue:dd/MM/yyyy}).",
                     WorkflowErrorCodes.TaskOutsideMilestone);
             }
         }
@@ -169,20 +169,23 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
         {
             var window = await GetExecutionWindowAsync(projectId, ct)
                 ?? throw new ConflictException(
-                    "Project does not have an active execution window in its academic semester.",
+                    "Đồ án hiện chưa có đợt thực hiện đang mở trong học kỳ.",
                     WorkflowErrorCodes.ExecutionWindowRequired);
+
+            var winStart = AcademicDate(window.StartAt);
+            var winEnd = AcademicDate(window.EndAt);
 
             if (startAt.HasValue && (startAt.Value < window.StartAt || startAt.Value > window.EndAt))
             {
                 throw new ConflictException(
-                    $"Task start date ({startAt.Value:yyyy-MM-dd}) must fall within project execution window ({window.StartAt:yyyy-MM-dd} - {window.EndAt:yyyy-MM-dd}).",
+                    $"Ngày bắt đầu công việc ({AcademicDate(startAt.Value):dd/MM/yyyy}) phải nằm trong đợt thực hiện ({winStart:dd/MM/yyyy} – {winEnd:dd/MM/yyyy}).",
                     WorkflowErrorCodes.TaskOutsideExecutionWindow);
             }
 
             if (dueAt.HasValue && (dueAt.Value < window.StartAt || dueAt.Value > window.EndAt))
             {
                 throw new ConflictException(
-                    $"Task deadline ({dueAt.Value:yyyy-MM-dd}) must fall within project execution window ({window.StartAt:yyyy-MM-dd} - {window.EndAt:yyyy-MM-dd}).",
+                    $"Hạn hoàn thành công việc ({AcademicDate(dueAt.Value):dd/MM/yyyy}) phải nằm trong đợt thực hiện ({winStart:dd/MM/yyyy} – {winEnd:dd/MM/yyyy}).",
                     WorkflowErrorCodes.TaskOutsideExecutionWindow);
             }
         }
@@ -198,7 +201,8 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
         if (startDate.HasValue && dueDate.HasValue && dueDate.Value < startDate.Value)
         {
             throw new ConflictException(
-                "Milestone due date cannot be earlier than start date.");
+                "Hạn hoàn thành của mốc không được sớm hơn ngày bắt đầu.",
+                WorkflowErrorCodes.MilestoneOutsideExecutionWindow);
         }
 
         if (startDate.HasValue || dueDate.HasValue)
@@ -256,15 +260,15 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
             }
             if (invalid)
             {
-                var dueStr = t.DueAt.HasValue ? t.DueAt.Value.ToString("yyyy-MM-dd") : "none";
-                invalidTasks.Add($"#{t.Id} '{t.Title}' (due: {dueStr})");
+                var dueStr = t.DueAt.HasValue ? AcademicDate(t.DueAt.Value).ToString("dd/MM/yyyy") : "chưa đặt hạn";
+                invalidTasks.Add($"#{t.Id} “{t.Title}” (hạn: {dueStr})");
             }
         }
 
         if (invalidTasks.Count > 0)
         {
             throw new ConflictException(
-                $"Cannot update milestone dates because {invalidTasks.Count} existing task(s) would fall outside the new milestone date range: {string.Join(", ", invalidTasks.Take(5))}",
+                $"Không thể cập nhật ngày mốc vì có {invalidTasks.Count} công việc con nằm ngoài khoảng ngày mới: {string.Join(", ", invalidTasks.Take(5))}.",
                 WorkflowErrorCodes.ParentDateConflict);
         }
 
@@ -282,7 +286,7 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
                 if (newStartDate.Value < dep.DependsOnMilestone.DueDate.Value)
                 {
                     throw new ConflictException(
-                        $"Successor milestone start date ({newStartDate.Value:yyyy-MM-dd}) cannot be earlier than predecessor milestone '{dep.DependsOnMilestone.Title}' due date ({dep.DependsOnMilestone.DueDate.Value:yyyy-MM-dd}).",
+                        $"Ngày bắt đầu mốc ({newStartDate.Value:dd/MM/yyyy}) không được sớm hơn hạn của mốc tiền nhiệm “{dep.DependsOnMilestone.Title}” ({dep.DependsOnMilestone.DueDate.Value:dd/MM/yyyy}).",
                         WorkflowErrorCodes.MilestoneDependencyOrderViolation);
                 }
             }
@@ -302,7 +306,7 @@ internal sealed class ExecutionWindowService(AipmsDbContext context) : IExecutio
                 if (dep.Milestone.StartDate.Value < newDueDate.Value)
                 {
                     throw new ConflictException(
-                        $"Predecessor milestone due date ({newDueDate.Value:yyyy-MM-dd}) cannot be later than successor milestone '{dep.Milestone.Title}' start date ({dep.Milestone.StartDate.Value:yyyy-MM-dd}).",
+                        $"Hạn hoàn thành mốc ({newDueDate.Value:dd/MM/yyyy}) không được muộn hơn ngày bắt đầu của mốc kế tiếp “{dep.Milestone.Title}” ({dep.Milestone.StartDate.Value:dd/MM/yyyy}).",
                         WorkflowErrorCodes.MilestoneDependencyOrderViolation);
                 }
             }
