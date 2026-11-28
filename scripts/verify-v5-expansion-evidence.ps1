@@ -9,7 +9,7 @@ Set-StrictMode -Version Latest
 # These files are emitted only after the scenario's HTTP and database assertions pass.
 $required = [ordered]@{
     'expansion-working-agreement' = @{ versions = 2; acceptanceAuditExactlyOnce = $true; successorInheritsConsent = $false; migrationRerunPreservesHistory = $true }
-    'expansion-working-agreement-activation' = @{ incompleteStatusCode = 422; projectStatus = 'ACTIVE'; activeAssignments = 1; currentRosterConsentRequired = $true }
+    'expansion-working-agreement-activation' = @{ holdInSupervisorPending = $true; projectStatus = 'ACTIVE'; activeAssignments = 1; currentRosterConsentRequired = $true }
     'expansion-supervisor-recommendations' = @{ audit = $true; noAssignment = $true; staleCapacityDenied = $true; rankingBeforePaging = $true }
     'expansion-peer-lifecycle' = @{ submitted = 2; submissionAuditExactlyOnce = $true; officialScoreWrites = 0 }
     'expansion-result-revision-foundation' = @{ publicationViaApi = $true; correctionViaInternalStore = $true; auditRollbackVerified = $true; concurrentPublishWinners = 1; historyRedacted = $true }
